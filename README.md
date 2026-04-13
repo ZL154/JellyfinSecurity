@@ -122,7 +122,7 @@ Server-side two-factor authentication that enforces OTP verification at the API 
 2. Add:
 
 ```
-https://raw.githubusercontent.com/ZL154/Jellyfin2FA/main/manifest.json
+https://raw.githubusercontent.com/ZL154/JellyfinSecurity/main/manifest.json
 ```
 
 3. Save and refresh plugins
