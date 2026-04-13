@@ -8,22 +8,29 @@
     "category": "General",
     "versions": [
       {
-        "version": "1.0.2",
-        "changelog": "Fix admin config page not loading. Rewrote admin page to use Jellyfin plugin page format with proper ApiClient integration.",
+        "version": "1.0.3.0",
+        "changelog": "Fix config page not loading (div ID now matches page name), proper assembly versioning so installed plugin shows correct version.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.3/Jellyfin.Plugin.TwoFactorAuthv1.0.3.zip",
+        "checksum": "B99402E17F6FDA70A1674684A6B9AEF7"
+      },
+      {
+        "version": "1.0.2.0",
+        "changelog": "Fix admin config page format.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.2/Jellyfin.Plugin.TwoFactorAuthv1.0.2.zip",
         "checksum": "7120A9DCD0FB12AF5CD8F05D410FDB54"
       },
       {
-        "version": "1.0.1",
-        "changelog": "Fix startup crash. Removed IAuthenticationProvider registration that conflicted with Jellyfin auth pipeline.",
+        "version": "1.0.1.0",
+        "changelog": "Fix startup crash.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.1/Jellyfin.Plugin.TwoFactorAuthv1.0.1.zip",
         "checksum": "42CA3308508005BC14D9585CA86C1C25"
       },
       {
-        "version": "1.0.0",
-        "changelog": "Initial release with TOTP, email OTP, trusted devices, TV pairing, LAN bypass, API keys, brute force protection, notifications, and admin dashboard.",
+        "version": "1.0.0.0",
+        "changelog": "Initial release.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.0/Jellyfin.Plugin.TwoFactorAuthv1.0.0.zip",
         "checksum": "0094C70D43BC370226CE990CFC81F6BE"
