@@ -28,12 +28,17 @@ Native two-factor authentication plugin for Jellyfin 10.11.x. Enforces 2FA serve
 
 ## Installation
 
-### Prerequisites
+### From Jellyfin (Recommended)
 
-- Jellyfin 10.11.x
-- .NET 9 SDK (for building from source)
+1. Go to **Dashboard → Plugins → Repositories**
+2. Add: `https://raw.githubusercontent.com/ZL154/Jellyfin2FA/main/manifest.json`
+3. Save and refresh plugins
+4. Find **"Two-Factor Authentication"** in the plugin catalogue and install
+5. Restart Jellyfin
 
-### Build & Install
+### Build from Source
+
+**Prerequisites:** Jellyfin 10.11.x, .NET 9 SDK
 
 **Windows (PowerShell):**
 
