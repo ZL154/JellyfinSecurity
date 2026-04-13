@@ -9,10 +9,17 @@
     "versions": [
       {
         "version": "1.0.1",
+        "changelog": "Fix startup crash. Removed IAuthenticationProvider registration that conflicted with Jellyfin auth pipeline. Switched NotificationService to static HttpClient.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.1/Jellyfin.Plugin.TwoFactorAuthv1.0.1.zip",
+        "checksum": "42CA3308508005BC14D9585CA86C1C25"
+      },
+      {
+        "version": "1.0.0",
         "changelog": "Initial release with TOTP, email OTP, trusted devices, TV pairing, LAN bypass, API keys, brute force protection, notifications, and admin dashboard.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.0/Jellyfin.Plugin.TwoFactorAuthv1.0.1.zip",
-        "checksum": "42CA3308508005BC14D9585CA86C1C25"
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.0/Jellyfin.Plugin.TwoFactorAuthv1.0.0.zip",
+        "checksum": "0094C70D43BC370226CE990CFC81F6BE"
       }
     ]
   }
