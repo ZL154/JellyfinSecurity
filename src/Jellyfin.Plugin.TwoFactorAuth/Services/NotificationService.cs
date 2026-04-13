@@ -7,12 +7,11 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
 public class NotificationService
 {
-    private readonly IHttpClientFactory _httpClientFactory;
+    private static readonly HttpClient _httpClient = new();
     private readonly ILogger<NotificationService> _logger;
 
-    public NotificationService(IHttpClientFactory httpClientFactory, ILogger<NotificationService> logger)
+    public NotificationService(ILogger<NotificationService> logger)
     {
-        _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
@@ -48,54 +47,45 @@ public class NotificationService
 
     private async Task SendToAllBackendsAsync(string title, string message)
     {
-        var config = Plugin.Instance!.Configuration;
+        var config = Plugin.Instance?.Configuration;
+        if (config is null)
+        {
+            return;
+        }
 
-        // Ntfy
         if (!string.IsNullOrWhiteSpace(config.NtfyUrl) && !string.IsNullOrWhiteSpace(config.NtfyTopic))
         {
             try
             {
-                var client = _httpClientFactory.CreateClient("TwoFactorAuth");
                 using var request = new HttpRequestMessage(HttpMethod.Post, config.NtfyUrl);
                 request.Headers.TryAddWithoutValidation("X-Title", title);
                 request.Headers.TryAddWithoutValidation("X-Topic", config.NtfyTopic);
                 request.Content = new StringContent(message, Encoding.UTF8, "text/plain");
-                using var response = await client.SendAsync(request).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
-                _logger.LogDebug("Ntfy notification sent: {Title}", title);
+                using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to send Ntfy notification for '{Title}'", title);
+                _logger.LogError(ex, "Failed to send Ntfy notification");
             }
         }
 
-        // Gotify
         if (!string.IsNullOrWhiteSpace(config.GotifyUrl) && !string.IsNullOrWhiteSpace(config.GotifyAppToken))
         {
             try
             {
-                var client = _httpClientFactory.CreateClient("TwoFactorAuth");
                 var url = $"{config.GotifyUrl.TrimEnd('/')}/message?token={config.GotifyAppToken}";
                 var payload = new { title, message, priority = 5 };
-                using var response = await client.PostAsJsonAsync(url, payload).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
-                _logger.LogDebug("Gotify notification sent: {Title}", title);
+                using var response = await _httpClient.PostAsJsonAsync(url, payload).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to send Gotify notification for '{Title}'", title);
+                _logger.LogError(ex, "Failed to send Gotify notification");
             }
         }
 
-        // Email
         if (config.NotifyEmailAddresses.Length > 0)
         {
-            _logger.LogInformation(
-                "Email notification would be sent to {Count} address(es) for '{Title}': {Message}",
-                config.NotifyEmailAddresses.Length,
-                title,
-                message);
+            _logger.LogInformation("Email notification for '{Title}': {Message}", title, message);
         }
     }
 }
