@@ -1,1178 +1,381 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Two-Factor Authentication — Admin</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  body {
-    background: #101010;
-    color: #e0e0e0;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    padding: 24px 16px 56px;
-    min-height: 100vh;
-  }
-
-  .page-header {
-    margin-bottom: 24px;
-  }
-
-  .page-header h1 { font-size: 22px; font-weight: 700; color: #e0e0e0; }
-  .page-header p { font-size: 13px; color: #888; margin-top: 4px; }
-
-  /* Tab nav */
-  .tab-nav {
-    display: flex;
-    gap: 0;
-    border-bottom: 2px solid #333;
-    margin-bottom: 24px;
-    flex-wrap: wrap;
-  }
-
-  .tab-btn {
-    padding: 10px 20px;
-    background: none;
-    border: none;
-    color: #888;
-    font-size: 13px;
-    font-weight: 600;
-    font-family: inherit;
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -2px;
-    transition: color 0.15s, border-color 0.15s;
-    white-space: nowrap;
-  }
-
-  .tab-btn:hover { color: #e0e0e0; }
-  .tab-btn.active { color: #00a4dc; border-bottom-color: #00a4dc; }
-
-  .tab-panel { display: none; }
-  .tab-panel.active { display: block; }
-
-  /* Cards */
-  .card {
-    background: #1a1a1a;
-    border: 1px solid #333;
-    border-radius: 8px;
-    padding: 24px;
-    margin-bottom: 20px;
-  }
-
-  .card-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: #e0e0e0;
-    margin-bottom: 16px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  /* Buttons */
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
-    border: none;
-    border-radius: 4px;
-    font-size: 13px;
-    font-weight: 600;
-    font-family: inherit;
-    cursor: pointer;
-    transition: background 0.15s, opacity 0.15s;
-  }
-
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-primary { background: #00a4dc; color: #fff; }
-  .btn-primary:hover:not(:disabled) { background: #0087b3; }
-  .btn-success { background: rgba(76,175,80,0.15); color: #4caf50; border: 1px solid rgba(76,175,80,0.3); }
-  .btn-success:hover:not(:disabled) { background: rgba(76,175,80,0.25); }
-  .btn-danger { background: rgba(244,67,54,0.15); color: #f44336; border: 1px solid rgba(244,67,54,0.3); }
-  .btn-danger:hover:not(:disabled) { background: rgba(244,67,54,0.25); }
-  .btn-ghost { background: #252525; color: #e0e0e0; border: 1px solid #444; }
-  .btn-ghost:hover:not(:disabled) { background: #2e2e2e; }
-  .btn-warning { background: rgba(255,152,0,0.15); color: #ff9800; border: 1px solid rgba(255,152,0,0.3); }
-  .btn-warning:hover:not(:disabled) { background: rgba(255,152,0,0.25); }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
-
-  /* Tables */
-  .table-wrap { overflow-x: auto; }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-
-  thead th {
-    text-align: left;
-    padding: 8px 12px;
-    color: #888;
-    font-weight: 600;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid #333;
-    white-space: nowrap;
-  }
-
-  tbody td {
-    padding: 9px 12px;
-    border-bottom: 1px solid #2a2a2a;
-    vertical-align: middle;
-  }
-
-  tbody tr:last-child td { border-bottom: none; }
-  tbody tr:hover td { background: rgba(255,255,255,0.02); }
-  .empty-row td { text-align: center; color: #666; padding: 24px; font-style: italic; }
-
-  /* Badges */
-  .badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 100px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    white-space: nowrap;
-  }
-
-  .badge-success { background: rgba(76,175,80,0.15); color: #4caf50; border: 1px solid rgba(76,175,80,0.3); }
-  .badge-warning { background: rgba(255,152,0,0.15); color: #ff9800; border: 1px solid rgba(255,152,0,0.3); }
-  .badge-danger { background: rgba(244,67,54,0.15); color: #f44336; border: 1px solid rgba(244,67,54,0.3); }
-  .badge-info { background: rgba(0,164,220,0.15); color: #00a4dc; border: 1px solid rgba(0,164,220,0.3); }
-  .badge-neutral { background: rgba(255,255,255,0.06); color: #aaa; border: 1px solid #444; }
-
-  /* Forms */
-  .form-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 16px;
-    margin-bottom: 20px;
-  }
-
-  .form-group { display: flex; flex-direction: column; gap: 5px; }
-  .form-group.full-width { grid-column: 1 / -1; }
-
-  .form-group label {
-    font-size: 12px;
-    color: #888;
-    font-weight: 600;
-  }
-
-  input[type="text"],
-  input[type="number"],
-  input[type="url"],
-  input[type="password"],
-  textarea {
-    padding: 9px 12px;
-    background: #252525;
-    border: 1px solid #444;
-    border-radius: 4px;
-    color: #fff;
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-    transition: border-color 0.15s;
-    width: 100%;
-  }
-
-  input[type="text"]:focus,
-  input[type="number"]:focus,
-  input[type="url"]:focus,
-  input[type="password"]:focus,
-  textarea:focus { border-color: #00a4dc; }
-
-  textarea { resize: vertical; min-height: 80px; }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 0;
-  }
-
-  .checkbox-row input[type="checkbox"] {
-    width: 15px;
-    height: 15px;
-    accent-color: #00a4dc;
-    cursor: pointer;
-  }
-
-  .checkbox-row label { font-size: 13px; color: #e0e0e0; cursor: pointer; font-weight: normal; }
-
-  /* Alerts */
-  .alert {
-    padding: 10px 14px;
-    border-radius: 4px;
-    font-size: 13px;
-    margin-bottom: 14px;
-    display: none;
-  }
-
-  .alert-error { background: rgba(244,67,54,0.12); border: 1px solid rgba(244,67,54,0.4); color: #f44336; }
-  .alert-success { background: rgba(76,175,80,0.12); border: 1px solid rgba(76,175,80,0.4); color: #4caf50; }
-  .alert-info { background: rgba(0,164,220,0.12); border: 1px solid rgba(0,164,220,0.4); color: #00a4dc; }
-
-  /* Chips */
-  .chip {
-    display: inline-block;
-    padding: 2px 8px;
-    background: #252525;
-    border: 1px solid #444;
-    border-radius: 100px;
-    font-size: 11px;
-    color: #aaa;
-    font-family: 'Courier New', monospace;
-  }
-
-  /* API key reveal */
-  .key-reveal {
-    background: #0d2a1f;
-    border: 1px solid rgba(76,175,80,0.4);
-    border-radius: 4px;
-    padding: 10px 14px;
-    font-family: 'Courier New', monospace;
-    font-size: 13px;
-    color: #4caf50;
-    word-break: break-all;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 10px;
-    display: none;
-  }
-
-  .key-reveal span { flex: 1; }
-
-  /* Toolbar */
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 14px;
-    flex-wrap: wrap;
-  }
-
-  .search-input {
-    flex: 1;
-    min-width: 180px;
-    padding: 7px 12px;
-    background: #252525;
-    border: 1px solid #444;
-    border-radius: 4px;
-    color: #fff;
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .search-input:focus { border-color: #00a4dc; }
-
-  .auto-refresh-indicator {
-    font-size: 11px;
-    color: #666;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-
-  .pulse {
-    width: 7px;
-    height: 7px;
-    background: #4caf50;
-    border-radius: 50%;
-    animation: pulse 2s ease-in-out infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
-  }
-
-  .spinner-inline {
-    display: inline-block;
-    width: 13px;
-    height: 13px;
-    border: 2px solid rgba(255,255,255,0.3);
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    vertical-align: middle;
-    margin-right: 4px;
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .loading-overlay { text-align: center; color: #666; padding: 20px; font-size: 13px; }
-
-  .section-divider {
-    border: none;
-    border-top: 1px solid #333;
-    margin: 20px 0;
-  }
-
-  .copy-btn {
-    background: none;
-    border: 1px solid rgba(76,175,80,0.4);
-    color: #4caf50;
-    cursor: pointer;
-    font-size: 12px;
-    font-family: inherit;
-    padding: 3px 8px;
-    border-radius: 3px;
-    white-space: nowrap;
-  }
-
-  .copy-btn:hover { background: rgba(76,175,80,0.1); }
-
-  .masked-key {
-    font-family: 'Courier New', monospace;
-    font-size: 12px;
-    color: #aaa;
-  }
-</style>
+    <title>Two-Factor Authentication</title>
+    <style>
+        .tfa-container { max-width: 900px; margin: 0 auto; }
+        .tfa-section { background: rgba(0,0,0,0.2); border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.08); }
+        .tfa-section h2 { font-size: 18px; margin-bottom: 16px; color: #00a4dc; }
+        .tfa-section h3 { font-size: 15px; margin: 16px 0 10px; color: #ccc; }
+        .tfa-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .tfa-row:last-child { border-bottom: none; }
+        .tfa-row label { flex: 1; font-size: 14px; }
+        .tfa-row .fieldDescription { font-size: 12px; color: #888; margin-top: 2px; }
+        .tfa-input { background: #1a1a1a; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; font-size: 14px; }
+        .tfa-input:focus { border-color: #00a4dc; outline: none; }
+        textarea.tfa-input { width: 100%; min-height: 80px; resize: vertical; font-family: monospace; font-size: 12px; }
+        .tfa-tabs { display: flex; gap: 0; border-bottom: 2px solid #333; margin-bottom: 20px; flex-wrap: wrap; }
+        .tfa-tab { padding: 10px 18px; cursor: pointer; color: #888; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s; }
+        .tfa-tab:hover { color: #ccc; }
+        .tfa-tab.active { color: #00a4dc; border-bottom-color: #00a4dc; }
+        .tfa-panel { display: none; }
+        .tfa-panel.active { display: block; }
+        .tfa-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .tfa-table th { text-align: left; padding: 8px 10px; color: #888; border-bottom: 1px solid #333; font-weight: 600; }
+        .tfa-table td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .tfa-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .tfa-badge.on { background: rgba(76,175,80,0.2); color: #4caf50; }
+        .tfa-badge.off { background: rgba(255,255,255,0.08); color: #888; }
+        .tfa-badge.locked { background: rgba(244,67,54,0.2); color: #f44336; }
+        .tfa-btn { padding: 6px 14px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; }
+        .tfa-btn-primary { background: #00a4dc; color: #fff; }
+        .tfa-btn-primary:hover { background: #0087b3; }
+        .tfa-btn-danger { background: rgba(244,67,54,0.15); color: #f44336; border: 1px solid rgba(244,67,54,0.3); }
+        .tfa-btn-danger:hover { background: rgba(244,67,54,0.25); }
+        .tfa-btn-success { background: rgba(76,175,80,0.15); color: #4caf50; border: 1px solid rgba(76,175,80,0.3); }
+        .tfa-btn-success:hover { background: rgba(76,175,80,0.25); }
+        .tfa-empty { text-align: center; padding: 40px; color: #666; font-size: 14px; }
+        .tfa-key-reveal { background: #1a1a1a; border: 1px solid #00a4dc; border-radius: 4px; padding: 10px; margin-top: 8px; font-family: monospace; word-break: break-all; }
+        .tfa-filter { width: 100%; padding: 8px 12px; margin-bottom: 12px; }
+        .tfa-status-bar { display: flex; gap: 16px; margin-bottom: 16px; font-size: 13px; color: #888; }
+        #newKeyResult { display: none; margin-top: 12px; }
+    </style>
 </head>
 <body>
+    <div id="TwoFactorAuthAdmin" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-checkbox,emby-input,emby-select">
+        <div data-role="content">
+            <div class="content-primary">
+                <div class="tfa-container">
+                    <div class="tfa-tabs">
+                        <div class="tfa-tab active" data-tab="users">Users</div>
+                        <div class="tfa-tab" data-tab="pairings">Pairings</div>
+                        <div class="tfa-tab" data-tab="apikeys">API Keys</div>
+                        <div class="tfa-tab" data-tab="audit">Audit Log</div>
+                        <div class="tfa-tab" data-tab="settings">Settings</div>
+                    </div>
 
-<div class="page-header">
-  <h1>Two-Factor Authentication — Admin</h1>
-  <p>Manage 2FA settings, users, devices, and audit logs</p>
-</div>
+                    <!-- Users -->
+                    <div class="tfa-panel active" id="panel-users">
+                        <div class="tfa-section">
+                            <h2>User 2FA Status</h2>
+                            <table class="tfa-table">
+                                <thead><tr><th>User</th><th>TOTP</th><th>Devices</th><th>Status</th><th>Actions</th></tr></thead>
+                                <tbody id="usersBody"><tr><td colspan="5" class="tfa-empty">Loading...</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
 
-<div class="tab-nav">
-  <button class="tab-btn active" onclick="switchTab('pairings')">Pairings</button>
-  <button class="tab-btn" onclick="switchTab('users')">Users</button>
-  <button class="tab-btn" onclick="switchTab('devices')">Devices</button>
-  <button class="tab-btn" onclick="switchTab('audit')">Audit Log</button>
-  <button class="tab-btn" onclick="switchTab('apikeys')">API Keys</button>
-  <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
-</div>
+                    <!-- Pairings -->
+                    <div class="tfa-panel" id="panel-pairings">
+                        <div class="tfa-section">
+                            <h2>Pending TV Pairing Requests</h2>
+                            <table class="tfa-table">
+                                <thead><tr><th>User</th><th>Device</th><th>Code</th><th>Expires</th><th>Actions</th></tr></thead>
+                                <tbody id="pairingsBody"><tr><td colspan="5" class="tfa-empty">No pending pairings</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
 
-<!-- Pairings Tab -->
-<div class="tab-panel active" id="tab-pairings">
-  <div class="card">
-    <div class="card-title">
-      Pending Pairing Requests
-      <div class="auto-refresh-indicator"><div class="pulse"></div> Auto-refreshing every 10s</div>
+                    <!-- API Keys -->
+                    <div class="tfa-panel" id="panel-apikeys">
+                        <div class="tfa-section">
+                            <h2>API Keys</h2>
+                            <p style="font-size:13px;color:#888;margin-bottom:16px;">Static API keys for service integrations (Sonarr, Radarr, etc.) that bypass 2FA.</p>
+                            <div style="display:flex;gap:8px;margin-bottom:16px;">
+                                <input type="text" id="newKeyLabel" placeholder="Key label (e.g. Sonarr)" class="tfa-input" style="flex:1;" />
+                                <button type="button" class="tfa-btn tfa-btn-primary" onclick="generateApiKey()">Generate Key</button>
+                            </div>
+                            <div id="newKeyResult" class="tfa-key-reveal"></div>
+                            <table class="tfa-table">
+                                <thead><tr><th>Label</th><th>Key</th><th>Created</th><th>Actions</th></tr></thead>
+                                <tbody id="apiKeysBody"><tr><td colspan="4" class="tfa-empty">Loading...</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Audit Log -->
+                    <div class="tfa-panel" id="panel-audit">
+                        <div class="tfa-section">
+                            <h2>Login Audit Log</h2>
+                            <input type="text" id="auditFilter" placeholder="Filter by user, IP, device..." class="tfa-input tfa-filter" oninput="filterAudit()" />
+                            <table class="tfa-table">
+                                <thead><tr><th>Time</th><th>User</th><th>IP</th><th>Device</th><th>Result</th><th>Method</th></tr></thead>
+                                <tbody id="auditBody"><tr><td colspan="6" class="tfa-empty">Loading...</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Settings -->
+                    <div class="tfa-panel" id="panel-settings">
+                        <div class="tfa-section">
+                            <h2>General</h2>
+                            <div class="tfa-row">
+                                <label>
+                                    <input type="checkbox" id="cfgEnabled" is="emby-checkbox" />
+                                    <span>Plugin Enabled</span>
+                                </label>
+                            </div>
+                            <div class="tfa-row">
+                                <label>
+                                    <input type="checkbox" id="cfgRequireAll" is="emby-checkbox" />
+                                    <span>Require 2FA for all users</span>
+                                </label>
+                            </div>
+                            <div class="tfa-row">
+                                <label>
+                                    <input type="checkbox" id="cfgEmailOtp" is="emby-checkbox" />
+                                    <span>Enable email OTP as fallback</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="tfa-section">
+                            <h2>LAN Bypass</h2>
+                            <div class="tfa-row">
+                                <label>
+                                    <input type="checkbox" id="cfgLanBypass" is="emby-checkbox" />
+                                    <span>Enable LAN bypass</span>
+                                </label>
+                            </div>
+                            <div style="margin-top:12px;">
+                                <label style="font-size:13px;color:#888;">LAN CIDR Ranges (one per line)</label>
+                                <textarea id="cfgLanCidrs" class="tfa-input"></textarea>
+                            </div>
+                            <div class="tfa-row" style="margin-top:12px;">
+                                <label>
+                                    <input type="checkbox" id="cfgTrustFwd" is="emby-checkbox" />
+                                    <span>Trust X-Forwarded-For header</span>
+                                </label>
+                            </div>
+                            <div style="margin-top:12px;">
+                                <label style="font-size:13px;color:#888;">Trusted Proxy CIDRs (one per line)</label>
+                                <textarea id="cfgProxyCidrs" class="tfa-input"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="tfa-section">
+                            <h2>Security</h2>
+                            <div class="tfa-row">
+                                <label>Max failed attempts before lockout</label>
+                                <input type="number" id="cfgMaxFail" class="tfa-input" style="width:80px;" min="1" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Lockout duration (minutes)</label>
+                                <input type="number" id="cfgLockoutMin" class="tfa-input" style="width:80px;" min="1" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Audit log max entries</label>
+                                <input type="number" id="cfgAuditMax" class="tfa-input" style="width:80px;" min="100" />
+                            </div>
+                        </div>
+
+                        <div class="tfa-section">
+                            <h2>Notifications</h2>
+                            <div class="tfa-row">
+                                <label>ntfy URL</label>
+                                <input type="text" id="cfgNtfyUrl" class="tfa-input" style="width:300px;" placeholder="https://ntfy.sh" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>ntfy Topic</label>
+                                <input type="text" id="cfgNtfyTopic" class="tfa-input" style="width:200px;" placeholder="jellyfin-2fa" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Gotify URL</label>
+                                <input type="text" id="cfgGotifyUrl" class="tfa-input" style="width:300px;" placeholder="https://gotify.example.com" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Gotify App Token</label>
+                                <input type="text" id="cfgGotifyToken" class="tfa-input" style="width:200px;" />
+                            </div>
+                            <div style="margin-top:12px;">
+                                <label style="font-size:13px;color:#888;">Admin email addresses (one per line)</label>
+                                <textarea id="cfgEmails" class="tfa-input"></textarea>
+                            </div>
+                        </div>
+
+                        <button type="button" class="tfa-btn tfa-btn-primary" style="margin-top:8px;padding:10px 32px;font-size:15px;" onclick="saveSettings()">Save Settings</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-    <div class="alert alert-error" id="pairingsError"></div>
-    <div id="pairingsLoading" class="loading-overlay">Loading...</div>
-    <div class="table-wrap" id="pairingsTableWrap" style="display:none;">
-      <table>
-        <thead>
-          <tr>
-            <th>User</th>
-            <th>Device</th>
-            <th>Code</th>
-            <th>Expires</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="pairingsBody">
-          <tr class="empty-row"><td colspan="5">No pending pairing requests.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
 
-<!-- Users Tab -->
-<div class="tab-panel" id="tab-users">
-  <div class="card">
-    <div class="card-title">Users</div>
-    <div class="alert alert-error" id="usersError"></div>
-    <div id="usersLoading" class="loading-overlay">Loading...</div>
-    <div class="table-wrap" id="usersTableWrap" style="display:none;">
-      <table>
-        <thead>
-          <tr>
-            <th>Username</th>
-            <th>TOTP</th>
-            <th>Email OTP</th>
-            <th>Trusted Devices</th>
-            <th>Locked Out</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="usersBody">
-          <tr class="empty-row"><td colspan="6">No users found.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
+    <script type="text/javascript">
+        var pluginId = '94879a0c-da24-4eb1-aa06-f28b4b9333b1';
 
-<!-- Devices Tab -->
-<div class="tab-panel" id="tab-devices">
-  <div class="card">
-    <div class="card-title">All Trusted Devices</div>
-    <div class="alert alert-error" id="allDevicesError"></div>
-    <div id="allDevicesLoading" class="loading-overlay">Loading...</div>
-    <div class="table-wrap" id="allDevicesTableWrap" style="display:none;">
-      <table>
-        <thead>
-          <tr>
-            <th>User</th>
-            <th>Device Name</th>
-            <th>Device ID</th>
-            <th>Added</th>
-            <th>Last Used</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="allDevicesBody">
-          <tr class="empty-row"><td colspan="6">No trusted devices.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- Audit Log Tab -->
-<div class="tab-panel" id="tab-audit">
-  <div class="card">
-    <div class="card-title">Audit Log</div>
-    <div class="toolbar">
-      <input class="search-input" id="auditSearch" type="text" placeholder="Filter by user, IP, result..." oninput="filterAuditLog()">
-      <button class="btn btn-ghost" onclick="loadAuditLog()">Refresh</button>
-    </div>
-    <div class="alert alert-error" id="auditError"></div>
-    <div id="auditLoading" class="loading-overlay">Loading...</div>
-    <div class="table-wrap" id="auditTableWrap" style="display:none;">
-      <table>
-        <thead>
-          <tr>
-            <th>Timestamp</th>
-            <th>User</th>
-            <th>IP</th>
-            <th>Device</th>
-            <th>Result</th>
-            <th>Method</th>
-            <th>Details</th>
-          </tr>
-        </thead>
-        <tbody id="auditBody">
-          <tr class="empty-row"><td colspan="7">No audit entries found.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- API Keys Tab -->
-<div class="tab-panel" id="tab-apikeys">
-  <div class="card">
-    <div class="card-title">API Keys</div>
-    <div class="alert alert-error" id="apiKeysError"></div>
-    <div class="alert alert-success" id="apiKeysSuccess"></div>
-    <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
-      <input type="text" id="newKeyLabel" placeholder="Key label (e.g., Home Assistant)" style="flex:1;min-width:180px;">
-      <button class="btn btn-primary" onclick="generateApiKey()">Generate New Key</button>
-    </div>
-    <div class="key-reveal" id="keyReveal">
-      <span id="keyRevealText"></span>
-      <button class="copy-btn" onclick="copyNewKey()">Copy</button>
-    </div>
-    <hr class="section-divider">
-    <div id="apiKeysLoading" class="loading-overlay">Loading...</div>
-    <div class="table-wrap" id="apiKeysTableWrap" style="display:none;">
-      <table>
-        <thead>
-          <tr>
-            <th>Label</th>
-            <th>Key</th>
-            <th>Created</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="apiKeysBody">
-          <tr class="empty-row"><td colspan="4">No API keys found.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- Settings Tab -->
-<div class="tab-panel" id="tab-settings">
-  <div class="card">
-    <div class="card-title">Plugin Settings</div>
-    <div class="alert alert-error" id="settingsError"></div>
-    <div class="alert alert-success" id="settingsSuccess"></div>
-    <div id="settingsLoading" class="loading-overlay">Loading settings...</div>
-    <div id="settingsForm" style="display:none;">
-
-      <p style="font-size:13px;font-weight:600;color:#aaa;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px;">General</p>
-      <div class="form-grid" style="margin-bottom:20px;">
-        <div class="form-group">
-          <div class="checkbox-row">
-            <input type="checkbox" id="cfg_Enabled">
-            <label for="cfg_Enabled">Enable Two-Factor Authentication</label>
-          </div>
-        </div>
-        <div class="form-group">
-          <div class="checkbox-row">
-            <input type="checkbox" id="cfg_RequireForAllUsers">
-            <label for="cfg_RequireForAllUsers">Require 2FA for all users</label>
-          </div>
-        </div>
-      </div>
-
-      <hr class="section-divider">
-      <p style="font-size:13px;font-weight:600;color:#aaa;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px;">LAN Bypass</p>
-      <div class="form-grid" style="margin-bottom:20px;">
-        <div class="form-group">
-          <div class="checkbox-row">
-            <input type="checkbox" id="cfg_LanBypassEnabled">
-            <label for="cfg_LanBypassEnabled">Enable LAN bypass</label>
-          </div>
-        </div>
-        <div class="form-group">
-          <div class="checkbox-row">
-            <input type="checkbox" id="cfg_TrustForwardedFor">
-            <label for="cfg_TrustForwardedFor">Trust X-Forwarded-For header</label>
-          </div>
-        </div>
-        <div class="form-group full-width">
-          <label>LAN Bypass CIDRs (one per line)</label>
-          <textarea id="cfg_LanBypassCidrs" placeholder="192.168.0.0/16&#10;10.0.0.0/8&#10;172.16.0.0/12"></textarea>
-        </div>
-        <div class="form-group full-width">
-          <label>Trusted Proxy CIDRs (one per line)</label>
-          <textarea id="cfg_TrustedProxyCidrs" placeholder="127.0.0.1/32&#10;10.0.0.1/32"></textarea>
-        </div>
-      </div>
-
-      <hr class="section-divider">
-      <p style="font-size:13px;font-weight:600;color:#aaa;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px;">Authentication</p>
-      <div class="form-grid" style="margin-bottom:20px;">
-        <div class="form-group">
-          <div class="checkbox-row">
-            <input type="checkbox" id="cfg_EmailOtpEnabled">
-            <label for="cfg_EmailOtpEnabled">Enable Email OTP fallback</label>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Max Failed Attempts</label>
-          <input type="number" id="cfg_MaxFailedAttempts" min="1" max="100">
-        </div>
-        <div class="form-group">
-          <label>Lockout Duration (minutes)</label>
-          <input type="number" id="cfg_LockoutDurationMinutes" min="1" max="10080">
-        </div>
-        <div class="form-group">
-          <label>Audit Log Max Entries</label>
-          <input type="number" id="cfg_AuditLogMaxEntries" min="100" max="100000">
-        </div>
-      </div>
-
-      <hr class="section-divider">
-      <p style="font-size:13px;font-weight:600;color:#aaa;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px;">Notifications</p>
-      <div class="form-grid" style="margin-bottom:20px;">
-        <div class="form-group">
-          <label>Ntfy URL</label>
-          <input type="url" id="cfg_NtfyUrl" placeholder="https://ntfy.sh">
-        </div>
-        <div class="form-group">
-          <label>Ntfy Topic</label>
-          <input type="text" id="cfg_NtfyTopic" placeholder="jellyfin-2fa">
-        </div>
-        <div class="form-group">
-          <label>Gotify URL</label>
-          <input type="url" id="cfg_GotifyUrl" placeholder="https://gotify.example.com">
-        </div>
-        <div class="form-group">
-          <label>Gotify App Token</label>
-          <input type="password" id="cfg_GotifyAppToken" placeholder="••••••••">
-        </div>
-        <div class="form-group full-width">
-          <label>Notify Email Addresses (one per line)</label>
-          <textarea id="cfg_NotifyEmailAddresses" placeholder="admin@example.com&#10;security@example.com"></textarea>
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10px;">
-        <button class="btn btn-primary" id="saveSettingsBtn" onclick="saveSettings()">Save Settings</button>
-        <button class="btn btn-ghost" onclick="loadSettings()">Reset</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script>
-  // ---- Auth ----
-
-  function getAuthHeaders() {
-    try {
-      const credentials = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}');
-      const token = credentials.Servers?.[0]?.AccessToken || '';
-      return {
-        'Content-Type': 'application/json',
-        'X-Emby-Token': token
-      };
-    } catch (e) {
-      return { 'Content-Type': 'application/json' };
-    }
-  }
-
-  function apiFetch(url, options = {}) {
-    return fetch(url, {
-      ...options,
-      headers: { ...getAuthHeaders(), ...(options.headers || {}) }
-    });
-  }
-
-  function escHtml(str) {
-    return String(str || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
-  function formatDate(str) {
-    if (!str) return '—';
-    try { return new Date(str).toLocaleString(); } catch (e) { return str; }
-  }
-
-  function showAlert(id, msg, type) {
-    const el = document.getElementById(id);
-    el.textContent = msg;
-    el.className = `alert alert-${type}`;
-    el.style.display = 'block';
-    if (type !== 'info') {
-      setTimeout(() => { el.style.display = 'none'; }, 6000);
-    }
-  }
-
-  function hideAlert(id) {
-    document.getElementById(id).style.display = 'none';
-  }
-
-  // ---- Tab switching ----
-
-  const tabLoadHandlers = {
-    pairings: loadPairings,
-    users: loadUsers,
-    devices: loadAllDevices,
-    audit: loadAuditLog,
-    apikeys: loadApiKeys,
-    settings: loadSettings
-  };
-
-  const loadedTabs = new Set();
-
-  function switchTab(name) {
-    document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-      const tabs = ['pairings', 'users', 'devices', 'audit', 'apikeys', 'settings'];
-      btn.classList.toggle('active', tabs[i] === name);
-    });
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    document.getElementById(`tab-${name}`).classList.add('active');
-
-    if (!loadedTabs.has(name)) {
-      loadedTabs.add(name);
-      tabLoadHandlers[name]?.();
-    }
-  }
-
-  // ---- Pairings ----
-
-  let pairingsRefreshTimer = null;
-
-  async function loadPairings() {
-    document.getElementById('pairingsLoading').style.display = 'block';
-    document.getElementById('pairingsTableWrap').style.display = 'none';
-    try {
-      const res = await apiFetch('/TwoFactorAuth/Pairings');
-      if (!res.ok) throw new Error('Failed');
-      const data = await res.json();
-      renderPairings(Array.isArray(data) ? data : data.items || []);
-    } catch (e) {
-      showAlert('pairingsError', 'Failed to load pairings.', 'error');
-    } finally {
-      document.getElementById('pairingsLoading').style.display = 'none';
-      document.getElementById('pairingsTableWrap').style.display = 'block';
-    }
-  }
-
-  function renderPairings(items) {
-    const tbody = document.getElementById('pairingsBody');
-    if (!items.length) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No pending pairing requests.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = items.map(p => `
-      <tr id="pairing-row-${escHtml(p.code)}">
-        <td>${escHtml(p.userName || p.userId || '—')}</td>
-        <td>${escHtml(p.deviceName || p.device || '—')}</td>
-        <td><span class="chip" style="font-size:14px;letter-spacing:2px;color:#e0e0e0;">${escHtml(p.code)}</span></td>
-        <td>${formatDate(p.expiresAt || p.expires)}</td>
-        <td style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="btn btn-success btn-sm" onclick="approvePairing('${escHtml(p.code)}')">Approve</button>
-          <button class="btn btn-danger btn-sm" onclick="denyPairing('${escHtml(p.code)}')">Deny</button>
-        </td>
-      </tr>
-    `).join('');
-  }
-
-  async function approvePairing(code) {
-    try {
-      const res = await apiFetch(`/TwoFactorAuth/Pairings/${encodeURIComponent(code)}/Approve`, { method: 'POST' });
-      if (res.ok) {
-        const row = document.getElementById(`pairing-row-${code}`);
-        if (row) row.remove();
-        const tbody = document.getElementById('pairingsBody');
-        if (!tbody.querySelector('tr:not(.empty-row)')) {
-          tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No pending pairing requests.</td></tr>';
+        function getHeaders() {
+            var token = '';
+            try {
+                var creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}');
+                token = (creds.Servers && creds.Servers[0] && creds.Servers[0].AccessToken) || '';
+            } catch(e) {}
+            return { 'X-Emby-Token': token, 'Content-Type': 'application/json' };
         }
-      } else {
-        showAlert('pairingsError', 'Failed to approve pairing.', 'error');
-      }
-    } catch (e) {
-      showAlert('pairingsError', 'Network error.', 'error');
-    }
-  }
 
-  async function denyPairing(code) {
-    try {
-      const res = await apiFetch(`/TwoFactorAuth/Pairings/${encodeURIComponent(code)}/Deny`, { method: 'POST' });
-      if (res.ok) {
-        const row = document.getElementById(`pairing-row-${code}`);
-        if (row) row.remove();
-        const tbody = document.getElementById('pairingsBody');
-        if (!tbody.querySelector('tr:not(.empty-row)')) {
-          tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No pending pairing requests.</td></tr>';
+        function apiGet(path) {
+            return fetch(ApiClient.serverAddress() + '/' + path, { headers: getHeaders() }).then(function(r) { return r.ok ? r.json() : Promise.reject(r); });
         }
-      } else {
-        showAlert('pairingsError', 'Failed to deny pairing.', 'error');
-      }
-    } catch (e) {
-      showAlert('pairingsError', 'Network error.', 'error');
-    }
-  }
-
-  // Auto-refresh pairings every 10 seconds
-  function startPairingsAutoRefresh() {
-    pairingsRefreshTimer = setInterval(() => {
-      const panel = document.getElementById('tab-pairings');
-      if (panel.classList.contains('active')) loadPairings();
-    }, 10000);
-  }
-
-  // ---- Users ----
-
-  async function loadUsers() {
-    document.getElementById('usersLoading').style.display = 'block';
-    document.getElementById('usersTableWrap').style.display = 'none';
-    try {
-      const res = await apiFetch('/TwoFactorAuth/Users');
-      if (!res.ok) throw new Error('Failed');
-      const data = await res.json();
-      renderUsers(Array.isArray(data) ? data : data.items || []);
-    } catch (e) {
-      showAlert('usersError', 'Failed to load users.', 'error');
-    } finally {
-      document.getElementById('usersLoading').style.display = 'none';
-      document.getElementById('usersTableWrap').style.display = 'block';
-    }
-  }
-
-  function renderUsers(users) {
-    const tbody = document.getElementById('usersBody');
-    if (!users.length) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No users found.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = users.map(u => `
-      <tr>
-        <td>${escHtml(u.userName || u.name || '—')}</td>
-        <td>${u.totpEnabled ? '<span class="badge badge-success">Enabled</span>' : '<span class="badge badge-neutral">Off</span>'}</td>
-        <td>${u.emailOtpEnabled ? '<span class="badge badge-info">Enabled</span>' : '<span class="badge badge-neutral">Off</span>'}</td>
-        <td>${u.trustedDeviceCount ?? (u.trustedDevices?.length ?? 0)}</td>
-        <td>${u.isLockedOut ? '<span class="badge badge-danger">Locked</span>' : '<span class="badge badge-neutral">No</span>'}</td>
-        <td>
-          <button class="btn ${u.totpEnabled ? 'btn-warning' : 'btn-ghost'} btn-sm" onclick="toggleUser('${escHtml(u.id || u.userId)}', this)">
-            ${u.totpEnabled ? 'Disable 2FA' : 'Enable 2FA'}
-          </button>
-          ${u.isLockedOut ? `<button class="btn btn-success btn-sm" onclick="unlockUser('${escHtml(u.id || u.userId)}', this)" style="margin-left:6px;">Unlock</button>` : ''}
-        </td>
-      </tr>
-    `).join('');
-  }
-
-  async function toggleUser(id, btn) {
-    btn.disabled = true;
-    try {
-      const res = await apiFetch(`/TwoFactorAuth/Users/${encodeURIComponent(id)}/Toggle`, { method: 'POST' });
-      if (res.ok) {
-        loadedTabs.delete('users');
-        loadUsers();
-      } else {
-        showAlert('usersError', 'Failed to toggle user 2FA.', 'error');
-        btn.disabled = false;
-      }
-    } catch (e) {
-      showAlert('usersError', 'Network error.', 'error');
-      btn.disabled = false;
-    }
-  }
-
-  async function unlockUser(id, btn) {
-    btn.disabled = true;
-    try {
-      const res = await apiFetch(`/TwoFactorAuth/Users/${encodeURIComponent(id)}/Unlock`, { method: 'POST' });
-      if (res.ok) {
-        loadedTabs.delete('users');
-        loadUsers();
-      } else {
-        showAlert('usersError', 'Failed to unlock user.', 'error');
-        btn.disabled = false;
-      }
-    } catch (e) {
-      showAlert('usersError', 'Network error.', 'error');
-      btn.disabled = false;
-    }
-  }
-
-  // ---- All Devices ----
-
-  async function loadAllDevices() {
-    document.getElementById('allDevicesLoading').style.display = 'block';
-    document.getElementById('allDevicesTableWrap').style.display = 'none';
-    try {
-      const res = await apiFetch('/TwoFactorAuth/Users');
-      if (!res.ok) throw new Error('Failed');
-      const users = await res.json();
-      const userList = Array.isArray(users) ? users : users.items || [];
-      const allDevices = [];
-      for (const u of userList) {
-        const devices = u.trustedDevices || [];
-        devices.forEach(d => allDevices.push({ ...d, _userName: u.userName || u.name || u.id }));
-      }
-      renderAllDevices(allDevices);
-    } catch (e) {
-      showAlert('allDevicesError', 'Failed to load devices.', 'error');
-    } finally {
-      document.getElementById('allDevicesLoading').style.display = 'none';
-      document.getElementById('allDevicesTableWrap').style.display = 'block';
-    }
-  }
-
-  function renderAllDevices(devices) {
-    const tbody = document.getElementById('allDevicesBody');
-    if (!devices.length) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No trusted devices.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = devices.map(d => `
-      <tr>
-        <td>${escHtml(d._userName || '—')}</td>
-        <td>${escHtml(d.deviceName || d.name || '—')}</td>
-        <td><span class="chip">${escHtml(d.deviceId || d.id || '—')}</span></td>
-        <td>${formatDate(d.createdAt || d.added)}</td>
-        <td>${formatDate(d.lastUsedAt || d.lastUsed)}</td>
-        <td>
-          <button class="btn btn-danger btn-sm" onclick="revokeAnyDevice(${JSON.stringify(d.id || d.deviceId)})">Revoke</button>
-        </td>
-      </tr>
-    `).join('');
-  }
-
-  async function revokeAnyDevice(id) {
-    if (!confirm('Revoke this trusted device?')) return;
-    try {
-      const res = await apiFetch(`/TwoFactorAuth/Devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      if (res.ok) {
-        loadedTabs.delete('devices');
-        loadAllDevices();
-      } else {
-        showAlert('allDevicesError', 'Failed to revoke device.', 'error');
-      }
-    } catch (e) {
-      showAlert('allDevicesError', 'Network error.', 'error');
-    }
-  }
-
-  // ---- Audit Log ----
-
-  let auditLogData = [];
-
-  async function loadAuditLog() {
-    document.getElementById('auditLoading').style.display = 'block';
-    document.getElementById('auditTableWrap').style.display = 'none';
-    hideAlert('auditError');
-    try {
-      const res = await apiFetch('/TwoFactorAuth/AuditLog?limit=100');
-      if (!res.ok) throw new Error('Failed');
-      const data = await res.json();
-      auditLogData = Array.isArray(data) ? data : data.items || [];
-      filterAuditLog();
-    } catch (e) {
-      showAlert('auditError', 'Failed to load audit log.', 'error');
-    } finally {
-      document.getElementById('auditLoading').style.display = 'none';
-      document.getElementById('auditTableWrap').style.display = 'block';
-    }
-  }
-
-  function filterAuditLog() {
-    const q = document.getElementById('auditSearch').value.toLowerCase().trim();
-    const filtered = q
-      ? auditLogData.filter(e => {
-          return (e.userName || e.user || '').toLowerCase().includes(q)
-            || (e.ipAddress || e.ip || '').toLowerCase().includes(q)
-            || (e.result || '').toLowerCase().includes(q)
-            || (e.method || '').toLowerCase().includes(q)
-            || (e.details || '').toLowerCase().includes(q);
-        })
-      : auditLogData;
-    renderAuditLog(filtered);
-  }
-
-  function renderAuditLog(entries) {
-    const tbody = document.getElementById('auditBody');
-    if (!entries.length) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No audit entries found.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = entries.map(e => {
-      const resultClass = e.result === 'Success' ? 'badge-success'
-        : e.result === 'Failure' ? 'badge-danger'
-        : e.result === 'Locked' ? 'badge-warning'
-        : 'badge-neutral';
-      return `
-        <tr>
-          <td style="white-space:nowrap;">${formatDate(e.timestamp || e.createdAt)}</td>
-          <td>${escHtml(e.userName || e.user || '—')}</td>
-          <td><span class="chip">${escHtml(e.ipAddress || e.ip || '—')}</span></td>
-          <td>${escHtml(e.deviceName || e.device || '—')}</td>
-          <td><span class="badge ${resultClass}">${escHtml(e.result || '—')}</span></td>
-          <td>${escHtml(e.method || '—')}</td>
-          <td style="color:#888;font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(e.details || '')}">${escHtml(e.details || '—')}</td>
-        </tr>
-      `;
-    }).join('');
-  }
-
-  // ---- API Keys ----
-
-  let newlyCreatedKey = '';
-
-  async function loadApiKeys() {
-    document.getElementById('apiKeysLoading').style.display = 'block';
-    document.getElementById('apiKeysTableWrap').style.display = 'none';
-    try {
-      const res = await apiFetch('/TwoFactorAuth/ApiKeys');
-      if (!res.ok) throw new Error('Failed');
-      const data = await res.json();
-      renderApiKeys(Array.isArray(data) ? data : data.items || []);
-    } catch (e) {
-      showAlert('apiKeysError', 'Failed to load API keys.', 'error');
-    } finally {
-      document.getElementById('apiKeysLoading').style.display = 'none';
-      document.getElementById('apiKeysTableWrap').style.display = 'block';
-    }
-  }
-
-  function renderApiKeys(keys) {
-    const tbody = document.getElementById('apiKeysBody');
-    if (!keys.length) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No API keys found.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = keys.map(k => `
-      <tr>
-        <td>${escHtml(k.label || k.name || '—')}</td>
-        <td><span class="masked-key">${escHtml(maskKey(k.key || k.keyMasked || ''))}</span></td>
-        <td>${formatDate(k.createdAt || k.created)}</td>
-        <td>
-          <button class="btn btn-danger btn-sm" onclick="deleteApiKey('${escHtml(k.id)}')">Delete</button>
-        </td>
-      </tr>
-    `).join('');
-  }
-
-  function maskKey(key) {
-    if (!key) return '••••••••••••••••';
-    if (key.length <= 8) return '••••' + key.slice(-4);
-    return key.slice(0, 4) + '••••••••' + key.slice(-4);
-  }
-
-  async function generateApiKey() {
-    const label = document.getElementById('newKeyLabel').value.trim();
-    if (!label) {
-      showAlert('apiKeysError', 'Please enter a label for the API key.', 'error');
-      return;
-    }
-    hideAlert('apiKeysError');
-    document.getElementById('keyReveal').style.display = 'none';
-    try {
-      const res = await apiFetch('/TwoFactorAuth/ApiKeys', {
-        method: 'POST',
-        body: JSON.stringify({ label })
-      });
-      if (!res.ok) throw new Error('Failed');
-      const data = await res.json();
-      newlyCreatedKey = data.key || data.apiKey || '';
-      document.getElementById('newKeyLabel').value = '';
-      document.getElementById('keyRevealText').textContent = newlyCreatedKey;
-      document.getElementById('keyReveal').style.display = 'flex';
-      showAlert('apiKeysSuccess', 'API key created. Copy it now — it will not be shown again.', 'success');
-      loadedTabs.delete('apikeys');
-      setTimeout(() => {
-        loadedTabs.delete('apikeys');
-        loadApiKeys();
-      }, 500);
-    } catch (e) {
-      showAlert('apiKeysError', 'Failed to generate API key.', 'error');
-    }
-  }
-
-  async function deleteApiKey(id) {
-    if (!confirm('Delete this API key? Any integrations using it will stop working.')) return;
-    try {
-      const res = await apiFetch(`/TwoFactorAuth/ApiKeys/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      if (res.ok) {
-        loadedTabs.delete('apikeys');
-        loadApiKeys();
-      } else {
-        showAlert('apiKeysError', 'Failed to delete API key.', 'error');
-      }
-    } catch (e) {
-      showAlert('apiKeysError', 'Network error.', 'error');
-    }
-  }
-
-  function copyNewKey() {
-    navigator.clipboard.writeText(newlyCreatedKey).then(() => {
-      const btn = event.target;
-      btn.textContent = 'Copied!';
-      setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
-    }).catch(() => {
-      prompt('Copy this API key:', newlyCreatedKey);
-    });
-  }
-
-  // ---- Settings ----
-
-  async function loadSettings() {
-    document.getElementById('settingsLoading').style.display = 'block';
-    document.getElementById('settingsForm').style.display = 'none';
-    hideAlert('settingsError');
-    hideAlert('settingsSuccess');
-    try {
-      const res = await apiFetch('/System/Configuration/Jellyfin.Plugin.TwoFactorAuth');
-      if (!res.ok) throw new Error('Failed');
-      const cfg = await res.json();
-      applySettings(cfg);
-    } catch (e) {
-      showAlert('settingsError', 'Failed to load settings.', 'error');
-    } finally {
-      document.getElementById('settingsLoading').style.display = 'none';
-      document.getElementById('settingsForm').style.display = 'block';
-    }
-  }
-
-  function applySettings(cfg) {
-    const checkboxFields = ['Enabled', 'RequireForAllUsers', 'LanBypassEnabled', 'TrustForwardedFor', 'EmailOtpEnabled'];
-    const textareaFields = ['LanBypassCidrs', 'TrustedProxyCidrs', 'NotifyEmailAddresses'];
-    const numberFields = ['MaxFailedAttempts', 'LockoutDurationMinutes', 'AuditLogMaxEntries'];
-    const textFields = ['NtfyUrl', 'NtfyTopic', 'GotifyUrl', 'GotifyAppToken'];
-
-    checkboxFields.forEach(f => {
-      const el = document.getElementById(`cfg_${f}`);
-      if (el) el.checked = cfg[f] === true;
-    });
-
-    numberFields.forEach(f => {
-      const el = document.getElementById(`cfg_${f}`);
-      if (el && cfg[f] != null) el.value = cfg[f];
-    });
-
-    textFields.forEach(f => {
-      const el = document.getElementById(`cfg_${f}`);
-      if (el) el.value = cfg[f] || '';
-    });
-
-    textareaFields.forEach(f => {
-      const el = document.getElementById(`cfg_${f}`);
-      if (el) {
-        const val = cfg[f];
-        if (Array.isArray(val)) {
-          el.value = val.join('\n');
-        } else {
-          el.value = val || '';
+        function apiPost(path, body) {
+            return fetch(ApiClient.serverAddress() + '/' + path, { method: 'POST', headers: getHeaders(), body: body ? JSON.stringify(body) : undefined }).then(function(r) { return r.ok ? r.json().catch(function() { return {}; }) : Promise.reject(r); });
         }
-      }
-    });
-  }
+        function apiDelete(path) {
+            return fetch(ApiClient.serverAddress() + '/' + path, { method: 'DELETE', headers: getHeaders() }).then(function(r) { return r.ok ? r.json().catch(function() { return {}; }) : Promise.reject(r); });
+        }
 
-  function collectSettings() {
-    const cfg = {};
-    const checkboxFields = ['Enabled', 'RequireForAllUsers', 'LanBypassEnabled', 'TrustForwardedFor', 'EmailOtpEnabled'];
-    const textareaFields = ['LanBypassCidrs', 'TrustedProxyCidrs', 'NotifyEmailAddresses'];
-    const numberFields = ['MaxFailedAttempts', 'LockoutDurationMinutes', 'AuditLogMaxEntries'];
-    const textFields = ['NtfyUrl', 'NtfyTopic', 'GotifyUrl', 'GotifyAppToken'];
+        // Tabs
+        document.querySelectorAll('.tfa-tab').forEach(function(tab) {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.tfa-tab').forEach(function(t) { t.classList.remove('active'); });
+                document.querySelectorAll('.tfa-panel').forEach(function(p) { p.classList.remove('active'); });
+                tab.classList.add('active');
+                document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+                if (tab.dataset.tab === 'users') loadUsers();
+                if (tab.dataset.tab === 'pairings') loadPairings();
+                if (tab.dataset.tab === 'apikeys') loadApiKeys();
+                if (tab.dataset.tab === 'audit') loadAudit();
+                if (tab.dataset.tab === 'settings') loadSettings();
+            });
+        });
 
-    checkboxFields.forEach(f => {
-      const el = document.getElementById(`cfg_${f}`);
-      if (el) cfg[f] = el.checked;
-    });
+        // Users
+        function loadUsers() {
+            apiGet('TwoFactorAuth/Users').then(function(users) {
+                var body = document.getElementById('usersBody');
+                if (!users || users.length === 0) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No users with 2FA data</td></tr>'; return; }
+                body.innerHTML = users.map(function(u) {
+                    return '<tr><td>' + (u.username||u.Username||'Unknown') + '</td>'
+                        + '<td><span class="tfa-badge ' + ((u.totpEnabled||u.TotpEnabled) ? 'on' : 'off') + '">' + ((u.totpEnabled||u.TotpEnabled) ? 'Enabled' : 'Off') + '</span></td>'
+                        + '<td>' + (u.trustedDeviceCount||u.TrustedDeviceCount||0) + '</td>'
+                        + '<td>' + ((u.isLockedOut||u.IsLockedOut) ? '<span class="tfa-badge locked">Locked</span>' : '<span class="tfa-badge on">OK</span>') + '</td>'
+                        + '<td><button class="tfa-btn tfa-btn-primary" onclick="toggleUser(\'' + (u.userId||u.UserId) + '\',' + !(u.totpEnabled||u.TotpEnabled) + ')">' + ((u.totpEnabled||u.TotpEnabled) ? 'Disable' : 'Enable') + '</button></td></tr>';
+                }).join('');
+            }).catch(function() { document.getElementById('usersBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load users</td></tr>'; });
+        }
+        function toggleUser(id, enabled) {
+            apiPost('TwoFactorAuth/Users/' + id + '/Toggle', { enabled: enabled }).then(loadUsers);
+        }
 
-    numberFields.forEach(f => {
-      const el = document.getElementById(`cfg_${f}`);
-      if (el) cfg[f] = parseInt(el.value, 10) || 0;
-    });
+        // Pairings
+        function loadPairings() {
+            apiGet('TwoFactorAuth/Pairings').then(function(pairings) {
+                var body = document.getElementById('pairingsBody');
+                if (!pairings || pairings.length === 0) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No pending pairings</td></tr>'; return; }
+                body.innerHTML = pairings.map(function(p) {
+                    var exp = new Date(p.expiresAt||p.ExpiresAt).toLocaleTimeString();
+                    return '<tr><td>' + (p.username||p.Username) + '</td><td>' + (p.deviceName||p.DeviceName) + '</td><td style="font-family:monospace;font-weight:700;letter-spacing:2px;">' + (p.code||p.Code) + '</td><td>' + exp + '</td>'
+                        + '<td><button class="tfa-btn tfa-btn-success" onclick="approvePairing(\'' + (p.code||p.Code) + '\')">Approve</button> '
+                        + '<button class="tfa-btn tfa-btn-danger" onclick="denyPairing(\'' + (p.code||p.Code) + '\')">Deny</button></td></tr>';
+                }).join('');
+            }).catch(function() { document.getElementById('pairingsBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load</td></tr>'; });
+        }
+        function approvePairing(code) { apiPost('TwoFactorAuth/Pairings/' + code + '/Approve').then(loadPairings); }
+        function denyPairing(code) { apiPost('TwoFactorAuth/Pairings/' + code + '/Deny').then(loadPairings); }
 
-    textFields.forEach(f => {
-      const el = document.getElementById(`cfg_${f}`);
-      if (el) cfg[f] = el.value.trim();
-    });
+        // API Keys
+        function loadApiKeys() {
+            apiGet('TwoFactorAuth/ApiKeys').then(function(keys) {
+                var body = document.getElementById('apiKeysBody');
+                if (!keys || keys.length === 0) { body.innerHTML = '<tr><td colspan="4" class="tfa-empty">No API keys</td></tr>'; return; }
+                body.innerHTML = keys.map(function(k) {
+                    var masked = (k.key||k.Key||'').substring(0, 8) + '...';
+                    return '<tr><td>' + (k.label||k.Label) + '</td><td style="font-family:monospace;">' + masked + '</td><td>' + new Date(k.createdAt||k.CreatedAt).toLocaleDateString() + '</td>'
+                        + '<td><button class="tfa-btn tfa-btn-danger" onclick="deleteApiKey(\'' + (k.id||k.Id) + '\')">Delete</button></td></tr>';
+                }).join('');
+            }).catch(function() { document.getElementById('apiKeysBody').innerHTML = '<tr><td colspan="4" class="tfa-empty">Failed to load</td></tr>'; });
+        }
+        function generateApiKey() {
+            var label = document.getElementById('newKeyLabel').value.trim();
+            if (!label) { alert('Enter a label'); return; }
+            apiPost('TwoFactorAuth/ApiKeys', { label: label }).then(function(result) {
+                var el = document.getElementById('newKeyResult');
+                el.style.display = 'block';
+                el.innerHTML = '<strong>New key (copy now, shown once):</strong><br><code>' + (result.key||result.Key||JSON.stringify(result)) + '</code>';
+                document.getElementById('newKeyLabel').value = '';
+                loadApiKeys();
+            });
+        }
+        function deleteApiKey(id) { if (confirm('Delete this API key?')) apiDelete('TwoFactorAuth/ApiKeys/' + id).then(loadApiKeys); }
 
-    textareaFields.forEach(f => {
-      const el = document.getElementById(`cfg_${f}`);
-      if (el) cfg[f] = el.value.split('\n').map(s => s.trim()).filter(Boolean);
-    });
+        // Audit
+        var allAuditEntries = [];
+        function loadAudit() {
+            apiGet('TwoFactorAuth/AuditLog?limit=200').then(function(entries) {
+                allAuditEntries = entries || [];
+                renderAudit(allAuditEntries);
+            }).catch(function() { document.getElementById('auditBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">Failed to load</td></tr>'; });
+        }
+        function renderAudit(entries) {
+            var body = document.getElementById('auditBody');
+            if (!entries || entries.length === 0) { body.innerHTML = '<tr><td colspan="6" class="tfa-empty">No entries</td></tr>'; return; }
+            var resultColors = { 'Success': 'on', 'Failed': 'locked', 'Bypassed': 'on', 'Locked': 'locked', 'ChallengeIssued': 'off' };
+            body.innerHTML = entries.map(function(e) {
+                var t = new Date(e.timestamp||e.Timestamp).toLocaleString();
+                var r = e.result||e.Result||'';
+                var rName = typeof r === 'number' ? ['Success','Failed','Bypassed','Locked','ChallengeIssued'][r] || r : r;
+                return '<tr><td style="font-size:12px;">' + t + '</td><td>' + (e.username||e.Username||'') + '</td><td style="font-family:monospace;font-size:12px;">' + (e.remoteIp||e.RemoteIp||'') + '</td><td>' + (e.deviceName||e.DeviceName||'') + '</td>'
+                    + '<td><span class="tfa-badge ' + (resultColors[rName]||'off') + '">' + rName + '</span></td><td>' + (e.method||e.Method||'') + '</td></tr>';
+            }).join('');
+        }
+        function filterAudit() {
+            var q = document.getElementById('auditFilter').value.toLowerCase();
+            if (!q) { renderAudit(allAuditEntries); return; }
+            renderAudit(allAuditEntries.filter(function(e) {
+                return JSON.stringify(e).toLowerCase().indexOf(q) >= 0;
+            }));
+        }
 
-    return cfg;
-  }
+        // Settings
+        function loadSettings() {
+            ApiClient.getPluginConfiguration(pluginId).then(function(config) {
+                document.getElementById('cfgEnabled').checked = config.Enabled;
+                document.getElementById('cfgRequireAll').checked = config.RequireForAllUsers;
+                document.getElementById('cfgEmailOtp').checked = config.EmailOtpEnabled;
+                document.getElementById('cfgLanBypass').checked = config.LanBypassEnabled;
+                document.getElementById('cfgLanCidrs').value = (config.LanBypassCidrs || []).join('\n');
+                document.getElementById('cfgTrustFwd').checked = config.TrustForwardedFor;
+                document.getElementById('cfgProxyCidrs').value = (config.TrustedProxyCidrs || []).join('\n');
+                document.getElementById('cfgMaxFail').value = config.MaxFailedAttempts;
+                document.getElementById('cfgLockoutMin').value = config.LockoutDurationMinutes;
+                document.getElementById('cfgAuditMax').value = config.AuditLogMaxEntries;
+                document.getElementById('cfgNtfyUrl').value = config.NtfyUrl || '';
+                document.getElementById('cfgNtfyTopic').value = config.NtfyTopic || '';
+                document.getElementById('cfgGotifyUrl').value = config.GotifyUrl || '';
+                document.getElementById('cfgGotifyToken').value = config.GotifyAppToken || '';
+                document.getElementById('cfgEmails').value = (config.NotifyEmailAddresses || []).join('\n');
+            });
+        }
+        function saveSettings() {
+            ApiClient.getPluginConfiguration(pluginId).then(function(config) {
+                config.Enabled = document.getElementById('cfgEnabled').checked;
+                config.RequireForAllUsers = document.getElementById('cfgRequireAll').checked;
+                config.EmailOtpEnabled = document.getElementById('cfgEmailOtp').checked;
+                config.LanBypassEnabled = document.getElementById('cfgLanBypass').checked;
+                config.LanBypassCidrs = document.getElementById('cfgLanCidrs').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+                config.TrustForwardedFor = document.getElementById('cfgTrustFwd').checked;
+                config.TrustedProxyCidrs = document.getElementById('cfgProxyCidrs').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+                config.MaxFailedAttempts = parseInt(document.getElementById('cfgMaxFail').value) || 5;
+                config.LockoutDurationMinutes = parseInt(document.getElementById('cfgLockoutMin').value) || 15;
+                config.AuditLogMaxEntries = parseInt(document.getElementById('cfgAuditMax').value) || 1000;
+                config.NtfyUrl = document.getElementById('cfgNtfyUrl').value;
+                config.NtfyTopic = document.getElementById('cfgNtfyTopic').value;
+                config.GotifyUrl = document.getElementById('cfgGotifyUrl').value;
+                config.GotifyAppToken = document.getElementById('cfgGotifyToken').value;
+                config.NotifyEmailAddresses = document.getElementById('cfgEmails').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+                ApiClient.updatePluginConfiguration(pluginId, config).then(function() {
+                    Dashboard.alert('Settings saved.');
+                });
+            });
+        }
 
-  async function saveSettings() {
-    const btn = document.getElementById('saveSettingsBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-inline"></span>Saving...';
-    hideAlert('settingsError');
-    hideAlert('settingsSuccess');
-    try {
-      const cfg = collectSettings();
-      const res = await apiFetch('/System/Configuration/Jellyfin.Plugin.TwoFactorAuth', {
-        method: 'POST',
-        body: JSON.stringify(cfg)
-      });
-      if (res.ok) {
-        showAlert('settingsSuccess', 'Settings saved successfully.', 'success');
-      } else {
-        showAlert('settingsError', 'Failed to save settings. Check server logs.', 'error');
-      }
-    } catch (e) {
-      showAlert('settingsError', 'Network error. Please try again.', 'error');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Save Settings';
-    }
-  }
-
-  // ---- Init ----
-  loadPairings();
-  startPairingsAutoRefresh();
-</script>
+        // Init
+        var page = document.querySelector('#TwoFactorAuthAdmin');
+        page.addEventListener('pageshow', function() {
+            loadUsers();
+        });
+        // Also try loading immediately in case pageshow already fired
+        if (typeof ApiClient !== 'undefined') {
+            loadUsers();
+        }
+    </script>
 </body>
 </html>

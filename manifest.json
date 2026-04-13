@@ -8,8 +8,15 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.2",
+        "changelog": "Fix admin config page not loading. Rewrote admin page to use Jellyfin plugin page format with proper ApiClient integration.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.2/Jellyfin.Plugin.TwoFactorAuthv1.0.2.zip",
+        "checksum": "7120A9DCD0FB12AF5CD8F05D410FDB54"
+      },
+      {
         "version": "1.0.1",
-        "changelog": "Fix startup crash. Removed IAuthenticationProvider registration that conflicted with Jellyfin auth pipeline. Switched NotificationService to static HttpClient.",
+        "changelog": "Fix startup crash. Removed IAuthenticationProvider registration that conflicted with Jellyfin auth pipeline.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.1/Jellyfin.Plugin.TwoFactorAuthv1.0.1.zip",
         "checksum": "42CA3308508005BC14D9585CA86C1C25"
