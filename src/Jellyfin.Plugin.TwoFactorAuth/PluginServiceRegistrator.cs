@@ -1,8 +1,9 @@
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using MediaBrowser.Controller;
-using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Plugins;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Jellyfin.Plugin.TwoFactorAuth;
 
@@ -16,10 +17,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<EmailOtpService>();
         services.AddSingleton<DeviceTokenService>();
         services.AddSingleton<DevicePairingService>();
-        services.AddSingleton<NotificationService>();
         services.AddSingleton<BypassEvaluator>();
-        services.AddSingleton<TwoFactorAuthProvider>();
-        services.AddSingleton<IAuthenticationProvider>(sp => sp.GetRequiredService<TwoFactorAuthProvider>());
-        services.AddHttpClient("TwoFactorAuth");
+        services.AddSingleton<NotificationService>();
+        services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
     }
 }
