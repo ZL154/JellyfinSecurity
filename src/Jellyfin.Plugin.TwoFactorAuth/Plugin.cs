@@ -30,18 +30,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             new PluginPageInfo
             {
-                Name = "TwoFactorAuthChallenge",
-                EmbeddedResourcePath = $"{GetType().Namespace}.Pages.challenge.html",
-            },
-            new PluginPageInfo
-            {
-                Name = "TwoFactorAuthSetup",
-                EmbeddedResourcePath = $"{GetType().Namespace}.Pages.setup.html",
-            },
-            new PluginPageInfo
-            {
-                Name = "TwoFactorAuthAdmin",
-                EmbeddedResourcePath = $"{GetType().Namespace}.Pages.admin.html",
+                Name = "TwoFactorAuth",
+                EmbeddedResourcePath = GetType().Namespace + ".Pages.admin.html",
             },
         };
     }
