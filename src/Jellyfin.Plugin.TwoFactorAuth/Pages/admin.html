@@ -2,54 +2,52 @@
 <html>
 <head>
     <title>Two-Factor Authentication</title>
-    <style>
-        .tfa-container { max-width: 900px; margin: 0 auto; }
-        .tfa-section { background: rgba(0,0,0,0.2); border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.08); }
-        .tfa-section h2 { font-size: 18px; margin-bottom: 16px; color: #00a4dc; }
-        .tfa-section h3 { font-size: 15px; margin: 16px 0 10px; color: #ccc; }
-        .tfa-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        .tfa-row:last-child { border-bottom: none; }
-        .tfa-row label { flex: 1; font-size: 14px; }
-        .tfa-row .fieldDescription { font-size: 12px; color: #888; margin-top: 2px; }
-        .tfa-input { background: #1a1a1a; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; font-size: 14px; }
-        .tfa-input:focus { border-color: #00a4dc; outline: none; }
-        textarea.tfa-input { width: 100%; min-height: 80px; resize: vertical; font-family: monospace; font-size: 12px; }
-        .tfa-tabs { display: flex; gap: 0; border-bottom: 2px solid #333; margin-bottom: 20px; flex-wrap: wrap; }
-        .tfa-tab { padding: 10px 18px; cursor: pointer; color: #888; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s; }
-        .tfa-tab:hover { color: #ccc; }
-        .tfa-tab.active { color: #00a4dc; border-bottom-color: #00a4dc; }
-        .tfa-panel { display: none; }
-        .tfa-panel.active { display: block; }
-        .tfa-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .tfa-table th { text-align: left; padding: 8px 10px; color: #888; border-bottom: 1px solid #333; font-weight: 600; }
-        .tfa-table td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        .tfa-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
-        .tfa-badge.on { background: rgba(76,175,80,0.2); color: #4caf50; }
-        .tfa-badge.off { background: rgba(255,255,255,0.08); color: #888; }
-        .tfa-badge.locked { background: rgba(244,67,54,0.2); color: #f44336; }
-        .tfa-btn { padding: 6px 14px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; }
-        .tfa-btn-primary { background: #00a4dc; color: #fff; }
-        .tfa-btn-primary:hover { background: #0087b3; }
-        .tfa-btn-danger { background: rgba(244,67,54,0.15); color: #f44336; border: 1px solid rgba(244,67,54,0.3); }
-        .tfa-btn-danger:hover { background: rgba(244,67,54,0.25); }
-        .tfa-btn-success { background: rgba(76,175,80,0.15); color: #4caf50; border: 1px solid rgba(76,175,80,0.3); }
-        .tfa-btn-success:hover { background: rgba(76,175,80,0.25); }
-        .tfa-empty { text-align: center; padding: 40px; color: #666; font-size: 14px; }
-        .tfa-key-reveal { background: #1a1a1a; border: 1px solid #00a4dc; border-radius: 4px; padding: 10px; margin-top: 8px; font-family: monospace; word-break: break-all; }
-        .tfa-filter { width: 100%; padding: 8px 12px; margin-bottom: 12px; }
-        .tfa-status-bar { display: flex; gap: 16px; margin-bottom: 16px; font-size: 13px; color: #888; }
-        #newKeyResult { display: none; margin-top: 12px; }
-    </style>
 </head>
 <body>
     <div id="TwoFactorAuth" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-checkbox,emby-input,emby-select">
+        <style>
+            #TwoFactorAuth .tfa-container { max-width: 900px; margin: 0 auto; padding: 20px; }
+            #TwoFactorAuth .tfa-section { background: rgba(0,0,0,0.2); border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.08); }
+            #TwoFactorAuth .tfa-section h2 { font-size: 18px; margin-bottom: 16px; color: #00a4dc; }
+            #TwoFactorAuth .tfa-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); gap: 12px; }
+            #TwoFactorAuth .tfa-row:last-child { border-bottom: none; }
+            #TwoFactorAuth .tfa-row label { flex: 1; font-size: 14px; }
+            #TwoFactorAuth .tfa-input { background: #1a1a1a; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; font-size: 14px; }
+            #TwoFactorAuth .tfa-input:focus { border-color: #00a4dc; outline: none; }
+            #TwoFactorAuth textarea.tfa-input { width: 100%; min-height: 80px; resize: vertical; font-family: monospace; font-size: 12px; }
+            #TwoFactorAuth .tfa-tabs { display: flex; gap: 0; border-bottom: 2px solid #333; margin-bottom: 20px; flex-wrap: wrap; }
+            #TwoFactorAuth .tfa-tab { padding: 10px 18px; cursor: pointer; color: #888; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s; user-select: none; }
+            #TwoFactorAuth .tfa-tab:hover { color: #ccc; }
+            #TwoFactorAuth .tfa-tab.active { color: #00a4dc; border-bottom-color: #00a4dc; }
+            #TwoFactorAuth .tfa-panel { display: none !important; }
+            #TwoFactorAuth .tfa-panel.active { display: block !important; }
+            #TwoFactorAuth .tfa-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+            #TwoFactorAuth .tfa-table th { text-align: left; padding: 8px 10px; color: #888; border-bottom: 1px solid #333; font-weight: 600; }
+            #TwoFactorAuth .tfa-table td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+            #TwoFactorAuth .tfa-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+            #TwoFactorAuth .tfa-badge.on { background: rgba(76,175,80,0.2); color: #4caf50; }
+            #TwoFactorAuth .tfa-badge.off { background: rgba(255,255,255,0.08); color: #888; }
+            #TwoFactorAuth .tfa-badge.locked { background: rgba(244,67,54,0.2); color: #f44336; }
+            #TwoFactorAuth .tfa-btn { padding: 6px 14px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; }
+            #TwoFactorAuth .tfa-btn-primary { background: #00a4dc; color: #fff; }
+            #TwoFactorAuth .tfa-btn-primary:hover { background: #0087b3; }
+            #TwoFactorAuth .tfa-btn-danger { background: rgba(244,67,54,0.15); color: #f44336; border: 1px solid rgba(244,67,54,0.3); }
+            #TwoFactorAuth .tfa-btn-danger:hover { background: rgba(244,67,54,0.25); }
+            #TwoFactorAuth .tfa-btn-success { background: rgba(76,175,80,0.15); color: #4caf50; border: 1px solid rgba(76,175,80,0.3); }
+            #TwoFactorAuth .tfa-btn-success:hover { background: rgba(76,175,80,0.25); }
+            #TwoFactorAuth .tfa-empty { text-align: center; padding: 40px; color: #666; font-size: 14px; }
+            #TwoFactorAuth .tfa-filter { width: 100%; padding: 8px 12px; margin-bottom: 12px; }
+            #TwoFactorAuth .tfa-note { background: rgba(0,164,220,0.08); border-left: 3px solid #00a4dc; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: #aaa; border-radius: 4px; }
+        </style>
+
         <div data-role="content">
             <div class="content-primary">
                 <div class="tfa-container">
+                    <div class="tfa-note">Service integrations like Sonarr and Radarr use standard Jellyfin API keys which already bypass user authentication — no plugin configuration needed for those.</div>
+
                     <div class="tfa-tabs">
                         <div class="tfa-tab active" data-tab="users">Users</div>
                         <div class="tfa-tab" data-tab="pairings">Pairings</div>
-                        <div class="tfa-tab" data-tab="apikeys">API Keys</div>
                         <div class="tfa-tab" data-tab="audit">Audit Log</div>
                         <div class="tfa-tab" data-tab="settings">Settings</div>
                     </div>
@@ -76,31 +74,14 @@
                         </div>
                     </div>
 
-                    <!-- API Keys -->
-                    <div class="tfa-panel" id="panel-apikeys">
-                        <div class="tfa-section">
-                            <h2>API Keys</h2>
-                            <p style="font-size:13px;color:#888;margin-bottom:16px;">Static API keys for service integrations (Sonarr, Radarr, etc.) that bypass 2FA.</p>
-                            <div style="display:flex;gap:8px;margin-bottom:16px;">
-                                <input type="text" id="newKeyLabel" placeholder="Key label (e.g. Sonarr)" class="tfa-input" style="flex:1;" />
-                                <button type="button" class="tfa-btn tfa-btn-primary" onclick="generateApiKey()">Generate Key</button>
-                            </div>
-                            <div id="newKeyResult" class="tfa-key-reveal"></div>
-                            <table class="tfa-table">
-                                <thead><tr><th>Label</th><th>Key</th><th>Created</th><th>Actions</th></tr></thead>
-                                <tbody id="apiKeysBody"><tr><td colspan="4" class="tfa-empty">Loading...</td></tr></tbody>
-                            </table>
-                        </div>
-                    </div>
-
                     <!-- Audit Log -->
                     <div class="tfa-panel" id="panel-audit">
                         <div class="tfa-section">
                             <h2>Login Audit Log</h2>
-                            <input type="text" id="auditFilter" placeholder="Filter by user, IP, device..." class="tfa-input tfa-filter" oninput="filterAudit()" />
+                            <input type="text" id="auditFilter" placeholder="Filter by user, IP, device..." class="tfa-input tfa-filter" />
                             <table class="tfa-table">
                                 <thead><tr><th>Time</th><th>User</th><th>IP</th><th>Device</th><th>Result</th><th>Method</th></tr></thead>
-                                <tbody id="auditBody"><tr><td colspan="6" class="tfa-empty">Loading...</td></tr></tbody>
+                                <tbody id="auditBody"><tr><td colspan="6" class="tfa-empty">No audit entries yet</td></tr></tbody>
                             </table>
                         </div>
                     </div>
@@ -110,42 +91,27 @@
                         <div class="tfa-section">
                             <h2>General</h2>
                             <div class="tfa-row">
-                                <label>
-                                    <input type="checkbox" id="cfgEnabled" is="emby-checkbox" />
-                                    <span>Plugin Enabled</span>
-                                </label>
+                                <label><input type="checkbox" id="cfgEnabled" is="emby-checkbox" /><span>Plugin Enabled</span></label>
                             </div>
                             <div class="tfa-row">
-                                <label>
-                                    <input type="checkbox" id="cfgRequireAll" is="emby-checkbox" />
-                                    <span>Require 2FA for all users</span>
-                                </label>
+                                <label><input type="checkbox" id="cfgRequireAll" is="emby-checkbox" /><span>Require 2FA for all users</span></label>
                             </div>
                             <div class="tfa-row">
-                                <label>
-                                    <input type="checkbox" id="cfgEmailOtp" is="emby-checkbox" />
-                                    <span>Enable email OTP as fallback</span>
-                                </label>
+                                <label><input type="checkbox" id="cfgEmailOtp" is="emby-checkbox" /><span>Enable email OTP as fallback</span></label>
                             </div>
                         </div>
 
                         <div class="tfa-section">
                             <h2>LAN Bypass</h2>
                             <div class="tfa-row">
-                                <label>
-                                    <input type="checkbox" id="cfgLanBypass" is="emby-checkbox" />
-                                    <span>Enable LAN bypass</span>
-                                </label>
+                                <label><input type="checkbox" id="cfgLanBypass" is="emby-checkbox" /><span>Enable LAN bypass</span></label>
                             </div>
                             <div style="margin-top:12px;">
                                 <label style="font-size:13px;color:#888;">LAN CIDR Ranges (one per line)</label>
                                 <textarea id="cfgLanCidrs" class="tfa-input"></textarea>
                             </div>
                             <div class="tfa-row" style="margin-top:12px;">
-                                <label>
-                                    <input type="checkbox" id="cfgTrustFwd" is="emby-checkbox" />
-                                    <span>Trust X-Forwarded-For header</span>
-                                </label>
+                                <label><input type="checkbox" id="cfgTrustFwd" is="emby-checkbox" /><span>Trust X-Forwarded-For header</span></label>
                             </div>
                             <div style="margin-top:12px;">
                                 <label style="font-size:13px;color:#888;">Trusted Proxy CIDRs (one per line)</label>
@@ -193,189 +159,153 @@
                             </div>
                         </div>
 
-                        <button type="button" class="tfa-btn tfa-btn-primary" style="margin-top:8px;padding:10px 32px;font-size:15px;" onclick="saveSettings()">Save Settings</button>
+                        <button type="button" class="tfa-btn tfa-btn-primary" id="btnSaveSettings" style="margin-top:8px;padding:10px 32px;font-size:15px;">Save Settings</button>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <script type="text/javascript">
-        var pluginId = '94879a0c-da24-4eb1-aa06-f28b4b9333b1';
+        <script type="text/javascript">
+            (function() {
+                var pluginId = '94879a0c-da24-4eb1-aa06-f28b4b9333b1';
+                var page = document.querySelector('#TwoFactorAuth');
 
-        function getHeaders() {
-            var token = '';
-            try {
-                var creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}');
-                token = (creds.Servers && creds.Servers[0] && creds.Servers[0].AccessToken) || '';
-            } catch(e) {}
-            return { 'X-Emby-Token': token, 'Content-Type': 'application/json' };
-        }
+                function getHeaders() {
+                    var token = ApiClient && ApiClient.accessToken ? ApiClient.accessToken() : '';
+                    return { 'X-Emby-Token': token, 'Content-Type': 'application/json' };
+                }
+                function apiGet(path) {
+                    return fetch(ApiClient.serverAddress() + '/' + path, { headers: getHeaders() }).then(function(r) { return r.ok ? r.json() : Promise.reject(r); });
+                }
+                function apiPost(path, body) {
+                    return fetch(ApiClient.serverAddress() + '/' + path, { method: 'POST', headers: getHeaders(), body: body ? JSON.stringify(body) : undefined }).then(function(r) { return r.ok ? r.json().catch(function() { return {}; }) : Promise.reject(r); });
+                }
 
-        function apiGet(path) {
-            return fetch(ApiClient.serverAddress() + '/' + path, { headers: getHeaders() }).then(function(r) { return r.ok ? r.json() : Promise.reject(r); });
-        }
-        function apiPost(path, body) {
-            return fetch(ApiClient.serverAddress() + '/' + path, { method: 'POST', headers: getHeaders(), body: body ? JSON.stringify(body) : undefined }).then(function(r) { return r.ok ? r.json().catch(function() { return {}; }) : Promise.reject(r); });
-        }
-        function apiDelete(path) {
-            return fetch(ApiClient.serverAddress() + '/' + path, { method: 'DELETE', headers: getHeaders() }).then(function(r) { return r.ok ? r.json().catch(function() { return {}; }) : Promise.reject(r); });
-        }
-
-        // Tabs
-        document.querySelectorAll('.tfa-tab').forEach(function(tab) {
-            tab.addEventListener('click', function() {
-                document.querySelectorAll('.tfa-tab').forEach(function(t) { t.classList.remove('active'); });
-                document.querySelectorAll('.tfa-panel').forEach(function(p) { p.classList.remove('active'); });
-                tab.classList.add('active');
-                document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
-                if (tab.dataset.tab === 'users') loadUsers();
-                if (tab.dataset.tab === 'pairings') loadPairings();
-                if (tab.dataset.tab === 'apikeys') loadApiKeys();
-                if (tab.dataset.tab === 'audit') loadAudit();
-                if (tab.dataset.tab === 'settings') loadSettings();
-            });
-        });
-
-        // Users
-        function loadUsers() {
-            apiGet('TwoFactorAuth/Users').then(function(users) {
-                var body = document.getElementById('usersBody');
-                if (!users || users.length === 0) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No users with 2FA data</td></tr>'; return; }
-                body.innerHTML = users.map(function(u) {
-                    return '<tr><td>' + (u.username||u.Username||'Unknown') + '</td>'
-                        + '<td><span class="tfa-badge ' + ((u.totpEnabled||u.TotpEnabled) ? 'on' : 'off') + '">' + ((u.totpEnabled||u.TotpEnabled) ? 'Enabled' : 'Off') + '</span></td>'
-                        + '<td>' + (u.trustedDeviceCount||u.TrustedDeviceCount||0) + '</td>'
-                        + '<td>' + ((u.isLockedOut||u.IsLockedOut) ? '<span class="tfa-badge locked">Locked</span>' : '<span class="tfa-badge on">OK</span>') + '</td>'
-                        + '<td><button class="tfa-btn tfa-btn-primary" onclick="toggleUser(\'' + (u.userId||u.UserId) + '\',' + !(u.totpEnabled||u.TotpEnabled) + ')">' + ((u.totpEnabled||u.TotpEnabled) ? 'Disable' : 'Enable') + '</button></td></tr>';
-                }).join('');
-            }).catch(function() { document.getElementById('usersBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load users</td></tr>'; });
-        }
-        function toggleUser(id, enabled) {
-            apiPost('TwoFactorAuth/Users/' + id + '/Toggle', { enabled: enabled }).then(loadUsers);
-        }
-
-        // Pairings
-        function loadPairings() {
-            apiGet('TwoFactorAuth/Pairings').then(function(pairings) {
-                var body = document.getElementById('pairingsBody');
-                if (!pairings || pairings.length === 0) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No pending pairings</td></tr>'; return; }
-                body.innerHTML = pairings.map(function(p) {
-                    var exp = new Date(p.expiresAt||p.ExpiresAt).toLocaleTimeString();
-                    return '<tr><td>' + (p.username||p.Username) + '</td><td>' + (p.deviceName||p.DeviceName) + '</td><td style="font-family:monospace;font-weight:700;letter-spacing:2px;">' + (p.code||p.Code) + '</td><td>' + exp + '</td>'
-                        + '<td><button class="tfa-btn tfa-btn-success" onclick="approvePairing(\'' + (p.code||p.Code) + '\')">Approve</button> '
-                        + '<button class="tfa-btn tfa-btn-danger" onclick="denyPairing(\'' + (p.code||p.Code) + '\')">Deny</button></td></tr>';
-                }).join('');
-            }).catch(function() { document.getElementById('pairingsBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load</td></tr>'; });
-        }
-        function approvePairing(code) { apiPost('TwoFactorAuth/Pairings/' + code + '/Approve').then(loadPairings); }
-        function denyPairing(code) { apiPost('TwoFactorAuth/Pairings/' + code + '/Deny').then(loadPairings); }
-
-        // API Keys
-        function loadApiKeys() {
-            apiGet('TwoFactorAuth/ApiKeys').then(function(keys) {
-                var body = document.getElementById('apiKeysBody');
-                if (!keys || keys.length === 0) { body.innerHTML = '<tr><td colspan="4" class="tfa-empty">No API keys</td></tr>'; return; }
-                body.innerHTML = keys.map(function(k) {
-                    var masked = (k.key||k.Key||'').substring(0, 8) + '...';
-                    return '<tr><td>' + (k.label||k.Label) + '</td><td style="font-family:monospace;">' + masked + '</td><td>' + new Date(k.createdAt||k.CreatedAt).toLocaleDateString() + '</td>'
-                        + '<td><button class="tfa-btn tfa-btn-danger" onclick="deleteApiKey(\'' + (k.id||k.Id) + '\')">Delete</button></td></tr>';
-                }).join('');
-            }).catch(function() { document.getElementById('apiKeysBody').innerHTML = '<tr><td colspan="4" class="tfa-empty">Failed to load</td></tr>'; });
-        }
-        function generateApiKey() {
-            var label = document.getElementById('newKeyLabel').value.trim();
-            if (!label) { alert('Enter a label'); return; }
-            apiPost('TwoFactorAuth/ApiKeys', { label: label }).then(function(result) {
-                var el = document.getElementById('newKeyResult');
-                el.style.display = 'block';
-                el.innerHTML = '<strong>New key (copy now, shown once):</strong><br><code>' + (result.key||result.Key||JSON.stringify(result)) + '</code>';
-                document.getElementById('newKeyLabel').value = '';
-                loadApiKeys();
-            });
-        }
-        function deleteApiKey(id) { if (confirm('Delete this API key?')) apiDelete('TwoFactorAuth/ApiKeys/' + id).then(loadApiKeys); }
-
-        // Audit
-        var allAuditEntries = [];
-        function loadAudit() {
-            apiGet('TwoFactorAuth/AuditLog?limit=200').then(function(entries) {
-                allAuditEntries = entries || [];
-                renderAudit(allAuditEntries);
-            }).catch(function() { document.getElementById('auditBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">Failed to load</td></tr>'; });
-        }
-        function renderAudit(entries) {
-            var body = document.getElementById('auditBody');
-            if (!entries || entries.length === 0) { body.innerHTML = '<tr><td colspan="6" class="tfa-empty">No entries</td></tr>'; return; }
-            var resultColors = { 'Success': 'on', 'Failed': 'locked', 'Bypassed': 'on', 'Locked': 'locked', 'ChallengeIssued': 'off' };
-            body.innerHTML = entries.map(function(e) {
-                var t = new Date(e.timestamp||e.Timestamp).toLocaleString();
-                var r = e.result||e.Result||'';
-                var rName = typeof r === 'number' ? ['Success','Failed','Bypassed','Locked','ChallengeIssued'][r] || r : r;
-                return '<tr><td style="font-size:12px;">' + t + '</td><td>' + (e.username||e.Username||'') + '</td><td style="font-family:monospace;font-size:12px;">' + (e.remoteIp||e.RemoteIp||'') + '</td><td>' + (e.deviceName||e.DeviceName||'') + '</td>'
-                    + '<td><span class="tfa-badge ' + (resultColors[rName]||'off') + '">' + rName + '</span></td><td>' + (e.method||e.Method||'') + '</td></tr>';
-            }).join('');
-        }
-        function filterAudit() {
-            var q = document.getElementById('auditFilter').value.toLowerCase();
-            if (!q) { renderAudit(allAuditEntries); return; }
-            renderAudit(allAuditEntries.filter(function(e) {
-                return JSON.stringify(e).toLowerCase().indexOf(q) >= 0;
-            }));
-        }
-
-        // Settings
-        function loadSettings() {
-            ApiClient.getPluginConfiguration(pluginId).then(function(config) {
-                document.getElementById('cfgEnabled').checked = config.Enabled;
-                document.getElementById('cfgRequireAll').checked = config.RequireForAllUsers;
-                document.getElementById('cfgEmailOtp').checked = config.EmailOtpEnabled;
-                document.getElementById('cfgLanBypass').checked = config.LanBypassEnabled;
-                document.getElementById('cfgLanCidrs').value = (config.LanBypassCidrs || []).join('\n');
-                document.getElementById('cfgTrustFwd').checked = config.TrustForwardedFor;
-                document.getElementById('cfgProxyCidrs').value = (config.TrustedProxyCidrs || []).join('\n');
-                document.getElementById('cfgMaxFail').value = config.MaxFailedAttempts;
-                document.getElementById('cfgLockoutMin').value = config.LockoutDurationMinutes;
-                document.getElementById('cfgAuditMax').value = config.AuditLogMaxEntries;
-                document.getElementById('cfgNtfyUrl').value = config.NtfyUrl || '';
-                document.getElementById('cfgNtfyTopic').value = config.NtfyTopic || '';
-                document.getElementById('cfgGotifyUrl').value = config.GotifyUrl || '';
-                document.getElementById('cfgGotifyToken').value = config.GotifyAppToken || '';
-                document.getElementById('cfgEmails').value = (config.NotifyEmailAddresses || []).join('\n');
-            });
-        }
-        function saveSettings() {
-            ApiClient.getPluginConfiguration(pluginId).then(function(config) {
-                config.Enabled = document.getElementById('cfgEnabled').checked;
-                config.RequireForAllUsers = document.getElementById('cfgRequireAll').checked;
-                config.EmailOtpEnabled = document.getElementById('cfgEmailOtp').checked;
-                config.LanBypassEnabled = document.getElementById('cfgLanBypass').checked;
-                config.LanBypassCidrs = document.getElementById('cfgLanCidrs').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
-                config.TrustForwardedFor = document.getElementById('cfgTrustFwd').checked;
-                config.TrustedProxyCidrs = document.getElementById('cfgProxyCidrs').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
-                config.MaxFailedAttempts = parseInt(document.getElementById('cfgMaxFail').value) || 5;
-                config.LockoutDurationMinutes = parseInt(document.getElementById('cfgLockoutMin').value) || 15;
-                config.AuditLogMaxEntries = parseInt(document.getElementById('cfgAuditMax').value) || 1000;
-                config.NtfyUrl = document.getElementById('cfgNtfyUrl').value;
-                config.NtfyTopic = document.getElementById('cfgNtfyTopic').value;
-                config.GotifyUrl = document.getElementById('cfgGotifyUrl').value;
-                config.GotifyAppToken = document.getElementById('cfgGotifyToken').value;
-                config.NotifyEmailAddresses = document.getElementById('cfgEmails').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
-                ApiClient.updatePluginConfiguration(pluginId, config).then(function() {
-                    Dashboard.alert('Settings saved.');
+                // Tab switching
+                page.querySelectorAll('.tfa-tab').forEach(function(tab) {
+                    tab.addEventListener('click', function() {
+                        page.querySelectorAll('.tfa-tab').forEach(function(t) { t.classList.remove('active'); });
+                        page.querySelectorAll('.tfa-panel').forEach(function(p) { p.classList.remove('active'); });
+                        tab.classList.add('active');
+                        page.querySelector('#panel-' + tab.dataset.tab).classList.add('active');
+                        if (tab.dataset.tab === 'users') loadUsers();
+                        if (tab.dataset.tab === 'pairings') loadPairings();
+                        if (tab.dataset.tab === 'audit') loadAudit();
+                        if (tab.dataset.tab === 'settings') loadSettings();
+                    });
                 });
-            });
-        }
 
-        // Init
-        var page = document.querySelector('#TwoFactorAuth');
-        page.addEventListener('pageshow', function() {
-            loadUsers();
-        });
-        // Also try loading immediately in case pageshow already fired
-        if (typeof ApiClient !== 'undefined') {
-            loadUsers();
-        }
-    </script>
+                function loadUsers() {
+                    apiGet('TwoFactorAuth/Users').then(function(users) {
+                        var body = page.querySelector('#usersBody');
+                        if (!users || users.length === 0) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No users with 2FA data yet</td></tr>'; return; }
+                        body.innerHTML = users.map(function(u) {
+                            var uid = u.userId || u.UserId;
+                            var totp = u.totpEnabled || u.TotpEnabled;
+                            var locked = u.isLockedOut || u.IsLockedOut;
+                            return '<tr><td>' + (u.username||u.Username||'Unknown') + '</td>'
+                                + '<td><span class="tfa-badge ' + (totp ? 'on' : 'off') + '">' + (totp ? 'Enabled' : 'Off') + '</span></td>'
+                                + '<td>' + (u.trustedDeviceCount||u.TrustedDeviceCount||0) + '</td>'
+                                + '<td>' + (locked ? '<span class="tfa-badge locked">Locked</span>' : '<span class="tfa-badge on">OK</span>') + '</td>'
+                                + '<td><button class="tfa-btn tfa-btn-primary tfa-toggle" data-id="' + uid + '" data-next="' + (!totp) + '">' + (totp ? 'Disable' : 'Enable') + '</button></td></tr>';
+                        }).join('');
+                        body.querySelectorAll('.tfa-toggle').forEach(function(btn) {
+                            btn.addEventListener('click', function() {
+                                apiPost('TwoFactorAuth/Users/' + btn.dataset.id + '/Toggle', { enabled: btn.dataset.next === 'true' }).then(loadUsers);
+                            });
+                        });
+                    }).catch(function() { page.querySelector('#usersBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load users</td></tr>'; });
+                }
+
+                function loadPairings() {
+                    apiGet('TwoFactorAuth/Pairings').then(function(pairings) {
+                        var body = page.querySelector('#pairingsBody');
+                        if (!pairings || pairings.length === 0) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No pending pairings</td></tr>'; return; }
+                        body.innerHTML = pairings.map(function(p) {
+                            var code = p.code || p.Code;
+                            var exp = new Date(p.expiresAt||p.ExpiresAt).toLocaleTimeString();
+                            return '<tr><td>' + (p.username||p.Username) + '</td><td>' + (p.deviceName||p.DeviceName) + '</td><td style="font-family:monospace;font-weight:700;letter-spacing:2px;">' + code + '</td><td>' + exp + '</td>'
+                                + '<td><button class="tfa-btn tfa-btn-success tfa-approve" data-code="' + code + '">Approve</button> '
+                                + '<button class="tfa-btn tfa-btn-danger tfa-deny" data-code="' + code + '">Deny</button></td></tr>';
+                        }).join('');
+                        body.querySelectorAll('.tfa-approve').forEach(function(b) { b.addEventListener('click', function() { apiPost('TwoFactorAuth/Pairings/' + b.dataset.code + '/Approve').then(loadPairings); }); });
+                        body.querySelectorAll('.tfa-deny').forEach(function(b) { b.addEventListener('click', function() { apiPost('TwoFactorAuth/Pairings/' + b.dataset.code + '/Deny').then(loadPairings); }); });
+                    }).catch(function() { page.querySelector('#pairingsBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load</td></tr>'; });
+                }
+
+                var allAuditEntries = [];
+                function loadAudit() {
+                    apiGet('TwoFactorAuth/AuditLog?limit=200').then(function(entries) {
+                        allAuditEntries = entries || [];
+                        renderAudit(allAuditEntries);
+                    }).catch(function() { page.querySelector('#auditBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">No audit entries yet</td></tr>'; });
+                }
+                function renderAudit(entries) {
+                    var body = page.querySelector('#auditBody');
+                    if (!entries || entries.length === 0) { body.innerHTML = '<tr><td colspan="6" class="tfa-empty">No entries</td></tr>'; return; }
+                    var resultColors = { 'Success': 'on', 'Failed': 'locked', 'Bypassed': 'on', 'Locked': 'locked', 'ChallengeIssued': 'off' };
+                    var resultNames = ['Success','Failed','Bypassed','Locked','ChallengeIssued'];
+                    body.innerHTML = entries.map(function(e) {
+                        var t = new Date(e.timestamp||e.Timestamp).toLocaleString();
+                        var r = e.result !== undefined ? e.result : e.Result;
+                        var rName = typeof r === 'number' ? (resultNames[r] || r) : r;
+                        return '<tr><td style="font-size:12px;">' + t + '</td><td>' + (e.username||e.Username||'') + '</td><td style="font-family:monospace;font-size:12px;">' + (e.remoteIp||e.RemoteIp||'') + '</td><td>' + (e.deviceName||e.DeviceName||'') + '</td>'
+                            + '<td><span class="tfa-badge ' + (resultColors[rName]||'off') + '">' + rName + '</span></td><td>' + (e.method||e.Method||'') + '</td></tr>';
+                    }).join('');
+                }
+                page.querySelector('#auditFilter').addEventListener('input', function(e) {
+                    var q = e.target.value.toLowerCase();
+                    if (!q) { renderAudit(allAuditEntries); return; }
+                    renderAudit(allAuditEntries.filter(function(entry) { return JSON.stringify(entry).toLowerCase().indexOf(q) >= 0; }));
+                });
+
+                function loadSettings() {
+                    ApiClient.getPluginConfiguration(pluginId).then(function(config) {
+                        page.querySelector('#cfgEnabled').checked = !!config.Enabled;
+                        page.querySelector('#cfgRequireAll').checked = !!config.RequireForAllUsers;
+                        page.querySelector('#cfgEmailOtp').checked = !!config.EmailOtpEnabled;
+                        page.querySelector('#cfgLanBypass').checked = !!config.LanBypassEnabled;
+                        page.querySelector('#cfgLanCidrs').value = (config.LanBypassCidrs || []).join('\n');
+                        page.querySelector('#cfgTrustFwd').checked = !!config.TrustForwardedFor;
+                        page.querySelector('#cfgProxyCidrs').value = (config.TrustedProxyCidrs || []).join('\n');
+                        page.querySelector('#cfgMaxFail').value = config.MaxFailedAttempts || 5;
+                        page.querySelector('#cfgLockoutMin').value = config.LockoutDurationMinutes || 15;
+                        page.querySelector('#cfgAuditMax').value = config.AuditLogMaxEntries || 1000;
+                        page.querySelector('#cfgNtfyUrl').value = config.NtfyUrl || '';
+                        page.querySelector('#cfgNtfyTopic').value = config.NtfyTopic || '';
+                        page.querySelector('#cfgGotifyUrl').value = config.GotifyUrl || '';
+                        page.querySelector('#cfgGotifyToken').value = config.GotifyAppToken || '';
+                        page.querySelector('#cfgEmails').value = (config.NotifyEmailAddresses || []).join('\n');
+                    });
+                }
+                page.querySelector('#btnSaveSettings').addEventListener('click', function() {
+                    ApiClient.getPluginConfiguration(pluginId).then(function(config) {
+                        config.Enabled = page.querySelector('#cfgEnabled').checked;
+                        config.RequireForAllUsers = page.querySelector('#cfgRequireAll').checked;
+                        config.EmailOtpEnabled = page.querySelector('#cfgEmailOtp').checked;
+                        config.LanBypassEnabled = page.querySelector('#cfgLanBypass').checked;
+                        config.LanBypassCidrs = page.querySelector('#cfgLanCidrs').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+                        config.TrustForwardedFor = page.querySelector('#cfgTrustFwd').checked;
+                        config.TrustedProxyCidrs = page.querySelector('#cfgProxyCidrs').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+                        config.MaxFailedAttempts = parseInt(page.querySelector('#cfgMaxFail').value) || 5;
+                        config.LockoutDurationMinutes = parseInt(page.querySelector('#cfgLockoutMin').value) || 15;
+                        config.AuditLogMaxEntries = parseInt(page.querySelector('#cfgAuditMax').value) || 1000;
+                        config.NtfyUrl = page.querySelector('#cfgNtfyUrl').value;
+                        config.NtfyTopic = page.querySelector('#cfgNtfyTopic').value;
+                        config.GotifyUrl = page.querySelector('#cfgGotifyUrl').value;
+                        config.GotifyAppToken = page.querySelector('#cfgGotifyToken').value;
+                        config.NotifyEmailAddresses = page.querySelector('#cfgEmails').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+                        ApiClient.updatePluginConfiguration(pluginId, config).then(function() {
+                            Dashboard.processPluginConfigurationUpdateResult();
+                        });
+                    });
+                });
+
+                page.addEventListener('pageshow', function() {
+                    loadUsers();
+                });
+            })();
+        </script>
+    </div>
 </body>
 </html>
