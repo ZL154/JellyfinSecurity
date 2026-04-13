@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -20,5 +21,6 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<BypassEvaluator>();
         services.AddSingleton<NotificationService>();
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+        services.AddSingleton<IStartupFilter, TwoFactorStartupFilter>();
     }
 }

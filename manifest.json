@@ -8,6 +8,13 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.5.0",
+        "changelog": "Added 2FA login enforcement via middleware and user-facing setup page. When enabled, logins for users with TOTP enabled now return a challenge instead of a session token. Setup page at /TwoFactorAuth/Setup lets users enroll themselves.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.5/Jellyfin.Plugin.TwoFactorAuthv1.0.5.zip",
+        "checksum": "6FB477553CA94F54A15600A8921D512F"
+      },
+      {
         "version": "1.0.4.0",
         "changelog": "Removed API Keys tab (Jellyfin's built-in API keys already bypass user auth). Fixed tab switching (CSS wasn't applied because styles were in <head> which Jellyfin strips). Scoped all styles to #TwoFactorAuth to not leak into other pages.",
         "targetAbi": "10.11.0.0",

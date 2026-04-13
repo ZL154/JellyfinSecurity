@@ -68,6 +68,45 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
+    // GET /TwoFactorAuth/Challenge — serves the standalone challenge HTML page
+    // -------------------------------------------------------------------------
+
+    [HttpGet("Challenge")]
+    [AllowAnonymous]
+    [Produces("text/html")]
+    public IActionResult GetChallengePage()
+    {
+        return ServeEmbeddedPage("challenge.html");
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /TwoFactorAuth/Setup — user-facing enrollment page
+    // -------------------------------------------------------------------------
+
+    [HttpGet("Setup")]
+    [Authorize]
+    [Produces("text/html")]
+    public IActionResult GetSetupPage()
+    {
+        return ServeEmbeddedPage("setup.html");
+    }
+
+    private IActionResult ServeEmbeddedPage(string filename)
+    {
+        var assembly = typeof(Plugin).Assembly;
+        var resourceName = $"{typeof(Plugin).Namespace}.Pages.{filename}";
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null)
+        {
+            return NotFound();
+        }
+
+        using var reader = new System.IO.StreamReader(stream);
+        var html = reader.ReadToEnd();
+        return Content(html, "text/html; charset=utf-8");
+    }
+
+    // -------------------------------------------------------------------------
     // 1. POST /TwoFactorAuth/Verify [AllowAnonymous]
     // -------------------------------------------------------------------------
 
