@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Two-Factor Authentication Setup — Jellyfin</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #101010;
+    color: #e0e0e0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    padding: 24px 16px 48px;
+    min-height: 100vh;
+  }
+
+  .page-header {
+    max-width: 720px;
+    margin: 0 auto 28px;
+  }
+
+  .page-header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #e0e0e0;
+    margin-bottom: 4px;
+  }
+
+  .page-header p { font-size: 13px; color: #888; }
+
+  .card {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 28px;
+    max-width: 720px;
+    margin: 0 auto 20px;
+  }
+
+  .card-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #e0e0e0;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 100px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .badge-success { background: rgba(76,175,80,0.15); color: #4caf50; border: 1px solid rgba(76,175,80,0.3); }
+  .badge-warning { background: rgba(255,152,0,0.15); color: #ff9800; border: 1px solid rgba(255,152,0,0.3); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 18px;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+  }
+
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: #00a4dc; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #0087b3; }
+  .btn-danger { background: rgba(244,67,54,0.15); color: #f44336; border: 1px solid rgba(244,67,54,0.3); }
+  .btn-danger:hover:not(:disabled) { background: rgba(244,67,54,0.25); }
+  .btn-ghost { background: #252525; color: #e0e0e0; border: 1px solid #444; }
+  .btn-ghost:hover:not(:disabled) { background: #2e2e2e; }
+  .btn-sm { padding: 5px 12px; font-size: 12px; }
+
+  .form-row { margin-bottom: 16px; }
+  label.field-label { display: block; font-size: 12px; color: #888; margin-bottom: 5px; }
+
+  input[type="text"], input[type="number"] {
+    width: 100%;
+    padding: 9px 12px;
+    background: #252525;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  input[type="text"]:focus, input[type="number"]:focus { border-color: #00a4dc; }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .status-text { font-size: 14px; color: #e0e0e0; flex: 1; }
+
+  .qr-section {
+    display: none;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid #333;
+  }
+
+  .qr-section.visible { display: block; }
+
+  .qr-wrapper {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+
+  .qr-image {
+    background: #fff;
+    padding: 12px;
+    border-radius: 8px;
+    width: 180px;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .qr-image img { width: 156px; height: 156px; image-rendering: pixelated; }
+
+  .qr-info { flex: 1; min-width: 200px; }
+
+  .qr-info p { font-size: 13px; color: #aaa; margin-bottom: 10px; line-height: 1.5; }
+
+  .manual-key-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #252525;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+  }
+
+  .manual-key {
+    flex: 1;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    letter-spacing: 2px;
+    color: #e0e0e0;
+    word-break: break-all;
+  }
+
+  .copy-btn {
+    background: none;
+    border: none;
+    color: #00a4dc;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  .copy-btn:hover { background: rgba(0,164,220,0.1); }
+
+  .confirm-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+
+  .confirm-row .form-row { margin-bottom: 0; flex: 1; min-width: 160px; }
+
+  .confirm-code-input {
+    padding: 9px 12px;
+    background: #252525;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 18px;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 4px;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+
+  .confirm-code-input:focus { border-color: #00a4dc; }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  thead th {
+    text-align: left;
+    padding: 8px 12px;
+    color: #888;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #333;
+  }
+
+  tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #2a2a2a;
+    vertical-align: middle;
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .empty-row td { text-align: center; color: #666; padding: 24px; font-style: italic; }
+
+  /* Device register */
+  .register-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+
+  .register-row input { flex: 1; min-width: 200px; }
+
+  /* Alert messages */
+  .alert {
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    margin-top: 12px;
+    display: none;
+  }
+
+  .alert-error { background: rgba(244,67,54,0.12); border: 1px solid rgba(244,67,54,0.4); color: #f44336; }
+  .alert-success { background: rgba(76,175,80,0.12); border: 1px solid rgba(76,175,80,0.4); color: #4caf50; }
+
+  .spinner-inline {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 4px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .chip {
+    display: inline-block;
+    padding: 2px 8px;
+    background: #252525;
+    border: 1px solid #444;
+    border-radius: 100px;
+    font-size: 11px;
+    color: #aaa;
+    font-family: 'Courier New', monospace;
+    word-break: break-all;
+  }
+
+  .loading-overlay {
+    text-align: center;
+    color: #666;
+    padding: 20px;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Two-Factor Authentication Setup</h1>
+  <p>Manage your 2FA settings and trusted devices</p>
+</div>
+
+<!-- Section 1: TOTP Setup -->
+<div class="card">
+  <div class="card-title">
+    Authenticator App (TOTP)
+    <span class="badge badge-warning" id="totpBadge">Not configured</span>
+  </div>
+
+  <div id="totpNotConfigured">
+    <p style="font-size:13px;color:#aaa;margin-bottom:16px;">
+      Use an authenticator app like Google Authenticator, Authy, or Bitwarden Authenticator.
+    </p>
+    <button class="btn btn-primary" id="setupTotpBtn" onclick="startTotpSetup()">Set Up Authenticator App</button>
+  </div>
+
+  <div id="totpConfigured" style="display:none;">
+    <div class="status-row">
+      <span class="status-text">Authenticator app is configured.</span>
+      <button class="btn btn-danger" onclick="disableTotp()">Disable 2FA</button>
+    </div>
+  </div>
+
+  <div class="qr-section" id="qrSection">
+    <div class="qr-wrapper">
+      <div class="qr-image">
+        <img id="qrImage" src="" alt="QR Code">
+      </div>
+      <div class="qr-info">
+        <p>Scan this QR code with your authenticator app, or enter the key manually.</p>
+        <label class="field-label">Manual entry key</label>
+        <div class="manual-key-container">
+          <span class="manual-key" id="manualKey">—</span>
+          <button class="copy-btn" onclick="copyKey()">Copy</button>
+        </div>
+        <p style="font-size:12px;color:#666;">Then enter the 6-digit code from your app below to confirm setup.</p>
+      </div>
+    </div>
+    <div class="confirm-row">
+      <div class="form-row">
+        <label class="field-label">Confirmation code</label>
+        <input class="confirm-code-input" id="confirmCode" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000">
+      </div>
+      <button class="btn btn-primary" onclick="confirmTotpSetup()">Confirm Setup</button>
+      <button class="btn btn-ghost" onclick="cancelSetup()">Cancel</button>
+    </div>
+    <div class="alert alert-error" id="totpSetupError"></div>
+    <div class="alert alert-success" id="totpSetupSuccess"></div>
+  </div>
+
+  <div class="alert alert-error" id="totpError"></div>
+</div>
+
+<!-- Section 2: Trusted Devices -->
+<div class="card">
+  <div class="card-title">Trusted Devices</div>
+  <div id="devicesLoading" class="loading-overlay">Loading devices...</div>
+  <div class="table-wrap" id="devicesTableWrap" style="display:none;">
+    <table>
+      <thead>
+        <tr>
+          <th>Device Name</th>
+          <th>Device ID</th>
+          <th>Added</th>
+          <th>Last Used</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="devicesBody">
+        <tr class="empty-row"><td colspan="5">No trusted devices found.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="alert alert-error" id="devicesError"></div>
+</div>
+
+<!-- Section 3: Registered Device IDs -->
+<div class="card">
+  <div class="card-title">Registered Device IDs</div>
+  <p style="font-size:13px;color:#aaa;margin-bottom:16px;">
+    Register device IDs (e.g., TV clients) that are permanently trusted for 2FA bypass.
+  </p>
+  <div class="register-row">
+    <input type="text" id="newDeviceId" placeholder="Enter device ID to register...">
+    <button class="btn btn-primary" onclick="registerDevice()">Register</button>
+  </div>
+  <div class="alert alert-error" id="regDeviceError"></div>
+  <div class="alert alert-success" id="regDeviceSuccess"></div>
+  <div id="regDevicesLoading" class="loading-overlay">Loading...</div>
+  <div class="table-wrap" id="regDevicesTableWrap" style="display:none;">
+    <table>
+      <thead>
+        <tr>
+          <th>Device ID</th>
+          <th>Registered</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="regDevicesBody">
+        <tr class="empty-row"><td colspan="3">No registered device IDs.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  function getAuthHeaders() {
+    try {
+      const credentials = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}');
+      const token = credentials.Servers?.[0]?.AccessToken || '';
+      return {
+        'Content-Type': 'application/json',
+        'X-Emby-Token': token
+      };
+    } catch (e) {
+      return { 'Content-Type': 'application/json' };
+    }
+  }
+
+  function apiFetch(url, options = {}) {
+    return fetch(url, {
+      ...options,
+      headers: {
+        ...getAuthHeaders(),
+        ...(options.headers || {})
+      }
+    });
+  }
+
+  function formatDate(str) {
+    if (!str) return '—';
+    try {
+      return new Date(str).toLocaleString();
+    } catch (e) { return str; }
+  }
+
+  function showAlert(id, msg, type) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = `alert alert-${type}`;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 5000);
+  }
+
+  // ---- TOTP ----
+
+  async function loadTotpStatus() {
+    try {
+      const res = await apiFetch('/TwoFactorAuth/Setup/Status');
+      if (res.ok) {
+        const data = await res.json();
+        setTotpConfigured(data.totpEnabled === true);
+      }
+    } catch (e) { /* ignore, default to not configured */ }
+  }
+
+  function setTotpConfigured(configured) {
+    const badge = document.getElementById('totpBadge');
+    document.getElementById('totpNotConfigured').style.display = configured ? 'none' : 'block';
+    document.getElementById('totpConfigured').style.display = configured ? 'block' : 'none';
+    badge.textContent = configured ? 'Configured' : 'Not configured';
+    badge.className = `badge ${configured ? 'badge-success' : 'badge-warning'}`;
+  }
+
+  async function startTotpSetup() {
+    const btn = document.getElementById('setupTotpBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-inline"></span>Loading...';
+    document.getElementById('totpError').style.display = 'none';
+    try {
+      const res = await apiFetch('/TwoFactorAuth/Setup/Totp', { method: 'POST' });
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+
+      document.getElementById('qrImage').src = 'data:image/png;base64,' + (data.qrCodeBase64 || '');
+      document.getElementById('manualKey').textContent = data.manualKey || '—';
+      document.getElementById('qrSection').classList.add('visible');
+      document.getElementById('confirmCode').value = '';
+      document.getElementById('confirmCode').focus();
+    } catch (e) {
+      showAlert('totpError', 'Failed to start TOTP setup. Please try again.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Set Up Authenticator App';
+    }
+  }
+
+  async function confirmTotpSetup() {
+    const code = document.getElementById('confirmCode').value.trim();
+    if (!/^\d{6}$/.test(code)) {
+      showAlert('totpSetupError', 'Please enter a valid 6-digit code.', 'error');
+      return;
+    }
+    try {
+      const res = await apiFetch('/TwoFactorAuth/Setup/Totp/Confirm', {
+        method: 'POST',
+        body: JSON.stringify({ code })
+      });
+      if (res.ok) {
+        showAlert('totpSetupSuccess', 'Authenticator app configured successfully!', 'success');
+        setTimeout(() => {
+          document.getElementById('qrSection').classList.remove('visible');
+          setTotpConfigured(true);
+        }, 1500);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showAlert('totpSetupError', data.message || 'Invalid code. Please try again.', 'error');
+      }
+    } catch (e) {
+      showAlert('totpSetupError', 'Network error. Please try again.', 'error');
+    }
+  }
+
+  function cancelSetup() {
+    document.getElementById('qrSection').classList.remove('visible');
+    document.getElementById('totpSetupError').style.display = 'none';
+    document.getElementById('totpSetupSuccess').style.display = 'none';
+  }
+
+  async function disableTotp() {
+    if (!confirm('Are you sure you want to disable Two-Factor Authentication? This will remove the TOTP configuration from your account.')) return;
+    try {
+      const res = await apiFetch('/TwoFactorAuth/Setup/Disable', { method: 'POST' });
+      if (res.ok) {
+        setTotpConfigured(false);
+      } else {
+        showAlert('totpError', 'Failed to disable 2FA. Please try again.', 'error');
+      }
+    } catch (e) {
+      showAlert('totpError', 'Network error. Please try again.', 'error');
+    }
+  }
+
+  function copyKey() {
+    const key = document.getElementById('manualKey').textContent;
+    navigator.clipboard.writeText(key).then(() => {
+      const btn = event.target;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+    }).catch(() => {
+      prompt('Copy this key:', key);
+    });
+  }
+
+  // ---- Trusted Devices ----
+
+  async function loadDevices() {
+    document.getElementById('devicesLoading').style.display = 'block';
+    document.getElementById('devicesTableWrap').style.display = 'none';
+    try {
+      const res = await apiFetch('/TwoFactorAuth/Devices');
+      if (!res.ok) throw new Error('Failed');
+      const devices = await res.json();
+      renderDevicesTable(devices);
+    } catch (e) {
+      showAlert('devicesError', 'Failed to load trusted devices.', 'error');
+    } finally {
+      document.getElementById('devicesLoading').style.display = 'none';
+      document.getElementById('devicesTableWrap').style.display = 'block';
+    }
+  }
+
+  function renderDevicesTable(devices) {
+    const tbody = document.getElementById('devicesBody');
+    if (!devices || devices.length === 0) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No trusted devices found.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = devices.map(d => `
+      <tr>
+        <td>${escHtml(d.deviceName || d.name || '—')}</td>
+        <td><span class="chip">${escHtml(d.deviceId || d.id || '—')}</span></td>
+        <td>${formatDate(d.createdAt || d.added)}</td>
+        <td>${formatDate(d.lastUsedAt || d.lastUsed)}</td>
+        <td>
+          <button class="btn btn-danger btn-sm" onclick="revokeDevice(${JSON.stringify(d.id || d.deviceId)})">Revoke</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function revokeDevice(id) {
+    if (!confirm('Revoke this trusted device? It will need to complete 2FA on next login.')) return;
+    try {
+      const res = await apiFetch(`/TwoFactorAuth/Devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (res.ok) {
+        loadDevices();
+      } else {
+        showAlert('devicesError', 'Failed to revoke device.', 'error');
+      }
+    } catch (e) {
+      showAlert('devicesError', 'Network error. Please try again.', 'error');
+    }
+  }
+
+  // ---- Registered Device IDs ----
+
+  async function loadRegisteredDevices() {
+    document.getElementById('regDevicesLoading').style.display = 'block';
+    document.getElementById('regDevicesTableWrap').style.display = 'none';
+    try {
+      const res = await apiFetch('/TwoFactorAuth/Devices/Registered');
+      if (!res.ok) throw new Error('Failed');
+      const devices = await res.json();
+      renderRegisteredDevices(devices);
+    } catch (e) {
+      // Non-critical, hide loader silently
+    } finally {
+      document.getElementById('regDevicesLoading').style.display = 'none';
+      document.getElementById('regDevicesTableWrap').style.display = 'block';
+    }
+  }
+
+  function renderRegisteredDevices(devices) {
+    const tbody = document.getElementById('regDevicesBody');
+    if (!devices || devices.length === 0) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="3">No registered device IDs.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = devices.map(d => `
+      <tr>
+        <td><span class="chip">${escHtml(d.deviceId || d.id || d)}</span></td>
+        <td>${formatDate(d.registeredAt || d.created)}</td>
+        <td>
+          <button class="btn btn-danger btn-sm" onclick="removeRegisteredDevice(${JSON.stringify(d.id || d.deviceId || d)})">Remove</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function registerDevice() {
+    const deviceId = document.getElementById('newDeviceId').value.trim();
+    if (!deviceId) {
+      showAlert('regDeviceError', 'Please enter a device ID.', 'error');
+      return;
+    }
+    try {
+      const res = await apiFetch('/TwoFactorAuth/Devices/Register', {
+        method: 'POST',
+        body: JSON.stringify({ deviceId })
+      });
+      if (res.ok) {
+        document.getElementById('newDeviceId').value = '';
+        showAlert('regDeviceSuccess', 'Device ID registered successfully.', 'success');
+        loadRegisteredDevices();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showAlert('regDeviceError', data.message || 'Failed to register device ID.', 'error');
+      }
+    } catch (e) {
+      showAlert('regDeviceError', 'Network error. Please try again.', 'error');
+    }
+  }
+
+  async function removeRegisteredDevice(id) {
+    if (!confirm('Remove this registered device ID?')) return;
+    try {
+      const res = await apiFetch(`/TwoFactorAuth/Devices/Register/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (res.ok) {
+        loadRegisteredDevices();
+      } else {
+        showAlert('regDeviceError', 'Failed to remove device ID.', 'error');
+      }
+    } catch (e) {
+      showAlert('regDeviceError', 'Network error.', 'error');
+    }
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  document.getElementById('confirmCode').addEventListener('input', (e) => {
+    e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+  });
+
+  document.getElementById('confirmCode').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmTotpSetup();
+  });
+
+  document.getElementById('newDeviceId').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') registerDevice();
+  });
+
+  // Init
+  loadTotpStatus();
+  loadDevices();
+  loadRegisteredDevices();
+</script>
+</body>
+</html>
