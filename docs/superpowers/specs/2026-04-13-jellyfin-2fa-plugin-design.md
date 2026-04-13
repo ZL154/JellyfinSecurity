@@ -81,7 +81,7 @@ The challenge page:
 - On successful verification, redirects the user back to the Jellyfin web UI with the issued session token set.
 - Styled to match Jellyfin's native look and feel (dark theme, same fonts).
 
-For web clients, when auth fails with `twoFactorRequired: true`, the response includes `challengePageUrl`. The web client's login error handler can be guided to redirect to this URL. If a client does not understand the redirect, the user sees a standard auth failure — they can then use device pairing or trusted device registration as alternative paths.
+For web clients, when auth fails with `twoFactorRequired: true`, the response includes `challengePageUrl`. The plugin registers middleware that detects the 2FA auth failure response and sends an HTTP 302 redirect to the challenge page URL — this works transparently for web browsers without any client-side JS modification. Non-browser clients (mobile apps, API consumers) receive the JSON response directly and can either handle it programmatically or rely on device pairing / trusted device tokens for subsequent logins.
 
 ---
 
