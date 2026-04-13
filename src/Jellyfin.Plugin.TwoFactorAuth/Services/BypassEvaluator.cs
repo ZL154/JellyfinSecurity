@@ -1,0 +1,206 @@
+using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
+using Jellyfin.Plugin.TwoFactorAuth.Models;
+using Microsoft.Extensions.Logging;
+
+namespace Jellyfin.Plugin.TwoFactorAuth.Services;
+
+public record BypassResult(bool IsBypassed, string? Reason)
+{
+    public static BypassResult Bypassed(string reason) => new(true, reason);
+    public static BypassResult NotBypassed => new(false, null);
+}
+
+public class BypassEvaluator
+{
+    private readonly ILogger<BypassEvaluator> _logger;
+
+    public BypassEvaluator(ILogger<BypassEvaluator> logger)
+    {
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Evaluates whether the incoming request should bypass 2FA. First match wins.
+    /// Order: API key -> LAN -> trusted device token -> registered device ID.
+    /// </summary>
+    public BypassResult Evaluate(
+        string? remoteIp,
+        string? forwardedFor,
+        string? twoFactorToken,
+        string? deviceId,
+        string? embyToken,
+        List<TrustedDevice> trustedDevices,
+        List<string> registeredDeviceIds,
+        IReadOnlyList<Models.ApiKeyEntry> apiKeys)
+    {
+        // 1. API key check
+        if (!string.IsNullOrWhiteSpace(embyToken))
+        {
+            foreach (var apiKey in apiKeys)
+            {
+                if (string.Equals(embyToken, apiKey.Key, StringComparison.Ordinal))
+                {
+                    _logger.LogDebug("Bypass granted via API key");
+                    return BypassResult.Bypassed("apikey");
+                }
+            }
+        }
+
+        // 2. LAN bypass
+        var config = Plugin.Instance?.Configuration;
+        if (config is { LanBypassEnabled: true })
+        {
+            string? ipToCheck = remoteIp;
+
+            if (config.TrustForwardedFor && !string.IsNullOrWhiteSpace(forwardedFor))
+            {
+                // Verify the direct requester is a trusted proxy before trusting X-Forwarded-For
+                var remoteIsTrustedProxy = false;
+                if (!string.IsNullOrWhiteSpace(remoteIp))
+                {
+                    foreach (var proxyCidr in config.TrustedProxyCidrs)
+                    {
+                        if (IsIpInCidr(remoteIp, proxyCidr))
+                        {
+                            remoteIsTrustedProxy = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (remoteIsTrustedProxy)
+                {
+                    // Use the first (leftmost) IP from X-Forwarded-For as the real client IP
+                    var parts = forwardedFor.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length > 0)
+                    {
+                        ipToCheck = parts[0];
+                    }
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(ipToCheck))
+            {
+                foreach (var cidr in config.LanBypassCidrs)
+                {
+                    if (IsIpInCidr(ipToCheck, cidr))
+                    {
+                        _logger.LogDebug("Bypass granted via LAN for IP {Ip}", ipToCheck);
+                        return BypassResult.Bypassed("lan");
+                    }
+                }
+            }
+        }
+
+        // 3. Trusted device token
+        if (!string.IsNullOrWhiteSpace(twoFactorToken) && !string.IsNullOrWhiteSpace(deviceId))
+        {
+            var submittedHash = DeviceTokenService.HashToken(twoFactorToken);
+            var submittedHashBytes = Encoding.UTF8.GetBytes(submittedHash);
+
+            foreach (var device in trustedDevices)
+            {
+                if (!string.Equals(device.DeviceId, deviceId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var storedHashBytes = Encoding.UTF8.GetBytes(device.TokenHash);
+                if (CryptographicOperations.FixedTimeEquals(submittedHashBytes, storedHashBytes))
+                {
+                    _logger.LogDebug("Bypass granted via trusted device token for device {DeviceId}", deviceId);
+                    return BypassResult.Bypassed("trusted_device");
+                }
+            }
+        }
+
+        // 4. Registered device ID
+        if (!string.IsNullOrWhiteSpace(deviceId) && registeredDeviceIds.Contains(deviceId))
+        {
+            _logger.LogDebug("Bypass granted via registered device ID {DeviceId}", deviceId);
+            return BypassResult.Bypassed("registered_device");
+        }
+
+        return BypassResult.NotBypassed;
+    }
+
+    /// <summary>
+    /// Checks whether the given IP address falls within the specified CIDR range.
+    /// Supports both IPv4 and IPv6.
+    /// </summary>
+    internal static bool IsIpInCidr(string ip, string cidr)
+    {
+        var slashIndex = cidr.IndexOf('/', StringComparison.Ordinal);
+        if (slashIndex < 0)
+        {
+            // Treat as a host address with no mask
+            return string.Equals(ip, cidr, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var networkStr = cidr[..slashIndex];
+        var prefixLenStr = cidr[(slashIndex + 1)..];
+
+        if (!int.TryParse(prefixLenStr, out var prefixLength))
+        {
+            return false;
+        }
+
+        if (!IPAddress.TryParse(ip, out var ipAddr) ||
+            !IPAddress.TryParse(networkStr, out var networkAddr))
+        {
+            return false;
+        }
+
+        // Normalize IPv4-mapped IPv6 addresses to plain IPv4
+        if (ipAddr.IsIPv4MappedToIPv6)
+        {
+            ipAddr = ipAddr.MapToIPv4();
+        }
+
+        if (networkAddr.IsIPv4MappedToIPv6)
+        {
+            networkAddr = networkAddr.MapToIPv4();
+        }
+
+        var ipBytes = ipAddr.GetAddressBytes();
+        var networkBytes = networkAddr.GetAddressBytes();
+
+        if (ipBytes.Length != networkBytes.Length)
+        {
+            return false;
+        }
+
+        return MaskedEquals(ipBytes, networkBytes, prefixLength);
+    }
+
+    private static bool MaskedEquals(byte[] a, byte[] b, int prefixLength)
+    {
+        var fullBytes = prefixLength / 8;
+        var remainingBits = prefixLength % 8;
+
+        // Check full bytes
+        for (var i = 0; i < fullBytes && i < a.Length; i++)
+        {
+            if (a[i] != b[i])
+            {
+                return false;
+            }
+        }
+
+        // Check partial byte
+        if (remainingBits > 0 && fullBytes < a.Length)
+        {
+            var mask = (byte)(0xFF << (8 - remainingBits));
+            if ((a[fullBytes] & mask) != (b[fullBytes] & mask))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}
