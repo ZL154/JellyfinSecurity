@@ -5,15 +5,14 @@
     "description": "Native two-factor authentication for Jellyfin with TOTP, email OTP, device pairing, and trusted device support.",
     "overview": "Server-side 2FA that works with all clients — web, mobile, TV, and service integrations.",
     "owner": "ZL154",
-    "category": "Authentication",
+    "category": "General",
     "versions": [
       {
-        "version": "1.0.0.0",
+        "version": "1.0.0",
         "changelog": "Initial release. TOTP (RFC 6238), email OTP fallback, trusted device tokens, TV device pairing, LAN bypass, API key bypass, brute force protection, push notifications (ntfy/Gotify), audit logging, admin dashboard.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/Jellyfin2FA/releases/download/v1.0.0/Jellyfin.Plugin.TwoFactorAuthv1.0.0.zip",
-        "checksum": "E2E2BAC16DB83E044B7415DF55CA41C9",
-        "timestamp": "2026-04-13T00:00:00Z"
+        "checksum": "F8E4F0D243BA32F8BA126513D44BD470"
       }
     ]
   }
