@@ -22,7 +22,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public override string Description => "Native two-factor authentication for Jellyfin with TOTP, email OTP, device pairing, and trusted device support.";
 
-    public override Guid Id => new("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+    public override Guid Id => new("94879a0c-da24-4eb1-aa06-f28b4b9333b1");
 
     public IEnumerable<PluginPageInfo> GetPages()
     {
