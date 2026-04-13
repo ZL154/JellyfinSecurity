@@ -2,11 +2,11 @@
   "Name": "Two-Factor Authentication",
   "Description": "Native two-factor authentication for Jellyfin with TOTP, email OTP, device pairing, and trusted device support.",
   "Guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "Version": "1.0.0.0",
+  "Version": "1.0.0",
   "TargetAbi": "10.11.0.0",
   "Owner": "ZL154",
   "Overview": "Server-side 2FA that works with all clients — web, mobile, TV, and service integrations.",
-  "Category": "Authentication",
+  "Category": "General",
   "Assemblies": [
     "Jellyfin.Plugin.TwoFactorAuth.dll",
     "Otp.NET.dll",
