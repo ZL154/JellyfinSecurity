@@ -49,9 +49,14 @@ public class TwoFactorEnforcementMiddleware
             return;
         }
 
+        _logger.LogInformation("[2FA] Intercepted auth request from {Ip} (XFF: {Xff})",
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            context.Request.Headers["X-Forwarded-For"].FirstOrDefault() ?? "(none)");
+
         var config = Plugin.Instance?.Configuration;
         if (config is null || !config.Enabled)
         {
+            _logger.LogInformation("[2FA] Plugin disabled in config — passing through");
             await _next(context).ConfigureAwait(false);
             return;
         }
@@ -92,8 +97,12 @@ public class TwoFactorEnforcementMiddleware
             }
 
             var userData = await _store.GetUserDataAsync(authResult.User.Id).ConfigureAwait(false);
+            _logger.LogInformation("[2FA] User {Name} (id={Id}) TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
+                authResult.User.Name, authResult.User.Id, userData.TotpEnabled, userData.TotpVerified, config.RequireForAllUsers);
+
             if (!userData.TotpEnabled && !config.RequireForAllUsers)
             {
+                _logger.LogInformation("[2FA] User has no 2FA and RequireForAllUsers=false — passing through");
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
                 return;
             }
@@ -118,6 +127,8 @@ public class TwoFactorEnforcementMiddleware
 
             if (bypass.IsBypassed)
             {
+                _logger.LogWarning("[2FA] Bypass triggered for {Name} from {Ip} (reason={Reason}) — login allowed without 2FA",
+                    authResult.User.Name, remoteIp, bypass.Reason);
                 await _store.AddAuditEntryAsync(new AuditEntry
                 {
                     Timestamp = DateTime.UtcNow,
@@ -132,6 +143,9 @@ public class TwoFactorEnforcementMiddleware
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
                 return;
             }
+
+            _logger.LogInformation("[2FA] Issuing challenge for {Name} from {Ip} (methods={Methods})",
+                authResult.User.Name, remoteIp, string.Join(",", new[] { userData.TotpVerified ? "totp" : null, config.EmailOtpEnabled ? "email" : null }.Where(s => s != null)));
 
             var methods = new List<string>();
             if (userData.TotpVerified)
