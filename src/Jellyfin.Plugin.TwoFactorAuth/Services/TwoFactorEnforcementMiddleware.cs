@@ -43,6 +43,18 @@ public class TwoFactorEnforcementMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
+        // Diagnostic: log every POST request path so we can find the actual auth endpoint
+        if (HttpMethods.IsPost(context.Request.Method))
+        {
+            var path = context.Request.Path.Value ?? string.Empty;
+            if (path.Contains("authent", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("login", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("user", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation("[2FA-DIAG] POST {Path}", path);
+            }
+        }
+
         if (!IsAuthRequest(context))
         {
             await _next(context).ConfigureAwait(false);
@@ -209,8 +221,20 @@ public class TwoFactorEnforcementMiddleware
 
     private static bool IsAuthRequest(HttpContext context)
     {
-        return HttpMethods.IsPost(context.Request.Method)
-            && context.Request.Path.Equals(AuthPath, StringComparison.OrdinalIgnoreCase);
+        if (!HttpMethods.IsPost(context.Request.Method))
+        {
+            return false;
+        }
+
+        var path = context.Request.Path.Value;
+        if (string.IsNullOrEmpty(path))
+        {
+            return false;
+        }
+
+        // Match /Users/AuthenticateByName with optional /api prefix, case-insensitive
+        return path.EndsWith("/Users/AuthenticateByName", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith("/Users/authenticate", StringComparison.OrdinalIgnoreCase);
     }
 
     private static AuthResult? ParseAuthResult(byte[] body)
