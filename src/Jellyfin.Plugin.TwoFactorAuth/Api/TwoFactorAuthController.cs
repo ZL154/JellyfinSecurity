@@ -91,6 +91,27 @@ public class TwoFactorAuthController : ControllerBase
         return ServeEmbeddedPage("setup.html");
     }
 
+    // -------------------------------------------------------------------------
+    // GET /TwoFactorAuth/inject.js — script injected into Jellyfin web UI
+    // -------------------------------------------------------------------------
+
+    [HttpGet("inject.js")]
+    [AllowAnonymous]
+    public IActionResult GetInjectScript()
+    {
+        var assembly = typeof(Plugin).Assembly;
+        var resourceName = $"{typeof(Plugin).Namespace}.Pages.inject.js";
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null)
+        {
+            return NotFound();
+        }
+
+        using var reader = new System.IO.StreamReader(stream);
+        var js = reader.ReadToEnd();
+        return Content(js, "application/javascript; charset=utf-8");
+    }
+
     private IActionResult ServeEmbeddedPage(string filename)
     {
         var assembly = typeof(Plugin).Assembly;
@@ -181,14 +202,6 @@ public class TwoFactorAuthController : ControllerBase
             Method = request.Method,
         }).ConfigureAwait(false);
 
-        // Generate a placeholder access token. Real Jellyfin session integration
-        // should replace this with an authenticated session token from ISessionManager.
-        var accessTokenBytes = RandomNumberGenerator.GetBytes(32);
-        var accessToken = Convert.ToBase64String(accessTokenBytes)
-            .Replace('+', '-')
-            .Replace('/', '_')
-            .TrimEnd('=');
-
         string? deviceToken = null;
         if (request.TrustDevice && !string.IsNullOrEmpty(challenge.DeviceId))
         {
@@ -203,9 +216,23 @@ public class TwoFactorAuthController : ControllerBase
             deviceToken = rawToken;
         }
 
+        // Return the stashed Jellyfin auth response from the middleware so the
+        // client ends up with a valid session identical to a non-2FA login.
+        if (!string.IsNullOrEmpty(challenge.PendingAuthResponse))
+        {
+            Response.ContentType = "application/json";
+            if (deviceToken is not null)
+            {
+                Response.Headers.Append("X-TwoFactor-Device-Token", deviceToken);
+            }
+
+            return Content(challenge.PendingAuthResponse, "application/json");
+        }
+
+        // Fallback when middleware didn't stash a response (manual Verify call)
         return Ok(new VerifyResponse
         {
-            AccessToken = accessToken,
+            AccessToken = string.Empty,
             DeviceToken = deviceToken,
         });
     }

@@ -1,410 +1,290 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Two-Factor Authentication — Jellyfin</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  body {
-    background: #101010;
-    color: #e0e0e0;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px;
-  }
-
-  .card {
-    background: #1a1a1a;
-    border: 1px solid #333;
-    border-radius: 8px;
-    padding: 40px 36px;
-    width: 100%;
-    max-width: 400px;
-  }
-
-  .logo {
-    text-align: center;
-    margin-bottom: 8px;
-  }
-
-  .logo-text {
-    font-size: 28px;
-    font-weight: 700;
-    color: #00a4dc;
-    letter-spacing: 1px;
-  }
-
-  .subtitle {
-    text-align: center;
-    color: #aaa;
-    font-size: 14px;
-    margin-bottom: 32px;
-  }
-
-  .method-tabs {
-    display: flex;
-    gap: 0;
-    margin-bottom: 24px;
-    border: 1px solid #444;
-    border-radius: 4px;
-    overflow: hidden;
-  }
-
-  .method-tab {
-    flex: 1;
-    padding: 9px 12px;
-    background: #252525;
-    border: none;
-    color: #aaa;
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-    border-right: 1px solid #444;
-  }
-
-  .method-tab:last-child { border-right: none; }
-
-  .method-tab.active {
-    background: #00a4dc;
-    color: #fff;
-    font-weight: 600;
-  }
-
-  .method-tab:not(.active):hover { background: #2e2e2e; color: #e0e0e0; }
-
-  .form-group { margin-bottom: 20px; }
-
-  label {
-    display: block;
-    font-size: 13px;
-    color: #aaa;
-    margin-bottom: 6px;
-  }
-
-  .code-input {
-    width: 100%;
-    padding: 14px 16px;
-    background: #252525;
-    border: 1px solid #444;
-    border-radius: 4px;
-    color: #fff;
-    font-size: 28px;
-    font-family: 'Courier New', Courier, monospace;
-    letter-spacing: 10px;
-    text-align: center;
-    outline: none;
-    transition: border-color 0.15s;
-  }
-
-  .code-input:focus { border-color: #00a4dc; }
-
-  .code-input::placeholder { letter-spacing: 4px; font-size: 22px; color: #555; }
-
-  .send-email-btn {
-    width: 100%;
-    padding: 10px;
-    background: #252525;
-    border: 1px solid #444;
-    border-radius: 4px;
-    color: #e0e0e0;
-    font-size: 14px;
-    font-family: inherit;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-    margin-bottom: 20px;
-  }
-
-  .send-email-btn:hover:not(:disabled) { background: #2e2e2e; border-color: #00a4dc; }
-  .send-email-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .checkbox-group {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 24px;
-    cursor: pointer;
-    user-select: none;
-  }
-
-  .checkbox-group input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
-    accent-color: #00a4dc;
-    cursor: pointer;
-  }
-
-  .checkbox-group span { font-size: 13px; color: #aaa; }
-
-  .btn-primary {
-    width: 100%;
-    padding: 13px;
-    background: #00a4dc;
-    border: none;
-    border-radius: 4px;
-    color: #fff;
-    font-size: 15px;
-    font-weight: 600;
-    font-family: inherit;
-    cursor: pointer;
-    transition: background 0.15s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-  }
-
-  .btn-primary:hover:not(:disabled) { background: #0087b3; }
-  .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-
-  .error-msg {
-    display: none;
-    background: rgba(244, 67, 54, 0.12);
-    border: 1px solid rgba(244, 67, 54, 0.4);
-    color: #f44336;
-    border-radius: 4px;
-    padding: 10px 14px;
-    font-size: 13px;
-    margin-top: 16px;
-    text-align: center;
-  }
-
-  .success-msg {
-    display: none;
-    background: rgba(76, 175, 80, 0.12);
-    border: 1px solid rgba(76, 175, 80, 0.4);
-    color: #4caf50;
-    border-radius: 4px;
-    padding: 10px 14px;
-    font-size: 13px;
-    margin-top: 16px;
-    text-align: center;
-  }
-
-  .spinner {
-    width: 18px;
-    height: 18px;
-    border: 2px solid rgba(255,255,255,0.3);
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    display: none;
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .hidden { display: none !important; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Two-Factor Authentication</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: linear-gradient(135deg, #0a0a0a 0%, #151515 100%);
+            color: #e0e0e0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .card {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 36px 32px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        .logo {
+            text-align: center;
+            color: #00a4dc;
+            font-size: 26px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            letter-spacing: 0.5px;
+        }
+        h1 { text-align: center; font-size: 15px; font-weight: 400; color: #888; margin-bottom: 28px; }
+        .method-tabs { display: flex; gap: 0; margin-bottom: 20px; background: #0a0a0a; border-radius: 6px; padding: 4px; }
+        .method-tab {
+            flex: 1;
+            padding: 8px;
+            text-align: center;
+            cursor: pointer;
+            color: #888;
+            font-size: 13px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .method-tab.active { background: #00a4dc; color: #fff; font-weight: 500; }
+        .method-tab:not(.active):hover { color: #ccc; }
+        label { display: block; color: #888; font-size: 12px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .code-input {
+            width: 100%;
+            background: #252525;
+            border: 2px solid #333;
+            color: #e0e0e0;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 24px;
+            text-align: center;
+            letter-spacing: 12px;
+            margin-bottom: 16px;
+            transition: border-color 0.2s;
+        }
+        .code-input:focus { border-color: #00a4dc; outline: none; }
+        .code-input::placeholder { color: #444; letter-spacing: 12px; }
+        .trust-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 12px 0 20px;
+            font-size: 14px;
+            color: #ccc;
+            cursor: pointer;
+        }
+        .trust-row input { width: 16px; height: 16px; cursor: pointer; }
+        button {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: #00a4dc; color: #fff; }
+        .btn-primary:hover { background: #0087b3; }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-secondary {
+            background: transparent;
+            color: #888;
+            border: 1px solid #333;
+            margin-top: 8px;
+            font-size: 13px;
+            padding: 10px;
+        }
+        .btn-secondary:hover { color: #ccc; border-color: #555; }
+        .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .error { color: #f44336; font-size: 13px; margin-bottom: 12px; text-align: center; display: none; padding: 8px; background: rgba(244,67,54,0.1); border-radius: 4px; }
+        .error.show { display: block; }
+        .hint { color: #666; font-size: 12px; text-align: center; margin-top: 16px; }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: -2px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
 </head>
 <body>
-<div class="card">
-  <div class="logo">
-    <div class="logo-text">Jellyfin</div>
-  </div>
-  <div class="subtitle">Two-Factor Authentication</div>
+    <div class="card">
+        <div class="logo">Jellyfin</div>
+        <h1>Two-Factor Authentication</h1>
 
-  <div class="method-tabs" id="methodTabs">
-    <button class="method-tab active" data-method="totp" onclick="selectMethod('totp')">Authenticator App</button>
-    <button class="method-tab" data-method="email" onclick="selectMethod('email')">Email Code</button>
-  </div>
+        <div class="method-tabs" id="methodTabs" style="display:none;">
+            <div class="method-tab active" data-method="totp">Authenticator</div>
+            <div class="method-tab" data-method="email">Email</div>
+        </div>
 
-  <div id="emailSection" class="hidden">
-    <button class="send-email-btn" id="sendEmailBtn" onclick="sendEmailCode()">Send Email Code</button>
-  </div>
+        <div class="error" id="errorMsg"></div>
 
-  <div class="form-group">
-    <label for="codeInput">Enter 6-digit code</label>
-    <input
-      id="codeInput"
-      class="code-input"
-      type="text"
-      inputmode="numeric"
-      pattern="[0-9]*"
-      maxlength="6"
-      placeholder="------"
-      autocomplete="one-time-code"
-      autofocus
-    >
-  </div>
+        <label id="codeLabel">Enter the 6-digit code</label>
+        <input type="text" id="codeInput" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code" autofocus />
 
-  <label class="checkbox-group">
-    <input type="checkbox" id="trustDevice">
-    <span>Trust this device for 30 days</span>
-  </label>
+        <label class="trust-row">
+            <input type="checkbox" id="trustDevice" />
+            <span>Trust this device (skip 2FA for future logins)</span>
+        </label>
 
-  <button class="btn-primary" id="verifyBtn" onclick="verify()">
-    <span class="spinner" id="spinner"></span>
-    <span id="verifyBtnText">Verify</span>
-  </button>
+        <button class="btn-primary" id="btnVerify">Verify</button>
+        <button class="btn-secondary" id="btnSendEmail" style="display:none;">Send code by email</button>
 
-  <div class="error-msg" id="errorMsg"></div>
-  <div class="success-msg" id="successMsg"></div>
-</div>
+        <p class="hint">Codes rotate every 30 seconds.</p>
+    </div>
 
-<script>
-  const params = new URLSearchParams(window.location.search);
-  const challengeToken = params.get('token') || '';
-  let selectedMethod = 'totp';
+    <script>
+        var params = new URLSearchParams(window.location.search);
+        var challengeToken = params.get('token');
+        var returnUrl = params.get('return') || '/web/index.html';
+        var currentMethod = 'totp';
+        var availableMethods = ['totp'];
 
-  function selectMethod(method) {
-    selectedMethod = method;
-    document.querySelectorAll('.method-tab').forEach(t => {
-      t.classList.toggle('active', t.dataset.method === method);
-    });
-    const emailSection = document.getElementById('emailSection');
-    if (method === 'email') {
-      emailSection.classList.remove('hidden');
-    } else {
-      emailSection.classList.add('hidden');
-    }
-    hideMessages();
-    document.getElementById('codeInput').focus();
-  }
+        if (!challengeToken) {
+            showError('No challenge token. Return to login.');
+            document.getElementById('btnVerify').disabled = true;
+        }
 
-  function showError(msg) {
-    const el = document.getElementById('errorMsg');
-    el.textContent = msg;
-    el.style.display = 'block';
-    document.getElementById('successMsg').style.display = 'none';
-  }
+        function showError(msg) {
+            var el = document.getElementById('errorMsg');
+            el.textContent = msg;
+            el.classList.add('show');
+        }
+        function clearError() { document.getElementById('errorMsg').classList.remove('show'); }
 
-  function showSuccess(msg) {
-    const el = document.getElementById('successMsg');
-    el.textContent = msg;
-    el.style.display = 'block';
-    document.getElementById('errorMsg').style.display = 'none';
-  }
+        function setMethod(method) {
+            currentMethod = method;
+            document.querySelectorAll('.method-tab').forEach(function(t) {
+                t.classList.toggle('active', t.dataset.method === method);
+            });
+            document.getElementById('btnSendEmail').style.display = method === 'email' ? 'block' : 'none';
+            document.getElementById('codeLabel').textContent = method === 'email' ? 'Enter the 6-digit code sent to your email' : 'Enter the 6-digit code from your authenticator app';
+        }
 
-  function hideMessages() {
-    document.getElementById('errorMsg').style.display = 'none';
-    document.getElementById('successMsg').style.display = 'none';
-  }
+        document.querySelectorAll('.method-tab').forEach(function(tab) {
+            tab.addEventListener('click', function() { setMethod(tab.dataset.method); });
+        });
 
-  function setLoading(loading) {
-    const btn = document.getElementById('verifyBtn');
-    const spinner = document.getElementById('spinner');
-    const btnText = document.getElementById('verifyBtnText');
-    btn.disabled = loading;
-    spinner.style.display = loading ? 'block' : 'none';
-    btnText.textContent = loading ? 'Verifying...' : 'Verify';
-  }
+        document.getElementById('codeInput').addEventListener('input', function(e) {
+            e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+            clearError();
+        });
+        document.getElementById('codeInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') document.getElementById('btnVerify').click();
+        });
 
-  async function sendEmailCode() {
-    const btn = document.getElementById('sendEmailBtn');
-    btn.disabled = true;
-    btn.textContent = 'Sending...';
-    hideMessages();
-    try {
-      const res = await fetch('/TwoFactorAuth/Email/Send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ challengeToken })
-      });
-      if (res.ok) {
-        showSuccess('Email code sent. Please check your inbox.');
-        btn.textContent = 'Resend Email Code';
-        let countdown = 30;
-        const interval = setInterval(() => {
-          countdown--;
-          btn.textContent = `Resend in ${countdown}s`;
-          if (countdown <= 0) {
-            clearInterval(interval);
-            btn.textContent = 'Resend Email Code';
-            btn.disabled = false;
-          }
-        }, 1000);
-      } else {
-        showError('Failed to send email code. Please try again.');
-        btn.disabled = false;
-        btn.textContent = 'Send Email Code';
-      }
-    } catch (e) {
-      showError('Network error. Please try again.');
-      btn.disabled = false;
-      btn.textContent = 'Send Email Code';
-    }
-  }
+        document.getElementById('btnSendEmail').addEventListener('click', function() {
+            var btn = document.getElementById('btnSendEmail');
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+            fetch('/TwoFactorAuth/Email/Send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ challengeToken: challengeToken })
+            }).then(function(r) {
+                if (r.ok) {
+                    btn.textContent = 'Code sent — check your email';
+                    setTimeout(function() { btn.disabled = false; btn.textContent = 'Resend email code'; }, 30000);
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = 'Send code by email';
+                    showError('Failed to send email code. Too many requests?');
+                }
+            }).catch(function() {
+                btn.disabled = false;
+                btn.textContent = 'Send code by email';
+                showError('Network error.');
+            });
+        });
 
-  async function verify() {
-    const code = document.getElementById('codeInput').value.trim();
-    const trustDevice = document.getElementById('trustDevice').checked;
-    hideMessages();
-
-    if (!/^\d{6}$/.test(code)) {
-      showError('Please enter a valid 6-digit code.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await fetch('/TwoFactorAuth/Verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          challengeToken,
-          code,
-          method: selectedMethod,
-          trustDevice
-        })
-      });
-
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        showSuccess('Verified! Redirecting...');
-
-        if (data.accessToken) {
-          try {
-            const existing = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}');
-            if (existing.Servers && existing.Servers.length > 0) {
-              existing.Servers[0].AccessToken = data.accessToken;
+        document.getElementById('btnVerify').addEventListener('click', function() {
+            var code = document.getElementById('codeInput').value.trim();
+            if (!/^\d{6}$/.test(code)) {
+                showError('Enter the 6-digit code.');
+                return;
             }
-            localStorage.setItem('jellyfin_credentials', JSON.stringify(existing));
-          } catch (e) { /* ignore */ }
+            clearError();
+            var btn = document.getElementById('btnVerify');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Verifying...';
+
+            fetch('/TwoFactorAuth/Verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    challengeToken: challengeToken,
+                    code: code,
+                    method: currentMethod,
+                    trustDevice: document.getElementById('trustDevice').checked
+                })
+            }).then(function(r) {
+                if (!r.ok) {
+                    btn.disabled = false;
+                    btn.textContent = 'Verify';
+                    if (r.status === 429) showError('Too many attempts. Please wait and try again.');
+                    else showError('Invalid code. Try again.');
+                    return null;
+                }
+                var deviceToken = r.headers.get('X-TwoFactor-Device-Token');
+                if (deviceToken) {
+                    try { localStorage.setItem('twofactor_device_token', deviceToken); } catch (e) {}
+                }
+                return r.json();
+            }).then(function(authData) {
+                if (!authData) return;
+                storeCredentials(authData).then(function() {
+                    window.location.href = returnUrl;
+                });
+            }).catch(function() {
+                btn.disabled = false;
+                btn.textContent = 'Verify';
+                showError('Network error. Try again.');
+            });
+        });
+
+        function storeCredentials(authData) {
+            // authData is the full Jellyfin AuthenticateByName response:
+            // { AccessToken, SessionInfo, User, ServerId }
+            return fetch('/System/Info/Public').then(function(r) { return r.ok ? r.json() : null; }).then(function(info) {
+                var serverId = authData.ServerId || (info && info.Id) || '';
+                var serverName = (info && info.ServerName) || 'Jellyfin';
+                var serverAddress = window.location.origin;
+
+                var creds;
+                try { creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}'); } catch (e) { creds = {}; }
+                if (!creds.Servers) creds.Servers = [];
+
+                var existing = creds.Servers.find(function(s) { return s.Id === serverId; });
+                var now = Date.now();
+                if (existing) {
+                    existing.AccessToken = authData.AccessToken;
+                    existing.UserId = authData.User && authData.User.Id;
+                    existing.DateLastAccessed = now;
+                    if (!existing.ManualAddress) existing.ManualAddress = serverAddress;
+                    if (!existing.Name) existing.Name = serverName;
+                } else {
+                    creds.Servers.unshift({
+                        Id: serverId,
+                        Name: serverName,
+                        AccessToken: authData.AccessToken,
+                        UserId: authData.User && authData.User.Id,
+                        ManualAddress: serverAddress,
+                        DateLastAccessed: now,
+                        LastConnectionMode: 1
+                    });
+                }
+                localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+            }).catch(function() {
+                // If /System/Info/Public fails, still set minimal credentials
+                var creds;
+                try { creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}'); } catch (e) { creds = {}; }
+                if (!creds.Servers) creds.Servers = [];
+                if (creds.Servers[0]) {
+                    creds.Servers[0].AccessToken = authData.AccessToken;
+                    creds.Servers[0].UserId = authData.User && authData.User.Id;
+                    creds.Servers[0].DateLastAccessed = Date.now();
+                }
+                localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+            });
         }
-
-        if (data.deviceToken) {
-          localStorage.setItem('twofactor_device_token', data.deviceToken);
-        }
-
-        setTimeout(() => {
-          window.location.href = '/web/index.html';
-        }, 800);
-      } else if (res.status === 429) {
-        showError('Too many attempts. Please wait before trying again.');
-        setLoading(false);
-      } else if (res.status === 401) {
-        showError('Invalid code. Please try again.');
-        document.getElementById('codeInput').value = '';
-        document.getElementById('codeInput').focus();
-        setLoading(false);
-      } else {
-        showError('Verification failed. Please try again.');
-        setLoading(false);
-      }
-    } catch (e) {
-      showError('Network error. Please try again.');
-      setLoading(false);
-    }
-  }
-
-  document.getElementById('codeInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') verify();
-  });
-
-  document.getElementById('codeInput').addEventListener('input', (e) => {
-    e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
-  });
-
-  // If token is missing, show an error
-  if (!challengeToken) {
-    document.getElementById('verifyBtn').disabled = true;
-    showError('Invalid or missing challenge token. Please log in again.');
-  }
-</script>
+    </script>
 </body>
 </html>

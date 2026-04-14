@@ -24,4 +24,6 @@ public class ChallengeData
     public string? RemoteIp { get; set; }
 
     public bool IsConsumed { get; set; }
+
+    public string? PendingAuthResponse { get; set; }
 }

@@ -2,7 +2,6 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
-using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
@@ -26,7 +25,6 @@ public class TwoFactorEnforcementMiddleware
     private readonly UserTwoFactorStore _store;
     private readonly ChallengeStore _challengeStore;
     private readonly BypassEvaluator _bypassEvaluator;
-    private readonly ISessionManager _sessionManager;
     private readonly ILogger<TwoFactorEnforcementMiddleware> _logger;
 
     public TwoFactorEnforcementMiddleware(
@@ -34,14 +32,12 @@ public class TwoFactorEnforcementMiddleware
         UserTwoFactorStore store,
         ChallengeStore challengeStore,
         BypassEvaluator bypassEvaluator,
-        ISessionManager sessionManager,
         ILogger<TwoFactorEnforcementMiddleware> logger)
     {
         _next = next;
         _store = store;
         _challengeStore = challengeStore;
         _bypassEvaluator = bypassEvaluator;
-        _sessionManager = sessionManager;
         _logger = logger;
     }
 
@@ -161,6 +157,8 @@ public class TwoFactorEnforcementMiddleware
                 deviceName,
                 remoteIp);
 
+            challenge.PendingAuthResponse = Encoding.UTF8.GetString(bodyBytes);
+
             await _store.AddAuditEntryAsync(new AuditEntry
             {
                 Timestamp = DateTime.UtcNow,
@@ -172,15 +170,6 @@ public class TwoFactorEnforcementMiddleware
                 Result = AuditResult.ChallengeIssued,
                 Method = string.Join(",", methods),
             }).ConfigureAwait(false);
-
-            try
-            {
-                await _sessionManager.Logout(authResult.AccessToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to revoke pre-2FA session token");
-            }
 
             var response = new TwoFactorRequiredResponse
             {

@@ -9,6 +9,7 @@ public class TwoFactorStartupFilter : IStartupFilter
     {
         return app =>
         {
+            app.UseMiddleware<IndexHtmlInjectionMiddleware>();
             app.UseMiddleware<TwoFactorEnforcementMiddleware>();
             next(app);
         };
