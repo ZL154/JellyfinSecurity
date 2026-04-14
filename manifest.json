@@ -8,6 +8,13 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.7.0",
+        "changelog": "Fix 401 on /TwoFactorAuth/Setup — HTML page is now served anonymously (JavaScript inside uses stored Jellyfin token for API calls).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.7/Jellyfin.Plugin.TwoFactorAuthv1.0.7.zip",
+        "checksum": "0E05A425E667358ED21E321D9757EC83"
+      },
+      {
         "version": "1.0.6.0",
         "changelog": "Full end-to-end web login flow. Browser is automatically redirected to the 2FA challenge page when a challenge is required. After verification, credentials are stored and user is returned to Jellyfin web UI. Middleware now stashes the auth response during challenge instead of revoking, so verification returns a real working session.",
         "targetAbi": "10.11.0.0",
