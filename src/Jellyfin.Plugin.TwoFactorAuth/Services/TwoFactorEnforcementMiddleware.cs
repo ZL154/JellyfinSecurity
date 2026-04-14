@@ -43,16 +43,10 @@ public class TwoFactorEnforcementMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Diagnostic: log every POST request path so we can find the actual auth endpoint
+        // Diagnostic: log EVERY POST request so we can find the auth endpoint
         if (HttpMethods.IsPost(context.Request.Method))
         {
-            var path = context.Request.Path.Value ?? string.Empty;
-            if (path.Contains("authent", StringComparison.OrdinalIgnoreCase)
-                || path.Contains("login", StringComparison.OrdinalIgnoreCase)
-                || path.Contains("user", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogInformation("[2FA-DIAG] POST {Path}", path);
-            }
+            _logger.LogInformation("[2FA-DIAG] POST {Path}", context.Request.Path.Value ?? "(empty)");
         }
 
         if (!IsAuthRequest(context))
