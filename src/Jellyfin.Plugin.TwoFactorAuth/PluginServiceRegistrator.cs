@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace Jellyfin.Plugin.TwoFactorAuth;
 
@@ -22,5 +23,6 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<NotificationService>();
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddSingleton<IStartupFilter, TwoFactorStartupFilter>();
+        services.AddHostedService<AuthenticationEventHandler>();
     }
 }
