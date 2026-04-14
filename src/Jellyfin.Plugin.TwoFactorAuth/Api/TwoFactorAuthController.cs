@@ -84,7 +84,7 @@ public class TwoFactorAuthController : ControllerBase
     // -------------------------------------------------------------------------
 
     [HttpGet("Setup")]
-    [Authorize]
+    [AllowAnonymous]
     [Produces("text/html")]
     public IActionResult GetSetupPage()
     {
