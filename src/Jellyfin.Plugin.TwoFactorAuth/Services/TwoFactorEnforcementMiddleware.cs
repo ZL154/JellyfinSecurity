@@ -7,10 +7,15 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
+/// <summary>
+/// Enforces 2FA by inspecting any POST response that looks like a Jellyfin
+/// authentication result (has AccessToken + User.Id). When the user has TOTP
+/// enabled and no bypass applies, the response is replaced with a 401 +
+/// challenge token. The real auth response is stashed in the ChallengeStore
+/// so the /TwoFactorAuth/Verify endpoint can return it after OTP validation.
+/// </summary>
 public class TwoFactorEnforcementMiddleware
 {
-    private const string AuthPath = "/Users/AuthenticateByName";
-
     private static readonly JsonSerializerOptions ResponseJsonOptions = new()
     {
         PropertyNamingPolicy = null,
@@ -43,30 +48,29 @@ public class TwoFactorEnforcementMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Diagnostic: log EVERY POST request so we can find the auth endpoint
-        if (HttpMethods.IsPost(context.Request.Method))
-        {
-            _logger.LogInformation("[2FA-DIAG] POST {Path}", context.Request.Path.Value ?? "(empty)");
-        }
-
-        if (!IsAuthRequest(context))
+        // Only consider POST requests — auth is always POST
+        if (!HttpMethods.IsPost(context.Request.Method))
         {
             await _next(context).ConfigureAwait(false);
             return;
         }
 
-        _logger.LogInformation("[2FA] Intercepted auth request from {Ip} (XFF: {Xff})",
-            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            context.Request.Headers["X-Forwarded-For"].FirstOrDefault() ?? "(none)");
+        // Skip our own plugin endpoints
+        var path = context.Request.Path.Value ?? string.Empty;
+        if (path.StartsWith("/TwoFactorAuth", StringComparison.OrdinalIgnoreCase))
+        {
+            await _next(context).ConfigureAwait(false);
+            return;
+        }
 
         var config = Plugin.Instance?.Configuration;
         if (config is null || !config.Enabled)
         {
-            _logger.LogInformation("[2FA] Plugin disabled in config — passing through");
             await _next(context).ConfigureAwait(false);
             return;
         }
 
+        // Buffer response so we can inspect it
         var originalBody = context.Response.Body;
         using var buffer = new MemoryStream();
         context.Response.Body = buffer;
@@ -86,17 +90,33 @@ public class TwoFactorEnforcementMiddleware
         context.Response.Body = originalBody;
         buffer.Position = 0;
 
-        if (context.Response.StatusCode != (int)HttpStatusCode.OK)
+        // Only care about successful JSON responses
+        if (context.Response.StatusCode != (int)HttpStatusCode.OK
+            || buffer.Length == 0
+            || !(context.Response.ContentType?.Contains("application/json", StringComparison.OrdinalIgnoreCase) ?? false))
         {
             await buffer.CopyToAsync(originalBody).ConfigureAwait(false);
             return;
         }
 
+        var bodyBytes = buffer.ToArray();
+        var bodyText = Encoding.UTF8.GetString(bodyBytes);
+
+        // Quick shape check — does the body look like an auth response?
+        if (!LooksLikeAuthResponse(bodyText))
+        {
+            await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
+            return;
+        }
+
+        _logger.LogInformation("[2FA] Detected auth-shaped response on POST {Path}", path);
+
         try
         {
-            var bodyBytes = buffer.ToArray();
-            var authResult = ParseAuthResult(bodyBytes);
-            if (authResult is null || authResult.User is null || string.IsNullOrEmpty(authResult.AccessToken))
+            var authResult = JsonSerializer.Deserialize<AuthResult>(bodyBytes, ParseJsonOptions);
+            if (authResult is null || authResult.User is null
+                || string.IsNullOrEmpty(authResult.AccessToken)
+                || authResult.User.Id == Guid.Empty)
             {
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
                 return;
@@ -133,7 +153,7 @@ public class TwoFactorEnforcementMiddleware
 
             if (bypass.IsBypassed)
             {
-                _logger.LogWarning("[2FA] Bypass triggered for {Name} from {Ip} (reason={Reason}) — login allowed without 2FA",
+                _logger.LogWarning("[2FA] Bypass triggered for {Name} from {Ip} (reason={Reason})",
                     authResult.User.Name, remoteIp, bypass.Reason);
                 await _store.AddAuditEntryAsync(new AuditEntry
                 {
@@ -150,24 +170,12 @@ public class TwoFactorEnforcementMiddleware
                 return;
             }
 
-            _logger.LogInformation("[2FA] Issuing challenge for {Name} from {Ip} (methods={Methods})",
-                authResult.User.Name, remoteIp, string.Join(",", new[] { userData.TotpVerified ? "totp" : null, config.EmailOtpEnabled ? "email" : null }.Where(s => s != null)));
+            _logger.LogInformation("[2FA] Issuing challenge for {Name} from {Ip}", authResult.User.Name, remoteIp);
 
             var methods = new List<string>();
-            if (userData.TotpVerified)
-            {
-                methods.Add("totp");
-            }
-
-            if (config.EmailOtpEnabled)
-            {
-                methods.Add("email");
-            }
-
-            if (methods.Count == 0)
-            {
-                methods.Add("email");
-            }
+            if (userData.TotpVerified) methods.Add("totp");
+            if (config.EmailOtpEnabled) methods.Add("email");
+            if (methods.Count == 0) methods.Add("email");
 
             var challenge = _challengeStore.CreateChallenge(
                 authResult.User.Id,
@@ -177,7 +185,7 @@ public class TwoFactorEnforcementMiddleware
                 deviceName,
                 remoteIp);
 
-            challenge.PendingAuthResponse = Encoding.UTF8.GetString(bodyBytes);
+            challenge.PendingAuthResponse = bodyText;
 
             await _store.AddAuditEntryAsync(new AuditEntry
             {
@@ -207,40 +215,22 @@ public class TwoFactorEnforcementMiddleware
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "2FA enforcement middleware failed; allowing request through");
-            buffer.Position = 0;
-            await buffer.CopyToAsync(originalBody).ConfigureAwait(false);
+            _logger.LogError(ex, "[2FA] Middleware failed; allowing request through");
+            await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
         }
     }
 
-    private static bool IsAuthRequest(HttpContext context)
+    /// <summary>
+    /// Cheap string check: does the body text contain both an AccessToken and a User field?
+    /// This catches /Users/AuthenticateByName, /Users/AuthenticateWithQuickConnect, and any
+    /// other endpoint that returns the standard Jellyfin AuthenticationResult shape.
+    /// </summary>
+    private static bool LooksLikeAuthResponse(string body)
     {
-        if (!HttpMethods.IsPost(context.Request.Method))
-        {
-            return false;
-        }
-
-        var path = context.Request.Path.Value;
-        if (string.IsNullOrEmpty(path))
-        {
-            return false;
-        }
-
-        // Match /Users/AuthenticateByName with optional /api prefix, case-insensitive
-        return path.EndsWith("/Users/AuthenticateByName", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith("/Users/authenticate", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static AuthResult? ParseAuthResult(byte[] body)
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<AuthResult>(body, ParseJsonOptions);
-        }
-        catch
-        {
-            return null;
-        }
+        if (string.IsNullOrEmpty(body) || body.Length > 65536) return false;
+        return body.Contains("\"AccessToken\"", StringComparison.Ordinal)
+            && body.Contains("\"User\"", StringComparison.Ordinal)
+            && body.Contains("\"SessionInfo\"", StringComparison.Ordinal);
     }
 
     private sealed class AuthResult
