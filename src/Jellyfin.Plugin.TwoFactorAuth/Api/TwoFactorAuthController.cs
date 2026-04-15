@@ -12,6 +12,7 @@ using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Api;
 
@@ -29,6 +30,7 @@ public class TwoFactorAuthController : ControllerBase
     private readonly NotificationService _notificationService;
     private readonly ISessionManager _sessionManager;
     private readonly IUserManager _userManager;
+    private readonly ILogger<TwoFactorAuthController> _logger;
 
     public TwoFactorAuthController(
         UserTwoFactorStore store,
@@ -39,7 +41,8 @@ public class TwoFactorAuthController : ControllerBase
         DevicePairingService devicePairingService,
         NotificationService notificationService,
         ISessionManager sessionManager,
-        IUserManager userManager)
+        IUserManager userManager,
+        ILogger<TwoFactorAuthController> logger)
     {
         _store = store;
         _challengeStore = challengeStore;
@@ -50,6 +53,7 @@ public class TwoFactorAuthController : ControllerBase
         _notificationService = notificationService;
         _sessionManager = sessionManager;
         _userManager = userManager;
+        _logger = logger;
     }
 
     // -------------------------------------------------------------------------
@@ -111,61 +115,75 @@ public class TwoFactorAuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> AuthenticateWithCode([FromBody] LoginWithCodeRequest req)
     {
-        if (string.IsNullOrEmpty(req.Username) || string.IsNullOrEmpty(req.Password))
-        {
-            return BadRequest("Username and password are required");
-        }
-
-        var user = _userManager.GetUserByName(req.Username);
-        if (user is null)
-        {
-            return Unauthorized("Invalid username or password");
-        }
-
-        var userData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
-
-        if (await _store.IsLockedOutAsync(user.Id).ConfigureAwait(false))
-        {
-            return StatusCode(StatusCodes.Status429TooManyRequests, "Account is locked out");
-        }
-
-        // If user has TOTP enabled, validate the code first
-        if (userData.TotpEnabled && userData.TotpVerified)
-        {
-            if (string.IsNullOrEmpty(req.Code))
-            {
-                return BadRequest("TOTP code required");
-            }
-
-            if (string.IsNullOrEmpty(userData.EncryptedTotpSecret))
-            {
-                return Unauthorized("TOTP secret missing for user");
-            }
-
-            var secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret);
-            if (!_totpService.ValidateCode(secret, req.Code, user.Id.ToString()))
-            {
-                await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
-                await _store.AddAuditEntryAsync(new AuditEntry
-                {
-                    Timestamp = DateTime.UtcNow,
-                    UserId = user.Id,
-                    Username = user.Username ?? string.Empty,
-                    RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
-                    Result = AuditResult.Failed,
-                    Method = "totp",
-                }).ConfigureAwait(false);
-                return Unauthorized("Invalid TOTP code");
-            }
-        }
-
-        // Mark user as pre-verified so the SessionStarted event handler won't revoke
-        _challengeStore.MarkUserPreVerified(user.Id);
-        await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
-
-        // Now authenticate via Jellyfin's session manager
         try
         {
+            _logger.LogInformation("[2FA] /Authenticate called for username={Name} codeLen={CodeLen}",
+                req?.Username, req?.Code?.Length ?? 0);
+
+            if (req is null || string.IsNullOrEmpty(req.Username) || string.IsNullOrEmpty(req.Password))
+            {
+                return BadRequest("Username and password are required");
+            }
+
+            var user = _userManager.GetUserByName(req.Username);
+            if (user is null)
+            {
+                _logger.LogInformation("[2FA] /Authenticate: no user found for {Name}", req.Username);
+                return Unauthorized("Invalid username or password");
+            }
+
+            var userData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
+
+            if (await _store.IsLockedOutAsync(user.Id).ConfigureAwait(false))
+            {
+                return StatusCode(StatusCodes.Status429TooManyRequests, "Account is locked out");
+            }
+
+            if (userData.TotpEnabled && userData.TotpVerified)
+            {
+                if (string.IsNullOrEmpty(req.Code))
+                {
+                    return BadRequest("TOTP code required");
+                }
+
+                if (string.IsNullOrEmpty(userData.EncryptedTotpSecret))
+                {
+                    return Unauthorized("TOTP secret missing for user");
+                }
+
+                string secret;
+                try
+                {
+                    secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[2FA] Failed to decrypt TOTP secret for {Name}", req.Username);
+                    return StatusCode(500, "Failed to decrypt TOTP secret. The plugin's data protection key may have changed — please re-enroll 2FA.");
+                }
+
+                if (!_totpService.ValidateCode(secret, req.Code, user.Id.ToString()))
+                {
+                    _logger.LogInformation("[2FA] /Authenticate: invalid TOTP code for {Name}", req.Username);
+                    await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
+                    await _store.AddAuditEntryAsync(new AuditEntry
+                    {
+                        Timestamp = DateTime.UtcNow,
+                        UserId = user.Id,
+                        Username = user.Username ?? string.Empty,
+                        RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+                        Result = AuditResult.Failed,
+                        Method = "totp",
+                    }).ConfigureAwait(false);
+                    return Unauthorized("Invalid TOTP code");
+                }
+            }
+
+            _challengeStore.MarkUserPreVerified(user.Id);
+            await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
+
+            _logger.LogInformation("[2FA] /Authenticate: TOTP valid for {Name}, calling AuthenticateNewSession", req.Username);
+
             var authRequest = new MediaBrowser.Controller.Session.AuthenticationRequest
             {
                 Username = req.Username,
@@ -176,16 +194,26 @@ public class TwoFactorAuthController : ControllerBase
                     ?? Guid.NewGuid().ToString("N"),
                 DeviceName = HttpContext.Request.Headers["X-Emby-Device-Name"].FirstOrDefault()
                     ?? "2FA Verified Device",
-                RemoteEndPoint = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "",
+                RemoteEndPoint = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
             };
 
-            var result = await _sessionManager.AuthenticateNewSession(authRequest).ConfigureAwait(false);
-            return Ok(result);
+            try
+            {
+                var result = await _sessionManager.AuthenticateNewSession(authRequest).ConfigureAwait(false);
+                _logger.LogInformation("[2FA] /Authenticate: session created for {Name}", req.Username);
+                return Ok(result);
+            }
+            catch (MediaBrowser.Controller.Authentication.AuthenticationException)
+            {
+                _logger.LogInformation("[2FA] /Authenticate: password invalid for {Name}", req.Username);
+                _challengeStore.ConsumeUserPreVerified(user.Id);
+                return Unauthorized("Invalid username or password");
+            }
         }
-        catch (MediaBrowser.Controller.Authentication.AuthenticationException ex)
+        catch (Exception ex)
         {
-            _challengeStore.ConsumeUserPreVerified(user.Id);
-            return Unauthorized(ex.Message);
+            _logger.LogError(ex, "[2FA] /Authenticate unhandled exception");
+            return StatusCode(500, "Internal server error: " + ex.Message);
         }
     }
 

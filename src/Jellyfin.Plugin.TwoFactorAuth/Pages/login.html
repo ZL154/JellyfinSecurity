@@ -128,11 +128,14 @@
                 if (!r.ok) {
                     btn.disabled = false;
                     btn.textContent = 'Sign In';
-                    if (r.status === 429) showError('Too many failed attempts. Try again later.');
-                    else if (r.status === 401) showError('Invalid username, password, or 2FA code.');
-                    else if (r.status === 400) r.text().then(function(t) { showError(t || 'Bad request.'); });
-                    else showError('Sign in failed (' + r.status + ').');
-                    return null;
+                    return r.text().then(function(text) {
+                        if (r.status === 429) showError('Too many failed attempts. Try again later.');
+                        else if (r.status === 401) showError(text || 'Invalid username, password, or 2FA code.');
+                        else if (r.status === 400) showError(text || 'Bad request.');
+                        else if (r.status === 500) showError('Server error: ' + (text || 'unknown. Check Jellyfin logs for [2FA].'));
+                        else showError('Sign in failed (' + r.status + ').');
+                        return null;
+                    });
                 }
                 return r.json();
             }).then(function(authData) {
