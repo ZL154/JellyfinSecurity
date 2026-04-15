@@ -5,27 +5,25 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
-/// <summary>
-/// Hosted service that subscribes to Jellyfin's SessionStarted event.
-/// When a session starts for a user with 2FA enabled (and no bypass applies),
-/// we immediately revoke the session. The user must then verify via 2FA to get a new session.
-/// </summary>
 public class AuthenticationEventHandler : IHostedService
 {
     private readonly ISessionManager _sessionManager;
     private readonly UserTwoFactorStore _store;
     private readonly BypassEvaluator _bypassEvaluator;
+    private readonly ChallengeStore _challengeStore;
     private readonly ILogger<AuthenticationEventHandler> _logger;
 
     public AuthenticationEventHandler(
         ISessionManager sessionManager,
         UserTwoFactorStore store,
         BypassEvaluator bypassEvaluator,
+        ChallengeStore challengeStore,
         ILogger<AuthenticationEventHandler> logger)
     {
         _sessionManager = sessionManager;
         _store = store;
         _bypassEvaluator = bypassEvaluator;
+        _challengeStore = challengeStore;
         _logger = logger;
     }
 
@@ -85,6 +83,24 @@ public class AuthenticationEventHandler : IHostedService
 
         if (!userData.TotpEnabled && !config.RequireForAllUsers)
         {
+            return;
+        }
+
+        // Check if user was pre-verified via /TwoFactorAuth/Login — they typed password + code
+        if (_challengeStore.ConsumeUserPreVerified(info.UserId))
+        {
+            _logger.LogInformation("[2FA] User {Name} pre-verified via /TwoFactorAuth/Login — session allowed", info.UserName);
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = info.UserId,
+                Username = info.UserName ?? string.Empty,
+                RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                DeviceId = info.DeviceId ?? string.Empty,
+                DeviceName = info.DeviceName ?? string.Empty,
+                Result = AuditResult.Success,
+                Method = "totp",
+            }).ConfigureAwait(false);
             return;
         }
 
