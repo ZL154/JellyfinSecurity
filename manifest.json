@@ -8,6 +8,13 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.17.0",
+        "changelog": "Improved integrated login interception. Injected script now patches BOTH fetch and XMLHttpRequest (Jellyfin ApiClient uses XHR), logs to browser console, and adds a MutationObserver form listener as fallback. Server-side logs confirm when injection happens.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.17/Jellyfin.Plugin.TwoFactorAuthv1.0.17.zip",
+        "checksum": "E5491FA1E54BF2058FBDB21C65362D85"
+      },
+      {
         "version": "1.0.16.0",
         "changelog": "Auto-redirect from Jellyfin's default login. Inject script now intercepts the standard login form — if the typed username has 2FA enabled, it redirects to /TwoFactorAuth/Login with username pre-filled. Users no longer need to know the separate login URL.",
         "targetAbi": "10.11.0.0",

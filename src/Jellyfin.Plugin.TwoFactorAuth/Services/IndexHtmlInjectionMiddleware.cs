@@ -79,6 +79,7 @@ public class IndexHtmlInjectionMiddleware
             var patchedBytes = Encoding.UTF8.GetBytes(patched);
             context.Response.ContentLength = patchedBytes.Length;
             await originalBody.WriteAsync(patchedBytes).ConfigureAwait(false);
+            _logger.LogInformation("[2FA] Injected inject.js script into {Path}", context.Request.Path);
         }
         catch (Exception ex)
         {
