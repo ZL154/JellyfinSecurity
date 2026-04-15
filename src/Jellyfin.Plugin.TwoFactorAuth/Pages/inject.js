@@ -15,62 +15,52 @@
         return url && url.indexOf(AUTH_PATH) >= 0;
     }
 
-    function redirectToChallenge(challengeToken) {
-        var target = '/TwoFactorAuth/Challenge?token=' + encodeURIComponent(challengeToken);
+    function extractUsername(input, init) {
         try {
-            var returnUrl = window.location.pathname + window.location.hash;
-            target += '&return=' + encodeURIComponent(returnUrl);
+            var body = init && init.body;
+            if (typeof body === 'string') {
+                var parsed = JSON.parse(body);
+                return parsed.Username || parsed.username || '';
+            }
         } catch (e) {}
+        return '';
+    }
+
+    function redirectToLogin(username) {
+        var target = '/TwoFactorAuth/Login';
+        if (username) target += '?username=' + encodeURIComponent(username);
         window.location.assign(target);
     }
 
+    // Intercept fetch calls to the auth endpoint. Before letting the POST go through,
+    // check if the user has 2FA enabled. If they do, redirect to our login page instead.
     var originalFetch = window.fetch;
     if (originalFetch) {
         window.fetch = function (input, init) {
-            var isAuth = isAuthRequest(input);
-            var promise = originalFetch.apply(this, arguments);
-            if (!isAuth) return promise;
-
-            return promise.then(function (response) {
-                if (response && response.status === 401) {
-                    var cloned;
-                    try { cloned = response.clone(); } catch (e) { return response; }
-                    return cloned.json().then(function (data) {
-                        if (data && (data.TwoFactorRequired === true || data.twoFactorRequired === true)) {
-                            redirectToChallenge(data.ChallengeToken || data.challengeToken);
-                            return new Promise(function () {}); // hang — page will navigate away
-                        }
-                        return response;
-                    }).catch(function () { return response; });
-                }
-                return response;
-            });
-        };
-    }
-
-    var OrigXHR = window.XMLHttpRequest;
-    if (OrigXHR) {
-        var origOpen = OrigXHR.prototype.open;
-        var origSend = OrigXHR.prototype.send;
-        OrigXHR.prototype.open = function (method, url) {
-            this.__2fa_url = url;
-            return origOpen.apply(this, arguments);
-        };
-        OrigXHR.prototype.send = function () {
-            var xhr = this;
-            if (xhr.__2fa_url && xhr.__2fa_url.indexOf(AUTH_PATH) >= 0) {
-                xhr.addEventListener('load', function () {
-                    if (xhr.status === 401) {
-                        try {
-                            var data = JSON.parse(xhr.responseText);
-                            if (data && (data.TwoFactorRequired === true || data.twoFactorRequired === true)) {
-                                redirectToChallenge(data.ChallengeToken || data.challengeToken);
-                            }
-                        } catch (e) {}
-                    }
-                });
+            if (!isAuthRequest(input)) {
+                return originalFetch.apply(this, arguments);
             }
-            return origSend.apply(this, arguments);
+
+            var username = extractUsername(input, init);
+            if (!username) {
+                return originalFetch.apply(this, arguments);
+            }
+
+            var self = this;
+            var self_args = arguments;
+
+            return originalFetch.call(this, '/TwoFactorAuth/UserStatus?username=' + encodeURIComponent(username))
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (status) {
+                    if (status && status.totpEnabled === true) {
+                        redirectToLogin(username);
+                        return new Promise(function () {}); // hang — we're navigating
+                    }
+                    return originalFetch.apply(self, self_args);
+                })
+                .catch(function () {
+                    return originalFetch.apply(self, self_args);
+                });
         };
     }
 })();
