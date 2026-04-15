@@ -108,6 +108,30 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
+    // GET /TwoFactorAuth/UserStatus?username=X — public, returns whether user has 2FA
+    // Used by the injected script to know whether to redirect to /Login
+    // -------------------------------------------------------------------------
+
+    [HttpGet("UserStatus")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetUserStatus([FromQuery] string username)
+    {
+        if (string.IsNullOrEmpty(username))
+        {
+            return Ok(new { totpEnabled = false });
+        }
+
+        var user = _userManager.GetUserByName(username);
+        if (user is null)
+        {
+            return Ok(new { totpEnabled = false });
+        }
+
+        var data = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
+        return Ok(new { totpEnabled = data.TotpEnabled && data.TotpVerified });
+    }
+
+    // -------------------------------------------------------------------------
     // POST /TwoFactorAuth/Authenticate — username + password + TOTP code in one call
     // -------------------------------------------------------------------------
 

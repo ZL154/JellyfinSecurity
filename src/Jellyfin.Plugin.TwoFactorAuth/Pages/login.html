@@ -72,7 +72,7 @@
         <div class="error" id="errorMsg"></div>
 
         <label>Username</label>
-        <input type="text" id="username" autocomplete="username" autofocus />
+        <input type="text" id="username" autocomplete="username" />
 
         <label>Password</label>
         <input type="password" id="password" autocomplete="current-password" />
@@ -89,6 +89,16 @@
     </div>
 
     <script>
+        // Prefill username if passed via query param (from inject.js redirect)
+        var params = new URLSearchParams(window.location.search);
+        var prefillUsername = params.get('username');
+        if (prefillUsername) {
+            document.getElementById('username').value = prefillUsername;
+            setTimeout(function() { document.getElementById('password').focus(); }, 50);
+        } else {
+            document.getElementById('username').focus();
+        }
+
         function showError(msg) {
             var el = document.getElementById('errorMsg');
             el.textContent = msg;
