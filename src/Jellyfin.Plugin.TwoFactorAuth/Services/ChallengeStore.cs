@@ -9,8 +9,31 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 public class ChallengeStore : IDisposable
 {
     private readonly ConcurrentDictionary<string, ChallengeData> _challenges = new();
+    private readonly ConcurrentDictionary<Guid, DateTime> _preVerifiedUsers = new();
     private readonly Timer _cleanupTimer;
     private bool _disposed;
+
+    /// <summary>
+    /// Mark a user as pre-verified — the next session created for this user
+    /// (within 2 minutes) will be allowed to persist by the auth event handler.
+    /// </summary>
+    public void MarkUserPreVerified(Guid userId)
+    {
+        _preVerifiedUsers[userId] = DateTime.UtcNow.AddMinutes(2);
+    }
+
+    /// <summary>
+    /// Consume the pre-verified flag for a user. Returns true once, then false
+    /// on subsequent calls. Used by event handler to allow one session per verification.
+    /// </summary>
+    public bool ConsumeUserPreVerified(Guid userId)
+    {
+        if (_preVerifiedUsers.TryRemove(userId, out var expiry) && expiry > DateTime.UtcNow)
+        {
+            return true;
+        }
+        return false;
+    }
 
     public ChallengeStore()
     {

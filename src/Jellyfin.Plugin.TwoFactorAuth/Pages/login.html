@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jellyfin — Sign In</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: linear-gradient(135deg, #0a0a0a 0%, #151515 100%);
+            color: #e0e0e0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .card {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 36px 32px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        .logo { text-align: center; color: #00a4dc; font-size: 26px; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.5px; }
+        h1 { text-align: center; font-size: 15px; font-weight: 400; color: #888; margin-bottom: 28px; }
+        label { display: block; color: #888; font-size: 12px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        input {
+            width: 100%;
+            background: #252525;
+            border: 2px solid #333;
+            color: #e0e0e0;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 15px;
+            margin-bottom: 16px;
+            transition: border-color 0.2s;
+            font-family: inherit;
+        }
+        input:focus { border-color: #00a4dc; outline: none; }
+        .code-input { font-family: monospace; font-size: 22px; text-align: center; letter-spacing: 10px; }
+        button {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            background: #00a4dc;
+            color: #fff;
+            transition: background 0.2s;
+        }
+        button:hover { background: #0087b3; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .error { color: #f44336; font-size: 13px; margin-bottom: 12px; text-align: center; padding: 10px; background: rgba(244,67,54,0.1); border-radius: 4px; display: none; }
+        .error.show { display: block; }
+        .hint { color: #666; font-size: 12px; text-align: center; margin-top: 20px; line-height: 1.5; }
+        .hint a { color: #00a4dc; text-decoration: none; }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: -2px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">Jellyfin</div>
+        <h1>Sign in with Two-Factor Authentication</h1>
+
+        <div class="error" id="errorMsg"></div>
+
+        <label>Username</label>
+        <input type="text" id="username" autocomplete="username" autofocus />
+
+        <label>Password</label>
+        <input type="password" id="password" autocomplete="current-password" />
+
+        <label>6-digit Code (leave blank if 2FA is not set up)</label>
+        <input type="text" id="code" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code" />
+
+        <button id="btnLogin">Sign In</button>
+
+        <p class="hint">
+            Don't have 2FA yet? <a href="/TwoFactorAuth/Setup">Set it up here</a><br>
+            Or use the <a href="/web/index.html">standard login page</a>.
+        </p>
+    </div>
+
+    <script>
+        function showError(msg) {
+            var el = document.getElementById('errorMsg');
+            el.textContent = msg;
+            el.classList.add('show');
+        }
+        function clearError() { document.getElementById('errorMsg').classList.remove('show'); }
+
+        document.getElementById('code').addEventListener('input', function(e) {
+            e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+        });
+
+        function onKey(e) { if (e.key === 'Enter') document.getElementById('btnLogin').click(); }
+        document.getElementById('username').addEventListener('keypress', onKey);
+        document.getElementById('password').addEventListener('keypress', onKey);
+        document.getElementById('code').addEventListener('keypress', onKey);
+
+        document.getElementById('btnLogin').addEventListener('click', function() {
+            var username = document.getElementById('username').value.trim();
+            var password = document.getElementById('password').value;
+            var code = document.getElementById('code').value.trim();
+
+            if (!username || !password) {
+                showError('Enter your username and password.');
+                return;
+            }
+
+            clearError();
+            var btn = document.getElementById('btnLogin');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Signing in...';
+
+            fetch('/TwoFactorAuth/Authenticate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username, password: password, code: code })
+            }).then(function(r) {
+                if (!r.ok) {
+                    btn.disabled = false;
+                    btn.textContent = 'Sign In';
+                    if (r.status === 429) showError('Too many failed attempts. Try again later.');
+                    else if (r.status === 401) showError('Invalid username, password, or 2FA code.');
+                    else if (r.status === 400) r.text().then(function(t) { showError(t || 'Bad request.'); });
+                    else showError('Sign in failed (' + r.status + ').');
+                    return null;
+                }
+                return r.json();
+            }).then(function(authData) {
+                if (!authData) return;
+                storeCredentials(authData).then(function() {
+                    window.location.href = '/web/index.html';
+                });
+            }).catch(function(err) {
+                btn.disabled = false;
+                btn.textContent = 'Sign In';
+                showError('Network error. Try again.');
+            });
+        });
+
+        function storeCredentials(authData) {
+            return fetch('/System/Info/Public').then(function(r) { return r.ok ? r.json() : null; }).then(function(info) {
+                var serverId = authData.ServerId || (info && info.Id) || '';
+                var serverName = (info && info.ServerName) || 'Jellyfin';
+                var serverAddress = window.location.origin;
+                var creds;
+                try { creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}'); } catch (e) { creds = {}; }
+                if (!creds.Servers) creds.Servers = [];
+                var existing = creds.Servers.find(function(s) { return s.Id === serverId; });
+                var now = Date.now();
+                if (existing) {
+                    existing.AccessToken = authData.AccessToken;
+                    existing.UserId = authData.User && authData.User.Id;
+                    existing.DateLastAccessed = now;
+                    if (!existing.ManualAddress) existing.ManualAddress = serverAddress;
+                    if (!existing.Name) existing.Name = serverName;
+                } else {
+                    creds.Servers.unshift({
+                        Id: serverId,
+                        Name: serverName,
+                        AccessToken: authData.AccessToken,
+                        UserId: authData.User && authData.User.Id,
+                        ManualAddress: serverAddress,
+                        DateLastAccessed: now,
+                        LastConnectionMode: 1
+                    });
+                }
+                localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+            });
+        }
+    </script>
+</body>
+</html>

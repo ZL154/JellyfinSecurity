@@ -37,3 +37,12 @@ public class ToggleUserRequest
 {
     public bool Enabled { get; set; }
 }
+
+public class LoginWithCodeRequest
+{
+    public string Username { get; set; } = string.Empty;
+
+    public string Password { get; set; } = string.Empty;
+
+    public string Code { get; set; } = string.Empty;
+}

@@ -92,6 +92,104 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
+    // GET /TwoFactorAuth/Login — dedicated 2FA-aware login page
+    // -------------------------------------------------------------------------
+
+    [HttpGet("Login")]
+    [AllowAnonymous]
+    [Produces("text/html")]
+    public IActionResult GetLoginPage()
+    {
+        return ServeEmbeddedPage("login.html");
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /TwoFactorAuth/Authenticate — username + password + TOTP code in one call
+    // -------------------------------------------------------------------------
+
+    [HttpPost("Authenticate")]
+    [AllowAnonymous]
+    public async Task<IActionResult> AuthenticateWithCode([FromBody] LoginWithCodeRequest req)
+    {
+        if (string.IsNullOrEmpty(req.Username) || string.IsNullOrEmpty(req.Password))
+        {
+            return BadRequest("Username and password are required");
+        }
+
+        var user = _userManager.GetUserByName(req.Username);
+        if (user is null)
+        {
+            return Unauthorized("Invalid username or password");
+        }
+
+        var userData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
+
+        if (await _store.IsLockedOutAsync(user.Id).ConfigureAwait(false))
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests, "Account is locked out");
+        }
+
+        // If user has TOTP enabled, validate the code first
+        if (userData.TotpEnabled && userData.TotpVerified)
+        {
+            if (string.IsNullOrEmpty(req.Code))
+            {
+                return BadRequest("TOTP code required");
+            }
+
+            if (string.IsNullOrEmpty(userData.EncryptedTotpSecret))
+            {
+                return Unauthorized("TOTP secret missing for user");
+            }
+
+            var secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret);
+            if (!_totpService.ValidateCode(secret, req.Code, user.Id.ToString()))
+            {
+                await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
+                await _store.AddAuditEntryAsync(new AuditEntry
+                {
+                    Timestamp = DateTime.UtcNow,
+                    UserId = user.Id,
+                    Username = user.Username ?? string.Empty,
+                    RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+                    Result = AuditResult.Failed,
+                    Method = "totp",
+                }).ConfigureAwait(false);
+                return Unauthorized("Invalid TOTP code");
+            }
+        }
+
+        // Mark user as pre-verified so the SessionStarted event handler won't revoke
+        _challengeStore.MarkUserPreVerified(user.Id);
+        await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
+
+        // Now authenticate via Jellyfin's session manager
+        try
+        {
+            var authRequest = new MediaBrowser.Controller.Session.AuthenticationRequest
+            {
+                Username = req.Username,
+                Password = req.Password,
+                App = "Jellyfin Web (2FA)",
+                AppVersion = "1.0.0",
+                DeviceId = HttpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
+                    ?? Guid.NewGuid().ToString("N"),
+                DeviceName = HttpContext.Request.Headers["X-Emby-Device-Name"].FirstOrDefault()
+                    ?? "2FA Verified Device",
+                RemoteEndPoint = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "",
+            };
+
+            var result = await _sessionManager.AuthenticateNewSession(authRequest).ConfigureAwait(false);
+            return Ok(result);
+        }
+        catch (MediaBrowser.Controller.Authentication.AuthenticationException ex)
+        {
+            _challengeStore.ConsumeUserPreVerified(user.Id);
+            return Unauthorized(ex.Message);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // GET /TwoFactorAuth/inject.js — script injected into Jellyfin web UI
     // -------------------------------------------------------------------------
 
