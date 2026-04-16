@@ -204,6 +204,7 @@ public class TwoFactorAuthController : ControllerBase
             }
 
             _challengeStore.MarkUserPreVerified(user.Id);
+            _challengeStore.UnblockUser(user.Id);
             await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
 
             _logger.LogInformation("[2FA] /Authenticate: TOTP valid for {Name}, calling AuthenticateNewSession", req.Username);
