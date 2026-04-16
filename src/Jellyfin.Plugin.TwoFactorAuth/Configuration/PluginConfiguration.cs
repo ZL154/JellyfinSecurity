@@ -1,6 +1,16 @@
+using System.Xml.Serialization;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Configuration;
+
+public class UserEmailEntry
+{
+    [XmlAttribute("userId")]
+    public string UserId { get; set; } = string.Empty;
+
+    [XmlAttribute("email")]
+    public string Email { get; set; } = string.Empty;
+}
 
 public class PluginConfiguration : BasePluginConfiguration
 {
@@ -60,8 +70,25 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public string SmtpFromName { get; set; } = "Jellyfin 2FA";
 
-    // Per-user email addresses for OTP delivery (key = userId, value = email).
-    public Dictionary<string, string> UserEmailAddresses { get; set; } = new();
+    // Per-user email addresses for OTP delivery. List form because Jellyfin
+    // serializes plugin config as XML and XmlSerializer cannot handle Dictionary.
+    public List<UserEmailEntry> UserEmails { get; set; } = new();
+
+    public string? GetUserEmail(string userId)
+    {
+        var match = UserEmails.FirstOrDefault(e =>
+            string.Equals(e.UserId, userId, StringComparison.OrdinalIgnoreCase));
+        return match?.Email;
+    }
+
+    public void SetUserEmail(string userId, string? email)
+    {
+        UserEmails.RemoveAll(e => string.Equals(e.UserId, userId, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(email))
+        {
+            UserEmails.Add(new UserEmailEntry { UserId = userId, Email = email });
+        }
+    }
 
     // What appears in authenticator apps (issuer field of otpauth:// URI).
     // Defaults to "Jellyfin"; admins can override per server (e.g., "MyServer Jellyfin").

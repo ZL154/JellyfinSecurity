@@ -295,7 +295,8 @@
                     var body = page.querySelector('#usersBody');
                     if (!allUsersData.length) { body.innerHTML = '<tr><td colspan="7" class="tfa-empty">No user data yet</td></tr>'; return; }
                     apiGet('System/Configuration/Jellyfin.Plugin.TwoFactorAuth').then(function(config) {
-                        var emails = (config.UserEmailAddresses) || {};
+                        var emails = {};
+                        (config.UserEmails || []).forEach(function(e) { emails[(e.UserId || e.userId || '').toLowerCase()] = e.Email || e.email || ''; });
                         body.innerHTML = allUsersData.map(function(u) {
                             var uid = u.userId || u.UserId;
                             var uidPlain = String(uid).replace(/-/g,'');
@@ -303,7 +304,7 @@
                             var locked = u.isLockedOut || u.IsLockedOut;
                             var devices = u.trustedDeviceCount || u.TrustedDeviceCount || 0;
                             var recoveryRemaining = u.recoveryCodesRemaining || u.RecoveryCodesRemaining || 0;
-                            var email = emails[uidPlain] || '';
+                            var email = emails[uidPlain.toLowerCase()] || '';
                             return '<tr>' +
                                 '<td>' + escapeHtml(u.username || u.Username || 'Unknown') + '</td>' +
                                 '<td><span class="tfa-badge ' + (totp ? 'on' : 'off') + '">' + (totp ? 'Enabled' : 'Off') + '</span></td>' +
@@ -322,8 +323,11 @@
                         body.querySelectorAll('.tfa-email').forEach(function(input) {
                             input.addEventListener('blur', function() {
                                 apiGet('System/Configuration/Jellyfin.Plugin.TwoFactorAuth').then(function(cfg) {
-                                    cfg.UserEmailAddresses = cfg.UserEmailAddresses || {};
-                                    cfg.UserEmailAddresses[input.dataset.uid] = input.value.trim();
+                                    cfg.UserEmails = cfg.UserEmails || [];
+                                    var uid = input.dataset.uid;
+                                    cfg.UserEmails = cfg.UserEmails.filter(function(e) { return ((e.UserId || e.userId || '').toLowerCase() !== uid.toLowerCase()); });
+                                    var v = input.value.trim();
+                                    if (v) cfg.UserEmails.push({ UserId: uid, Email: v });
                                     return ApiClient.updatePluginConfiguration(pluginId, cfg);
                                 });
                             });
