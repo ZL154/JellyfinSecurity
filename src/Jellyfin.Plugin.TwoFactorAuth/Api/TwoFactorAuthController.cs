@@ -238,6 +238,21 @@ public class TwoFactorAuthController : ControllerBase
                 _logger.LogInformation("[2FA] /Authenticate: session created for {Name}", req.Username);
                 Response.Headers.Append("X-TwoFactor-Device-Token", trustToken);
                 Response.Headers.Append("Access-Control-Expose-Headers", "X-TwoFactor-Device-Token");
+
+                // Set HTTP-only signed cookie scoped to this browser. Format: userId:tokenId:hmac
+                // Server verifies on subsequent logins; missing/invalid cookie = 2FA required.
+                var cookieValue = $"{user.Id:N}.{trustRecord.Id}";
+                var hmac = SignCookieValue(cookieValue);
+                var fullCookie = $"{cookieValue}.{hmac}";
+                Response.Cookies.Append("__2fa_trust", fullCookie, new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = HttpContext.Request.IsHttps,
+                    SameSite = SameSiteMode.Lax,
+                    Expires = DateTimeOffset.UtcNow.AddDays(30),
+                    Path = "/",
+                });
+
                 return Ok(result);
             }
             catch (MediaBrowser.Controller.Authentication.AuthenticationException)
@@ -273,6 +288,32 @@ public class TwoFactorAuthController : ControllerBase
         using var reader = new System.IO.StreamReader(stream);
         var js = reader.ReadToEnd();
         return Content(js, "application/javascript; charset=utf-8");
+    }
+
+    private static string SignCookieValue(string value)
+    {
+        // Use a static key derived from the GUID; per-instance enough since cookies aren't long-lived secrets
+        var key = System.Text.Encoding.UTF8.GetBytes("TwoFactorAuth.CookieSign.v1");
+        var bytes = System.Text.Encoding.UTF8.GetBytes(value);
+        using var hmac = new System.Security.Cryptography.HMACSHA256(key);
+        return Convert.ToBase64String(hmac.ComputeHash(bytes)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    /// <summary>
+    /// Returns true if the request carries a valid trust cookie for the given user.
+    /// </summary>
+    public bool HasValidTrustCookie(Guid userId, string trustRecordId)
+    {
+        var cookie = Request.Cookies["__2fa_trust"];
+        if (string.IsNullOrEmpty(cookie)) return false;
+        var parts = cookie.Split('.');
+        if (parts.Length != 3) return false;
+        if (!Guid.TryParse(parts[0], out var cookieUserId) || cookieUserId != userId) return false;
+        if (!string.Equals(parts[1], trustRecordId, StringComparison.Ordinal)) return false;
+        var expected = SignCookieValue($"{parts[0]}.{parts[1]}");
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(parts[2]),
+            System.Text.Encoding.UTF8.GetBytes(expected));
     }
 
     private IActionResult ServeEmbeddedPage(string filename)

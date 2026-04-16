@@ -19,6 +19,7 @@ public class TwoFactorStartupFilter : IStartupFilter
         return app =>
         {
             app.UseMiddleware<IndexHtmlInjectionMiddleware>();
+            app.UseMiddleware<TrustCookieMiddleware>();
             app.UseMiddleware<TwoFactorEnforcementMiddleware>();
             app.UseMiddleware<RequestBlockerMiddleware>();
             _logger.LogInformation("[2FA] Middleware registered into pipeline");
