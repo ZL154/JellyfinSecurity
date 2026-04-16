@@ -103,6 +103,15 @@ public class RequestBlockerMiddleware
             return;
         }
 
+        // If a non-blocked authenticated user is approving a QuickConnect request, they've
+        // already passed 2FA. Pre-verify them so the device that initiated QuickConnect
+        // gets a session that passes our SessionStarted check.
+        if (userId != Guid.Empty && path.Contains("/QuickConnect/Authorize", StringComparison.OrdinalIgnoreCase))
+        {
+            _challengeStore.MarkUserPreVerified(userId);
+            _logger.LogInformation("[2FA] QuickConnect authorize by {UserId} — pre-verifying for incoming session", userId);
+        }
+
         await _next(context).ConfigureAwait(false);
     }
 

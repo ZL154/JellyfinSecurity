@@ -21,6 +21,12 @@ public class PairingRequest
     public DateTime ExpiresAt { get; set; }
 
     public PairingStatus Status { get; set; } = PairingStatus.Pending;
+
+    /// <summary>Opaque token the polling device uses to fetch its status.</summary>
+    public string PollToken { get; set; } = string.Empty;
+
+    /// <summary>Set when admin approves — Quick Connect secret the TV can finalize with.</summary>
+    public string? QuickConnectSecret { get; set; }
 }
 
 public enum PairingStatus

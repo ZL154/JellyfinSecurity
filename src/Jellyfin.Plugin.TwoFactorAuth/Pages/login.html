@@ -238,7 +238,9 @@
             }).then(function(authData) {
                 if (!authData) return;
                 storeCredentials(authData).then(function() {
-                    window.location.href = '/web/index.html';
+                    checkLowRecoveryCodes(authData).then(function() {
+                        window.location.href = '/web/index.html';
+                    });
                 });
             }).catch(function() {
                 btn.disabled = false;
@@ -246,6 +248,24 @@
                 showError('Network error. Check your connection and try again.');
             });
         });
+
+        function checkLowRecoveryCodes(authData) {
+            return fetch('/TwoFactorAuth/RecoveryCodes/Status', {
+                headers: { 'X-Emby-Token': authData.AccessToken }
+            }).then(function(r) { return r.ok ? r.json() : null; }).then(function(s) {
+                if (!s) return;
+                if (s.total > 0 && s.remaining < 3) {
+                    return new Promise(function(resolve) {
+                        var bar = document.createElement('div');
+                        bar.style.cssText = 'position:fixed;left:0;right:0;top:0;background:#ff9800;color:#000;padding:14px 18px;font-size:14px;text-align:center;z-index:9999;font-weight:500;';
+                        bar.innerHTML = '⚠ Only ' + s.remaining + ' recovery code' + (s.remaining === 1 ? '' : 's') + ' left. <a href="/TwoFactorAuth/Setup" style="color:#000;text-decoration:underline;">Generate more →</a> &nbsp; <button id="dismissBar" style="background:#000;color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer;">Continue</button>';
+                        document.body.appendChild(bar);
+                        document.getElementById('dismissBar').addEventListener('click', function() { resolve(); });
+                        setTimeout(resolve, 6000);
+                    });
+                }
+            }).catch(function() { /* best effort */ });
+        }
 
         function storeCredentials(authData) {
             return fetch('/System/Info/Public').then(function(r) { return r.ok ? r.json() : null; }).then(function(info) {

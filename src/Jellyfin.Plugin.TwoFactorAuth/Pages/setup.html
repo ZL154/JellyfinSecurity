@@ -129,6 +129,17 @@
             </div>
         </div>
 
+        <div class="card" id="emailCard">
+            <h2>📧 Email Backup Code</h2>
+            <p style="font-size:13px;color:#aaa;margin-bottom:14px;line-height:1.5;">If you set an email here, you can request a one-time code by email when you can't reach your authenticator app. Leave blank to disable.</p>
+            <div class="row-gap">
+                <input type="text" id="emailInput" placeholder="you@example.com" style="flex:1;min-width:240px;" />
+                <button class="btn-primary" id="btnSaveEmail">Save</button>
+            </div>
+            <div class="alert success" id="emailSuccess"></div>
+            <div class="alert error" id="emailError"></div>
+        </div>
+
         <div class="card" id="devicesCard" style="display:none;">
             <h2>📱 Trusted Devices</h2>
             <p style="font-size:13px;color:#888;margin-bottom:12px;">Devices that bypass 2FA after first verification (30-day window). Revoke any you don't recognize.</p>
@@ -322,12 +333,33 @@
             URL.revokeObjectURL(url);
         });
 
+        function loadEmail() {
+            api('GET', 'TwoFactorAuth/Email').then(function(r) {
+                document.getElementById('emailInput').value = r.email || '';
+            }).catch(function() { /* not signed in yet */ });
+        }
+
+        document.getElementById('btnSaveEmail').addEventListener('click', function() {
+            var ok = document.getElementById('emailSuccess');
+            var err = document.getElementById('emailError');
+            ok.classList.remove('show'); err.classList.remove('show');
+            var email = document.getElementById('emailInput').value.trim();
+            api('POST', 'TwoFactorAuth/Email', { email: email }).then(function() {
+                ok.textContent = email ? 'Email saved.' : 'Email cleared.';
+                ok.classList.add('show');
+            }).catch(function() {
+                err.textContent = 'Save failed — check the address.';
+                err.classList.add('show');
+            });
+        });
+
         function disable2FA() {
             if (!confirm('Disable 2FA? You will only need your password to sign in. All recovery codes and trusted devices will be removed.')) return;
             api('POST', 'TwoFactorAuth/Setup/Disable').then(loadStatus);
         }
 
         loadStatus();
+        loadEmail();
     </script>
 </body>
 </html>

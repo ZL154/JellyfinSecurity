@@ -735,6 +735,65 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
+    // POST /TwoFactorAuth/Pairings/Initiate [AllowAnonymous]
+    // TV calls this to get a code to display + a poll token to check approval status.
+    // -------------------------------------------------------------------------
+
+    [HttpPost("Pairings/Initiate")]
+    [AllowAnonymous]
+    public ActionResult InitiatePairing([FromBody, Required] InitiatePairingRequest req)
+    {
+        // Throttle TV-initiated pairings per IP to keep the in-memory store small.
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var rl = _rateLimiter.CheckAndRecord("pair:" + ip, 5, TimeSpan.FromMinutes(5));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many pairing requests. Try again in {rl.retryAfterSeconds} seconds.",
+            });
+        }
+
+        var pairing = _devicePairingService.InitiatePairing(req.Username ?? string.Empty, req.DeviceName ?? string.Empty);
+        return Ok(new
+        {
+            code = pairing.Code,
+            pollToken = pairing.PollToken,
+            expiresAt = pairing.ExpiresAt,
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /TwoFactorAuth/Pairings/Poll [AllowAnonymous]
+    // TV polls this with its poll token to find out if the admin has approved.
+    // When approved, returns the Quick Connect secret so the TV can finalize.
+    // -------------------------------------------------------------------------
+
+    [HttpGet("Pairings/Poll")]
+    [AllowAnonymous]
+    public ActionResult PollPairing([FromQuery] string token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return BadRequest(new { message = "Missing token." });
+        }
+
+        var pairing = _devicePairingService.PollByToken(token);
+        if (pairing is null)
+        {
+            return NotFound(new { status = "expired" });
+        }
+
+        return Ok(new
+        {
+            status = pairing.Status.ToString().ToLowerInvariant(),
+            quickConnectSecret = pairing.Status == PairingStatus.Approved ? pairing.QuickConnectSecret : null,
+            expiresAt = pairing.ExpiresAt,
+        });
+    }
+
+    // -------------------------------------------------------------------------
     // 8. GET /TwoFactorAuth/Pairings [Authorize(Policy = "RequiresElevation")]
     // -------------------------------------------------------------------------
 
@@ -846,6 +905,80 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         return Ok(result);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /TwoFactorAuth/TestSmtp [admin] — sends a test email so admins can verify SMTP
+    // -------------------------------------------------------------------------
+
+    [HttpPost("TestSmtp")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> TestSmtp([FromBody, Required] TestSmtpRequest req)
+    {
+        if (string.IsNullOrEmpty(req.ToAddress))
+        {
+            return BadRequest(new { message = "Provide an email address to send the test to." });
+        }
+
+        try
+        {
+            await _emailOtpService.SendTestEmailAsync(req.ToAddress).ConfigureAwait(false);
+            return Ok(new { message = "Test email sent. Check the inbox (and spam folder)." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[2FA] Test SMTP failed");
+            return StatusCode(500, new { message = "SMTP test failed: " + ex.Message });
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /TwoFactorAuth/Email [auth] — user sets their own email for OTP delivery
+    // -------------------------------------------------------------------------
+
+    [HttpPost("Email")]
+    [Authorize]
+    public async Task<IActionResult> SetMyEmail([FromBody, Required] SetEmailRequest req)
+    {
+        var userId = GetCurrentUserId();
+        var email = req.Email?.Trim() ?? string.Empty;
+
+        // Basic shape check
+        if (!string.IsNullOrEmpty(email) && (!email.Contains('@') || email.Length > 254))
+        {
+            return BadRequest(new { message = "Invalid email address." });
+        }
+
+        var config = Plugin.Instance?.Configuration;
+        if (config is null) return StatusCode(500, new { message = "Plugin not initialized." });
+
+        config.UserEmailAddresses ??= new Dictionary<string, string>();
+        if (string.IsNullOrEmpty(email))
+        {
+            config.UserEmailAddresses.Remove(userId.ToString("N"));
+        }
+        else
+        {
+            config.UserEmailAddresses[userId.ToString("N")] = email;
+        }
+        Plugin.Instance!.SaveConfiguration();
+
+        await Task.CompletedTask;
+        return Ok(new { message = "Saved." });
+    }
+
+    [HttpGet("Email")]
+    [Authorize]
+    public IActionResult GetMyEmail()
+    {
+        var userId = GetCurrentUserId();
+        var config = Plugin.Instance?.Configuration;
+        var email = string.Empty;
+        if (config?.UserEmailAddresses?.TryGetValue(userId.ToString("N"), out var addr) == true)
+        {
+            email = addr;
+        }
+        return Ok(new { email });
     }
 
     // -------------------------------------------------------------------------
