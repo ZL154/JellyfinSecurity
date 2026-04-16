@@ -35,6 +35,20 @@ public class ChallengeStore : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Check whether a user has the pre-verified flag set, without consuming it.
+    /// Used to allow ALL sessions created within the verification window
+    /// (browser may open WebSocket + multiple connections, each creating a session).
+    /// </summary>
+    public bool IsUserPreVerified(Guid userId)
+    {
+        if (_preVerifiedUsers.TryGetValue(userId, out var expiry) && expiry > DateTime.UtcNow)
+        {
+            return true;
+        }
+        return false;
+    }
+
     // Users blocked by 2FA requirement — their authenticated requests return 401
     // until they complete verification via /TwoFactorAuth/Login.
     private readonly ConcurrentDictionary<Guid, DateTime> _blockedUsers = new();

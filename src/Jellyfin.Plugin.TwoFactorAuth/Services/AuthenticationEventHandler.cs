@@ -1,3 +1,4 @@
+using System.Linq;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Hosting;
@@ -86,10 +87,11 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
-        // Check if user was pre-verified via /TwoFactorAuth/Login — they typed password + code
-        if (_challengeStore.ConsumeUserPreVerified(info.UserId))
+        // Check if user is inside the 2-minute verification window — they typed password + code
+        // Non-consuming so multiple sessions (WebSocket + HTTP) from the same login attempt all pass.
+        if (_challengeStore.IsUserPreVerified(info.UserId))
         {
-            _logger.LogInformation("[2FA] User {Name} pre-verified via /TwoFactorAuth/Login — session allowed", info.UserName);
+            _logger.LogInformation("[2FA] User {Name} within verification window — session allowed", info.UserName);
             await _store.AddAuditEntryAsync(new AuditEntry
             {
                 Timestamp = DateTime.UtcNow,
@@ -104,33 +106,34 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
-        // "Remember this device" — if session's DeviceId matches a trusted device
-        // record previously created via /TwoFactorAuth/Login, allow the session.
-        if (!string.IsNullOrEmpty(info.DeviceId))
+        // "Remember for 30 days" — if the user has ANY trusted device record created
+        // within the last 30 days, they've done 2FA recently enough. Since device IDs
+        // don't always match across Jellyfin's internal session types, we just check
+        // that the user has an active trust record.
+        var trustCutoff = DateTime.UtcNow.AddDays(-30);
+        var hasRecentTrust = userData.TrustedDevices.Any(t => t.LastUsedAt >= trustCutoff || t.CreatedAt >= trustCutoff);
+        if (hasRecentTrust)
         {
-            var cutoff = DateTime.UtcNow.AddDays(-30);
-            foreach (var trusted in userData.TrustedDevices)
+            _logger.LogInformation("[2FA] {Name} within 30-day trust window — session allowed", info.UserName);
+            // Bump LastUsedAt on the most recent trust record
+            var mostRecent = userData.TrustedDevices.OrderByDescending(t => t.LastUsedAt).FirstOrDefault();
+            if (mostRecent is not null)
             {
-                if (string.Equals(trusted.DeviceId, info.DeviceId, StringComparison.Ordinal)
-                    && trusted.CreatedAt >= cutoff)
-                {
-                    _logger.LogInformation("[2FA] {Name} recognized device {DeviceId} — session allowed", info.UserName, info.DeviceId);
-                    trusted.LastUsedAt = DateTime.UtcNow;
-                    await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
-                    await _store.AddAuditEntryAsync(new AuditEntry
-                    {
-                        Timestamp = DateTime.UtcNow,
-                        UserId = info.UserId,
-                        Username = info.UserName ?? string.Empty,
-                        RemoteIp = info.RemoteEndPoint ?? string.Empty,
-                        DeviceId = info.DeviceId ?? string.Empty,
-                        DeviceName = info.DeviceName ?? string.Empty,
-                        Result = AuditResult.Bypassed,
-                        Method = "trusted_device",
-                    }).ConfigureAwait(false);
-                    return;
-                }
+                mostRecent.LastUsedAt = DateTime.UtcNow;
+                await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
             }
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = info.UserId,
+                Username = info.UserName ?? string.Empty,
+                RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                DeviceId = info.DeviceId ?? string.Empty,
+                DeviceName = info.DeviceName ?? string.Empty,
+                Result = AuditResult.Bypassed,
+                Method = "recent_2fa",
+            }).ConfigureAwait(false);
+            return;
         }
 
         var apiKeys = await _store.GetApiKeysAsync().ConfigureAwait(false);
