@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
-# 🔐 Two-Factor Authentication for Jellyfin(THIS PLUGIN IS A WORK IN PROGRESS - DO NOT EXPECT IT TO WORK IF INSTALLED NOW - this message will be removed when needed
+# 🔐 Two-Factor Authentication for Jellyfin(THIS PLUGIN IS A WORK IN PROGRESS - DO NOT EXPECT IT TO WORK IF INSTALLED NOW - this message will be removed when needed)
 
 A native server-side 2FA plugin that **enforces verification on every login** using TOTP authenticator apps, recovery codes, or email OTP. Built around a per-device trust model so users only enter codes when needed.
 
