@@ -73,7 +73,10 @@ public class TotpService
         var secretBytes = KeyGeneration.GenerateRandomKey(20);
         var manualEntryKey = Base32Encoding.ToString(secretBytes);
 
-        var uri = $"otpauth://totp/Jellyfin:{Uri.EscapeDataString(username)}?secret={manualEntryKey}&issuer=Jellyfin";
+        var issuer = Plugin.Instance?.Configuration.TotpIssuerName;
+        if (string.IsNullOrWhiteSpace(issuer)) issuer = "Jellyfin";
+        var encodedIssuer = Uri.EscapeDataString(issuer);
+        var uri = $"otpauth://totp/{encodedIssuer}:{Uri.EscapeDataString(username)}?secret={manualEntryKey}&issuer={encodedIssuer}";
 
         using var qrGenerator = new QRCodeGenerator();
         using var qrCodeData = qrGenerator.CreateQrCode(uri, QRCodeGenerator.ECCLevel.M);

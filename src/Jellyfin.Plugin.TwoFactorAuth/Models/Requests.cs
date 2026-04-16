@@ -46,3 +46,20 @@ public class LoginWithCodeRequest
 
     public string Code { get; set; } = string.Empty;
 }
+
+public class TestSmtpRequest
+{
+    public string ToAddress { get; set; } = string.Empty;
+}
+
+public class SetEmailRequest
+{
+    public string Email { get; set; } = string.Empty;
+}
+
+public class InitiatePairingRequest
+{
+    public string Username { get; set; } = string.Empty;
+
+    public string DeviceName { get; set; } = string.Empty;
+}

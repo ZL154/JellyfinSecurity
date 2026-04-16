@@ -85,7 +85,15 @@
                     <!-- PAIRINGS -->
                     <div class="tfa-panel" id="panel-pairings">
                         <div class="tfa-section">
-                            <h2>Pending TV Pairing Requests</h2>
+                            <h2>TV / Limited-Input Devices</h2>
+                            <div class="tfa-note">
+                                <strong>Recommended flow: Jellyfin Quick Connect.</strong>
+                                On the TV, choose <em>Quick Connect</em>. Then on a 2FA-verified phone or laptop, open Jellyfin and approve the displayed code. The TV will sign in and inherit the verified status — no TOTP prompt on the TV itself.
+                                <br><br>
+                                Make sure Quick Connect is enabled in Jellyfin's <a href="/web/index.html#!/quickconnect.html" style="color:#00a4dc;">Dashboard → Quick Connect</a>.
+                            </div>
+                            <h3>Manual Pairing Requests</h3>
+                            <p style="font-size:12px;color:#888;margin-bottom:8px;">Pending requests from devices that can't use Quick Connect. Approve to grant a 30-day trusted device.</p>
                             <table class="tfa-table">
                                 <thead><tr><th>User</th><th>Device</th><th>Code</th><th>Expires</th><th>Actions</th></tr></thead>
                                 <tbody id="pairingsBody"><tr><td colspan="5" class="tfa-empty">No pending pairings</td></tr></tbody>
@@ -189,6 +197,23 @@
                                 <label>From Name</label>
                                 <input type="text" id="cfgSmtpFromName" class="tfa-input" style="width:280px;" />
                             </div>
+                            <div class="tfa-row" style="margin-top:8px;">
+                                <label>Send test email to</label>
+                                <div style="display:flex;gap:8px;">
+                                    <input type="text" id="cfgSmtpTestTo" class="tfa-input" style="width:240px;" placeholder="me@example.com" />
+                                    <button type="button" class="tfa-btn tfa-btn-primary" id="btnTestSmtp">Send Test</button>
+                                </div>
+                            </div>
+                            <div id="smtpTestResult" style="font-size:13px;margin-top:6px;"></div>
+                        </div>
+
+                        <div class="tfa-section">
+                            <h2>Authenticator App</h2>
+                            <div class="tfa-row">
+                                <label>Issuer name shown in users' apps</label>
+                                <input type="text" id="cfgIssuer" class="tfa-input" style="width:240px;" placeholder="Jellyfin" />
+                            </div>
+                            <p style="font-size:12px;color:#888;margin-top:6px;">Existing enrollments keep their old name. New enrollments will use this. Pick something users will recognize as your server.</p>
                         </div>
 
                         <div class="tfa-section">
@@ -413,8 +438,22 @@
                         page.querySelector('#cfgGotifyUrl').value = c.GotifyUrl || '';
                         page.querySelector('#cfgGotifyToken').value = c.GotifyAppToken || '';
                         page.querySelector('#cfgEmails').value = (c.NotifyEmailAddresses || []).join('\n');
+                        page.querySelector('#cfgIssuer').value = c.TotpIssuerName || 'Jellyfin';
                     });
                 }
+                page.querySelector('#btnTestSmtp').addEventListener('click', function() {
+                    var to = page.querySelector('#cfgSmtpTestTo').value.trim();
+                    var out = page.querySelector('#smtpTestResult');
+                    if (!to) { out.style.color = '#f44336'; out.textContent = 'Enter an email address.'; return; }
+                    out.style.color = '#888'; out.textContent = 'Sending...';
+                    apiPost('TwoFactorAuth/TestSmtp', { toAddress: to }).then(function(r) {
+                        out.style.color = '#4caf50'; out.textContent = '✓ ' + (r.message || 'Sent');
+                    }).catch(function(r) {
+                        out.style.color = '#f44336';
+                        if (r && r.json) { r.json().then(function(b) { out.textContent = '✗ ' + (b.message || 'Send failed'); }).catch(function(){ out.textContent = '✗ Send failed'; }); }
+                        else { out.textContent = '✗ Send failed'; }
+                    });
+                });
                 page.querySelector('#btnSaveSettings').addEventListener('click', function() {
                     ApiClient.getPluginConfiguration(pluginId).then(function(c) {
                         c.Enabled = page.querySelector('#cfgEnabled').checked;
@@ -439,6 +478,7 @@
                         c.GotifyUrl = page.querySelector('#cfgGotifyUrl').value.trim();
                         c.GotifyAppToken = page.querySelector('#cfgGotifyToken').value.trim();
                         c.NotifyEmailAddresses = page.querySelector('#cfgEmails').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+                        c.TotpIssuerName = page.querySelector('#cfgIssuer').value.trim() || 'Jellyfin';
                         return ApiClient.updatePluginConfiguration(pluginId, c);
                     }).then(function() {
                         var s = page.querySelector('#saveStatus');

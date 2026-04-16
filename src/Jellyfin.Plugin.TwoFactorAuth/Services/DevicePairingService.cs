@@ -15,6 +15,7 @@ public class DevicePairingService : IDisposable
 
     private readonly ILogger<DevicePairingService> _logger;
     private readonly ConcurrentDictionary<string, PairingRequest> _activePairings = new();
+    private readonly ConcurrentDictionary<string, string> _pollTokenIndex = new();
     private readonly Timer _cleanupTimer;
     private bool _disposed;
 
@@ -57,6 +58,80 @@ public class DevicePairingService : IDisposable
             code, username, deviceName);
 
         return request;
+    }
+
+    /// <summary>
+    /// TV-initiated pairing: device asks the server for a code + opaque poll token.
+    /// The user types the displayed code into the admin UI, which approves it and
+    /// stashes a Quick Connect secret the TV can finalize with.
+    /// </summary>
+    public PairingRequest InitiatePairing(string username, string deviceName)
+    {
+        var ttlSeconds = Plugin.Instance?.Configuration.PairingCodeTtlSeconds ?? 300;
+        var now = DateTime.UtcNow;
+        var code = GenerateCode();
+        var pollToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+
+        var request = new PairingRequest
+        {
+            Code = code,
+            UserId = Guid.Empty,
+            Username = username ?? string.Empty,
+            DeviceId = string.Empty,
+            DeviceName = deviceName ?? string.Empty,
+            ChallengeToken = string.Empty,
+            CreatedAt = now,
+            ExpiresAt = now.AddSeconds(ttlSeconds),
+            Status = PairingStatus.Pending,
+            PollToken = pollToken,
+        };
+
+        _activePairings[code] = request;
+        _pollTokenIndex[pollToken] = code;
+        _logger.LogInformation(
+            "TV pairing initiated, code '{Code}' for user '{Username}' device '{DeviceName}'",
+            code, username, deviceName);
+        return request;
+    }
+
+    /// <summary>Look up a pairing request by its opaque poll token (TV polling).</summary>
+    public PairingRequest? PollByToken(string pollToken)
+    {
+        if (!_pollTokenIndex.TryGetValue(pollToken, out var code))
+        {
+            return null;
+        }
+
+        if (!_activePairings.TryGetValue(code, out var request))
+        {
+            return null;
+        }
+
+        if (request.ExpiresAt <= DateTime.UtcNow && request.Status == PairingStatus.Pending)
+        {
+            request.Status = PairingStatus.Expired;
+        }
+
+        return request;
+    }
+
+    /// <summary>Approve a pending pairing and stash the Quick Connect secret for the TV to finalize with.</summary>
+    public bool ApprovePairingWithSecret(string code, string quickConnectSecret)
+    {
+        if (!_activePairings.TryGetValue(code, out var request))
+        {
+            return false;
+        }
+
+        if (request.Status != PairingStatus.Pending)
+        {
+            return false;
+        }
+
+        request.Status = PairingStatus.Approved;
+        request.QuickConnectSecret = quickConnectSecret;
+        _logger.LogInformation("Pairing request '{Code}' approved with QC secret", code);
+        return true;
     }
 
     /// <summary>
@@ -147,9 +222,22 @@ public class DevicePairingService : IDisposable
         foreach (var kvp in _activePairings)
         {
             var r = kvp.Value;
-            if (r.ExpiresAt <= now || r.Status is PairingStatus.Approved or PairingStatus.Denied or PairingStatus.Expired)
+            // Keep approved records for a short window so the TV can pick up its QC secret.
+            var isTerminal = r.Status is PairingStatus.Denied or PairingStatus.Expired;
+            var approvedStale = r.Status == PairingStatus.Approved && r.ExpiresAt <= now;
+            if (r.ExpiresAt <= now && r.Status == PairingStatus.Pending)
+            {
+                r.Status = PairingStatus.Expired;
+                isTerminal = true;
+            }
+
+            if (isTerminal || approvedStale)
             {
                 _activePairings.TryRemove(kvp.Key, out _);
+                if (!string.IsNullOrEmpty(r.PollToken))
+                {
+                    _pollTokenIndex.TryRemove(r.PollToken, out _);
+                }
             }
         }
     }

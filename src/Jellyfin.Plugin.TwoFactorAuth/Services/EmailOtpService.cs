@@ -58,6 +58,40 @@ public class EmailOtpService
         return (code, sent);
     }
 
+    /// <summary>
+    /// Public test method — sends a "Hello from Jellyfin 2FA" mail using current SMTP config.
+    /// Throws on failure so callers can surface the error.
+    /// </summary>
+    public async Task SendTestEmailAsync(string toAddress)
+    {
+        var config = Plugin.Instance?.Configuration ?? throw new InvalidOperationException("Plugin not initialized");
+        if (string.IsNullOrEmpty(config.SmtpHost) || string.IsNullOrEmpty(config.SmtpFromAddress))
+        {
+            throw new InvalidOperationException("SMTP host and from address must be set in plugin settings.");
+        }
+
+        using var smtp = new SmtpClient(config.SmtpHost, config.SmtpPort)
+        {
+            EnableSsl = config.SmtpUseSsl,
+            Timeout = 10000,
+        };
+        if (!string.IsNullOrEmpty(config.SmtpUsername))
+        {
+            smtp.Credentials = new NetworkCredential(config.SmtpUsername, config.SmtpPassword);
+        }
+
+        using var msg = new MailMessage
+        {
+            From = new MailAddress(config.SmtpFromAddress, string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName),
+            Subject = "Jellyfin 2FA — SMTP test",
+            Body = "If you received this, your SMTP configuration is working. Sent at " + DateTime.UtcNow.ToString("u") + " UTC.",
+            IsBodyHtml = false,
+        };
+        msg.To.Add(toAddress);
+
+        await smtp.SendMailAsync(msg).ConfigureAwait(false);
+    }
+
     private async Task<bool> TrySendEmailAsync(string? email, string username, string code, int ttlSeconds)
     {
         var config = Plugin.Instance?.Configuration;

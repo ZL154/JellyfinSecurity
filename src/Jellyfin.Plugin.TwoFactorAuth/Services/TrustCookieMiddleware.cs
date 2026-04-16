@@ -34,7 +34,10 @@ public class TrustCookieMiddleware
     {
         var path = context.Request.Path.Value ?? string.Empty;
         var isAuthPath = path.EndsWith("/AuthenticateByName", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith("/AuthenticateWithQuickConnect", StringComparison.OrdinalIgnoreCase);
+            || path.EndsWith("/AuthenticateWithQuickConnect", StringComparison.OrdinalIgnoreCase)
+            // QuickConnect approval: user authenticates the request on a 2FA-verified device,
+            // so we honor the trust cookie to mark the user pre-verified for the new session.
+            || path.Contains("/QuickConnect/Authorize", StringComparison.OrdinalIgnoreCase);
 
         if (!isAuthPath)
         {

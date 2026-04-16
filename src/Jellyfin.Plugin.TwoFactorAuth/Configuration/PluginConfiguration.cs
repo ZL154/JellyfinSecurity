@@ -62,4 +62,8 @@ public class PluginConfiguration : BasePluginConfiguration
 
     // Per-user email addresses for OTP delivery (key = userId, value = email).
     public Dictionary<string, string> UserEmailAddresses { get; set; } = new();
+
+    // What appears in authenticator apps (issuer field of otpauth:// URI).
+    // Defaults to "Jellyfin"; admins can override per server (e.g., "MyServer Jellyfin").
+    public string TotpIssuerName { get; set; } = "Jellyfin";
 }
