@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
@@ -8,6 +9,9 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// Blocks authenticated requests from users who logged in without completing 2FA.
 /// Returns 401 so Jellyfin clients fall back to re-authentication.
 /// Our own /TwoFactorAuth/* paths are always allowed through so users can reach /Login.
+///
+/// Since we run before Jellyfin's auth middleware in the pipeline, we invoke
+/// authentication manually via context.AuthenticateAsync to get the user claims.
 /// </summary>
 public class RequestBlockerMiddleware
 {
@@ -29,14 +33,13 @@ public class RequestBlockerMiddleware
     {
         var path = context.Request.Path.Value ?? string.Empty;
 
-        // Never block our own plugin paths — user needs these to complete 2FA
+        // Never block our own paths — user needs these to complete 2FA and see status
         if (path.StartsWith("/TwoFactorAuth", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context).ConfigureAwait(false);
             return;
         }
 
-        // Only block if the plugin is enabled
         var config = Plugin.Instance?.Configuration;
         if (config is null || !config.Enabled)
         {
@@ -44,24 +47,56 @@ public class RequestBlockerMiddleware
             return;
         }
 
-        // Check if request carries authenticated user claims
-        var userIdClaim = context.User?.FindFirst("Jellyfin-UserId")
-            ?? context.User?.FindFirst(ClaimTypes.NameIdentifier);
-        if (userIdClaim is null || !Guid.TryParse(userIdClaim.Value, out var userId))
+        // Only care about requests carrying Jellyfin auth — skip unauthenticated ones
+        if (!HasAuthCredentials(context))
         {
             await _next(context).ConfigureAwait(false);
             return;
         }
 
-        if (_challengeStore.IsUserBlocked(userId))
+        // Ask Jellyfin's CustomAuthentication handler to resolve claims for this request
+        Guid userId = Guid.Empty;
+        try
         {
-            _logger.LogInformation("[2FA] Blocking request to {Path} for 2FA-locked user {UserId}", path, userId);
+            var authResult = await context.AuthenticateAsync("CustomAuthentication").ConfigureAwait(false);
+            if (authResult.Succeeded && authResult.Principal is not null)
+            {
+                var claim = authResult.Principal.FindFirst("Jellyfin-UserId")
+                    ?? authResult.Principal.FindFirst(ClaimTypes.NameIdentifier);
+                if (claim is not null)
+                {
+                    Guid.TryParse(claim.Value, out userId);
+                }
+            }
+        }
+        catch
+        {
+            // Jellyfin auth failed — not our concern, let the real pipeline handle it
+            await _next(context).ConfigureAwait(false);
+            return;
+        }
+
+        if (userId != Guid.Empty && _challengeStore.IsUserBlocked(userId))
+        {
+            _logger.LogInformation("[2FA] BLOCKED request to {Path} for user {UserId} — 2FA not completed", path, userId);
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync("{\"message\":\"2FA verification required. Visit /TwoFactorAuth/Login\"}").ConfigureAwait(false);
+            await context.Response.WriteAsync(
+                "{\"message\":\"Two-factor authentication required. Visit /TwoFactorAuth/Login to complete sign in.\"}"
+            ).ConfigureAwait(false);
             return;
         }
 
         await _next(context).ConfigureAwait(false);
+    }
+
+    private static bool HasAuthCredentials(HttpContext ctx)
+    {
+        if (ctx.Request.Headers.ContainsKey("Authorization")) return true;
+        if (ctx.Request.Headers.ContainsKey("X-Emby-Token")) return true;
+        if (ctx.Request.Headers.ContainsKey("X-Emby-Authorization")) return true;
+        if (ctx.Request.Query.ContainsKey("api_key")) return true;
+        if (ctx.Request.Query.ContainsKey("ApiKey")) return true;
+        return false;
     }
 }
