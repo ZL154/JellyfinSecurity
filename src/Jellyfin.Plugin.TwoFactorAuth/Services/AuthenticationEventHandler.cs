@@ -104,6 +104,35 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
+        // "Remember this device" — if session's DeviceId matches a trusted device
+        // record previously created via /TwoFactorAuth/Login, allow the session.
+        if (!string.IsNullOrEmpty(info.DeviceId))
+        {
+            var cutoff = DateTime.UtcNow.AddDays(-30);
+            foreach (var trusted in userData.TrustedDevices)
+            {
+                if (string.Equals(trusted.DeviceId, info.DeviceId, StringComparison.Ordinal)
+                    && trusted.CreatedAt >= cutoff)
+                {
+                    _logger.LogInformation("[2FA] {Name} recognized device {DeviceId} — session allowed", info.UserName, info.DeviceId);
+                    trusted.LastUsedAt = DateTime.UtcNow;
+                    await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+                    await _store.AddAuditEntryAsync(new AuditEntry
+                    {
+                        Timestamp = DateTime.UtcNow,
+                        UserId = info.UserId,
+                        Username = info.UserName ?? string.Empty,
+                        RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                        DeviceId = info.DeviceId ?? string.Empty,
+                        DeviceName = info.DeviceName ?? string.Empty,
+                        Result = AuditResult.Bypassed,
+                        Method = "trusted_device",
+                    }).ConfigureAwait(false);
+                    return;
+                }
+            }
+        }
+
         var apiKeys = await _store.GetApiKeysAsync().ConfigureAwait(false);
         var bypass = _bypassEvaluator.Evaluate(
             info.RemoteEndPoint,
