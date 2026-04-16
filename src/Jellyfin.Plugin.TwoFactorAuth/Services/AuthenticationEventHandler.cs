@@ -133,8 +133,10 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
-        _logger.LogWarning("[2FA] Revoking session for {Name} — 2FA required. User must complete verification via /TwoFactorAuth/Setup",
+        _logger.LogWarning("[2FA] Blocking {Name} until they complete verification via /TwoFactorAuth/Login",
             info.UserName);
+
+        _challengeStore.BlockUser(info.UserId);
 
         await _store.AddAuditEntryAsync(new AuditEntry
         {
@@ -145,17 +147,16 @@ public class AuthenticationEventHandler : IHostedService
             DeviceId = info.DeviceId ?? string.Empty,
             DeviceName = info.DeviceName ?? string.Empty,
             Result = AuditResult.ChallengeIssued,
-            Method = "event_revoke",
+            Method = "blocked",
         }).ConfigureAwait(false);
 
         try
         {
             await _sessionManager.ReportSessionEnded(info.Id).ConfigureAwait(false);
-            _logger.LogInformation("[2FA] Session ended for {Name}", info.UserName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[2FA] Failed to end session for {Name}", info.UserName);
+            _logger.LogWarning(ex, "[2FA] Failed to end session for {Name}", info.UserName);
         }
     }
 }

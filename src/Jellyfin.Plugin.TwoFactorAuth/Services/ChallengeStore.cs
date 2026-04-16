@@ -35,6 +35,30 @@ public class ChallengeStore : IDisposable
         return false;
     }
 
+    // Users blocked by 2FA requirement — their authenticated requests return 401
+    // until they complete verification via /TwoFactorAuth/Login.
+    private readonly ConcurrentDictionary<Guid, DateTime> _blockedUsers = new();
+
+    public void BlockUser(Guid userId)
+    {
+        _blockedUsers[userId] = DateTime.UtcNow.AddHours(24);
+    }
+
+    public void UnblockUser(Guid userId)
+    {
+        _blockedUsers.TryRemove(userId, out _);
+    }
+
+    public bool IsUserBlocked(Guid userId)
+    {
+        if (_blockedUsers.TryGetValue(userId, out var expiry))
+        {
+            if (expiry > DateTime.UtcNow) return true;
+            _blockedUsers.TryRemove(userId, out _);
+        }
+        return false;
+    }
+
     public ChallengeStore()
     {
         // Run cleanup every 60 seconds
