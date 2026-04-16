@@ -87,25 +87,103 @@
     //    so signed-in users can find /TwoFactorAuth/Setup.
     // ============================================================
 
+    // Find every "Settings"-style link Jellyfin renders and inject our 2FA
+    // entry next to each one. Themed Jellyfin skins often relocate the
+    // settings link, and there can be multiple drawers visible at once
+    // (main left drawer + the per-user settings drawer on the right), so
+    // we don't try to be clever about which one is "the" menu — we just
+    // mirror every settings anchor we find.
     function addUserMenuLink() {
-        // Jellyfin's user drawer is in .userMenuOptions or similar
-        var menu = document.querySelector('.userMenuOptions, .navMenuOption-list, .mainDrawer-scrollContainer');
-        if (!menu) return;
-        if (document.getElementById(MENU_ITEM_ID)) return;
+        // Match any anchor whose href targets the user preferences pages.
+        // Covers vanilla Jellyfin, Jellyfin-Vue, and most themed skins.
+        var anchors = document.querySelectorAll(
+            'a[href*="mypreferencesmenu"],' +
+            ' a[href*="myprofile"],' +
+            ' a[href*="userprofile"],' +
+            ' a[href*="useredit"],' +
+            ' a[href*="quickconnect"]'
+        );
 
-        // Find the "Settings" or similar item to anchor near
-        var anchor = menu.querySelector('a[href*="mypreferencesmenu"], a[href*="useredit"]');
-        if (!anchor) return;
+        if (!anchors.length) return;
 
-        var item = document.createElement('a');
-        item.id = MENU_ITEM_ID;
-        item.className = anchor.className;
-        item.href = '/TwoFactorAuth/Setup';
-        item.innerHTML = (anchor.innerHTML.indexOf('<span') >= 0)
-            ? '<span class="material-icons" aria-hidden="true">security</span><span class="navMenuOption-text">Two-Factor Auth</span>'
-            : '🔐 Two-Factor Auth';
-        anchor.parentNode.insertBefore(item, anchor.nextSibling);
-        console.log('[2FA] Added user menu link');
+        var added = 0;
+        anchors.forEach(function (anchor) {
+            // Don't double-inject in the same container
+            var siblingContainer = anchor.parentNode;
+            if (!siblingContainer) return;
+            if (siblingContainer.querySelector('[data-tfa-link="1"]')) return;
+
+            var item = document.createElement('a');
+            item.setAttribute('data-tfa-link', '1');
+            item.id = MENU_ITEM_ID + '_' + (added++);
+            item.className = anchor.className;
+            item.href = '/TwoFactorAuth/Setup';
+
+            // Mirror the anchor's inner structure so themes style it consistently
+            var innerHtml = anchor.innerHTML;
+            // Replace any text label with "Two-Factor Auth"
+            // Try common label patterns: <span class="...text...">Label</span>,
+            // or just trailing text after an icon.
+            var labelReplaced = false;
+            var withTextSpan = innerHtml.replace(
+                /(<span[^>]*(?:text|label|name)[^>]*>)([^<]+)(<\/span>)/i,
+                function (_, open, _label, close) { labelReplaced = true; return open + 'Two-Factor Auth' + close; }
+            );
+            if (labelReplaced) {
+                // Also swap the icon if there is a material-icons span
+                item.innerHTML = withTextSpan.replace(
+                    /(<span[^>]*material-icons[^>]*>)([^<]*)(<\/span>)/i,
+                    '$1security$3'
+                );
+            } else {
+                item.innerHTML = '<span class="material-icons" aria-hidden="true" style="margin-right:0.5em;">security</span>Two-Factor Auth';
+            }
+
+            // Insert right after the anchor so it groups with Settings
+            if (anchor.nextSibling) {
+                siblingContainer.insertBefore(item, anchor.nextSibling);
+            } else {
+                siblingContainer.appendChild(item);
+            }
+        });
+
+        if (added > 0) {
+            console.log('[2FA] Injected', added, 'menu link(s)');
+        }
+    }
+
+    // The Jellyfin settings page (#!/mypreferencesmenu.html) is a list of
+    // big tile links. Drop a "Two-Factor Auth" tile into that list too.
+    function addSettingsPageTile() {
+        var hash = window.location.hash || '';
+        if (hash.indexOf('mypreferencesmenu') < 0) return;
+
+        var list = document.querySelector(
+            '.preferencesContainer .readOnlyContent,' +
+            ' .preferencesContainer,' +
+            ' .userPreferencesPage .readOnlyContent,' +
+            ' .userPreferencesPage'
+        );
+        if (!list) return;
+        if (list.querySelector('[data-tfa-tile="1"]')) return;
+
+        var tile = document.createElement('a');
+        tile.setAttribute('data-tfa-tile', '1');
+        tile.href = '/TwoFactorAuth/Setup';
+
+        // Try to copy an existing tile's classes so it inherits theme styling
+        var template = list.querySelector('a.listItem, a.cardBox, a.button-link, a');
+        if (template) tile.className = template.className;
+
+        tile.innerHTML =
+            '<span class="material-icons listItemIcon listItemIcon-transparent" aria-hidden="true">security</span>' +
+            '<div class="listItemBody">' +
+                '<div class="listItemBodyText">Two-Factor Authentication</div>' +
+                '<div class="listItemBodyText secondary">Manage your TOTP, recovery codes, and trusted devices</div>' +
+            '</div>';
+
+        list.appendChild(tile);
+        console.log('[2FA] Added Settings page tile');
     }
 
     // ============================================================
@@ -198,16 +276,19 @@
         try {
             addLoginButton();
             addUserMenuLink();
+            addSettingsPageTile();
         } catch (e) {}
     });
 
     function start() {
         addLoginButton();
         addUserMenuLink();
+        addSettingsPageTile();
         mo.observe(document.body, { childList: true, subtree: true });
         window.addEventListener('hashchange', function () {
             addLoginButton();
             addUserMenuLink();
+            addSettingsPageTile();
         });
     }
 

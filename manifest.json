@@ -8,6 +8,13 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.2.3.0",
+        "changelog": "Fix: failed-login latency. RequestBlockerMiddleware was running Jellyfin's claim resolver on every request whose X-Emby-Authorization header was set, including unauthenticated AuthenticateByName POSTs (which carry the header for client metadata, not auth). Now we only run the claim resolver when an actual Token=... segment or X-Emby-Token header is present. Wrong passwords now fail fast. Fix: 'Two-Factor Auth' link now appears in BOTH the main side drawer and the Settings page tile list. Selectors broadened so it survives custom themes (STARTRACK, etc.).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.2.3/Jellyfin.Plugin.TwoFactorAuthv1.2.3.zip",
+        "checksum": "488AE4DB894F8411CFEF7814C8BC39A3"
+      },
+      {
         "version": "1.2.2.0",
         "changelog": "Fix: passwordless / quick-profile login now triggers 2FA. The injected script now intercepts BOTH fetch and XHR auth responses; when the server returns 401 with twoFactorRequired:true, the browser is redirected to the challenge page automatically. Works for the manual login form, the avatar quick-login flow, and any other auth path. Fix: signed-in users now get a 'Two-Factor Auth' link in Jellyfin's user menu so they can find the Setup page without knowing the URL. Fix: failed-login spinner — clarified the failure path so wrong-credential 401s pass through to Jellyfin's normal error UI instead of stalling.",
         "targetAbi": "10.11.0.0",

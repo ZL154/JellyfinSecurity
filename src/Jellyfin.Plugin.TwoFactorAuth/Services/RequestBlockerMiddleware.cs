@@ -117,11 +117,24 @@ public class RequestBlockerMiddleware
 
     private static bool HasAuthCredentials(HttpContext ctx)
     {
-        if (ctx.Request.Headers.ContainsKey("Authorization")) return true;
-        if (ctx.Request.Headers.ContainsKey("X-Emby-Token")) return true;
-        if (ctx.Request.Headers.ContainsKey("X-Emby-Authorization")) return true;
-        if (ctx.Request.Query.ContainsKey("api_key")) return true;
-        if (ctx.Request.Query.ContainsKey("ApiKey")) return true;
+        var token = ctx.Request.Headers["X-Emby-Token"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(token)) return true;
+
+        var apiKeyQ = ctx.Request.Query["api_key"].FirstOrDefault()
+            ?? ctx.Request.Query["ApiKey"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(apiKeyQ)) return true;
+
+        // X-Emby-Authorization is a metadata header carrying Client=, Device=,
+        // DeviceId=, Version= even on UNAUTHENTICATED login attempts. Only
+        // count it if it actually contains a token=... segment.
+        var embyAuth = ctx.Request.Headers["X-Emby-Authorization"].FirstOrDefault()
+            ?? ctx.Request.Headers["Authorization"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(embyAuth)
+            && embyAuth.IndexOf("Token=", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return true;
+        }
+
         return false;
     }
 }
