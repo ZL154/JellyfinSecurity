@@ -952,15 +952,7 @@ public class TwoFactorAuthController : ControllerBase
         var config = Plugin.Instance?.Configuration;
         if (config is null) return StatusCode(500, new { message = "Plugin not initialized." });
 
-        config.UserEmailAddresses ??= new Dictionary<string, string>();
-        if (string.IsNullOrEmpty(email))
-        {
-            config.UserEmailAddresses.Remove(userId.ToString("N"));
-        }
-        else
-        {
-            config.UserEmailAddresses[userId.ToString("N")] = email;
-        }
+        config.SetUserEmail(userId.ToString("N"), string.IsNullOrEmpty(email) ? null : email);
         Plugin.Instance!.SaveConfiguration();
 
         await Task.CompletedTask;
@@ -972,12 +964,7 @@ public class TwoFactorAuthController : ControllerBase
     public IActionResult GetMyEmail()
     {
         var userId = GetCurrentUserId();
-        var config = Plugin.Instance?.Configuration;
-        var email = string.Empty;
-        if (config?.UserEmailAddresses?.TryGetValue(userId.ToString("N"), out var addr) == true)
-        {
-            email = addr;
-        }
+        var email = Plugin.Instance?.Configuration.GetUserEmail(userId.ToString("N")) ?? string.Empty;
         return Ok(new { email });
     }
 
@@ -1188,12 +1175,7 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         // Per-user email address from plugin config (admin sets these)
-        var config = Plugin.Instance?.Configuration;
-        string? email = null;
-        if (config?.UserEmailAddresses?.TryGetValue(challenge.UserId.ToString("N"), out var addr) == true)
-        {
-            email = addr;
-        }
+        var email = Plugin.Instance?.Configuration.GetUserEmail(challenge.UserId.ToString("N"));
 
         var (_, sent) = await _emailOtpService.GenerateAndSendCodeAsync(
             challenge.UserId,
