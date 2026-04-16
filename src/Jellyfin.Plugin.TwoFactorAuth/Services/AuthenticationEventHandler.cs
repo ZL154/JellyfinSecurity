@@ -12,6 +12,7 @@ public class AuthenticationEventHandler : IHostedService
     private readonly UserTwoFactorStore _store;
     private readonly BypassEvaluator _bypassEvaluator;
     private readonly ChallengeStore _challengeStore;
+    private readonly NotificationService _notificationService;
     private readonly ILogger<AuthenticationEventHandler> _logger;
 
     public AuthenticationEventHandler(
@@ -19,12 +20,14 @@ public class AuthenticationEventHandler : IHostedService
         UserTwoFactorStore store,
         BypassEvaluator bypassEvaluator,
         ChallengeStore challengeStore,
+        NotificationService notificationService,
         ILogger<AuthenticationEventHandler> logger)
     {
         _sessionManager = sessionManager;
         _store = store;
         _bypassEvaluator = bypassEvaluator;
         _challengeStore = challengeStore;
+        _notificationService = notificationService;
         _logger = logger;
     }
 
@@ -156,6 +159,20 @@ public class AuthenticationEventHandler : IHostedService
             Result = AuditResult.ChallengeIssued,
             Method = "blocked",
         }).ConfigureAwait(false);
+
+        // Notify admins of the login attempt that triggered a 2FA prompt
+        try
+        {
+            await _notificationService.NotifyLoginAttemptAsync(
+                info.UserName ?? "unknown",
+                info.RemoteEndPoint ?? "unknown",
+                info.DeviceName ?? "unknown",
+                requiresTwoFactor: true).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Notification failed");
+        }
 
         try
         {

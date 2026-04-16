@@ -22,6 +22,19 @@ public class UserTwoFactorData
     public int FailedAttemptCount { get; set; }
 
     public DateTime? LockoutEnd { get; set; }
+
+    public List<RecoveryCode> RecoveryCodes { get; set; } = new();
+
+    public DateTime? RecoveryCodesGeneratedAt { get; set; }
+}
+
+public class RecoveryCode
+{
+    public string Hash { get; set; } = string.Empty;
+
+    public bool Used { get; set; }
+
+    public DateTime? UsedAt { get; set; }
 }
 
 public class TrustedDevice

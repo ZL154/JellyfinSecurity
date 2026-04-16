@@ -6,17 +6,18 @@
 <body>
     <div id="TwoFactorAuth" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-checkbox,emby-input,emby-select">
         <style>
-            #TwoFactorAuth .tfa-container { max-width: 900px; margin: 0 auto; padding: 20px; }
+            #TwoFactorAuth .tfa-container { max-width: 1000px; margin: 0 auto; padding: 20px; }
             #TwoFactorAuth .tfa-section { background: rgba(0,0,0,0.2); border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.08); }
-            #TwoFactorAuth .tfa-section h2 { font-size: 18px; margin-bottom: 16px; color: #00a4dc; }
+            #TwoFactorAuth .tfa-section h2 { font-size: 17px; margin-bottom: 14px; color: #00a4dc; }
+            #TwoFactorAuth .tfa-section h3 { font-size: 14px; margin: 16px 0 8px; color: #ccc; text-transform: uppercase; letter-spacing: 0.5px; }
             #TwoFactorAuth .tfa-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); gap: 12px; }
             #TwoFactorAuth .tfa-row:last-child { border-bottom: none; }
             #TwoFactorAuth .tfa-row label { flex: 1; font-size: 14px; }
-            #TwoFactorAuth .tfa-input { background: #1a1a1a; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; font-size: 14px; }
+            #TwoFactorAuth .tfa-input { background: #1a1a1a; border: 1px solid #444; color: #e0e0e0; padding: 7px 10px; border-radius: 4px; font-size: 14px; font-family: inherit; }
             #TwoFactorAuth .tfa-input:focus { border-color: #00a4dc; outline: none; }
-            #TwoFactorAuth textarea.tfa-input { width: 100%; min-height: 80px; resize: vertical; font-family: monospace; font-size: 12px; }
+            #TwoFactorAuth textarea.tfa-input { width: 100%; min-height: 70px; resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
             #TwoFactorAuth .tfa-tabs { display: flex; gap: 0; border-bottom: 2px solid #333; margin-bottom: 20px; flex-wrap: wrap; }
-            #TwoFactorAuth .tfa-tab { padding: 10px 18px; cursor: pointer; color: #888; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s; user-select: none; }
+            #TwoFactorAuth .tfa-tab { padding: 10px 18px; cursor: pointer; color: #888; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; user-select: none; }
             #TwoFactorAuth .tfa-tab:hover { color: #ccc; }
             #TwoFactorAuth .tfa-tab.active { color: #00a4dc; border-bottom-color: #00a4dc; }
             #TwoFactorAuth .tfa-panel { display: none !important; }
@@ -28,7 +29,8 @@
             #TwoFactorAuth .tfa-badge.on { background: rgba(76,175,80,0.2); color: #4caf50; }
             #TwoFactorAuth .tfa-badge.off { background: rgba(255,255,255,0.08); color: #888; }
             #TwoFactorAuth .tfa-badge.locked { background: rgba(244,67,54,0.2); color: #f44336; }
-            #TwoFactorAuth .tfa-btn { padding: 6px 14px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; }
+            #TwoFactorAuth .tfa-badge.warn { background: rgba(255,152,0,0.2); color: #ff9800; }
+            #TwoFactorAuth .tfa-btn { padding: 6px 14px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; font-family: inherit; }
             #TwoFactorAuth .tfa-btn-primary { background: #00a4dc; color: #fff; }
             #TwoFactorAuth .tfa-btn-primary:hover { background: #0087b3; }
             #TwoFactorAuth .tfa-btn-danger { background: rgba(244,67,54,0.15); color: #f44336; border: 1px solid rgba(244,67,54,0.3); }
@@ -38,32 +40,49 @@
             #TwoFactorAuth .tfa-empty { text-align: center; padding: 40px; color: #666; font-size: 14px; }
             #TwoFactorAuth .tfa-filter { width: 100%; padding: 8px 12px; margin-bottom: 12px; }
             #TwoFactorAuth .tfa-note { background: rgba(0,164,220,0.08); border-left: 3px solid #00a4dc; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: #aaa; border-radius: 4px; }
+            #TwoFactorAuth .tfa-note.warn { background: rgba(255,152,0,0.08); border-left-color: #ff9800; }
+            #TwoFactorAuth .tfa-pagination { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 14px; }
+            #TwoFactorAuth .tfa-pagination button { padding: 6px 12px; }
+            #TwoFactorAuth .tfa-pagination .page-info { color: #888; font-size: 13px; }
         </style>
 
         <div data-role="content">
             <div class="content-primary">
                 <div class="tfa-container">
-                    <div class="tfa-note">Service integrations like Sonarr and Radarr use standard Jellyfin API keys which already bypass user authentication — no plugin configuration needed for those.</div>
+                    <div class="tfa-note">Service integrations like Sonarr/Radarr use standard Jellyfin API keys, which already bypass user authentication — no plugin configuration needed.</div>
 
                     <div class="tfa-tabs">
                         <div class="tfa-tab active" data-tab="users">Users</div>
+                        <div class="tfa-tab" data-tab="devices">Trusted Devices</div>
                         <div class="tfa-tab" data-tab="pairings">Pairings</div>
                         <div class="tfa-tab" data-tab="audit">Audit Log</div>
                         <div class="tfa-tab" data-tab="settings">Settings</div>
                     </div>
 
-                    <!-- Users -->
+                    <!-- USERS -->
                     <div class="tfa-panel active" id="panel-users">
                         <div class="tfa-section">
                             <h2>User 2FA Status</h2>
                             <table class="tfa-table">
-                                <thead><tr><th>User</th><th>TOTP</th><th>Devices</th><th>Status</th><th>Actions</th></tr></thead>
-                                <tbody id="usersBody"><tr><td colspan="5" class="tfa-empty">Loading...</td></tr></tbody>
+                                <thead><tr><th>User</th><th>TOTP</th><th>Devices</th><th>Recovery</th><th>Email</th><th>Status</th><th>Actions</th></tr></thead>
+                                <tbody id="usersBody"><tr><td colspan="7" class="tfa-empty">Loading...</td></tr></tbody>
                             </table>
                         </div>
                     </div>
 
-                    <!-- Pairings -->
+                    <!-- TRUSTED DEVICES -->
+                    <div class="tfa-panel" id="panel-devices">
+                        <div class="tfa-section">
+                            <h2>All Trusted Devices</h2>
+                            <p style="font-size:13px;color:#888;margin-bottom:12px;">Devices that bypass 2FA. Revoke any you don't recognize.</p>
+                            <table class="tfa-table">
+                                <thead><tr><th>User</th><th>Device</th><th>Added</th><th>Last used</th><th>Expires</th><th></th></tr></thead>
+                                <tbody id="devicesBody"><tr><td colspan="6" class="tfa-empty">Loading...</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- PAIRINGS -->
                     <div class="tfa-panel" id="panel-pairings">
                         <div class="tfa-section">
                             <h2>Pending TV Pairing Requests</h2>
@@ -74,47 +93,52 @@
                         </div>
                     </div>
 
-                    <!-- Audit Log -->
+                    <!-- AUDIT LOG -->
                     <div class="tfa-panel" id="panel-audit">
                         <div class="tfa-section">
                             <h2>Login Audit Log</h2>
-                            <input type="text" id="auditFilter" placeholder="Filter by user, IP, device..." class="tfa-input tfa-filter" />
+                            <input type="text" id="auditFilter" placeholder="Filter by user, IP, device, result..." class="tfa-input tfa-filter" />
                             <table class="tfa-table">
                                 <thead><tr><th>Time</th><th>User</th><th>IP</th><th>Device</th><th>Result</th><th>Method</th></tr></thead>
                                 <tbody id="auditBody"><tr><td colspan="6" class="tfa-empty">No audit entries yet</td></tr></tbody>
                             </table>
+                            <div class="tfa-pagination">
+                                <button class="tfa-btn tfa-btn-primary" id="auditPrev">‹ Prev</button>
+                                <span class="page-info" id="auditPageInfo">—</span>
+                                <button class="tfa-btn tfa-btn-primary" id="auditNext">Next ›</button>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Settings -->
+                    <!-- SETTINGS -->
                     <div class="tfa-panel" id="panel-settings">
                         <div class="tfa-section">
                             <h2>General</h2>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="cfgEnabled" is="emby-checkbox" /><span>Plugin Enabled</span></label>
+                                <label><input type="checkbox" id="cfgEnabled" is="emby-checkbox" /> <span>Plugin Enabled</span></label>
                             </div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="cfgRequireAll" is="emby-checkbox" /><span>Require 2FA for all users</span></label>
+                                <label><input type="checkbox" id="cfgRequireAll" is="emby-checkbox" /> <span>Require 2FA for all users (forces enrollment)</span></label>
                             </div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="cfgEmailOtp" is="emby-checkbox" /><span>Enable email OTP as fallback</span></label>
+                                <label><input type="checkbox" id="cfgEmailOtp" is="emby-checkbox" /> <span>Allow email OTP as fallback</span></label>
                             </div>
                         </div>
 
                         <div class="tfa-section">
                             <h2>LAN Bypass</h2>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="cfgLanBypass" is="emby-checkbox" /><span>Enable LAN bypass</span></label>
+                                <label><input type="checkbox" id="cfgLanBypass" is="emby-checkbox" /> <span>Skip 2FA for LAN requests</span></label>
                             </div>
                             <div style="margin-top:12px;">
-                                <label style="font-size:13px;color:#888;">LAN CIDR Ranges (one per line)</label>
+                                <label style="font-size:13px;color:#888;">LAN CIDR ranges (one per line)</label>
                                 <textarea id="cfgLanCidrs" class="tfa-input"></textarea>
                             </div>
                             <div class="tfa-row" style="margin-top:12px;">
-                                <label><input type="checkbox" id="cfgTrustFwd" is="emby-checkbox" /><span>Trust X-Forwarded-For header</span></label>
+                                <label><input type="checkbox" id="cfgTrustFwd" is="emby-checkbox" /> <span>Trust X-Forwarded-For (for reverse proxies)</span></label>
                             </div>
                             <div style="margin-top:12px;">
-                                <label style="font-size:13px;color:#888;">Trusted Proxy CIDRs (one per line)</label>
+                                <label style="font-size:13px;color:#888;">Trusted proxy CIDRs (one per line)</label>
                                 <textarea id="cfgProxyCidrs" class="tfa-input"></textarea>
                             </div>
                         </div>
@@ -136,30 +160,63 @@
                         </div>
 
                         <div class="tfa-section">
-                            <h2>Notifications</h2>
+                            <h2>SMTP (for Email OTP delivery)</h2>
+                            <p style="font-size:12px;color:#888;margin-bottom:12px;">Required if you enable email OTP. Test with a real provider before relying on it.</p>
                             <div class="tfa-row">
-                                <label>ntfy URL</label>
-                                <input type="text" id="cfgNtfyUrl" class="tfa-input" style="width:300px;" placeholder="https://ntfy.sh" />
+                                <label>SMTP Host</label>
+                                <input type="text" id="cfgSmtpHost" class="tfa-input" style="width:280px;" placeholder="smtp.gmail.com" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>SMTP Port</label>
+                                <input type="number" id="cfgSmtpPort" class="tfa-input" style="width:80px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="cfgSmtpSsl" is="emby-checkbox" /> <span>Use SSL/TLS</span></label>
+                            </div>
+                            <div class="tfa-row">
+                                <label>SMTP Username</label>
+                                <input type="text" id="cfgSmtpUser" class="tfa-input" style="width:280px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>SMTP Password</label>
+                                <input type="text" id="cfgSmtpPass" class="tfa-input" style="width:280px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>From Address</label>
+                                <input type="text" id="cfgSmtpFrom" class="tfa-input" style="width:280px;" placeholder="2fa@example.com" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>From Name</label>
+                                <input type="text" id="cfgSmtpFromName" class="tfa-input" style="width:280px;" />
+                            </div>
+                        </div>
+
+                        <div class="tfa-section">
+                            <h2>Push Notifications</h2>
+                            <div class="tfa-row">
+                                <label>ntfy URL (e.g. https://ntfy.sh)</label>
+                                <input type="text" id="cfgNtfyUrl" class="tfa-input" style="width:300px;" />
                             </div>
                             <div class="tfa-row">
                                 <label>ntfy Topic</label>
-                                <input type="text" id="cfgNtfyTopic" class="tfa-input" style="width:200px;" placeholder="jellyfin-2fa" />
+                                <input type="text" id="cfgNtfyTopic" class="tfa-input" style="width:200px;" />
                             </div>
                             <div class="tfa-row">
                                 <label>Gotify URL</label>
-                                <input type="text" id="cfgGotifyUrl" class="tfa-input" style="width:300px;" placeholder="https://gotify.example.com" />
+                                <input type="text" id="cfgGotifyUrl" class="tfa-input" style="width:300px;" />
                             </div>
                             <div class="tfa-row">
                                 <label>Gotify App Token</label>
                                 <input type="text" id="cfgGotifyToken" class="tfa-input" style="width:200px;" />
                             </div>
                             <div style="margin-top:12px;">
-                                <label style="font-size:13px;color:#888;">Admin email addresses (one per line)</label>
+                                <label style="font-size:13px;color:#888;">Admin email addresses for security alerts (one per line)</label>
                                 <textarea id="cfgEmails" class="tfa-input"></textarea>
                             </div>
                         </div>
 
-                        <button type="button" class="tfa-btn tfa-btn-primary" id="btnSaveSettings" style="margin-top:8px;padding:10px 32px;font-size:15px;">Save Settings</button>
+                        <button type="button" class="tfa-btn tfa-btn-primary" id="btnSaveSettings" style="margin-top:8px;padding:11px 32px;font-size:15px;">Save Settings</button>
+                        <span id="saveStatus" style="margin-left:14px;color:#4caf50;font-size:13px;"></span>
                     </div>
                 </div>
             </div>
@@ -178,10 +235,13 @@
                     return fetch(ApiClient.serverAddress() + '/' + path, { headers: getHeaders() }).then(function(r) { return r.ok ? r.json() : Promise.reject(r); });
                 }
                 function apiPost(path, body) {
-                    return fetch(ApiClient.serverAddress() + '/' + path, { method: 'POST', headers: getHeaders(), body: body ? JSON.stringify(body) : undefined }).then(function(r) { return r.ok ? r.json().catch(function() { return {}; }) : Promise.reject(r); });
+                    return fetch(ApiClient.serverAddress() + '/' + path, { method: 'POST', headers: getHeaders(), body: body ? JSON.stringify(body) : undefined }).then(function(r) { return r.ok ? r.json().catch(function(){return{};}) : Promise.reject(r); });
                 }
+                function apiDelete(path) {
+                    return fetch(ApiClient.serverAddress() + '/' + path, { method: 'DELETE', headers: getHeaders() }).then(function(r) { return r.ok ? r.json().catch(function(){return{};}) : Promise.reject(r); });
+                }
+                function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
 
-                // Tab switching
                 page.querySelectorAll('.tfa-tab').forEach(function(tab) {
                     tab.addEventListener('click', function() {
                         page.querySelectorAll('.tfa-tab').forEach(function(t) { t.classList.remove('active'); });
@@ -189,121 +249,205 @@
                         tab.classList.add('active');
                         page.querySelector('#panel-' + tab.dataset.tab).classList.add('active');
                         if (tab.dataset.tab === 'users') loadUsers();
+                        if (tab.dataset.tab === 'devices') loadAllDevices();
                         if (tab.dataset.tab === 'pairings') loadPairings();
                         if (tab.dataset.tab === 'audit') loadAudit();
                         if (tab.dataset.tab === 'settings') loadSettings();
                     });
                 });
 
+                // ---- USERS ----
+                var allUsersData = [];
                 function loadUsers() {
                     apiGet('TwoFactorAuth/Users').then(function(users) {
-                        var body = page.querySelector('#usersBody');
-                        if (!users || users.length === 0) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No users with 2FA data yet</td></tr>'; return; }
-                        body.innerHTML = users.map(function(u) {
+                        allUsersData = users || [];
+                        renderUsers();
+                    }).catch(function() {
+                        page.querySelector('#usersBody').innerHTML = '<tr><td colspan="7" class="tfa-empty">Failed to load users</td></tr>';
+                    });
+                }
+                function renderUsers() {
+                    var body = page.querySelector('#usersBody');
+                    if (!allUsersData.length) { body.innerHTML = '<tr><td colspan="7" class="tfa-empty">No user data yet</td></tr>'; return; }
+                    apiGet('System/Configuration/Jellyfin.Plugin.TwoFactorAuth').then(function(config) {
+                        var emails = (config.UserEmailAddresses) || {};
+                        body.innerHTML = allUsersData.map(function(u) {
                             var uid = u.userId || u.UserId;
+                            var uidPlain = String(uid).replace(/-/g,'');
                             var totp = u.totpEnabled || u.TotpEnabled;
                             var locked = u.isLockedOut || u.IsLockedOut;
-                            return '<tr><td>' + (u.username||u.Username||'Unknown') + '</td>'
-                                + '<td><span class="tfa-badge ' + (totp ? 'on' : 'off') + '">' + (totp ? 'Enabled' : 'Off') + '</span></td>'
-                                + '<td>' + (u.trustedDeviceCount||u.TrustedDeviceCount||0) + '</td>'
-                                + '<td>' + (locked ? '<span class="tfa-badge locked">Locked</span>' : '<span class="tfa-badge on">OK</span>') + '</td>'
-                                + '<td><button class="tfa-btn tfa-btn-primary tfa-toggle" data-id="' + uid + '" data-next="' + (!totp) + '">' + (totp ? 'Disable' : 'Enable') + '</button></td></tr>';
+                            var devices = u.trustedDeviceCount || u.TrustedDeviceCount || 0;
+                            var recoveryRemaining = u.recoveryCodesRemaining || u.RecoveryCodesRemaining || 0;
+                            var email = emails[uidPlain] || '';
+                            return '<tr>' +
+                                '<td>' + escapeHtml(u.username || u.Username || 'Unknown') + '</td>' +
+                                '<td><span class="tfa-badge ' + (totp ? 'on' : 'off') + '">' + (totp ? 'Enabled' : 'Off') + '</span></td>' +
+                                '<td>' + devices + '</td>' +
+                                '<td>' + (recoveryRemaining > 0 ? recoveryRemaining : '<span class="tfa-badge warn">none</span>') + '</td>' +
+                                '<td><input type="email" class="tfa-input tfa-email" data-uid="' + uidPlain + '" value="' + escapeHtml(email) + '" placeholder="user@example.com" style="width:200px;" /></td>' +
+                                '<td>' + (locked ? '<span class="tfa-badge locked">Locked</span>' : '<span class="tfa-badge on">OK</span>') + '</td>' +
+                                '<td><button class="tfa-btn tfa-btn-primary tfa-toggle" data-id="' + uid + '" data-next="' + !totp + '">' + (totp ? 'Disable' : 'Enable') + '</button></td>' +
+                                '</tr>';
                         }).join('');
                         body.querySelectorAll('.tfa-toggle').forEach(function(btn) {
                             btn.addEventListener('click', function() {
                                 apiPost('TwoFactorAuth/Users/' + btn.dataset.id + '/Toggle', { enabled: btn.dataset.next === 'true' }).then(loadUsers);
                             });
                         });
-                    }).catch(function() { page.querySelector('#usersBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load users</td></tr>'; });
+                        body.querySelectorAll('.tfa-email').forEach(function(input) {
+                            input.addEventListener('blur', function() {
+                                apiGet('System/Configuration/Jellyfin.Plugin.TwoFactorAuth').then(function(cfg) {
+                                    cfg.UserEmailAddresses = cfg.UserEmailAddresses || {};
+                                    cfg.UserEmailAddresses[input.dataset.uid] = input.value.trim();
+                                    return ApiClient.updatePluginConfiguration(pluginId, cfg);
+                                });
+                            });
+                        });
+                    });
                 }
 
+                // ---- TRUSTED DEVICES (all users) ----
+                function loadAllDevices() {
+                    apiGet('TwoFactorAuth/AllTrustedDevices').then(function(rows) {
+                        var body = page.querySelector('#devicesBody');
+                        if (!rows || !rows.length) { body.innerHTML = '<tr><td colspan="6" class="tfa-empty">No trusted devices</td></tr>'; return; }
+                        body.innerHTML = rows.map(function(r) {
+                            var added = new Date(r.createdAt || r.CreatedAt);
+                            var last = new Date(r.lastUsedAt || r.LastUsedAt);
+                            var expires = new Date(added.getTime() + 30*24*3600*1000);
+                            return '<tr>' +
+                                '<td>' + escapeHtml(r.username || r.Username) + '</td>' +
+                                '<td>' + escapeHtml(r.deviceName || r.DeviceName) + '</td>' +
+                                '<td>' + added.toLocaleString() + '</td>' +
+                                '<td>' + last.toLocaleString() + '</td>' +
+                                '<td>' + expires.toLocaleDateString() + '</td>' +
+                                '<td><button class="tfa-btn tfa-btn-danger tfa-revoke-dev" data-uid="' + (r.userId || r.UserId) + '" data-id="' + (r.id || r.Id) + '">Revoke</button></td>' +
+                                '</tr>';
+                        }).join('');
+                        body.querySelectorAll('.tfa-revoke-dev').forEach(function(b) {
+                            b.addEventListener('click', function() {
+                                if (!confirm('Revoke this device?')) return;
+                                apiDelete('TwoFactorAuth/Users/' + b.dataset.uid + '/Devices/' + b.dataset.id).then(loadAllDevices);
+                            });
+                        });
+                    }).catch(function() {
+                        page.querySelector('#devicesBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">Failed to load</td></tr>';
+                    });
+                }
+
+                // ---- PAIRINGS ----
                 function loadPairings() {
                     apiGet('TwoFactorAuth/Pairings').then(function(pairings) {
                         var body = page.querySelector('#pairingsBody');
-                        if (!pairings || pairings.length === 0) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No pending pairings</td></tr>'; return; }
+                        if (!pairings || !pairings.length) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No pending pairings</td></tr>'; return; }
                         body.innerHTML = pairings.map(function(p) {
                             var code = p.code || p.Code;
-                            var exp = new Date(p.expiresAt||p.ExpiresAt).toLocaleTimeString();
-                            return '<tr><td>' + (p.username||p.Username) + '</td><td>' + (p.deviceName||p.DeviceName) + '</td><td style="font-family:monospace;font-weight:700;letter-spacing:2px;">' + code + '</td><td>' + exp + '</td>'
-                                + '<td><button class="tfa-btn tfa-btn-success tfa-approve" data-code="' + code + '">Approve</button> '
-                                + '<button class="tfa-btn tfa-btn-danger tfa-deny" data-code="' + code + '">Deny</button></td></tr>';
+                            var exp = new Date(p.expiresAt || p.ExpiresAt).toLocaleTimeString();
+                            return '<tr><td>' + escapeHtml(p.username || p.Username) + '</td><td>' + escapeHtml(p.deviceName || p.DeviceName) + '</td><td style="font-family:monospace;font-weight:700;letter-spacing:2px;">' + code + '</td><td>' + exp + '</td>' +
+                                '<td><button class="tfa-btn tfa-btn-success tfa-approve" data-code="' + code + '">Approve</button> <button class="tfa-btn tfa-btn-danger tfa-deny" data-code="' + code + '">Deny</button></td></tr>';
                         }).join('');
                         body.querySelectorAll('.tfa-approve').forEach(function(b) { b.addEventListener('click', function() { apiPost('TwoFactorAuth/Pairings/' + b.dataset.code + '/Approve').then(loadPairings); }); });
                         body.querySelectorAll('.tfa-deny').forEach(function(b) { b.addEventListener('click', function() { apiPost('TwoFactorAuth/Pairings/' + b.dataset.code + '/Deny').then(loadPairings); }); });
                     }).catch(function() { page.querySelector('#pairingsBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load</td></tr>'; });
                 }
 
-                var allAuditEntries = [];
+                // ---- AUDIT ----
+                var allAudit = [];
+                var auditPage = 0;
+                var AUDIT_PAGE_SIZE = 50;
                 function loadAudit() {
-                    apiGet('TwoFactorAuth/AuditLog?limit=200').then(function(entries) {
-                        allAuditEntries = entries || [];
-                        renderAudit(allAuditEntries);
-                    }).catch(function() { page.querySelector('#auditBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">No audit entries yet</td></tr>'; });
+                    apiGet('TwoFactorAuth/AuditLog?limit=1000').then(function(entries) {
+                        allAudit = entries || [];
+                        auditPage = 0;
+                        renderAudit();
+                    }).catch(function() { page.querySelector('#auditBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">Failed to load</td></tr>'; });
                 }
-                function renderAudit(entries) {
+                function renderAudit() {
+                    var q = page.querySelector('#auditFilter').value.toLowerCase();
+                    var filtered = q ? allAudit.filter(function(e) { return JSON.stringify(e).toLowerCase().indexOf(q) >= 0; }) : allAudit;
+                    var totalPages = Math.max(1, Math.ceil(filtered.length / AUDIT_PAGE_SIZE));
+                    if (auditPage >= totalPages) auditPage = totalPages - 1;
+                    var slice = filtered.slice(auditPage * AUDIT_PAGE_SIZE, (auditPage + 1) * AUDIT_PAGE_SIZE);
                     var body = page.querySelector('#auditBody');
-                    if (!entries || entries.length === 0) { body.innerHTML = '<tr><td colspan="6" class="tfa-empty">No entries</td></tr>'; return; }
-                    var resultColors = { 'Success': 'on', 'Failed': 'locked', 'Bypassed': 'on', 'Locked': 'locked', 'ChallengeIssued': 'off' };
-                    var resultNames = ['Success','Failed','Bypassed','Locked','ChallengeIssued'];
-                    body.innerHTML = entries.map(function(e) {
-                        var t = new Date(e.timestamp||e.Timestamp).toLocaleString();
-                        var r = e.result !== undefined ? e.result : e.Result;
-                        var rName = typeof r === 'number' ? (resultNames[r] || r) : r;
-                        return '<tr><td style="font-size:12px;">' + t + '</td><td>' + (e.username||e.Username||'') + '</td><td style="font-family:monospace;font-size:12px;">' + (e.remoteIp||e.RemoteIp||'') + '</td><td>' + (e.deviceName||e.DeviceName||'') + '</td>'
-                            + '<td><span class="tfa-badge ' + (resultColors[rName]||'off') + '">' + rName + '</span></td><td>' + (e.method||e.Method||'') + '</td></tr>';
-                    }).join('');
+                    if (!slice.length) { body.innerHTML = '<tr><td colspan="6" class="tfa-empty">No matching entries</td></tr>'; }
+                    else {
+                        var resultColors = { 'Success':'on','Failed':'locked','Bypassed':'on','Locked':'locked','ChallengeIssued':'off' };
+                        var resultNames = ['Success','Failed','Bypassed','Locked','ChallengeIssued'];
+                        body.innerHTML = slice.map(function(e) {
+                            var t = new Date(e.timestamp || e.Timestamp).toLocaleString();
+                            var r = e.result !== undefined ? e.result : e.Result;
+                            var rName = typeof r === 'number' ? (resultNames[r] || r) : r;
+                            return '<tr><td style="font-size:12px;">' + t + '</td><td>' + escapeHtml(e.username || e.Username) + '</td><td style="font-family:monospace;font-size:12px;">' + escapeHtml(e.remoteIp || e.RemoteIp) + '</td><td>' + escapeHtml(e.deviceName || e.DeviceName) + '</td><td><span class="tfa-badge ' + (resultColors[rName] || 'off') + '">' + rName + '</span></td><td>' + escapeHtml(e.method || e.Method) + '</td></tr>';
+                        }).join('');
+                    }
+                    page.querySelector('#auditPageInfo').textContent = 'Page ' + (auditPage + 1) + ' of ' + totalPages + ' (' + filtered.length + ' entries)';
+                    page.querySelector('#auditPrev').disabled = auditPage === 0;
+                    page.querySelector('#auditNext').disabled = auditPage >= totalPages - 1;
                 }
-                page.querySelector('#auditFilter').addEventListener('input', function(e) {
-                    var q = e.target.value.toLowerCase();
-                    if (!q) { renderAudit(allAuditEntries); return; }
-                    renderAudit(allAuditEntries.filter(function(entry) { return JSON.stringify(entry).toLowerCase().indexOf(q) >= 0; }));
-                });
+                page.querySelector('#auditFilter').addEventListener('input', function() { auditPage = 0; renderAudit(); });
+                page.querySelector('#auditPrev').addEventListener('click', function() { if (auditPage > 0) { auditPage--; renderAudit(); } });
+                page.querySelector('#auditNext').addEventListener('click', function() { auditPage++; renderAudit(); });
 
+                // ---- SETTINGS ----
                 function loadSettings() {
-                    ApiClient.getPluginConfiguration(pluginId).then(function(config) {
-                        page.querySelector('#cfgEnabled').checked = !!config.Enabled;
-                        page.querySelector('#cfgRequireAll').checked = !!config.RequireForAllUsers;
-                        page.querySelector('#cfgEmailOtp').checked = !!config.EmailOtpEnabled;
-                        page.querySelector('#cfgLanBypass').checked = !!config.LanBypassEnabled;
-                        page.querySelector('#cfgLanCidrs').value = (config.LanBypassCidrs || []).join('\n');
-                        page.querySelector('#cfgTrustFwd').checked = !!config.TrustForwardedFor;
-                        page.querySelector('#cfgProxyCidrs').value = (config.TrustedProxyCidrs || []).join('\n');
-                        page.querySelector('#cfgMaxFail').value = config.MaxFailedAttempts || 5;
-                        page.querySelector('#cfgLockoutMin').value = config.LockoutDurationMinutes || 15;
-                        page.querySelector('#cfgAuditMax').value = config.AuditLogMaxEntries || 1000;
-                        page.querySelector('#cfgNtfyUrl').value = config.NtfyUrl || '';
-                        page.querySelector('#cfgNtfyTopic').value = config.NtfyTopic || '';
-                        page.querySelector('#cfgGotifyUrl').value = config.GotifyUrl || '';
-                        page.querySelector('#cfgGotifyToken').value = config.GotifyAppToken || '';
-                        page.querySelector('#cfgEmails').value = (config.NotifyEmailAddresses || []).join('\n');
+                    ApiClient.getPluginConfiguration(pluginId).then(function(c) {
+                        page.querySelector('#cfgEnabled').checked = !!c.Enabled;
+                        page.querySelector('#cfgRequireAll').checked = !!c.RequireForAllUsers;
+                        page.querySelector('#cfgEmailOtp').checked = !!c.EmailOtpEnabled;
+                        page.querySelector('#cfgLanBypass').checked = !!c.LanBypassEnabled;
+                        page.querySelector('#cfgLanCidrs').value = (c.LanBypassCidrs || []).join('\n');
+                        page.querySelector('#cfgTrustFwd').checked = !!c.TrustForwardedFor;
+                        page.querySelector('#cfgProxyCidrs').value = (c.TrustedProxyCidrs || []).join('\n');
+                        page.querySelector('#cfgMaxFail').value = c.MaxFailedAttempts || 5;
+                        page.querySelector('#cfgLockoutMin').value = c.LockoutDurationMinutes || 15;
+                        page.querySelector('#cfgAuditMax').value = c.AuditLogMaxEntries || 1000;
+                        page.querySelector('#cfgSmtpHost').value = c.SmtpHost || '';
+                        page.querySelector('#cfgSmtpPort').value = c.SmtpPort || 587;
+                        page.querySelector('#cfgSmtpSsl').checked = c.SmtpUseSsl !== false;
+                        page.querySelector('#cfgSmtpUser').value = c.SmtpUsername || '';
+                        page.querySelector('#cfgSmtpPass').value = c.SmtpPassword || '';
+                        page.querySelector('#cfgSmtpFrom').value = c.SmtpFromAddress || '';
+                        page.querySelector('#cfgSmtpFromName').value = c.SmtpFromName || '';
+                        page.querySelector('#cfgNtfyUrl').value = c.NtfyUrl || '';
+                        page.querySelector('#cfgNtfyTopic').value = c.NtfyTopic || '';
+                        page.querySelector('#cfgGotifyUrl').value = c.GotifyUrl || '';
+                        page.querySelector('#cfgGotifyToken').value = c.GotifyAppToken || '';
+                        page.querySelector('#cfgEmails').value = (c.NotifyEmailAddresses || []).join('\n');
                     });
                 }
                 page.querySelector('#btnSaveSettings').addEventListener('click', function() {
-                    ApiClient.getPluginConfiguration(pluginId).then(function(config) {
-                        config.Enabled = page.querySelector('#cfgEnabled').checked;
-                        config.RequireForAllUsers = page.querySelector('#cfgRequireAll').checked;
-                        config.EmailOtpEnabled = page.querySelector('#cfgEmailOtp').checked;
-                        config.LanBypassEnabled = page.querySelector('#cfgLanBypass').checked;
-                        config.LanBypassCidrs = page.querySelector('#cfgLanCidrs').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
-                        config.TrustForwardedFor = page.querySelector('#cfgTrustFwd').checked;
-                        config.TrustedProxyCidrs = page.querySelector('#cfgProxyCidrs').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
-                        config.MaxFailedAttempts = parseInt(page.querySelector('#cfgMaxFail').value) || 5;
-                        config.LockoutDurationMinutes = parseInt(page.querySelector('#cfgLockoutMin').value) || 15;
-                        config.AuditLogMaxEntries = parseInt(page.querySelector('#cfgAuditMax').value) || 1000;
-                        config.NtfyUrl = page.querySelector('#cfgNtfyUrl').value;
-                        config.NtfyTopic = page.querySelector('#cfgNtfyTopic').value;
-                        config.GotifyUrl = page.querySelector('#cfgGotifyUrl').value;
-                        config.GotifyAppToken = page.querySelector('#cfgGotifyToken').value;
-                        config.NotifyEmailAddresses = page.querySelector('#cfgEmails').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
-                        ApiClient.updatePluginConfiguration(pluginId, config).then(function() {
-                            Dashboard.processPluginConfigurationUpdateResult();
-                        });
+                    ApiClient.getPluginConfiguration(pluginId).then(function(c) {
+                        c.Enabled = page.querySelector('#cfgEnabled').checked;
+                        c.RequireForAllUsers = page.querySelector('#cfgRequireAll').checked;
+                        c.EmailOtpEnabled = page.querySelector('#cfgEmailOtp').checked;
+                        c.LanBypassEnabled = page.querySelector('#cfgLanBypass').checked;
+                        c.LanBypassCidrs = page.querySelector('#cfgLanCidrs').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+                        c.TrustForwardedFor = page.querySelector('#cfgTrustFwd').checked;
+                        c.TrustedProxyCidrs = page.querySelector('#cfgProxyCidrs').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+                        c.MaxFailedAttempts = parseInt(page.querySelector('#cfgMaxFail').value) || 5;
+                        c.LockoutDurationMinutes = parseInt(page.querySelector('#cfgLockoutMin').value) || 15;
+                        c.AuditLogMaxEntries = parseInt(page.querySelector('#cfgAuditMax').value) || 1000;
+                        c.SmtpHost = page.querySelector('#cfgSmtpHost').value.trim();
+                        c.SmtpPort = parseInt(page.querySelector('#cfgSmtpPort').value) || 587;
+                        c.SmtpUseSsl = page.querySelector('#cfgSmtpSsl').checked;
+                        c.SmtpUsername = page.querySelector('#cfgSmtpUser').value;
+                        c.SmtpPassword = page.querySelector('#cfgSmtpPass').value;
+                        c.SmtpFromAddress = page.querySelector('#cfgSmtpFrom').value.trim();
+                        c.SmtpFromName = page.querySelector('#cfgSmtpFromName').value.trim();
+                        c.NtfyUrl = page.querySelector('#cfgNtfyUrl').value.trim();
+                        c.NtfyTopic = page.querySelector('#cfgNtfyTopic').value.trim();
+                        c.GotifyUrl = page.querySelector('#cfgGotifyUrl').value.trim();
+                        c.GotifyAppToken = page.querySelector('#cfgGotifyToken').value.trim();
+                        c.NotifyEmailAddresses = page.querySelector('#cfgEmails').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+                        return ApiClient.updatePluginConfiguration(pluginId, c);
+                    }).then(function() {
+                        var s = page.querySelector('#saveStatus');
+                        s.textContent = '✓ Saved';
+                        setTimeout(function() { s.textContent = ''; }, 2000);
                     });
                 });
 
-                page.addEventListener('pageshow', function() {
-                    loadUsers();
-                });
+                page.addEventListener('pageshow', loadUsers);
             })();
         </script>
     </div>

@@ -231,7 +231,7 @@ public class UserTwoFactorStore
         try
         {
             var json = JsonSerializer.Serialize(keys, JsonOptions);
-            await File.WriteAllTextAsync(_apiKeysFilePath, json).ConfigureAwait(false);
+            await AtomicWriteAsync(_apiKeysFilePath, json).ConfigureAwait(false);
         }
         finally
         {
@@ -267,7 +267,19 @@ public class UserTwoFactorStore
     {
         var path = UserFilePath(data.UserId);
         var json = JsonSerializer.Serialize(data, JsonOptions);
-        await File.WriteAllTextAsync(path, json).ConfigureAwait(false);
+        await AtomicWriteAsync(path, json).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Write to a temp file then atomically replace the target. Prevents corruption
+    /// if Jellyfin crashes mid-write. Critical for user data — losing a file could
+    /// lock a user out of their TOTP secret.
+    /// </summary>
+    private static async Task AtomicWriteAsync(string path, string content)
+    {
+        var tmp = path + ".tmp";
+        await File.WriteAllTextAsync(tmp, content).ConfigureAwait(false);
+        File.Move(tmp, path, overwrite: true);
     }
 
     private async Task<List<AuditEntry>> ReadAuditFileAsync()
@@ -302,7 +314,7 @@ public class UserTwoFactorStore
     private async Task WriteAuditFileAsync(List<AuditEntry> entries)
     {
         var json = JsonSerializer.Serialize(entries, JsonOptions);
-        await File.WriteAllTextAsync(_auditFilePath, json).ConfigureAwait(false);
+        await AtomicWriteAsync(_auditFilePath, json).ConfigureAwait(false);
     }
 
     private async Task<List<ApiKeyEntry>> ReadApiKeysFileAsync()

@@ -8,6 +8,13 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.1.0.0",
+        "changelog": "Major release. Recovery codes (10 single-use backups). Email OTP via SMTP. Per-IP rate limiting on Verify and Authenticate endpoints. Per-challenge attempt limit. Generic error messages prevent account enumeration. Atomic file writes. Recovery codes marked used immediately on validation. Cookie SameSite=Strict + persistent HMAC key. Admin trusted-devices view with revoke. Per-user email management. Lockout countdown UI. Login flow fixed for non-2FA users. Push notifications wired to ntfy/Gotify. Comprehensive admin UI overhaul. Full README rewrite.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.1.0/Jellyfin.Plugin.TwoFactorAuthv1.1.0.zip",
+        "checksum": "6964623E38A955E8C0DE4974152EDA9C"
+      },
+      {
         "version": "1.0.23.0",
         "changelog": "Per-device 30-day trust via signed HTTP-only cookie. After 2FA verification on a browser, that browser gets a __2fa_trust cookie (HMAC-signed, HttpOnly, Secure, Lax). Subsequent logins from that browser skip 2FA for 30 days; new browsers/devices still need 2FA. Cookie ties to a server-side trust record so revoking the device in admin invalidates the cookie.",
         "targetAbi": "10.11.0.0",

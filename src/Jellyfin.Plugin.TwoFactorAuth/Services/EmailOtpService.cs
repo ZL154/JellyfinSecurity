@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Net;
+using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -23,45 +26,90 @@ public class EmailOtpService
     }
 
     /// <summary>
-    /// Generates a 6-digit OTP and stores it against the given challengeToken.
-    /// Returns the code and whether it was "sent" (logged). Actual email delivery
-    /// requires Jellyfin's mail infrastructure wired externally.
+    /// Generates a 6-digit OTP, stores it against the challenge token, and sends it via SMTP.
+    /// Returns (code, sent). If SMTP isn't configured, code is generated but only logged.
     /// </summary>
-    public (string code, bool sent) GenerateAndSendCode(Guid userId, string username, string? email, string challengeToken)
+    public async Task<(string code, bool sent)> GenerateAndSendCodeAsync(Guid userId, string username, string? email, string challengeToken)
     {
         CleanupExpired();
 
         if (!CheckRateLimit(userId))
         {
-            _logger.LogWarning(
-                "Email OTP rate limit exceeded for user '{Username}' ({UserId})",
-                username, userId);
+            _logger.LogWarning("Email OTP rate limit exceeded for {Username}", username);
             return (string.Empty, false);
         }
 
         var code = RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
-
         var ttlSeconds = Plugin.Instance?.Configuration.EmailOtpTtlSeconds ?? 300;
         var now = DateTime.UtcNow;
-        var entry = new EmailOtpEntry
+
+        _pendingCodes[challengeToken] = new EmailOtpEntry
         {
             Code = code,
             UserId = userId,
             CreatedAt = now,
             ExpiresAt = now.AddSeconds(ttlSeconds),
-            IsUsed = false
+            IsUsed = false,
         };
-
-        _pendingCodes[challengeToken] = entry;
 
         RecordSend(userId, now);
 
-        _logger.LogInformation(
-            "Email OTP generated for user '{Username}' ({UserId}), expires at {ExpiresAt}. " +
-            "Email delivery target: {Email}. Code logged for debugging only — wire INotificationManager for real delivery.",
-            username, userId, entry.ExpiresAt, email ?? "(no address)");
+        var sent = await TrySendEmailAsync(email, username, code, ttlSeconds).ConfigureAwait(false);
+        return (code, sent);
+    }
 
-        return (code, true);
+    private async Task<bool> TrySendEmailAsync(string? email, string username, string code, int ttlSeconds)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null)
+        {
+            _logger.LogWarning("Email OTP: plugin not initialized");
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(email))
+        {
+            _logger.LogWarning("Email OTP for {User}: no email address configured. configure SMTP in plugin settings", username);
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(config.SmtpHost) || string.IsNullOrEmpty(config.SmtpFromAddress))
+        {
+            _logger.LogWarning("Email OTP for {User}: SMTP not configured (host or from address missing). configure SMTP in plugin settings", username);
+            return false;
+        }
+
+        try
+        {
+            using var smtp = new SmtpClient(config.SmtpHost, config.SmtpPort)
+            {
+                EnableSsl = config.SmtpUseSsl,
+                Timeout = 10000,
+            };
+
+            if (!string.IsNullOrEmpty(config.SmtpUsername))
+            {
+                smtp.Credentials = new NetworkCredential(config.SmtpUsername, config.SmtpPassword);
+            }
+
+            using var msg = new MailMessage
+            {
+                From = new MailAddress(config.SmtpFromAddress, string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName),
+                Subject = "Jellyfin sign-in code",
+                Body = $"Hi {username},\n\nYour Jellyfin sign-in code is:\n\n  {code}\n\nThis code expires in {ttlSeconds / 60} minutes. If you did not request this code, change your password and revoke active sessions immediately.\n\n— Jellyfin 2FA",
+                IsBodyHtml = false,
+            };
+            msg.To.Add(email);
+
+            await smtp.SendMailAsync(msg).ConfigureAwait(false);
+            _logger.LogInformation("Email OTP sent to {Email} for {User}", email, username);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Email OTP SMTP send failed for {User}", username);
+            return false;
+        }
     }
 
     /// <summary>

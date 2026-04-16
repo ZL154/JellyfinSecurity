@@ -55,7 +55,26 @@ public class UserTwoFactorStatus
 
     public int TrustedDeviceCount { get; set; }
 
+    public int RecoveryCodesRemaining { get; set; }
+
     public bool IsLockedOut { get; set; }
+}
+
+public class TrustedDeviceWithUser
+{
+    public Guid UserId { get; set; }
+
+    public string Username { get; set; } = string.Empty;
+
+    public string Id { get; set; } = string.Empty;
+
+    public string DeviceId { get; set; } = string.Empty;
+
+    public string DeviceName { get; set; } = string.Empty;
+
+    public DateTime CreatedAt { get; set; }
+
+    public DateTime LastUsedAt { get; set; }
 }
 
 public class PairingResponse

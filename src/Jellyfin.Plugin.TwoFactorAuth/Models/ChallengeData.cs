@@ -25,5 +25,7 @@ public class ChallengeData
 
     public bool IsConsumed { get; set; }
 
+    public int AttemptCount { get; set; }
+
     public string? PendingAuthResponse { get; set; }
 }

@@ -44,4 +44,22 @@ public class PluginConfiguration : BasePluginConfiguration
     public string GotifyAppToken { get; set; } = string.Empty;
 
     public string[] NotifyEmailAddresses { get; set; } = Array.Empty<string>();
+
+    // SMTP settings for sending email OTP codes to users.
+    public string SmtpHost { get; set; } = string.Empty;
+
+    public int SmtpPort { get; set; } = 587;
+
+    public bool SmtpUseSsl { get; set; } = true;
+
+    public string SmtpUsername { get; set; } = string.Empty;
+
+    public string SmtpPassword { get; set; } = string.Empty;
+
+    public string SmtpFromAddress { get; set; } = string.Empty;
+
+    public string SmtpFromName { get; set; } = "Jellyfin 2FA";
+
+    // Per-user email addresses for OTP delivery (key = userId, value = email).
+    public Dictionary<string, string> UserEmailAddresses { get; set; } = new();
 }

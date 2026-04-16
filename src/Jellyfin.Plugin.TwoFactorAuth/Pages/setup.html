@@ -13,38 +13,64 @@
             min-height: 100vh;
             padding: 40px 20px;
         }
-        .container { max-width: 640px; margin: 0 auto; }
+        .container { max-width: 680px; margin: 0 auto; }
         h1 { font-size: 24px; margin-bottom: 8px; }
         .subtitle { color: #888; font-size: 14px; margin-bottom: 32px; }
-        .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 24px; margin-bottom: 20px; }
-        .card h2 { font-size: 18px; color: #00a4dc; margin-bottom: 16px; }
+        .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 24px; margin-bottom: 20px; }
+        .card h2 { font-size: 17px; color: #00a4dc; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
         .status-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-top: 1px solid #2a2a2a; }
         .status-row:first-of-type { border-top: none; }
-        .status-on { color: #4caf50; }
+        .status-on { color: #4caf50; font-weight: 500; }
         .status-off { color: #888; }
-        button { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.2s; }
+        .status-warn { color: #ff9800; }
+        button {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.15s;
+            font-family: inherit;
+        }
         .btn-primary { background: #00a4dc; color: #fff; }
         .btn-primary:hover { background: #0087b3; }
         .btn-danger { background: rgba(244,67,54,0.15); color: #f44336; border: 1px solid rgba(244,67,54,0.3); }
         .btn-danger:hover { background: rgba(244,67,54,0.25); }
         .btn-ghost { background: transparent; color: #888; border: 1px solid #444; }
         .btn-ghost:hover { color: #ccc; border-color: #666; }
-        input[type="text"] { background: #252525; border: 1px solid #444; color: #e0e0e0; padding: 10px 12px; border-radius: 4px; font-size: 14px; width: 100%; }
+        input[type="text"] { background: #252525; border: 1px solid #444; color: #e0e0e0; padding: 10px 12px; border-radius: 4px; font-size: 14px; width: 100%; font-family: inherit; }
         input[type="text"]:focus { border-color: #00a4dc; outline: none; }
         .qr-wrap { background: #fff; padding: 16px; border-radius: 8px; display: inline-block; margin: 16px 0; }
         .qr-wrap img { display: block; width: 220px; height: 220px; }
-        .secret-key { background: #0a0a0a; padding: 10px 14px; border-radius: 4px; font-family: monospace; font-size: 13px; letter-spacing: 1px; word-break: break-all; border: 1px solid #333; margin: 8px 0; }
-        .code-input { font-family: monospace; font-size: 20px; text-align: center; letter-spacing: 8px; padding: 12px; }
-        .error { color: #f44336; font-size: 13px; margin-top: 8px; display: none; }
-        .error.show { display: block; }
-        .success { color: #4caf50; font-size: 13px; margin-top: 8px; display: none; }
-        .success.show { display: block; }
-        .row-gap { display: flex; gap: 10px; align-items: center; }
+        .secret-key { background: #0a0a0a; padding: 10px 14px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; letter-spacing: 1px; word-break: break-all; border: 1px solid #2a2a2a; margin: 8px 0; }
+        .code-input { font-family: ui-monospace, monospace; font-size: 22px; text-align: center; letter-spacing: 8px; padding: 14px; }
+        .alert { padding: 10px 14px; border-radius: 4px; font-size: 13px; margin: 8px 0; display: none; }
+        .alert.show { display: block; }
+        .alert.error { color: #f44336; background: rgba(244,67,54,0.1); border: 1px solid rgba(244,67,54,0.2); }
+        .alert.success { color: #4caf50; background: rgba(76,175,80,0.1); border: 1px solid rgba(76,175,80,0.2); }
+        .alert.warn { color: #ff9800; background: rgba(255,152,0,0.1); border: 1px solid rgba(255,152,0,0.2); }
+        .row-gap { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .muted { color: #666; font-size: 12px; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
-        th { text-align: left; padding: 8px; color: #888; border-bottom: 1px solid #333; font-weight: 600; }
-        td { padding: 8px; border-bottom: 1px solid #2a2a2a; }
+        th { text-align: left; padding: 8px; color: #888; border-bottom: 1px solid #2a2a2a; font-weight: 600; }
+        td { padding: 8px; border-bottom: 1px solid #1f1f1f; }
         .step-label { display: block; color: #888; font-size: 12px; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px; }
+        .recovery-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            background: #0a0a0a;
+            padding: 16px;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            font-family: ui-monospace, monospace;
+            font-size: 14px;
+            margin: 12px 0;
+        }
+        .recovery-grid div { padding: 6px 10px; background: #1a1a1a; border-radius: 3px; letter-spacing: 1px; }
+        .copy-row { display: flex; gap: 8px; margin-top: 8px; }
+        .copy-row button { flex: 1; padding: 8px; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -53,14 +79,14 @@
         <p class="subtitle">Secure your Jellyfin account with TOTP codes from an authenticator app.</p>
 
         <div class="card">
-            <h2>TOTP Status</h2>
+            <h2>🔐 TOTP Status</h2>
             <div id="statusContent" class="muted">Loading...</div>
         </div>
 
         <div class="card" id="enrollCard" style="display:none;">
             <h2>Set up Authenticator App</h2>
             <div id="enrollStep1">
-                <p style="font-size:14px;color:#ccc;margin-bottom:16px;">Generate a new TOTP secret and scan it with your authenticator app (Google Authenticator, Authy, Microsoft Authenticator, etc.).</p>
+                <p style="font-size:14px;color:#ccc;margin-bottom:16px;">Generate a new TOTP secret and scan it with your authenticator app (Google Authenticator, Authy, Microsoft Authenticator, 1Password, etc.).</p>
                 <button class="btn-primary" id="btnStartSetup">Start Setup</button>
             </div>
             <div id="enrollStep2" style="display:none;">
@@ -70,12 +96,12 @@
                     <p class="muted">Or enter this key manually:</p>
                     <div class="secret-key" id="secretKey"></div>
                 </div>
-                <div style="margin-top:24px;">
+                <div style="margin-top:20px;">
                     <span class="step-label">Step 2: Enter the 6-digit code from your app</span>
                     <input type="text" id="confirmCode" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="000000" />
-                    <div class="error" id="confirmError"></div>
-                    <div class="success" id="confirmSuccess"></div>
-                    <div class="row-gap" style="margin-top:16px;">
+                    <div class="alert error" id="confirmError"></div>
+                    <div class="alert success" id="confirmSuccess"></div>
+                    <div class="row-gap" style="margin-top:14px;">
                         <button class="btn-primary" id="btnConfirm">Confirm & Enable 2FA</button>
                         <button class="btn-ghost" id="btnCancelSetup">Cancel</button>
                     </div>
@@ -83,9 +109,29 @@
             </div>
         </div>
 
+        <div class="card" id="recoveryCard" style="display:none;">
+            <h2>🆘 Recovery Codes</h2>
+            <p style="font-size:13px;color:#aaa;margin-bottom:14px;line-height:1.5;">If you lose access to your authenticator app, use a recovery code to sign in. Each code works <strong>once</strong>. Store them somewhere safe — a password manager is ideal.</p>
+            <div id="recoveryStatus"></div>
+            <div id="recoveryDisplay" style="display:none;">
+                <div class="alert warn show">⚠ These codes are shown <strong>only once</strong>. Save them now.</div>
+                <div class="recovery-grid" id="recoveryGrid"></div>
+                <div class="copy-row">
+                    <button class="btn-ghost" id="btnCopyCodes">Copy all to clipboard</button>
+                    <button class="btn-ghost" id="btnDownloadCodes">Download as .txt</button>
+                </div>
+                <p class="muted" style="margin-top:14px;">Once you've saved them, click "I've saved them" to hide.</p>
+                <button class="btn-primary" id="btnHideCodes" style="margin-top:8px;">I've saved them</button>
+            </div>
+            <div id="recoveryActions">
+                <button class="btn-primary" id="btnGenerateCodes">Generate Recovery Codes</button>
+                <span class="muted" style="margin-left:10px;" id="recoveryNote"></span>
+            </div>
+        </div>
+
         <div class="card" id="devicesCard" style="display:none;">
-            <h2>Trusted Devices</h2>
-            <p style="font-size:13px;color:#888;margin-bottom:12px;">Devices that bypass 2FA after first verification. Revoke any you don't recognize.</p>
+            <h2>📱 Trusted Devices</h2>
+            <p style="font-size:13px;color:#888;margin-bottom:12px;">Devices that bypass 2FA after first verification (30-day window). Revoke any you don't recognize.</p>
             <table>
                 <thead><tr><th>Device</th><th>Added</th><th>Last used</th><th></th></tr></thead>
                 <tbody id="devicesBody"></tbody>
@@ -112,10 +158,12 @@
         function loadStatus() {
             Promise.all([
                 api('GET', 'Users/Me').catch(function() { return null; }),
-                api('GET', 'TwoFactorAuth/Devices').catch(function() { return []; })
+                api('GET', 'TwoFactorAuth/Devices').catch(function() { return []; }),
+                api('GET', 'TwoFactorAuth/RecoveryCodes/Status').catch(function() { return { total:0, remaining:0 }; })
             ]).then(function(results) {
                 var me = results[0];
                 var devices = results[1] || [];
+                var rcStatus = results[2] || { total:0, remaining:0 };
                 if (!me) {
                     document.getElementById('statusContent').innerHTML = '<span style="color:#f44336;">Please sign in to Jellyfin first.</span>';
                     return;
@@ -123,47 +171,72 @@
                 api('GET', 'TwoFactorAuth/Users').then(function(users) {
                     var myData = (users || []).find(function(u) { return (u.userId || u.UserId) === me.Id; });
                     var totpOn = myData && (myData.totpEnabled || myData.TotpEnabled);
-                    render(totpOn, devices);
-                }).catch(function() { render(false, devices); });
+                    render(totpOn, devices, rcStatus);
+                }).catch(function() { render(false, devices, rcStatus); });
             });
         }
 
-        function render(totpOn, devices) {
+        function render(totpOn, devices, rcStatus) {
             var statusContent = document.getElementById('statusContent');
             var enrollCard = document.getElementById('enrollCard');
             var devicesCard = document.getElementById('devicesCard');
+            var recoveryCard = document.getElementById('recoveryCard');
+
             if (totpOn) {
-                statusContent.innerHTML = '<div class="status-row"><span>Authenticator app</span><span class="status-on">Enabled</span></div>'
-                    + '<div class="status-row"><span>Trusted devices</span><span>' + devices.length + '</span></div>'
-                    + '<div style="margin-top:16px;"><button class="btn-danger" id="btnDisable">Disable 2FA</button></div>';
+                statusContent.innerHTML =
+                    '<div class="status-row"><span>Authenticator app</span><span class="status-on">✓ Enabled</span></div>' +
+                    '<div class="status-row"><span>Trusted devices</span><span>' + devices.length + '</span></div>' +
+                    '<div class="status-row"><span>Recovery codes</span><span class="' + (rcStatus.remaining > 2 ? 'status-on' : (rcStatus.remaining > 0 ? 'status-warn' : 'status-off')) + '">' + rcStatus.remaining + ' / ' + rcStatus.total + ' remaining</span></div>' +
+                    '<div style="margin-top:16px;"><button class="btn-danger" id="btnDisable">Disable 2FA</button></div>';
                 document.getElementById('btnDisable').addEventListener('click', disable2FA);
                 enrollCard.style.display = 'none';
+                recoveryCard.style.display = 'block';
                 devicesCard.style.display = 'block';
+                renderRecoveryStatus(rcStatus);
             } else {
                 statusContent.innerHTML = '<div class="status-row"><span>Authenticator app</span><span class="status-off">Not set up</span></div>';
                 enrollCard.style.display = 'block';
+                recoveryCard.style.display = 'none';
                 devicesCard.style.display = devices.length ? 'block' : 'none';
             }
             renderDevices(devices);
         }
 
+        function renderRecoveryStatus(rc) {
+            var note = document.getElementById('recoveryNote');
+            var btn = document.getElementById('btnGenerateCodes');
+            if (!rc.total) {
+                note.textContent = 'You have no recovery codes. Generate some now.';
+                btn.textContent = 'Generate Recovery Codes';
+            } else {
+                note.textContent = rc.remaining + ' of ' + rc.total + ' codes remaining (generated ' + new Date(rc.generatedAt).toLocaleDateString() + ')';
+                btn.textContent = 'Regenerate Codes (invalidates old ones)';
+            }
+        }
+
         function renderDevices(devices) {
             var body = document.getElementById('devicesBody');
             if (!devices || devices.length === 0) {
-                body.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center;padding:16px;">No trusted devices</td></tr>';
+                body.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center;padding:16px;">No trusted devices yet</td></tr>';
                 return;
             }
             body.innerHTML = devices.map(function(d) {
-                var added = new Date(d.createdAt || d.CreatedAt).toLocaleDateString();
-                var last = new Date(d.lastUsedAt || d.LastUsedAt).toLocaleDateString();
-                return '<tr><td>' + (d.deviceName || d.DeviceName) + '</td><td>' + added + '</td><td>' + last + '</td>'
-                    + '<td><button class="btn-danger btn-revoke" data-id="' + (d.id || d.Id) + '">Revoke</button></td></tr>';
+                var added = new Date(d.createdAt || d.CreatedAt).toLocaleString();
+                var last = new Date(d.lastUsedAt || d.LastUsedAt).toLocaleString();
+                return '<tr><td>' + escapeHtml(d.deviceName || d.DeviceName || 'Unknown') + '</td><td>' + added + '</td><td>' + last + '</td>' +
+                    '<td><button class="btn-danger btn-revoke" data-id="' + (d.id || d.Id) + '">Revoke</button></td></tr>';
             }).join('');
             body.querySelectorAll('.btn-revoke').forEach(function(btn) {
                 btn.addEventListener('click', function() {
-                    if (!confirm('Revoke this trusted device?')) return;
+                    if (!confirm('Revoke this device? It will need to do 2FA again on next login.')) return;
                     api('DELETE', 'TwoFactorAuth/Devices/' + btn.dataset.id).then(loadStatus);
                 });
+            });
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, function(c) {
+                return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
             });
         }
 
@@ -197,11 +270,11 @@
                 return;
             }
             api('POST', 'TwoFactorAuth/Setup/Totp/Confirm', { code: code }).then(function() {
-                okEl.textContent = '2FA enabled successfully.';
+                okEl.textContent = '2FA enabled. Generate recovery codes below in case you lose your phone.';
                 okEl.classList.add('show');
                 setTimeout(loadStatus, 800);
             }).catch(function() {
-                errEl.textContent = 'Invalid code. Try again — codes rotate every 30 seconds.';
+                errEl.textContent = 'Invalid code. Codes rotate every 30 seconds — try the latest one.';
                 errEl.classList.add('show');
             });
         });
@@ -213,8 +286,44 @@
             if (e.key === 'Enter') document.getElementById('btnConfirm').click();
         });
 
+        document.getElementById('btnGenerateCodes').addEventListener('click', function() {
+            if (!confirm('Generate new recovery codes? Any existing codes will stop working.')) return;
+            api('POST', 'TwoFactorAuth/RecoveryCodes/Generate').then(function(result) {
+                var grid = document.getElementById('recoveryGrid');
+                grid.innerHTML = (result.codes || []).map(function(c) { return '<div>' + escapeHtml(c) + '</div>'; }).join('');
+                document.getElementById('recoveryActions').style.display = 'none';
+                document.getElementById('recoveryDisplay').style.display = 'block';
+                window.__recoveryCodes = result.codes || [];
+            });
+        });
+
+        document.getElementById('btnHideCodes').addEventListener('click', function() {
+            document.getElementById('recoveryDisplay').style.display = 'none';
+            document.getElementById('recoveryActions').style.display = 'block';
+            loadStatus();
+        });
+
+        document.getElementById('btnCopyCodes').addEventListener('click', function() {
+            var text = (window.__recoveryCodes || []).join('\n');
+            navigator.clipboard.writeText(text).then(function() {
+                document.getElementById('btnCopyCodes').textContent = '✓ Copied';
+                setTimeout(function() { document.getElementById('btnCopyCodes').textContent = 'Copy all to clipboard'; }, 1500);
+            });
+        });
+
+        document.getElementById('btnDownloadCodes').addEventListener('click', function() {
+            var text = 'Jellyfin 2FA Recovery Codes\nGenerated: ' + new Date().toISOString() + '\n\n' + (window.__recoveryCodes || []).join('\n') + '\n\nEach code works once. Keep them safe.';
+            var blob = new Blob([text], { type: 'text/plain' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'jellyfin-2fa-recovery-codes.txt';
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
         function disable2FA() {
-            if (!confirm('Disable 2FA? You will only need your password to log in.')) return;
+            if (!confirm('Disable 2FA? You will only need your password to sign in. All recovery codes and trusted devices will be removed.')) return;
             api('POST', 'TwoFactorAuth/Setup/Disable').then(loadStatus);
         }
 
