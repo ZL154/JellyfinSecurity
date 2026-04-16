@@ -8,6 +8,13 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.2.2.0",
+        "changelog": "Fix: passwordless / quick-profile login now triggers 2FA. The injected script now intercepts BOTH fetch and XHR auth responses; when the server returns 401 with twoFactorRequired:true, the browser is redirected to the challenge page automatically. Works for the manual login form, the avatar quick-login flow, and any other auth path. Fix: signed-in users now get a 'Two-Factor Auth' link in Jellyfin's user menu so they can find the Setup page without knowing the URL. Fix: failed-login spinner — clarified the failure path so wrong-credential 401s pass through to Jellyfin's normal error UI instead of stalling.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.2.2/Jellyfin.Plugin.TwoFactorAuthv1.2.2.zip",
+        "checksum": "67D57D49E2F6CCB46B45C6F214173086"
+      },
+      {
         "version": "1.2.1.0",
         "changelog": "CRITICAL FIX for v1.2.0: PluginConfiguration.UserEmailAddresses was a Dictionary which Jellyfin's XML serializer cannot handle. Adding the new TotpIssuerName field triggered a config rewrite on every request, crashing the entire HTTP pipeline (white-screen Jellyfin web UI). Replaced with an XML-serializable List<UserEmailEntry> plus GetUserEmail/SetUserEmail helpers. Existing per-user email entries WILL be lost on upgrade — admins need to re-enter them in the Users tab.",
         "targetAbi": "10.11.0.0",
