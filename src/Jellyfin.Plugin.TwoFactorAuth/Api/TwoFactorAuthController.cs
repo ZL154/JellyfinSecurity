@@ -207,7 +207,17 @@ public class TwoFactorAuthController : ControllerBase
             _challengeStore.UnblockUser(user.Id);
             await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
 
-            _logger.LogInformation("[2FA] /Authenticate: TOTP valid for {Name}, calling AuthenticateNewSession", req.Username);
+            // Issue a trusted device token valid for 30 days so the user doesn't need
+            // to re-enter the TOTP code on every refresh.
+            var deviceIdForTrust = HttpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
+                ?? Guid.NewGuid().ToString("N");
+            var deviceNameForTrust = HttpContext.Request.Headers["X-Emby-Device-Name"].FirstOrDefault()
+                ?? "Browser";
+            var (trustToken, trustRecord) = _deviceTokenService.CreateDeviceToken(deviceIdForTrust, deviceNameForTrust);
+            userData.TrustedDevices.Add(trustRecord);
+            await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+
+            _logger.LogInformation("[2FA] /Authenticate: TOTP valid for {Name}, issued device token, calling AuthenticateNewSession", req.Username);
 
             var authRequest = new MediaBrowser.Controller.Session.AuthenticationRequest
             {
@@ -226,6 +236,8 @@ public class TwoFactorAuthController : ControllerBase
             {
                 var result = await _sessionManager.AuthenticateNewSession(authRequest).ConfigureAwait(false);
                 _logger.LogInformation("[2FA] /Authenticate: session created for {Name}", req.Username);
+                Response.Headers.Append("X-TwoFactor-Device-Token", trustToken);
+                Response.Headers.Append("Access-Control-Expose-Headers", "X-TwoFactor-Device-Token");
                 return Ok(result);
             }
             catch (MediaBrowser.Controller.Authentication.AuthenticationException)
