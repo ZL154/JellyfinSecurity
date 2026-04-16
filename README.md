@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Authentication-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/badge/Version-1.1.0-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
+  <img src="https://img.shields.io/badge/Version-1.3.0-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -79,12 +79,21 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 - Atomic file writes for user data — crash mid-write doesn't corrupt 2FA state
 - Generic error messages prevent account enumeration ("invalid credentials" whether password or code is wrong)
 
+### Native client support (v1.3.0)
+- **App passwords** — generate revocable long random passwords for native apps (Swiftfin, Findroid, etc.). Stored as PBKDF2-SHA256 hashes. Users with a Jellyfin password can enter the app password in the native client's password field to bypass 2FA.
+- **Device pairing** — passwordless users (no Jellyfin password) can pair native clients: the first failed login registers a "pending pairing request." The user approves it from `/TwoFactorAuth/Setup`, and the device is permanently trusted.
+- **Quick Connect pass-through** — when a 2FA-verified user approves a Quick Connect code, the new device inherits the verified status. TVs sign in without a TOTP prompt.
+- **Active sessions view** — users can see all their active sessions with device/IP/last-activity and sign them out individually.
+
 ### UI
-- Polished login page with lockout countdown
-- Setup page with QR code, recovery code generation, trusted device list
-- Admin dashboard with users, devices, audit log (paginated, filterable), and settings
-- Per-user email address management for OTP delivery
+- Polished login page with lockout countdown and low-recovery-code warning
+- Redesigned Setup page with status dashboard, TOTP enrollment, recovery codes, email backup, pending device approvals, paired devices, app passwords, trusted browsers, and active sessions — all in one unified view
+- Admin dashboard with users, devices, audit log (paginated, filterable), and settings with Test SMTP button
+- Configurable TOTP issuer name (what users see in their authenticator app)
+- Per-user email address management (self-service from Setup page or admin-set)
 - "Sign in with 2FA" button auto-injected into Jellyfin's standard login page
+- "Two-Factor Auth" sidebar entry injected into Jellyfin's navigation drawer (follows AchievementBadges' proven DOM injection pattern)
+- Settings page tile so users can find Setup from their preferences
 
 ### Notifications
 - Push notifications for login attempts via **ntfy** or **Gotify**

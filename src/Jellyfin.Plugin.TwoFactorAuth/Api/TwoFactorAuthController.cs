@@ -33,6 +33,8 @@ public class TwoFactorAuthController : ControllerBase
     private readonly CookieSigner _cookieSigner;
     private readonly RateLimiter _rateLimiter;
     private readonly RecoveryCodeService _recoveryCodes;
+    private readonly AppPasswordService _appPasswords;
+    private readonly PendingPairingService _pendingPairings;
     private readonly ILogger<TwoFactorAuthController> _logger;
 
     public TwoFactorAuthController(
@@ -48,6 +50,8 @@ public class TwoFactorAuthController : ControllerBase
         CookieSigner cookieSigner,
         RateLimiter rateLimiter,
         RecoveryCodeService recoveryCodes,
+        AppPasswordService appPasswords,
+        PendingPairingService pendingPairings,
         ILogger<TwoFactorAuthController> logger)
     {
         _store = store;
@@ -62,6 +66,8 @@ public class TwoFactorAuthController : ControllerBase
         _cookieSigner = cookieSigner;
         _rateLimiter = rateLimiter;
         _recoveryCodes = recoveryCodes;
+        _appPasswords = appPasswords;
+        _pendingPairings = pendingPairings;
         _logger = logger;
     }
 
@@ -609,7 +615,10 @@ public class TwoFactorAuthController : ControllerBase
         userData.RecoveryCodes.Clear();
         userData.RecoveryCodesGeneratedAt = null;
         userData.TrustedDevices.Clear();
+        userData.PairedDevices.Clear();
+        userData.AppPasswords.Clear();
         await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+        _pendingPairings.RemoveAllForUser(userId);
 
         return Ok();
     }
@@ -1042,8 +1051,11 @@ public class TwoFactorAuthController : ControllerBase
             userData.RecoveryCodes.Clear();
             userData.RecoveryCodesGeneratedAt = null;
             userData.TrustedDevices.Clear();
+            userData.PairedDevices.Clear();
+            userData.AppPasswords.Clear();
             await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
             _challengeStore.UnblockUser(id);
+            _pendingPairings.RemoveAllForUser(id);
         }
 
         await _store.AddAuditEntryAsync(new AuditEntry
@@ -1216,6 +1228,259 @@ public class TwoFactorAuthController : ControllerBase
 
         _sessionManager.ReportSessionEnded(id);
 
+        return Ok();
+    }
+
+    // =========================================================================
+    // App Passwords  (v1.3.0 — for native clients that submit a password)
+    // =========================================================================
+
+    public class CreateAppPasswordBody { public string Label { get; set; } = string.Empty; }
+
+    [HttpGet("AppPasswords")]
+    [Authorize]
+    public async Task<IActionResult> ListAppPasswords()
+    {
+        var userId = GetCurrentUserId();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var rows = data.AppPasswords.Select(p => new
+        {
+            id = p.Id,
+            label = p.Label,
+            createdAt = p.CreatedAt,
+            lastUsedAt = p.LastUsedAt,
+            lastDeviceName = p.LastDeviceName,
+        });
+        return Ok(rows);
+    }
+
+    [HttpPost("AppPasswords")]
+    [Authorize]
+    public async Task<IActionResult> CreateAppPassword([FromBody, Required] CreateAppPasswordBody req)
+    {
+        var userId = GetCurrentUserId();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (!data.TotpEnabled || !data.TotpVerified)
+        {
+            return BadRequest(new { message = "Set up TOTP first before creating app passwords." });
+        }
+
+        if (data.AppPasswords.Count >= 20)
+        {
+            return BadRequest(new { message = "Limit reached. Revoke an existing app password first." });
+        }
+
+        var label = (req.Label ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(label)) label = "App password";
+        if (label.Length > 80) label = label.Substring(0, 80);
+
+        var (plaintext, hash) = _appPasswords.Generate();
+        var entry = new AppPassword
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Label = label,
+            PasswordHash = hash,
+            CreatedAt = DateTime.UtcNow,
+        };
+        data.AppPasswords.Add(entry);
+        await _store.SaveUserDataAsync(data).ConfigureAwait(false);
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            Result = AuditResult.Bypassed,
+            Method = "app_password_created:" + label,
+        }).ConfigureAwait(false);
+
+        return Ok(new
+        {
+            id = entry.Id,
+            label = entry.Label,
+            password = plaintext, // shown ONCE
+            warning = "Copy this password now. You won't see it again. Use it as the password in your native app.",
+        });
+    }
+
+    [HttpDelete("AppPasswords/{id}")]
+    [Authorize]
+    public async Task<IActionResult> RevokeAppPassword([FromRoute] string id)
+    {
+        var userId = GetCurrentUserId();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var removed = data.AppPasswords.RemoveAll(p => p.Id == id);
+        if (removed == 0) return NotFound();
+        await _store.SaveUserDataAsync(data).ConfigureAwait(false);
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            Result = AuditResult.Bypassed,
+            Method = "app_password_revoked",
+        }).ConfigureAwait(false);
+
+        return Ok();
+    }
+
+    // =========================================================================
+    // Paired Devices  (v1.3.0 — TVs/native clients trusted for 2FA bypass)
+    // =========================================================================
+
+    [HttpGet("PairedDevices")]
+    [Authorize]
+    public async Task<IActionResult> ListPairedDevices()
+    {
+        var userId = GetCurrentUserId();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var rows = data.PairedDevices.Select(p => new
+        {
+            id = p.Id,
+            deviceId = p.DeviceId,
+            deviceName = p.DeviceName,
+            appName = p.AppName,
+            source = p.Source,
+            createdAt = p.CreatedAt,
+            lastUsedAt = p.LastUsedAt,
+            lastIp = p.LastIp,
+        });
+        return Ok(rows);
+    }
+
+    [HttpDelete("PairedDevices/{id}")]
+    [Authorize]
+    public async Task<IActionResult> RevokePairedDevice([FromRoute] string id)
+    {
+        var userId = GetCurrentUserId();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var removed = data.PairedDevices.RemoveAll(p => p.Id == id);
+        if (removed == 0) return NotFound();
+        await _store.SaveUserDataAsync(data).ConfigureAwait(false);
+        return Ok();
+    }
+
+    // =========================================================================
+    // Pending Pairings  (v1.3.0 — devices that hit the 2FA wall)
+    // =========================================================================
+
+    [HttpGet("PendingPairings")]
+    [Authorize]
+    public IActionResult ListPendingPairings()
+    {
+        var userId = GetCurrentUserId();
+        var rows = _pendingPairings.ListForUser(userId).Select(p => new
+        {
+            deviceId = p.DeviceId,
+            deviceName = p.DeviceName,
+            appName = p.AppName,
+            remoteIp = p.RemoteIp,
+            firstSeen = p.FirstSeen,
+            lastSeen = p.LastSeen,
+        });
+        return Ok(rows);
+    }
+
+    public class ApprovePendingBody
+    {
+        public string DeviceId { get; set; } = string.Empty;
+        public string Label { get; set; } = string.Empty;
+    }
+
+    [HttpPost("PendingPairings/Approve")]
+    [Authorize]
+    public async Task<IActionResult> ApprovePending([FromBody, Required] ApprovePendingBody req)
+    {
+        var userId = GetCurrentUserId();
+        if (string.IsNullOrEmpty(req.DeviceId)) return BadRequest(new { message = "deviceId required" });
+
+        var pending = _pendingPairings.Get(userId, req.DeviceId);
+        if (pending is null) return NotFound(new { message = "Pending request not found or expired." });
+
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (data.PairedDevices.Any(p => p.DeviceId == req.DeviceId))
+        {
+            _pendingPairings.Remove(userId, req.DeviceId);
+            return Ok(new { message = "Already paired." });
+        }
+
+        data.PairedDevices.Add(new PairedDevice
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            DeviceId = pending.DeviceId,
+            DeviceName = string.IsNullOrEmpty(req.Label) ? pending.DeviceName : req.Label.Trim(),
+            AppName = pending.AppName,
+            Source = "auto",
+            CreatedAt = DateTime.UtcNow,
+            LastUsedAt = DateTime.UtcNow,
+            LastIp = pending.RemoteIp,
+        });
+        await _store.SaveUserDataAsync(data).ConfigureAwait(false);
+        _pendingPairings.Remove(userId, req.DeviceId);
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            DeviceId = pending.DeviceId,
+            DeviceName = pending.DeviceName,
+            Result = AuditResult.Bypassed,
+            Method = "device_paired_auto",
+        }).ConfigureAwait(false);
+
+        return Ok();
+    }
+
+    public class DenyPendingBody { public string DeviceId { get; set; } = string.Empty; }
+
+    [HttpPost("PendingPairings/Deny")]
+    [Authorize]
+    public IActionResult DenyPending([FromBody, Required] DenyPendingBody req)
+    {
+        var userId = GetCurrentUserId();
+        if (string.IsNullOrEmpty(req.DeviceId)) return BadRequest();
+        _pendingPairings.Remove(userId, req.DeviceId);
+        return Ok();
+    }
+
+    // =========================================================================
+    // Active Sessions for the current user (read from Jellyfin SessionManager)
+    // =========================================================================
+
+    [HttpGet("MySessions")]
+    [Authorize]
+    public IActionResult MySessions()
+    {
+        var userId = GetCurrentUserId();
+        var sessions = _sessionManager.Sessions
+            .Where(s => s.UserId == userId)
+            .Select(s => new
+            {
+                id = s.Id,
+                deviceName = s.DeviceName,
+                client = s.Client,
+                appVersion = s.ApplicationVersion,
+                remoteEndPoint = s.RemoteEndPoint,
+                lastActivityDate = s.LastActivityDate,
+                isActive = s.IsActive,
+                nowPlaying = s.NowPlayingItem?.Name,
+            });
+        return Ok(sessions);
+    }
+
+    [HttpPost("MySessions/{id}/Revoke")]
+    [Authorize]
+    public IActionResult RevokeMySession([FromRoute] string id)
+    {
+        var userId = GetCurrentUserId();
+        var session = _sessionManager.Sessions.FirstOrDefault(s => s.Id == id && s.UserId == userId);
+        if (session is null) return NotFound();
+        _sessionManager.ReportSessionEnded(id);
         return Ok();
     }
 }
