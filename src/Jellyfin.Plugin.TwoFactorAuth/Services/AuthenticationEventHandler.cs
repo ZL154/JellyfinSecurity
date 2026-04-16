@@ -106,35 +106,10 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
-        // "Remember for 30 days" — if the user has ANY trusted device record created
-        // within the last 30 days, they've done 2FA recently enough. Since device IDs
-        // don't always match across Jellyfin's internal session types, we just check
-        // that the user has an active trust record.
-        var trustCutoff = DateTime.UtcNow.AddDays(-30);
-        var hasRecentTrust = userData.TrustedDevices.Any(t => t.LastUsedAt >= trustCutoff || t.CreatedAt >= trustCutoff);
-        if (hasRecentTrust)
-        {
-            _logger.LogInformation("[2FA] {Name} within 30-day trust window — session allowed", info.UserName);
-            // Bump LastUsedAt on the most recent trust record
-            var mostRecent = userData.TrustedDevices.OrderByDescending(t => t.LastUsedAt).FirstOrDefault();
-            if (mostRecent is not null)
-            {
-                mostRecent.LastUsedAt = DateTime.UtcNow;
-                await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
-            }
-            await _store.AddAuditEntryAsync(new AuditEntry
-            {
-                Timestamp = DateTime.UtcNow,
-                UserId = info.UserId,
-                Username = info.UserName ?? string.Empty,
-                RemoteIp = info.RemoteEndPoint ?? string.Empty,
-                DeviceId = info.DeviceId ?? string.Empty,
-                DeviceName = info.DeviceName ?? string.Empty,
-                Result = AuditResult.Bypassed,
-                Method = "recent_2fa",
-            }).ConfigureAwait(false);
-            return;
-        }
+        // Per-device trust is handled by TrustCookieMiddleware, which marks the user
+        // as pre-verified when a valid trust cookie is present on the auth request.
+        // The check above (IsUserPreVerified) catches that case, so we don't need
+        // an account-wide trust check here.
 
         var apiKeys = await _store.GetApiKeysAsync().ConfigureAwait(false);
         var bypass = _bypassEvaluator.Evaluate(
