@@ -80,6 +80,28 @@ public class UserTwoFactorStore
         }
     }
 
+    /// <summary>
+    /// Atomic read-modify-write under the per-user semaphore. Use this when
+    /// multiple requests can mutate the same user concurrently (auth bypass
+    /// updates LastUsedAt while the user is also editing app passwords from
+    /// the Setup page). Naïve Get/mutate/Save loses updates.
+    /// </summary>
+    public async Task MutateAsync(Guid userId, Action<UserTwoFactorData> mutator)
+    {
+        var sem = GetUserLock(userId);
+        await sem.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var data = await ReadUserFileAsync(userId).ConfigureAwait(false);
+            mutator(data);
+            await WriteUserFileAsync(data).ConfigureAwait(false);
+        }
+        finally
+        {
+            sem.Release();
+        }
+    }
+
     public async Task<bool> IsLockedOutAsync(Guid userId)
     {
         var data = await GetUserDataAsync(userId).ConfigureAwait(false);

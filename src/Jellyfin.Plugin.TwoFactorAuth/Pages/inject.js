@@ -2,17 +2,18 @@
     if (window.__twofactor_injected) return;
     window.__twofactor_injected = true;
 
-    console.log('[2FA] inject.js loaded');
+    console.log('[2FA] inject.js v1.3.0 loaded');
 
     var BUTTON_ID = '__twofactor_login_btn';
     var STYLE_ID = '__twofactor_styles';
-    var MENU_ITEM_ID = '__twofactor_menu_item';
+    var SIDEBAR_ID = '__twofactor_sidebar';
+    var SETTINGS_TILE_ID = '__twofactor_settings_tile';
 
     // ============================================================
     // 1. Intercept fetch + XHR. If Jellyfin's auth endpoint returns
     //    401 with twoFactorRequired:true, redirect to the challenge
-    //    page. Otherwise pass through. This catches the manual login
-    //    form, the avatar/quick-login flow, and any other auth path.
+    //    page. Catches all login paths (manual, avatar quick-login,
+    //    Quick Connect).
     // ============================================================
 
     function isAuthPath(url) {
@@ -20,9 +21,8 @@
         var u = String(url).toLowerCase();
         return u.indexOf('/users/authenticatebyname') >= 0
             || u.indexOf('/users/authenticatewithquickconnect') >= 0
-            || u.match(/\/users\/[0-9a-f-]+\/authenticate(\?|$)/i);
+            || /\/users\/[0-9a-f-]+\/authenticate(\?|$)/i.test(u);
     }
-
     function handleTwoFactorBody(body) {
         if (!body || typeof body !== 'object') return false;
         if (!body.TwoFactorRequired && !body.twoFactorRequired) return false;
@@ -32,8 +32,6 @@
         window.location.href = url;
         return true;
     }
-
-    // -- fetch() interception --
     var origFetch = window.fetch ? window.fetch.bind(window) : null;
     if (origFetch) {
         window.fetch = function (input, init) {
@@ -42,22 +40,14 @@
             if (!isAuthPath(url)) return p;
             return p.then(function (resp) {
                 if (resp.status !== 401) return resp;
-                // Clone so the caller can still consume the body
                 var clone = resp.clone();
                 return clone.json().then(function (body) {
-                    if (handleTwoFactorBody(body)) {
-                        // Return a never-resolving promise so the caller's
-                        // .then doesn't fire and trigger an error popup.
-                        // We're navigating away anyway.
-                        return new Promise(function () {});
-                    }
+                    if (handleTwoFactorBody(body)) return new Promise(function () {});
                     return resp;
                 }).catch(function () { return resp; });
             });
         };
     }
-
-    // -- XMLHttpRequest interception (Jellyfin's ApiClient uses XHR) --
     var origOpen = XMLHttpRequest.prototype.open;
     var origSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function (method, url) {
@@ -70,126 +60,127 @@
             xhr.addEventListener('readystatechange', function () {
                 if (xhr.readyState !== 4) return;
                 if (xhr.status !== 401) return;
-                try {
-                    var body = JSON.parse(xhr.responseText || '{}');
-                    handleTwoFactorBody(body);
-                    // Note: we can't stop the caller from seeing the 401,
-                    // but the navigation kicks in immediately, replacing
-                    // the page before any error UI renders.
-                } catch (e) { /* not JSON */ }
+                try { handleTwoFactorBody(JSON.parse(xhr.responseText || '{}')); } catch (e) {}
             });
         }
         return origSend.apply(this, arguments);
     };
 
     // ============================================================
-    // 2. Add a "Two-Factor Authentication" link to the user menu
-    //    so signed-in users can find /TwoFactorAuth/Setup.
+    // 2. Sidebar entry — copies AchievementBadges' proven pattern.
+    //    Find any .navMenuOption, copy its className so we inherit
+    //    Jellyfin's emby-button styling, insert as a sibling.
     // ============================================================
 
-    // Find every "Settings"-style link Jellyfin renders and inject our 2FA
-    // entry next to each one. Themed Jellyfin skins often relocate the
-    // settings link, and there can be multiple drawers visible at once
-    // (main left drawer + the per-user settings drawer on the right), so
-    // we don't try to be clever about which one is "the" menu — we just
-    // mirror every settings anchor we find.
-    function addUserMenuLink() {
-        // Match any anchor whose href targets the user preferences pages.
-        // Covers vanilla Jellyfin, Jellyfin-Vue, and most themed skins.
-        var anchors = document.querySelectorAll(
-            'a[href*="mypreferencesmenu"],' +
-            ' a[href*="myprofile"],' +
-            ' a[href*="userprofile"],' +
-            ' a[href*="useredit"],' +
-            ' a[href*="quickconnect"]'
-        );
+    function injectSidebar() {
+        try {
+            if (document.getElementById(SIDEBAR_ID)) return;
+            var allItems = document.querySelectorAll('.navMenuOption');
+            if (!allItems.length) return;
 
-        if (!anchors.length) return;
+            // Anchor: prefer "Settings" / "User" related items, fall back to first nav item
+            var anchorItem = null;
+            var placement = 'after';
+            for (var i = 0; i < allItems.length; i++) {
+                var txt = (allItems[i].textContent || '').trim().toLowerCase();
+                if (txt === 'settings' || txt === 'preferences' || txt === 'profile') {
+                    anchorItem = allItems[i]; placement = 'after'; break;
+                }
+            }
+            if (!anchorItem) {
+                for (var j = 0; j < allItems.length; j++) {
+                    var href = (allItems[j].getAttribute('href') || '').toLowerCase();
+                    if (href.indexOf('mypreferencesmenu') >= 0 || href.indexOf('myprofile') >= 0) {
+                        anchorItem = allItems[j]; placement = 'after'; break;
+                    }
+                }
+            }
+            if (!anchorItem) { anchorItem = allItems[0]; placement = 'before'; }
 
-        var added = 0;
-        anchors.forEach(function (anchor) {
-            // Don't double-inject in the same container
-            var siblingContainer = anchor.parentNode;
-            if (!siblingContainer) return;
-            if (siblingContainer.querySelector('[data-tfa-link="1"]')) return;
+            var parent = anchorItem.parentElement;
+            if (!parent) return;
 
-            var item = document.createElement('a');
-            item.setAttribute('data-tfa-link', '1');
-            item.id = MENU_ITEM_ID + '_' + (added++);
-            item.className = anchor.className;
-            item.href = '/TwoFactorAuth/Setup';
+            var a = document.createElement('a');
+            a.id = SIDEBAR_ID;
+            a.href = '/TwoFactorAuth/Setup';
+            a.className = anchorItem.className || 'navMenuOption emby-button';
+            a.setAttribute('role', 'menuitem');
+            a.style.cursor = 'pointer';
+            a.innerHTML =
+                '<span class="material-icons navMenuOptionIcon" style="font-family:Material Icons;" aria-hidden="true">security</span>' +
+                '<span class="navMenuOptionText">Two-Factor Auth</span>';
 
-            // Mirror the anchor's inner structure so themes style it consistently
-            var innerHtml = anchor.innerHTML;
-            // Replace any text label with "Two-Factor Auth"
-            // Try common label patterns: <span class="...text...">Label</span>,
-            // or just trailing text after an icon.
-            var labelReplaced = false;
-            var withTextSpan = innerHtml.replace(
-                /(<span[^>]*(?:text|label|name)[^>]*>)([^<]+)(<\/span>)/i,
-                function (_, open, _label, close) { labelReplaced = true; return open + 'Two-Factor Auth' + close; }
-            );
-            if (labelReplaced) {
-                // Also swap the icon if there is a material-icons span
-                item.innerHTML = withTextSpan.replace(
-                    /(<span[^>]*material-icons[^>]*>)([^<]*)(<\/span>)/i,
-                    '$1security$3'
-                );
+            if (placement === 'after') {
+                if (anchorItem.nextSibling) parent.insertBefore(a, anchorItem.nextSibling);
+                else parent.appendChild(a);
             } else {
-                item.innerHTML = '<span class="material-icons" aria-hidden="true" style="margin-right:0.5em;">security</span>Two-Factor Auth';
+                parent.insertBefore(a, anchorItem);
             }
 
-            // Insert right after the anchor so it groups with Settings
-            if (anchor.nextSibling) {
-                siblingContainer.insertBefore(item, anchor.nextSibling);
-            } else {
-                siblingContainer.appendChild(item);
-            }
-        });
-
-        if (added > 0) {
-            console.log('[2FA] Injected', added, 'menu link(s)');
+            console.log('[2FA] Sidebar entry inserted (anchor:', (anchorItem.textContent || '').trim(), placement + ')');
+        } catch (e) {
+            console.error('[2FA] injectSidebar error:', e);
         }
     }
 
-    // The Jellyfin settings page (#!/mypreferencesmenu.html) is a list of
-    // big tile links. Drop a "Two-Factor Auth" tile into that list too.
-    function addSettingsPageTile() {
-        var hash = window.location.hash || '';
-        if (hash.indexOf('mypreferencesmenu') < 0) return;
+    // ============================================================
+    // 3. Settings page tile — for users who land on the user
+    //    preferences page rather than open the side drawer.
+    // ============================================================
 
-        var list = document.querySelector(
-            '.preferencesContainer .readOnlyContent,' +
-            ' .preferencesContainer,' +
-            ' .userPreferencesPage .readOnlyContent,' +
-            ' .userPreferencesPage'
-        );
-        if (!list) return;
-        if (list.querySelector('[data-tfa-tile="1"]')) return;
+    function injectSettingsTile() {
+        try {
+            var hash = (window.location.hash || '').toLowerCase();
+            if (hash.indexOf('mypreferencesmenu') < 0) return;
+            if (document.getElementById(SETTINGS_TILE_ID)) return;
 
-        var tile = document.createElement('a');
-        tile.setAttribute('data-tfa-tile', '1');
-        tile.href = '/TwoFactorAuth/Setup';
+            // Find the preferences list — try several common containers
+            var list = document.querySelector(
+                '.preferencesContainer .readOnlyContent,' +
+                ' .userPreferencesPage .readOnlyContent,' +
+                ' .preferencesContainer,' +
+                ' .userPreferencesPage'
+            );
+            // Fallback: find any list of user-pref links
+            if (!list) {
+                var prefLink = document.querySelector('a[href*="myprofile"], a[href*="userpasswordpage"]');
+                if (prefLink) list = prefLink.parentElement;
+            }
+            if (!list) return;
 
-        // Try to copy an existing tile's classes so it inherits theme styling
-        var template = list.querySelector('a.listItem, a.cardBox, a.button-link, a');
-        if (template) tile.className = template.className;
+            var template = list.querySelector('a.listItem, a.cardBox, a.button-link, a');
+            if (!template) return;
 
-        tile.innerHTML =
-            '<span class="material-icons listItemIcon listItemIcon-transparent" aria-hidden="true">security</span>' +
-            '<div class="listItemBody">' +
-                '<div class="listItemBodyText">Two-Factor Authentication</div>' +
-                '<div class="listItemBodyText secondary">Manage your TOTP, recovery codes, and trusted devices</div>' +
-            '</div>';
+            var tile = document.createElement('a');
+            tile.id = SETTINGS_TILE_ID;
+            tile.href = '/TwoFactorAuth/Setup';
+            tile.className = template.className;
 
-        list.appendChild(tile);
-        console.log('[2FA] Added Settings page tile');
+            // Mirror the template's inner structure if it uses the listItem layout
+            var hadIconAndBody = template.querySelector('.listItemBody');
+            if (hadIconAndBody) {
+                tile.innerHTML =
+                    '<span class="material-icons listItemIcon listItemIcon-transparent" aria-hidden="true">security</span>' +
+                    '<div class="listItemBody">' +
+                        '<div class="listItemBodyText">Two-Factor Authentication</div>' +
+                        '<div class="listItemBodyText secondary">Manage TOTP, recovery codes, paired devices, and app passwords</div>' +
+                    '</div>' +
+                    '<span class="material-icons" aria-hidden="true" style="margin-left:auto;opacity:0.4;">chevron_right</span>';
+            } else {
+                tile.innerHTML =
+                    '<span class="material-icons" style="margin-right:8px;vertical-align:middle;">security</span>' +
+                    'Two-Factor Authentication';
+            }
+
+            list.appendChild(tile);
+            console.log('[2FA] Settings tile inserted');
+        } catch (e) {
+            console.error('[2FA] injectSettingsTile error:', e);
+        }
     }
 
     // ============================================================
-    // 3. (Existing) Add "Sign in with Two-Factor" button under the
-    //    standard login form. Kept as a backup affordance — the
-    //    interception above handles the normal flow automatically.
+    // 4. (Existing) Login-form button — backup affordance
     // ============================================================
 
     function addStyles() {
@@ -198,8 +189,8 @@
         style.id = STYLE_ID;
         style.textContent =
             '#' + BUTTON_ID + ' {' +
-                'display:block;box-sizing:border-box;' +
-                'width:100%;padding:0.9em 1em;margin-top:0.5em;' +
+                'display:block;box-sizing:border-box;width:100%;' +
+                'padding:0.9em 1em;margin-top:0.5em;' +
                 'background:transparent;color:inherit;' +
                 'border:1px solid rgba(255,255,255,0.2);border-radius:0.2em;' +
                 'font-family:inherit;font-size:inherit;font-weight:inherit;line-height:inherit;letter-spacing:inherit;' +
@@ -208,88 +199,73 @@
                 'transition:background-color 0.15s ease;' +
             '}' +
             '#' + BUTTON_ID + ':hover { background:rgba(255,255,255,0.08); }' +
-            '#' + BUTTON_ID + ' span.tfa-icon { margin-right:0.4em;vertical-align:middle; }';
+            '#' + BUTTON_ID + ' .tfa-icon { margin-right:0.4em;vertical-align:middle; }';
         document.head.appendChild(style);
     }
-
     function isLoginPage() {
         var hash = window.location.hash || '';
         return hash.indexOf('login') >= 0 || hash === '' || hash === '#';
     }
-
     function findUsername() {
-        var sel = 'input#txtManualName, input[name="username"], input#username, .manualLoginForm input[type="text"]:not([type="password"])';
-        var input = document.querySelector(sel);
-        if (input && input.value) return input.value.trim();
-        return '';
+        var input = document.querySelector('input#txtManualName, input[name="username"], input#username, .manualLoginForm input[type="text"]:not([type="password"])');
+        return input && input.value ? input.value.trim() : '';
     }
-
     function addLoginButton() {
         if (!isLoginPage()) return;
         if (document.getElementById(BUTTON_ID)) return;
-
         var signInBtn = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
         if (!signInBtn) return;
-
         addStyles();
-
         var btn = document.createElement('a');
         btn.id = BUTTON_ID;
         btn.setAttribute('is', 'emby-linkbutton');
         btn.className = (signInBtn.className || 'raised block').replace(/button-submit|button-cancel|emby-button/g, '').trim();
         btn.innerHTML = '<span class="tfa-icon">🔐</span>Sign in with Two-Factor Authentication';
         btn.href = '/TwoFactorAuth/Login';
-
         function updateHref() {
             var u = findUsername();
             btn.href = u ? '/TwoFactorAuth/Login?username=' + encodeURIComponent(u) : '/TwoFactorAuth/Login';
         }
-
-        btn.addEventListener('click', function (e) {
-            e.preventDefault();
-            updateHref();
-            window.location.assign(btn.href);
-        });
-
+        btn.addEventListener('click', function (e) { e.preventDefault(); updateHref(); window.location.assign(btn.href); });
         var userInput = document.querySelector('input#txtManualName, input[name="username"], input#username');
-        if (userInput) {
-            userInput.addEventListener('input', updateHref);
-            userInput.addEventListener('change', updateHref);
-            userInput.addEventListener('blur', updateHref);
-        }
-
+        if (userInput) ['input', 'change', 'blur'].forEach(function (ev) { userInput.addEventListener(ev, updateHref); });
         var parent = signInBtn.parentNode;
-        if (signInBtn.nextSibling) {
-            parent.insertBefore(btn, signInBtn.nextSibling);
-        } else {
-            parent.appendChild(btn);
-        }
-
-        console.log('[2FA] Added "Sign in with 2FA" button after', signInBtn);
+        if (signInBtn.nextSibling) parent.insertBefore(btn, signInBtn.nextSibling);
+        else parent.appendChild(btn);
     }
 
     // ============================================================
-    // Bootstrap
+    // Bootstrap — combine MutationObserver + 1s polling for 60s,
+    //             matching AchievementBadges' battle-tested approach.
     // ============================================================
 
-    var mo = new MutationObserver(function () {
-        try {
-            addLoginButton();
-            addUserMenuLink();
-            addSettingsPageTile();
-        } catch (e) {}
-    });
+    function tryInject() {
+        addLoginButton();
+        injectSidebar();
+        injectSettingsTile();
+    }
 
     function start() {
-        addLoginButton();
-        addUserMenuLink();
-        addSettingsPageTile();
-        mo.observe(document.body, { childList: true, subtree: true });
-        window.addEventListener('hashchange', function () {
-            addLoginButton();
-            addUserMenuLink();
-            addSettingsPageTile();
+        tryInject();
+
+        var attempts = 0;
+        var maxAttempts = 60;
+        var poll = setInterval(function () {
+            attempts++;
+            tryInject();
+            if (attempts >= maxAttempts || (document.getElementById(SIDEBAR_ID))) clearInterval(poll);
+        }, 1000);
+
+        var moPending = false;
+        var mo = new MutationObserver(function () {
+            if (moPending) return;
+            moPending = true;
+            setTimeout(function () { moPending = false; tryInject(); }, 250);
         });
+        mo.observe(document.body, { childList: true, subtree: true });
+
+        window.addEventListener('hashchange', tryInject);
+        window.addEventListener('popstate', tryInject);
     }
 
     if (document.readyState === 'loading') {

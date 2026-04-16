@@ -24,6 +24,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<CookieSigner>();
         services.AddSingleton<RateLimiter>();
         services.AddSingleton<RecoveryCodeService>();
+        services.AddSingleton<AppPasswordService>();
+        services.AddSingleton<PendingPairingService>();
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddSingleton<IStartupFilter, TwoFactorStartupFilter>();
         services.AddHostedService<AuthenticationEventHandler>();
