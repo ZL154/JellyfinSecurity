@@ -4,139 +4,96 @@
 
     console.log('[2FA] inject.js loaded');
 
-    var AUTH_PATH = '/Users/AuthenticateByName';
+    var BUTTON_ID = '__twofactor_login_btn';
+    var STYLE_ID = '__twofactor_styles';
 
-    function getUrl(input) {
-        if (typeof input === 'string') return input;
-        if (input && input.url) return input.url;
-        return '';
+    function addStyles() {
+        if (document.getElementById(STYLE_ID)) return;
+        var style = document.createElement('style');
+        style.id = STYLE_ID;
+        style.textContent =
+            '#' + BUTTON_ID + ' {' +
+                'display:flex;align-items:center;justify-content:center;gap:8px;' +
+                'width:100%;padding:14px;margin-top:14px;' +
+                'background:linear-gradient(135deg,#00a4dc 0%,#0087b3 100%);' +
+                'color:#fff;border:none;border-radius:6px;' +
+                'font-size:15px;font-weight:600;cursor:pointer;' +
+                'text-decoration:none;' +
+                'box-shadow:0 4px 12px rgba(0,164,220,0.3);' +
+                'transition:transform 0.15s ease, box-shadow 0.15s ease;' +
+            '}' +
+            '#' + BUTTON_ID + ':hover {' +
+                'transform:translateY(-1px);' +
+                'box-shadow:0 6px 16px rgba(0,164,220,0.4);' +
+            '}';
+        document.head.appendChild(style);
     }
 
-    function redirectToLogin(username) {
-        var target = '/TwoFactorAuth/Login';
-        if (username) target += '?username=' + encodeURIComponent(username);
-        console.log('[2FA] Redirecting to', target);
-        window.location.assign(target);
+    function isLoginPage() {
+        var hash = window.location.hash || '';
+        var path = window.location.pathname || '';
+        return hash.indexOf('login') >= 0 || path.indexOf('login') >= 0;
     }
 
-    function checkAndRedirect(username, continueCallback) {
-        if (!username) return continueCallback();
-        fetch('/TwoFactorAuth/UserStatus?username=' + encodeURIComponent(username))
-            .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (status) {
-                if (status && status.totpEnabled === true) {
-                    redirectToLogin(username);
-                } else {
-                    continueCallback();
-                }
-            })
-            .catch(continueCallback);
+    function addLoginButton() {
+        if (!isLoginPage()) return;
+        if (document.getElementById(BUTTON_ID)) return;
+
+        // Find the form or login container
+        var form = document.querySelector('form.loginForm, form[name="loginForm"], form');
+        var insertAfter = null;
+        if (form) {
+            // Insert after the submit button if we can find it
+            var submit = form.querySelector('button[type="submit"], .raised.button-submit, .raised.emby-button');
+            insertAfter = submit ? submit.parentNode : form;
+        }
+        if (!insertAfter) return;
+
+        addStyles();
+
+        var btn = document.createElement('a');
+        btn.id = BUTTON_ID;
+        btn.href = '/TwoFactorAuth/Login';
+        // Try to pre-fill username
+        var userInput = document.querySelector('input#txtManualName, input[name="username"], input#username');
+        if (userInput && userInput.value && userInput.value.trim()) {
+            btn.href = '/TwoFactorAuth/Login?username=' + encodeURIComponent(userInput.value.trim());
+        }
+        btn.innerHTML = '🔐 Sign in with Two-Factor Authentication';
+
+        // Update href as user types username
+        if (userInput) {
+            userInput.addEventListener('input', function () {
+                var u = userInput.value && userInput.value.trim();
+                btn.href = u
+                    ? '/TwoFactorAuth/Login?username=' + encodeURIComponent(u)
+                    : '/TwoFactorAuth/Login';
+            });
+        }
+
+        if (insertAfter.nextSibling) {
+            insertAfter.parentNode.insertBefore(btn, insertAfter.nextSibling);
+        } else {
+            insertAfter.parentNode.appendChild(btn);
+        }
+        console.log('[2FA] Added "Sign in with 2FA" button to login page');
     }
 
-    // --- Strategy 1: fetch interceptor ---
-    var originalFetch = window.fetch;
-    if (originalFetch) {
-        window.fetch = function (input, init) {
-            var url = getUrl(input);
-            if (!url || url.indexOf(AUTH_PATH) < 0) {
-                return originalFetch.apply(this, arguments);
-            }
+    // Watch for the login page being shown (Jellyfin is a SPA, routes change)
+    var mo = new MutationObserver(function () {
+        try { addLoginButton(); } catch (e) {}
+    });
 
-            var username = '';
-            try {
-                var body = init && init.body;
-                if (typeof body === 'string') {
-                    var parsed = JSON.parse(body);
-                    username = parsed.Username || parsed.username || '';
-                }
-            } catch (e) {}
-
-            console.log('[2FA] fetch intercepted for auth, username=', username);
-
-            if (!username) {
-                return originalFetch.apply(this, arguments);
-            }
-
-            var self = this;
-            var self_args = arguments;
-
-            return fetch('/TwoFactorAuth/UserStatus?username=' + encodeURIComponent(username))
-                .then(function (r) { return r.ok ? r.json() : null; })
-                .then(function (status) {
-                    if (status && status.totpEnabled === true) {
-                        redirectToLogin(username);
-                        return new Promise(function () {});
-                    }
-                    return originalFetch.apply(self, self_args);
-                })
-                .catch(function () {
-                    return originalFetch.apply(self, self_args);
-                });
-        };
-        console.log('[2FA] fetch interceptor installed');
-    }
-
-    // --- Strategy 2: XHR interceptor (Jellyfin ApiClient uses XHR historically) ---
-    var OrigXHR = window.XMLHttpRequest;
-    if (OrigXHR) {
-        var origOpen = OrigXHR.prototype.open;
-        var origSend = OrigXHR.prototype.send;
-        OrigXHR.prototype.open = function (method, url) {
-            this.__2fa_url = url;
-            this.__2fa_method = method;
-            return origOpen.apply(this, arguments);
-        };
-        OrigXHR.prototype.send = function (body) {
-            var xhr = this;
-            if (xhr.__2fa_url && xhr.__2fa_url.indexOf(AUTH_PATH) >= 0) {
-                console.log('[2FA] XHR intercepted for auth');
-                try {
-                    var parsed = typeof body === 'string' ? JSON.parse(body) : null;
-                    var username = parsed && (parsed.Username || parsed.username);
-                    if (username) {
-                        // Block the request, ask the server about 2FA status, redirect if needed
-                        var args = arguments;
-                        fetch('/TwoFactorAuth/UserStatus?username=' + encodeURIComponent(username))
-                            .then(function (r) { return r.ok ? r.json() : null; })
-                            .then(function (status) {
-                                if (status && status.totpEnabled === true) {
-                                    redirectToLogin(username);
-                                } else {
-                                    origSend.apply(xhr, args);
-                                }
-                            })
-                            .catch(function () { origSend.apply(xhr, args); });
-                        return;
-                    }
-                } catch (e) {}
-            }
-            return origSend.apply(this, arguments);
-        };
-        console.log('[2FA] XHR interceptor installed');
-    }
-
-    // --- Strategy 3: listen for form submit on login page as final fallback ---
-    function attachFormListener() {
-        var forms = document.querySelectorAll('form');
-        forms.forEach(function (form) {
-            if (form.__2fa_listener) return;
-            form.__2fa_listener = true;
-            form.addEventListener('submit', function (e) {
-                var userInput = form.querySelector('input[name="username"], input#username, input[type="text"]');
-                var username = userInput && userInput.value && userInput.value.trim();
-                if (!username) return;
-                console.log('[2FA] form submit intercepted, username=', username);
-                // Don't prevent — let Jellyfin's normal flow try; our fetch/XHR interceptors will catch it
-            }, true);
-        });
+    function start() {
+        addLoginButton();
+        mo.observe(document.body, { childList: true, subtree: true });
+        window.addEventListener('hashchange', addLoginButton);
+        window.addEventListener('popstate', addLoginButton);
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', attachFormListener);
+        document.addEventListener('DOMContentLoaded', start);
     } else {
-        attachFormListener();
+        start();
     }
-
-    var mo = new MutationObserver(attachFormListener);
-    mo.observe(document.documentElement, { childList: true, subtree: true });
 })();
