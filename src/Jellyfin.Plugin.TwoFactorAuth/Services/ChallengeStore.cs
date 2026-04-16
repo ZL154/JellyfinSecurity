@@ -16,16 +16,13 @@ public class ChallengeStore : IDisposable
     /// <summary>
     /// Mark a user as pre-verified — the next session created for this user
     /// (within 2 minutes) will be allowed to persist by the auth event handler.
+    /// Only call AFTER both password and 2FA code have been verified.
     /// </summary>
     public void MarkUserPreVerified(Guid userId)
     {
         _preVerifiedUsers[userId] = DateTime.UtcNow.AddMinutes(2);
     }
 
-    /// <summary>
-    /// Consume the pre-verified flag for a user. Returns true once, then false
-    /// on subsequent calls. Used by event handler to allow one session per verification.
-    /// </summary>
     public bool ConsumeUserPreVerified(Guid userId)
     {
         if (_preVerifiedUsers.TryRemove(userId, out var expiry) && expiry > DateTime.UtcNow)
@@ -35,11 +32,6 @@ public class ChallengeStore : IDisposable
         return false;
     }
 
-    /// <summary>
-    /// Check whether a user has the pre-verified flag set, without consuming it.
-    /// Used to allow ALL sessions created within the verification window
-    /// (browser may open WebSocket + multiple connections, each creating a session).
-    /// </summary>
     public bool IsUserPreVerified(Guid userId)
     {
         if (_preVerifiedUsers.TryGetValue(userId, out var expiry) && expiry > DateTime.UtcNow)

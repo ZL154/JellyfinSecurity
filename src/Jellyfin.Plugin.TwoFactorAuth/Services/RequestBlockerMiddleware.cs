@@ -29,15 +29,31 @@ public class RequestBlockerMiddleware
         _logger = logger;
     }
 
+    // Specific endpoints needed for a blocked user to complete 2FA — must NOT be blocked.
+    // We deliberately do NOT exempt the entire /TwoFactorAuth/* prefix; admin endpoints
+    // under that prefix require admin auth and should also be blocked while mid-2FA.
+    private static readonly string[] AlwaysAllowedPaths = new[]
+    {
+        "/TwoFactorAuth/Login",
+        "/TwoFactorAuth/Setup",
+        "/TwoFactorAuth/Authenticate",
+        "/TwoFactorAuth/Verify",
+        "/TwoFactorAuth/Email/Send",
+        "/TwoFactorAuth/Challenge",
+        "/TwoFactorAuth/inject.js",
+    };
+
     public async Task InvokeAsync(HttpContext context)
     {
         var path = context.Request.Path.Value ?? string.Empty;
 
-        // Never block our own paths — user needs these to complete 2FA and see status
-        if (path.StartsWith("/TwoFactorAuth", StringComparison.OrdinalIgnoreCase))
+        foreach (var allowed in AlwaysAllowedPaths)
         {
-            await _next(context).ConfigureAwait(false);
-            return;
+            if (path.Equals(allowed, StringComparison.OrdinalIgnoreCase))
+            {
+                await _next(context).ConfigureAwait(false);
+                return;
+            }
         }
 
         var config = Plugin.Instance?.Configuration;

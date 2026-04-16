@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
@@ -12,28 +10,28 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// </summary>
 public class TrustCookieMiddleware
 {
-    private static readonly byte[] SigningKey = Encoding.UTF8.GetBytes("TwoFactorAuth.CookieSign.v1");
-
     private readonly RequestDelegate _next;
     private readonly UserTwoFactorStore _store;
     private readonly ChallengeStore _challengeStore;
+    private readonly CookieSigner _cookieSigner;
     private readonly ILogger<TrustCookieMiddleware> _logger;
 
     public TrustCookieMiddleware(
         RequestDelegate next,
         UserTwoFactorStore store,
         ChallengeStore challengeStore,
+        CookieSigner cookieSigner,
         ILogger<TrustCookieMiddleware> logger)
     {
         _next = next;
         _store = store;
         _challengeStore = challengeStore;
+        _cookieSigner = cookieSigner;
         _logger = logger;
     }
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Cheap path filter — only do work for login-related requests
         var path = context.Request.Path.Value ?? string.Empty;
         var isAuthPath = path.EndsWith("/AuthenticateByName", StringComparison.OrdinalIgnoreCase)
             || path.EndsWith("/AuthenticateWithQuickConnect", StringComparison.OrdinalIgnoreCase);
@@ -54,39 +52,31 @@ public class TrustCookieMiddleware
         try
         {
             var parts = cookie.Split('.');
-            if (parts.Length != 3) { await _next(context).ConfigureAwait(false); return; }
-
-            if (!Guid.TryParse(parts[0], out var userId))
+            if (parts.Length != 3 || !Guid.TryParse(parts[0], out var userId))
             {
                 await _next(context).ConfigureAwait(false);
                 return;
             }
 
-            // Verify HMAC signature
-            var payload = $"{parts[0]}.{parts[1]}";
-            var expected = ComputeHmac(payload);
-            if (!CryptographicOperations.FixedTimeEquals(
-                Encoding.UTF8.GetBytes(parts[2]),
-                Encoding.UTF8.GetBytes(expected)))
+            if (!_cookieSigner.Verify($"{parts[0]}.{parts[1]}", parts[2]))
             {
-                _logger.LogInformation("[2FA] Trust cookie signature mismatch for {UserId}", userId);
+                _logger.LogInformation("[2FA] Trust cookie signature mismatch for {UserId} — ignoring", userId);
                 await _next(context).ConfigureAwait(false);
                 return;
             }
 
-            // Verify the trust record still exists in user data and is recent
             var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
             var trustRecord = userData.TrustedDevices.FirstOrDefault(t => t.Id == parts[1]);
             if (trustRecord is null)
             {
-                _logger.LogInformation("[2FA] Trust cookie for revoked record — not honoring");
+                _logger.LogInformation("[2FA] Trust cookie references revoked record {Id}", parts[1]);
                 await _next(context).ConfigureAwait(false);
                 return;
             }
 
             if (trustRecord.CreatedAt < DateTime.UtcNow.AddDays(-30))
             {
-                _logger.LogInformation("[2FA] Trust cookie expired (>30 days)");
+                _logger.LogInformation("[2FA] Trust cookie expired (>30 days) for {UserId}", userId);
                 await _next(context).ConfigureAwait(false);
                 return;
             }
@@ -95,7 +85,6 @@ public class TrustCookieMiddleware
             _challengeStore.MarkUserPreVerified(userId);
             _challengeStore.UnblockUser(userId);
 
-            // Bump LastUsedAt
             trustRecord.LastUsedAt = DateTime.UtcNow;
             await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
         }
@@ -105,13 +94,5 @@ public class TrustCookieMiddleware
         }
 
         await _next(context).ConfigureAwait(false);
-    }
-
-    private static string ComputeHmac(string value)
-    {
-        using var hmac = new HMACSHA256(SigningKey);
-        var bytes = Encoding.UTF8.GetBytes(value);
-        return Convert.ToBase64String(hmac.ComputeHash(bytes))
-            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
     }
 }

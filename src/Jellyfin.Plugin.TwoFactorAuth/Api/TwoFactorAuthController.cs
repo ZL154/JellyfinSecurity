@@ -30,6 +30,9 @@ public class TwoFactorAuthController : ControllerBase
     private readonly NotificationService _notificationService;
     private readonly ISessionManager _sessionManager;
     private readonly IUserManager _userManager;
+    private readonly CookieSigner _cookieSigner;
+    private readonly RateLimiter _rateLimiter;
+    private readonly RecoveryCodeService _recoveryCodes;
     private readonly ILogger<TwoFactorAuthController> _logger;
 
     public TwoFactorAuthController(
@@ -42,6 +45,9 @@ public class TwoFactorAuthController : ControllerBase
         NotificationService notificationService,
         ISessionManager sessionManager,
         IUserManager userManager,
+        CookieSigner cookieSigner,
+        RateLimiter rateLimiter,
+        RecoveryCodeService recoveryCodes,
         ILogger<TwoFactorAuthController> logger)
     {
         _store = store;
@@ -53,6 +59,9 @@ public class TwoFactorAuthController : ControllerBase
         _notificationService = notificationService;
         _sessionManager = sessionManager;
         _userManager = userManager;
+        _cookieSigner = cookieSigner;
+        _rateLimiter = rateLimiter;
+        _recoveryCodes = recoveryCodes;
         _logger = logger;
     }
 
@@ -108,30 +117,6 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // GET /TwoFactorAuth/UserStatus?username=X — public, returns whether user has 2FA
-    // Used by the injected script to know whether to redirect to /Login
-    // -------------------------------------------------------------------------
-
-    [HttpGet("UserStatus")]
-    [AllowAnonymous]
-    public async Task<IActionResult> GetUserStatus([FromQuery] string username)
-    {
-        if (string.IsNullOrEmpty(username))
-        {
-            return Ok(new { totpEnabled = false });
-        }
-
-        var user = _userManager.GetUserByName(username);
-        if (user is null)
-        {
-            return Ok(new { totpEnabled = false });
-        }
-
-        var data = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
-        return Ok(new { totpEnabled = data.TotpEnabled && data.TotpVerified });
-    }
-
-    // -------------------------------------------------------------------------
     // POST /TwoFactorAuth/Authenticate — username + password + TOTP code in one call
     // -------------------------------------------------------------------------
 
@@ -141,54 +126,111 @@ public class TwoFactorAuthController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("[2FA] /Authenticate called for username={Name} codeLen={CodeLen}",
-                req?.Username, req?.Code?.Length ?? 0);
+            // Per-IP rate limit: 10 attempts per minute. Prevents online brute-force on
+            // the OTP code space and on the username/password combo.
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var rl = _rateLimiter.CheckAndRecord("auth:" + ip, 10, TimeSpan.FromMinutes(1));
+            if (!rl.allowed)
+            {
+                Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+                return StatusCode(StatusCodes.Status429TooManyRequests, new
+                {
+                    message = $"Too many attempts. Try again in {rl.retryAfterSeconds} seconds.",
+                    retryAfterSeconds = rl.retryAfterSeconds,
+                });
+            }
 
             if (req is null || string.IsNullOrEmpty(req.Username) || string.IsNullOrEmpty(req.Password))
             {
-                return BadRequest("Username and password are required");
+                return BadRequest(new { message = "Username and password are required." });
             }
+
+            _logger.LogInformation("[2FA] /Authenticate username={Name} codeProvided={Has}",
+                req.Username, !string.IsNullOrEmpty(req.Code));
 
             var user = _userManager.GetUserByName(req.Username);
             if (user is null)
             {
-                _logger.LogInformation("[2FA] /Authenticate: no user found for {Name}", req.Username);
-                return Unauthorized("Invalid username or password");
+                return Unauthorized(new { message = "Invalid username or password." });
             }
 
             var userData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
 
             if (await _store.IsLockedOutAsync(user.Id).ConfigureAwait(false))
             {
-                return StatusCode(StatusCodes.Status429TooManyRequests, "Account is locked out");
+                var remaining = userData.LockoutEnd.HasValue
+                    ? Math.Max(0, (int)(userData.LockoutEnd.Value - DateTime.UtcNow).TotalSeconds)
+                    : 900;
+                return StatusCode(StatusCodes.Status429TooManyRequests, new
+                {
+                    message = "Account is locked out due to too many failed attempts.",
+                    lockoutRemainingSeconds = remaining,
+                });
             }
 
-            if (userData.TotpEnabled && userData.TotpVerified)
+            var totpEnabled = userData.TotpEnabled && userData.TotpVerified;
+            var codeConsumedRecoveryIndex = -1;
+
+            // --- Step 1: If user has 2FA, verify TOTP/recovery code FIRST ---
+            // We return identical "invalid credentials" messages whether the password is wrong,
+            // the code is missing, or the code is wrong — preventing account enumeration of
+            // which users have 2FA enabled.
+            if (totpEnabled)
             {
                 if (string.IsNullOrEmpty(req.Code))
                 {
-                    return BadRequest("TOTP code required");
+                    await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
+                    return Unauthorized(new { message = "Invalid username, password, or verification code." });
                 }
 
-                if (string.IsNullOrEmpty(userData.EncryptedTotpSecret))
+                bool codeValid = false;
+                string? usedMethod = null;
+
+                // Check if it's a recovery code (longer than 6 chars; allow optional dashes)
+                var maybeRecovery = req.Code.Replace("-", "").Replace(" ", "");
+                if (maybeRecovery.Length >= 8 && maybeRecovery.All(c => char.IsLetterOrDigit(c)))
                 {
-                    return Unauthorized("TOTP secret missing for user");
+                    codeConsumedRecoveryIndex = FindRecoveryCodeIndex(userData, req.Code);
+                    if (codeConsumedRecoveryIndex >= 0)
+                    {
+                        // Mark used IMMEDIATELY so a stolen recovery code can't be retried.
+                        // We persist this even if password verification fails afterwards.
+                        userData.RecoveryCodes[codeConsumedRecoveryIndex].Used = true;
+                        userData.RecoveryCodes[codeConsumedRecoveryIndex].UsedAt = DateTime.UtcNow;
+                        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+                        codeValid = true;
+                        usedMethod = "recovery";
+                    }
                 }
 
-                string secret;
-                try
+                // Else try TOTP
+                if (!codeValid && req.Code.Length == 6 && req.Code.All(char.IsDigit))
                 {
-                    secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "[2FA] Failed to decrypt TOTP secret for {Name}", req.Username);
-                    return StatusCode(500, "Failed to decrypt TOTP secret. The plugin's data protection key may have changed — please re-enroll 2FA.");
+                    if (string.IsNullOrEmpty(userData.EncryptedTotpSecret))
+                    {
+                        return Unauthorized(new { message = "TOTP is enabled but no secret is configured. Please re-enroll." });
+                    }
+
+                    string secret;
+                    try
+                    {
+                        secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "[2FA] Failed to decrypt TOTP secret for {Name}", req.Username);
+                        return StatusCode(500, new { message = "Failed to decrypt TOTP secret. Please re-enroll 2FA." });
+                    }
+
+                    if (_totpService.ValidateCode(secret, req.Code, user.Id.ToString()))
+                    {
+                        codeValid = true;
+                        usedMethod = "totp";
+                    }
                 }
 
-                if (!_totpService.ValidateCode(secret, req.Code, user.Id.ToString()))
+                if (!codeValid)
                 {
-                    _logger.LogInformation("[2FA] /Authenticate: invalid TOTP code for {Name}", req.Username);
                     await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
                     await _store.AddAuditEntryAsync(new AuditEntry
                     {
@@ -199,74 +241,123 @@ public class TwoFactorAuthController : ControllerBase
                         Result = AuditResult.Failed,
                         Method = "totp",
                     }).ConfigureAwait(false);
-                    return Unauthorized("Invalid TOTP code");
+                    // Generic message to avoid enumeration
+                    return Unauthorized(new { message = "Invalid username, password, or verification code." });
                 }
+
+                _logger.LogInformation("[2FA] {Name} 2FA code accepted ({Method})", req.Username, usedMethod);
             }
 
-            _challengeStore.MarkUserPreVerified(user.Id);
-            _challengeStore.UnblockUser(user.Id);
-            await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
-
-            // Issue a trusted device token valid for 30 days so the user doesn't need
-            // to re-enter the TOTP code on every refresh.
-            var deviceIdForTrust = HttpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
+            // --- Step 2: Verify password with Jellyfin. If this fails, don't touch any state. ---
+            var deviceId = HttpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
                 ?? Guid.NewGuid().ToString("N");
-            var deviceNameForTrust = HttpContext.Request.Headers["X-Emby-Device-Name"].FirstOrDefault()
+            var deviceName = HttpContext.Request.Headers["X-Emby-Device-Name"].FirstOrDefault()
                 ?? "Browser";
-            var (trustToken, trustRecord) = _deviceTokenService.CreateDeviceToken(deviceIdForTrust, deviceNameForTrust);
-            userData.TrustedDevices.Add(trustRecord);
-            await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
-
-            _logger.LogInformation("[2FA] /Authenticate: TOTP valid for {Name}, issued device token, calling AuthenticateNewSession", req.Username);
 
             var authRequest = new MediaBrowser.Controller.Session.AuthenticationRequest
             {
                 Username = req.Username,
                 Password = req.Password,
-                App = "Jellyfin Web (2FA)",
+                App = "Jellyfin Web",
                 AppVersion = "1.0.0",
-                DeviceId = HttpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
-                    ?? Guid.NewGuid().ToString("N"),
-                DeviceName = HttpContext.Request.Headers["X-Emby-Device-Name"].FirstOrDefault()
-                    ?? "2FA Verified Device",
+                DeviceId = deviceId,
+                DeviceName = deviceName,
                 RemoteEndPoint = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
             };
 
+            // Pre-verify must be set BEFORE AuthenticateNewSession because SessionStarted
+            // fires during that call. We always clear on any non-success path to avoid
+            // leaving a 2-minute window where any session for this user bypasses 2FA.
+            _challengeStore.MarkUserPreVerified(user.Id);
+
+            MediaBrowser.Controller.Authentication.AuthenticationResult result;
+            var authSucceeded = false;
             try
             {
-                var result = await _sessionManager.AuthenticateNewSession(authRequest).ConfigureAwait(false);
-                _logger.LogInformation("[2FA] /Authenticate: session created for {Name}", req.Username);
-                Response.Headers.Append("X-TwoFactor-Device-Token", trustToken);
-                Response.Headers.Append("Access-Control-Expose-Headers", "X-TwoFactor-Device-Token");
+                try
+                {
+                    result = await _sessionManager.AuthenticateNewSession(authRequest).ConfigureAwait(false);
+                    authSucceeded = true;
+                }
+                catch (MediaBrowser.Controller.Authentication.AuthenticationException)
+                {
+                    return Unauthorized(new { message = "Invalid username or password." });
+                }
+            }
+            finally
+            {
+                if (!authSucceeded)
+                {
+                    _challengeStore.ConsumeUserPreVerified(user.Id);
+                }
+            }
 
-                // Set HTTP-only signed cookie scoped to this browser. Format: userId:tokenId:hmac
-                // Server verifies on subsequent logins; missing/invalid cookie = 2FA required.
+            // --- Step 3: Auth succeeded. Now do the state mutations (trust record, audit, etc.) ---
+            _challengeStore.UnblockUser(user.Id);
+            await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
+            _rateLimiter.Reset("auth:" + ip);
+
+            // Only create a trust cookie/record if the user actually completed 2FA.
+            // Users without 2FA don't need a trust cookie — there's nothing to trust.
+            if (totpEnabled)
+            {
+                var (_, trustRecord) = _deviceTokenService.CreateDeviceToken(deviceId, deviceName);
+                // Reload userData since we may have saved earlier (recovery code used) before SessionStarted ran
+                userData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
+                userData.TrustedDevices.Add(trustRecord);
+                await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+
                 var cookieValue = $"{user.Id:N}.{trustRecord.Id}";
-                var hmac = SignCookieValue(cookieValue);
-                var fullCookie = $"{cookieValue}.{hmac}";
-                Response.Cookies.Append("__2fa_trust", fullCookie, new CookieOptions
+                var hmac = _cookieSigner.Sign(cookieValue);
+                Response.Cookies.Append("__2fa_trust", $"{cookieValue}.{hmac}", new CookieOptions
                 {
                     HttpOnly = true,
-                    Secure = HttpContext.Request.IsHttps,
-                    SameSite = SameSiteMode.Lax,
+                    Secure = HttpContext.Request.IsHttps, // Browsers reject Secure on plain http localhost
+                    SameSite = SameSiteMode.Strict,
                     Expires = DateTimeOffset.UtcNow.AddDays(30),
                     Path = "/",
+                    IsEssential = true,
                 });
+            }
 
-                return Ok(result);
-            }
-            catch (MediaBrowser.Controller.Authentication.AuthenticationException)
+            await _store.AddAuditEntryAsync(new AuditEntry
             {
-                _logger.LogInformation("[2FA] /Authenticate: password invalid for {Name}", req.Username);
-                _challengeStore.ConsumeUserPreVerified(user.Id);
-                return Unauthorized("Invalid username or password");
-            }
+                Timestamp = DateTime.UtcNow,
+                UserId = user.Id,
+                Username = user.Username ?? string.Empty,
+                RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+                DeviceId = deviceId,
+                DeviceName = deviceName,
+                Result = AuditResult.Success,
+                Method = totpEnabled ? (codeConsumedRecoveryIndex >= 0 ? "recovery" : "totp") : "password_only",
+            }).ConfigureAwait(false);
+
+            return Ok(result);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[2FA] /Authenticate unhandled exception");
-            return StatusCode(500, "Internal server error: " + ex.Message);
+            return StatusCode(500, new { message = "Internal server error. Check Jellyfin logs for [2FA] entries." });
         }
+    }
+
+    private static int FindRecoveryCodeIndex(UserTwoFactorData userData, string submitted)
+    {
+        var normalized = RecoveryCodeService.NormalizeForCompare(submitted);
+        var hash = RecoveryCodeService.HashCode(normalized);
+        var hashBytes = System.Text.Encoding.UTF8.GetBytes(hash);
+        for (int i = 0; i < userData.RecoveryCodes.Count; i++)
+        {
+            var stored = userData.RecoveryCodes[i];
+            if (stored.Used) continue;
+            if (System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                hashBytes,
+                System.Text.Encoding.UTF8.GetBytes(stored.Hash)))
+            {
+                return i;
+            }
+        }
+        return -1;
     }
 
     // -------------------------------------------------------------------------
@@ -288,32 +379,6 @@ public class TwoFactorAuthController : ControllerBase
         using var reader = new System.IO.StreamReader(stream);
         var js = reader.ReadToEnd();
         return Content(js, "application/javascript; charset=utf-8");
-    }
-
-    private static string SignCookieValue(string value)
-    {
-        // Use a static key derived from the GUID; per-instance enough since cookies aren't long-lived secrets
-        var key = System.Text.Encoding.UTF8.GetBytes("TwoFactorAuth.CookieSign.v1");
-        var bytes = System.Text.Encoding.UTF8.GetBytes(value);
-        using var hmac = new System.Security.Cryptography.HMACSHA256(key);
-        return Convert.ToBase64String(hmac.ComputeHash(bytes)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-    }
-
-    /// <summary>
-    /// Returns true if the request carries a valid trust cookie for the given user.
-    /// </summary>
-    public bool HasValidTrustCookie(Guid userId, string trustRecordId)
-    {
-        var cookie = Request.Cookies["__2fa_trust"];
-        if (string.IsNullOrEmpty(cookie)) return false;
-        var parts = cookie.Split('.');
-        if (parts.Length != 3) return false;
-        if (!Guid.TryParse(parts[0], out var cookieUserId) || cookieUserId != userId) return false;
-        if (!string.Equals(parts[1], trustRecordId, StringComparison.Ordinal)) return false;
-        var expected = SignCookieValue($"{parts[0]}.{parts[1]}");
-        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
-            System.Text.Encoding.UTF8.GetBytes(parts[2]),
-            System.Text.Encoding.UTF8.GetBytes(expected));
     }
 
     private IActionResult ServeEmbeddedPage(string filename)
@@ -343,15 +408,35 @@ public class TwoFactorAuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<VerifyResponse>> Verify([FromBody, Required] VerifyRequest request)
     {
+        // Per-IP rate limit on Verify (prevents brute force across multiple challenges)
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var rl = _rateLimiter.CheckAndRecord("verify:" + ip, 10, TimeSpan.FromMinutes(1));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many attempts. Try again in {rl.retryAfterSeconds} seconds.",
+                retryAfterSeconds = rl.retryAfterSeconds,
+            });
+        }
+
         var challenge = _challengeStore.GetChallenge(request.ChallengeToken);
         if (challenge is null)
         {
-            return BadRequest("Invalid or expired challenge");
+            return BadRequest(new { message = "Invalid or expired challenge." });
+        }
+
+        // Per-challenge attempt limit — burns the challenge after 5 failed guesses
+        if (challenge.AttemptCount >= 5)
+        {
+            _challengeStore.ConsumeChallenge(request.ChallengeToken);
+            return Unauthorized(new { message = "Too many failed attempts on this challenge. Restart sign-in." });
         }
 
         if (await _store.IsLockedOutAsync(challenge.UserId).ConfigureAwait(false))
         {
-            return StatusCode(StatusCodes.Status429TooManyRequests, "Account is locked out due to too many failed attempts");
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { message = "Account is locked out." });
         }
 
         var userData = await _store.GetUserDataAsync(challenge.UserId).ConfigureAwait(false);
@@ -363,19 +448,22 @@ public class TwoFactorAuthController : ControllerBase
         }
         else
         {
-            // Default: totp
             if (string.IsNullOrEmpty(userData.EncryptedTotpSecret))
             {
+                challenge.AttemptCount++;
                 await _store.RecordFailedAttemptAsync(challenge.UserId).ConfigureAwait(false);
-                return Unauthorized("No TOTP secret configured");
+                return Unauthorized(new { message = "No TOTP secret configured." });
             }
 
-            var decryptedSecret = _totpService.DecryptSecret(userData.EncryptedTotpSecret);
-            valid = _totpService.ValidateCode(decryptedSecret, request.Code, challenge.UserId.ToString());
+            string secret;
+            try { secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret); }
+            catch { return StatusCode(500, new { message = "TOTP secret is corrupted. Re-enroll 2FA." }); }
+            valid = _totpService.ValidateCode(secret, request.Code, challenge.UserId.ToString());
         }
 
         if (!valid)
         {
+            challenge.AttemptCount++;
             await _store.RecordFailedAttemptAsync(challenge.UserId).ConfigureAwait(false);
             await _store.AddAuditEntryAsync(new AuditEntry
             {
@@ -389,7 +477,7 @@ public class TwoFactorAuthController : ControllerBase
                 Method = request.Method,
             }).ConfigureAwait(false);
 
-            return Unauthorized("Invalid 2FA code");
+            return Unauthorized(new { message = "Invalid 2FA code." });
         }
 
         _challengeStore.ConsumeChallenge(request.ChallengeToken);
@@ -518,9 +606,62 @@ public class TwoFactorAuthController : ControllerBase
         userData.TotpEnabled = false;
         userData.TotpVerified = false;
         userData.EncryptedTotpSecret = null;
+        userData.RecoveryCodes.Clear();
+        userData.RecoveryCodesGeneratedAt = null;
+        userData.TrustedDevices.Clear();
         await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
 
         return Ok();
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /TwoFactorAuth/RecoveryCodes/Generate — generate (or rotate) recovery codes.
+    // Returns plaintext codes ONCE. User must save them.
+    // -------------------------------------------------------------------------
+
+    [HttpPost("RecoveryCodes/Generate")]
+    [Authorize]
+    public async Task<IActionResult> GenerateRecoveryCodes()
+    {
+        var userId = GetCurrentUserId();
+        var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+
+        if (!userData.TotpEnabled || !userData.TotpVerified)
+        {
+            return BadRequest(new { message = "Set up TOTP first before generating recovery codes." });
+        }
+
+        var (plaintext, records) = _recoveryCodes.GenerateCodes();
+        userData.RecoveryCodes = records;
+        userData.RecoveryCodesGeneratedAt = DateTime.UtcNow;
+        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+
+        return Ok(new
+        {
+            codes = plaintext,
+            generatedAt = userData.RecoveryCodesGeneratedAt,
+            warning = "These codes are shown ONCE. Save them in a password manager. Each code works for one login.",
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /TwoFactorAuth/RecoveryCodes/Status — count of remaining + generated date.
+    // Doesn't return the codes themselves.
+    // -------------------------------------------------------------------------
+
+    [HttpGet("RecoveryCodes/Status")]
+    [Authorize]
+    public async Task<IActionResult> GetRecoveryCodesStatus()
+    {
+        var userId = GetCurrentUserId();
+        var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+
+        return Ok(new
+        {
+            total = userData.RecoveryCodes.Count,
+            remaining = userData.RecoveryCodes.Count(c => !c.Used),
+            generatedAt = userData.RecoveryCodesGeneratedAt,
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -699,11 +840,58 @@ public class TwoFactorAuthController : ControllerBase
                 TotpEnabled = data.TotpEnabled && data.TotpVerified,
                 EmailOtpEnabled = data.EmailOtpPreferred,
                 TrustedDeviceCount = data.TrustedDevices.Count,
+                RecoveryCodesRemaining = data.RecoveryCodes.Count(c => !c.Used),
                 IsLockedOut = isLockedOut,
             });
         }
 
         return Ok(result);
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /TwoFactorAuth/AllTrustedDevices — admin: every trusted device across all users
+    // -------------------------------------------------------------------------
+
+    [HttpGet("AllTrustedDevices")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> GetAllTrustedDevices()
+    {
+        var allUsers = await _store.GetAllUsersAsync().ConfigureAwait(false);
+        var rows = new List<TrustedDeviceWithUser>();
+
+        foreach (var ud in allUsers)
+        {
+            var ju = _userManager.GetUserById(ud.UserId);
+            foreach (var d in ud.TrustedDevices)
+            {
+                rows.Add(new TrustedDeviceWithUser
+                {
+                    UserId = ud.UserId,
+                    Username = ju?.Username ?? ud.UserId.ToString(),
+                    Id = d.Id,
+                    DeviceId = d.DeviceId,
+                    DeviceName = d.DeviceName,
+                    CreatedAt = d.CreatedAt,
+                    LastUsedAt = d.LastUsedAt,
+                });
+            }
+        }
+
+        return Ok(rows.OrderByDescending(r => r.LastUsedAt));
+    }
+
+    // -------------------------------------------------------------------------
+    // DELETE /TwoFactorAuth/Users/{userId}/Devices/{deviceRecordId} — admin revokes
+    // -------------------------------------------------------------------------
+
+    [HttpDelete("Users/{userId}/Devices/{deviceRecordId}")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> AdminRevokeDevice([FromRoute] Guid userId, [FromRoute] string deviceRecordId)
+    {
+        var ud = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        ud.TrustedDevices.RemoveAll(d => d.Id == deviceRecordId);
+        await _store.SaveUserDataAsync(ud).ConfigureAwait(false);
+        return Ok();
     }
 
     // -------------------------------------------------------------------------
@@ -716,8 +904,37 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<ActionResult> ToggleUser([FromRoute] Guid id, [FromBody, Required] ToggleUserRequest request)
     {
         var userData = await _store.GetUserDataAsync(id).ConfigureAwait(false);
-        userData.TotpEnabled = request.Enabled;
-        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+        var ju = _userManager.GetUserById(id);
+
+        if (request.Enabled)
+        {
+            // Admin can't enable 2FA on behalf of a user — they need to enroll themselves.
+            // We just clear the lockout / unblock so they can log in and visit /Setup.
+            _challengeStore.UnblockUser(id);
+            await _store.ResetFailedAttemptsAsync(id).ConfigureAwait(false);
+        }
+        else
+        {
+            // Admin disable: wipe all 2FA state. User can re-enroll fresh.
+            userData.TotpEnabled = false;
+            userData.TotpVerified = false;
+            userData.EncryptedTotpSecret = null;
+            userData.RecoveryCodes.Clear();
+            userData.RecoveryCodesGeneratedAt = null;
+            userData.TrustedDevices.Clear();
+            await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+            _challengeStore.UnblockUser(id);
+        }
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = id,
+            Username = ju?.Username ?? id.ToString(),
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            Result = AuditResult.Bypassed,
+            Method = "admin_toggle_" + (request.Enabled ? "on" : "off"),
+        }).ConfigureAwait(false);
 
         return Ok();
     }
@@ -814,34 +1031,54 @@ public class TwoFactorAuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult> SendEmailOtp([FromBody, Required] SendEmailOtpRequest request)
     {
+        // Per-IP rate limit: 5 sends per 5 minutes
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var rl = _rateLimiter.CheckAndRecord("email:" + ip, 5, TimeSpan.FromMinutes(5));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many email requests. Try again in {rl.retryAfterSeconds} seconds.",
+            });
+        }
+
         var challenge = _challengeStore.GetChallenge(request.ChallengeToken);
         if (challenge is null)
         {
-            return BadRequest("Invalid or expired challenge");
+            return BadRequest(new { message = "Invalid or expired challenge." });
         }
 
         if (await _store.IsLockedOutAsync(challenge.UserId).ConfigureAwait(false))
         {
-            return StatusCode(StatusCodes.Status429TooManyRequests, "Account is locked out");
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { message = "Account is locked out." });
         }
 
-        // Email address lookup: Jellyfin's User entity does not expose an Email property
-        // directly from IUserManager. Pass null; the EmailOtpService logs the code instead
-        // of delivering it until a mail backend is wired up.
+        // Per-user email address from plugin config (admin sets these)
+        var config = Plugin.Instance?.Configuration;
         string? email = null;
+        if (config?.UserEmailAddresses?.TryGetValue(challenge.UserId.ToString("N"), out var addr) == true)
+        {
+            email = addr;
+        }
 
-        var (_, sent) = _emailOtpService.GenerateAndSendCode(
+        var (_, sent) = await _emailOtpService.GenerateAndSendCodeAsync(
             challenge.UserId,
             challenge.Username,
             email,
-            request.ChallengeToken);
+            request.ChallengeToken).ConfigureAwait(false);
 
         if (!sent)
         {
-            return StatusCode(StatusCodes.Status429TooManyRequests, "Email OTP rate limited or sending failed");
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = email is null
+                    ? "Email address not configured for this user. Ask the admin to set it in plugin settings."
+                    : "Failed to send email — check SMTP configuration in plugin settings.",
+            });
         }
 
-        return Ok();
+        return Ok(new { message = "Code sent." });
     }
 
     // -------------------------------------------------------------------------

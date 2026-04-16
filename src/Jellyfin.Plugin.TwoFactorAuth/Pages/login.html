@@ -18,7 +18,7 @@
         }
         .card {
             background: #1a1a1a;
-            border: 1px solid #333;
+            border: 1px solid #2a2a2a;
             border-radius: 12px;
             padding: 40px 36px;
             width: 100%;
@@ -28,23 +28,24 @@
         @media (max-width: 500px) {
             .card { padding: 28px 22px; border-radius: 10px; }
         }
-        .logo { text-align: center; color: #00a4dc; font-size: 26px; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.5px; }
-        h1 { text-align: center; font-size: 15px; font-weight: 400; color: #888; margin-bottom: 28px; }
-        label { display: block; color: #888; font-size: 12px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .logo { text-align: center; color: #00a4dc; font-size: 28px; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.5px; }
+        h1 { text-align: center; font-size: 14px; font-weight: 400; color: #888; margin-bottom: 28px; text-transform: uppercase; letter-spacing: 1px; }
+        label { display: block; color: #888; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
         input {
             width: 100%;
             background: #252525;
-            border: 2px solid #333;
+            border: 1px solid #333;
             color: #e0e0e0;
-            padding: 12px;
+            padding: 12px 14px;
             border-radius: 6px;
             font-size: 15px;
             margin-bottom: 16px;
-            transition: border-color 0.2s;
+            transition: border-color 0.15s;
             font-family: inherit;
         }
         input:focus { border-color: #00a4dc; outline: none; }
-        .code-input { font-family: monospace; font-size: 22px; text-align: center; letter-spacing: 10px; }
+        .code-input { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 20px; text-align: center; letter-spacing: 6px; }
+        .code-input.recovery { letter-spacing: 2px; font-size: 18px; }
         button {
             width: 100%;
             padding: 14px;
@@ -56,13 +57,35 @@
             background: #00a4dc;
             color: #fff;
             transition: background 0.2s;
+            font-family: inherit;
         }
-        button:hover { background: #0087b3; }
+        button:hover:not(:disabled) { background: #0087b3; }
         button:disabled { opacity: 0.6; cursor: not-allowed; }
-        .error { color: #f44336; font-size: 13px; margin-bottom: 12px; text-align: center; padding: 10px; background: rgba(244,67,54,0.1); border-radius: 4px; display: none; }
-        .error.show { display: block; }
-        .hint { color: #666; font-size: 12px; text-align: center; margin-top: 20px; line-height: 1.5; }
+        .alert {
+            font-size: 13px;
+            margin-bottom: 12px;
+            text-align: center;
+            padding: 10px 12px;
+            border-radius: 6px;
+            display: none;
+            line-height: 1.4;
+        }
+        .alert.show { display: block; }
+        .alert.error { color: #f44336; background: rgba(244,67,54,0.1); border: 1px solid rgba(244,67,54,0.2); }
+        .alert.info { color: #00a4dc; background: rgba(0,164,220,0.1); border: 1px solid rgba(0,164,220,0.2); }
+        .toggle-link {
+            display: block;
+            text-align: center;
+            color: #00a4dc;
+            font-size: 12px;
+            margin: -6px 0 14px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .toggle-link:hover { text-decoration: underline; }
+        .hint { color: #666; font-size: 12px; text-align: center; margin-top: 20px; line-height: 1.6; }
         .hint a { color: #00a4dc; text-decoration: none; }
+        .hint a:hover { text-decoration: underline; }
         .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: -2px; }
         @keyframes spin { to { transform: rotate(360deg); } }
     </style>
@@ -70,9 +93,9 @@
 <body>
     <div class="card">
         <div class="logo">Jellyfin</div>
-        <h1>Sign in with Two-Factor Authentication</h1>
+        <h1>Sign In</h1>
 
-        <div class="error" id="errorMsg"></div>
+        <div class="alert error" id="errorMsg"></div>
 
         <label>Username</label>
         <input type="text" id="username" autocomplete="username" />
@@ -80,8 +103,10 @@
         <label>Password</label>
         <input type="password" id="password" autocomplete="current-password" />
 
-        <label>6-digit Code (leave blank if 2FA is not set up)</label>
-        <input type="text" id="code" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code" />
+        <label id="codeLabel">6-digit Code <span style="color:#555;text-transform:none;">(leave blank if 2FA isn't set up)</span></label>
+        <input type="text" id="code" class="code-input" maxlength="6" inputmode="numeric" placeholder="000000" autocomplete="one-time-code" />
+
+        <a class="toggle-link" id="toggleRecovery">Use a recovery code instead</a>
 
         <button id="btnLogin">Sign In</button>
 
@@ -92,9 +117,11 @@
     </div>
 
     <script>
-        // Prefill username if passed via query param (from inject.js redirect)
         var params = new URLSearchParams(window.location.search);
         var prefillUsername = params.get('username');
+        var usingRecovery = false;
+        var lockoutTimer = null;
+
         if (prefillUsername) {
             document.getElementById('username').value = prefillUsername;
             setTimeout(function() { document.getElementById('password').focus(); }, 50);
@@ -109,14 +136,69 @@
         }
         function clearError() { document.getElementById('errorMsg').classList.remove('show'); }
 
+        function setRecoveryMode(on) {
+            usingRecovery = on;
+            var input = document.getElementById('code');
+            var label = document.getElementById('codeLabel');
+            var toggle = document.getElementById('toggleRecovery');
+            if (on) {
+                input.classList.add('recovery');
+                input.setAttribute('maxlength', '14');
+                input.setAttribute('placeholder', 'XXXXX-XXXXX');
+                input.setAttribute('autocomplete', 'off');
+                label.innerHTML = 'Recovery code <span style="color:#555;text-transform:none;">(format: XXXXX-XXXXX)</span>';
+                toggle.textContent = 'Use 6-digit code instead';
+            } else {
+                input.classList.remove('recovery');
+                input.setAttribute('maxlength', '6');
+                input.setAttribute('placeholder', '000000');
+                input.setAttribute('autocomplete', 'one-time-code');
+                label.innerHTML = '6-digit Code <span style="color:#555;text-transform:none;">(leave blank if 2FA isn\'t set up)</span>';
+                toggle.textContent = 'Use a recovery code instead';
+            }
+            input.value = '';
+            input.focus();
+        }
+
+        document.getElementById('toggleRecovery').addEventListener('click', function(e) {
+            e.preventDefault();
+            setRecoveryMode(!usingRecovery);
+        });
+
         document.getElementById('code').addEventListener('input', function(e) {
-            e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+            if (usingRecovery) {
+                // Allow letters/digits/dash, uppercase
+                e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 14);
+            } else {
+                e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+            }
         });
 
         function onKey(e) { if (e.key === 'Enter') document.getElementById('btnLogin').click(); }
         document.getElementById('username').addEventListener('keypress', onKey);
         document.getElementById('password').addEventListener('keypress', onKey);
         document.getElementById('code').addEventListener('keypress', onKey);
+
+        function startLockoutCountdown(seconds) {
+            if (lockoutTimer) clearInterval(lockoutTimer);
+            var btn = document.getElementById('btnLogin');
+            btn.disabled = true;
+            var tick = function() {
+                if (seconds <= 0) {
+                    clearInterval(lockoutTimer);
+                    btn.disabled = false;
+                    btn.textContent = 'Sign In';
+                    clearError();
+                    return;
+                }
+                var mm = Math.floor(seconds / 60);
+                var ss = seconds % 60;
+                btn.textContent = 'Locked — ' + mm + ':' + (ss < 10 ? '0' : '') + ss;
+                seconds--;
+            };
+            tick();
+            lockoutTimer = setInterval(tick, 1000);
+        }
 
         document.getElementById('btnLogin').addEventListener('click', function() {
             var username = document.getElementById('username').value.trim();
@@ -138,28 +220,30 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: username, password: password, code: code })
             }).then(function(r) {
-                if (!r.ok) {
+                if (r.ok) return r.json();
+                return r.json().catch(function() { return { message: 'Sign in failed (' + r.status + ').' }; }).then(function(body) {
                     btn.disabled = false;
                     btn.textContent = 'Sign In';
-                    return r.text().then(function(text) {
-                        if (r.status === 429) showError('Too many failed attempts. Try again later.');
-                        else if (r.status === 401) showError(text || 'Invalid username, password, or 2FA code.');
-                        else if (r.status === 400) showError(text || 'Bad request.');
-                        else if (r.status === 500) showError('Server error: ' + (text || 'unknown. Check Jellyfin logs for [2FA].'));
-                        else showError('Sign in failed (' + r.status + ').');
-                        return null;
-                    });
-                }
-                return r.json();
+                    if (r.status === 429 && body.lockoutRemainingSeconds) {
+                        showError(body.message || 'Account locked.');
+                        startLockoutCountdown(body.lockoutRemainingSeconds);
+                    } else if (r.status === 429 && body.retryAfterSeconds) {
+                        showError(body.message || 'Too many attempts.');
+                        startLockoutCountdown(body.retryAfterSeconds);
+                    } else {
+                        showError(body.message || 'Sign in failed.');
+                    }
+                    return null;
+                });
             }).then(function(authData) {
                 if (!authData) return;
                 storeCredentials(authData).then(function() {
                     window.location.href = '/web/index.html';
                 });
-            }).catch(function(err) {
+            }).catch(function() {
                 btn.disabled = false;
                 btn.textContent = 'Sign In';
-                showError('Network error. Try again.');
+                showError('Network error. Check your connection and try again.');
             });
         });
 
@@ -191,7 +275,7 @@
                     });
                 }
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
-            });
+            }).catch(function() {/* best effort */});
         }
     </script>
 </body>
