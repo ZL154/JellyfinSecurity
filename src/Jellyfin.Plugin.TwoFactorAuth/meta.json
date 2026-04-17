@@ -2,7 +2,7 @@
   "Name": "Two-Factor Authentication",
   "Description": "Native two-factor authentication for Jellyfin with TOTP, email OTP, device pairing, and trusted device support.",
   "Guid": "94879a0c-da24-4eb1-aa06-f28b4b9333b1",
-  "Version": "1.3.1",
+  "Version": "1.3.2",
   "TargetAbi": "10.11.0.0",
   "Owner": "ZL154",
   "Overview": "Native two-factor authentication for Jellyfin with TOTP, email OTP, device pairing, and trusted device support.",
