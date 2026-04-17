@@ -8,6 +8,13 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.3.1.0",
+        "changelog": "CRITICAL FIX: failing 2FA on one device no longer signs you out on all other devices. Pre-verification and blocking are now scoped to (user, device) instead of user-wide. CRITICAL FIX: Swiftfin/Findroid 2FA bypass when another browser had just completed 2FA — caused by a user-scoped 2-minute pre-verification window that piggy-backed onto any device connecting. App passwords now ACTUALLY work for native clients — implemented as a fast-path in IAuthenticationProvider instead of response rewriting. Submit your app password in the native app's password field; server accepts it and skips the default provider. QR pairing: each pending device can be approved by scanning a QR on a phone that's already signed in. New settings tile on preferences page, back button on challenge page. Security: rate-limited and lockout-checked app password attempts, atomic pending-pairing approval, device-scoped state, ConfigChanged audit category, dead code removed, paired-device revoke now ends live sessions immediately, full challenge state wiped on 2FA disable.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.3.1/Jellyfin.Plugin.TwoFactorAuthv1.3.1.zip",
+        "checksum": "C98F5A6737CEDFCDE4413DC698B8118C"
+      },
+      {
         "version": "1.3.0.0",
         "changelog": "Native client support: app passwords (PBKDF2-SHA256 hashed, revocable) for Swiftfin/Findroid users with a Jellyfin password. Device pairing for passwordless users: failed native-client logins register as pending requests, user approves from Setup page. Quick Connect pass-through for TVs. Redesigned Setup page: status dashboard, TOTP enrollment, recovery codes, email backup, pending device approvals, paired devices, app passwords, trusted browsers, active sessions. Sidebar entry uses AchievementBadges navMenuOption pattern for consistent theming. Settings page tile. Admin Users tab fixed (was 404'ing on System/Configuration). Security audit fixes: atomic read-modify-write for concurrent user data updates, rate-limited app-password verification, bounded pending-pairing dict (5000 global, 50/user), chunked-encoding request body support, fail-closed (503) on middleware exceptions, pending pairings cleared on 2FA disable.",
         "targetAbi": "10.11.0.0",

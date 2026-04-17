@@ -13,6 +13,7 @@ public class AuthenticationEventHandler : IHostedService
     private readonly BypassEvaluator _bypassEvaluator;
     private readonly ChallengeStore _challengeStore;
     private readonly NotificationService _notificationService;
+    private readonly PendingPairingService _pendingPairings;
     private readonly ILogger<AuthenticationEventHandler> _logger;
 
     public AuthenticationEventHandler(
@@ -21,6 +22,7 @@ public class AuthenticationEventHandler : IHostedService
         BypassEvaluator bypassEvaluator,
         ChallengeStore challengeStore,
         NotificationService notificationService,
+        PendingPairingService pendingPairings,
         ILogger<AuthenticationEventHandler> logger)
     {
         _sessionManager = sessionManager;
@@ -28,6 +30,7 @@ public class AuthenticationEventHandler : IHostedService
         _bypassEvaluator = bypassEvaluator;
         _challengeStore = challengeStore;
         _notificationService = notificationService;
+        _pendingPairings = pendingPairings;
         _logger = logger;
     }
 
@@ -90,11 +93,13 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
-        // Check if user is inside the 2-minute verification window — they typed password + code
-        // Non-consuming so multiple sessions (WebSocket + HTTP) from the same login attempt all pass.
-        if (_challengeStore.IsUserPreVerified(info.UserId))
+        // Pre-verified for THIS device+user within the 2-minute window? Normal web
+        // 2FA completion path (and trust cookie / app-password bypass) hits this.
+        // Scoped to deviceId so a browser's verification can't grant Swiftfin a
+        // free pass — a foot-gun that was live in v1.3.0.
+        if (_challengeStore.IsDevicePreVerified(info.UserId, info.DeviceId))
         {
-            _logger.LogInformation("[2FA] User {Name} within verification window — session allowed", info.UserName);
+            _logger.LogInformation("[2FA] {Name} within device-verified window — session allowed", info.UserName);
             await _store.AddAuditEntryAsync(new AuditEntry
             {
                 Timestamp = DateTime.UtcNow,
@@ -109,10 +114,56 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
-        // Per-device trust is handled by TrustCookieMiddleware, which marks the user
-        // as pre-verified when a valid trust cookie is present on the auth request.
-        // The check above (IsUserPreVerified) catches that case, so we don't need
-        // an account-wide trust check here.
+        // Quick Connect: one-shot flag set when a verified device approves a QC
+        // code. The TV's session (with a different deviceId) consumes it once.
+        if (_challengeStore.ConsumeQuickConnectPending(info.UserId))
+        {
+            _logger.LogInformation("[2FA] {Name} QuickConnect-pending consumed — session allowed", info.UserName);
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = info.UserId,
+                Username = info.UserName ?? string.Empty,
+                RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                DeviceId = info.DeviceId ?? string.Empty,
+                DeviceName = info.DeviceName ?? string.Empty,
+                Result = AuditResult.Bypassed,
+                Method = "quickconnect",
+            }).ConfigureAwait(false);
+            return;
+        }
+
+        // Paired-device bypass: TV/native client the user has explicitly approved.
+        var userDataPaired = userData.PairedDevices.FirstOrDefault(p =>
+            !string.IsNullOrEmpty(info.DeviceId) &&
+            string.Equals(p.DeviceId, info.DeviceId, StringComparison.OrdinalIgnoreCase));
+        if (userDataPaired is not null)
+        {
+            _logger.LogInformation("[2FA] {Name} paired device {Device} — session allowed",
+                info.UserName, userDataPaired.DeviceName);
+            await _store.MutateAsync(info.UserId, ud =>
+            {
+                var p = ud.PairedDevices.FirstOrDefault(x =>
+                    string.Equals(x.DeviceId, info.DeviceId, StringComparison.OrdinalIgnoreCase));
+                if (p is not null)
+                {
+                    p.LastUsedAt = DateTime.UtcNow;
+                    p.LastIp = info.RemoteEndPoint ?? string.Empty;
+                }
+            }).ConfigureAwait(false);
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = info.UserId,
+                Username = info.UserName ?? string.Empty,
+                RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                DeviceId = info.DeviceId ?? string.Empty,
+                DeviceName = info.DeviceName ?? string.Empty,
+                Result = AuditResult.Bypassed,
+                Method = "paired_device",
+            }).ConfigureAwait(false);
+            return;
+        }
 
         var apiKeys = await _store.GetApiKeysAsync().ConfigureAwait(false);
         var bypass = _bypassEvaluator.Evaluate(
@@ -143,10 +194,22 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
-        _logger.LogWarning("[2FA] Blocking {Name} until they complete verification via /TwoFactorAuth/Login",
-            info.UserName);
+        _logger.LogWarning("[2FA] Blocking {Name} device={Device} until they complete /TwoFactorAuth/Login",
+            info.UserName, info.DeviceId);
 
-        _challengeStore.BlockUser(info.UserId);
+        // Device-scoped block: only this device gets 401'd. Other signed-in
+        // devices on other platforms stay logged in. Previously user-scoped.
+        _challengeStore.BlockDevice(info.UserId, info.DeviceId);
+
+        // Record this as a pending pairing so the user can approve it from
+        // Setup. Safe because SessionStarted only fires after Jellyfin's own
+        // password check has passed.
+        _pendingPairings.Record(
+            info.UserId,
+            info.DeviceId ?? string.Empty,
+            info.DeviceName ?? "Unknown",
+            info.Client ?? string.Empty,
+            info.RemoteEndPoint ?? string.Empty);
 
         await _store.AddAuditEntryAsync(new AuditEntry
         {

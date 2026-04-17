@@ -272,9 +272,9 @@ public class TwoFactorAuthController : ControllerBase
             };
 
             // Pre-verify must be set BEFORE AuthenticateNewSession because SessionStarted
-            // fires during that call. We always clear on any non-success path to avoid
-            // leaving a 2-minute window where any session for this user bypasses 2FA.
-            _challengeStore.MarkUserPreVerified(user.Id);
+            // fires during that call. Scoped to (user, device) so sibling devices can't
+            // piggy-back on the 2-minute window and bypass 2FA silently.
+            _challengeStore.MarkDevicePreVerified(user.Id, deviceId);
 
             MediaBrowser.Controller.Authentication.AuthenticationResult result;
             var authSucceeded = false;
@@ -294,12 +294,12 @@ public class TwoFactorAuthController : ControllerBase
             {
                 if (!authSucceeded)
                 {
-                    _challengeStore.ConsumeUserPreVerified(user.Id);
+                    _challengeStore.ConsumeDevicePreVerified(user.Id, deviceId);
                 }
             }
 
             // --- Step 3: Auth succeeded. Now do the state mutations (trust record, audit, etc.) ---
-            _challengeStore.UnblockUser(user.Id);
+            _challengeStore.UnblockAllForUser(user.Id);
             await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
             _rateLimiter.Reset("auth:" + ip);
 
@@ -607,18 +607,29 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<ActionResult> DisableTotp()
     {
         var userId = GetCurrentUserId();
-        var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
-
-        userData.TotpEnabled = false;
-        userData.TotpVerified = false;
-        userData.EncryptedTotpSecret = null;
-        userData.RecoveryCodes.Clear();
-        userData.RecoveryCodesGeneratedAt = null;
-        userData.TrustedDevices.Clear();
-        userData.PairedDevices.Clear();
-        userData.AppPasswords.Clear();
-        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+        await _store.MutateAsync(userId, ud =>
+        {
+            ud.TotpEnabled = false;
+            ud.TotpVerified = false;
+            ud.EncryptedTotpSecret = null;
+            ud.RecoveryCodes.Clear();
+            ud.RecoveryCodesGeneratedAt = null;
+            ud.TrustedDevices.Clear();
+            ud.PairedDevices.Clear();
+            ud.AppPasswords.Clear();
+        }).ConfigureAwait(false);
         _pendingPairings.RemoveAllForUser(userId);
+        _challengeStore.WipeAllForUser(userId);
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            Result = AuditResult.ConfigChanged,
+            Method = "self_disable",
+        }).ConfigureAwait(false);
 
         return Ok();
     }
@@ -1039,7 +1050,7 @@ public class TwoFactorAuthController : ControllerBase
         {
             // Admin can't enable 2FA on behalf of a user — they need to enroll themselves.
             // We just clear the lockout / unblock so they can log in and visit /Setup.
-            _challengeStore.UnblockUser(id);
+            _challengeStore.UnblockAllForUser(id);
             await _store.ResetFailedAttemptsAsync(id).ConfigureAwait(false);
         }
         else
@@ -1054,7 +1065,7 @@ public class TwoFactorAuthController : ControllerBase
             userData.PairedDevices.Clear();
             userData.AppPasswords.Clear();
             await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
-            _challengeStore.UnblockUser(id);
+            _challengeStore.WipeAllForUser(id);
             _pendingPairings.RemoveAllForUser(id);
         }
 
@@ -1064,7 +1075,7 @@ public class TwoFactorAuthController : ControllerBase
             UserId = id,
             Username = ju?.Username ?? id.ToString(),
             RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
-            Result = AuditResult.Bypassed,
+            Result = AuditResult.ConfigChanged,
             Method = "admin_toggle_" + (request.Enabled ? "on" : "off"),
         }).ConfigureAwait(false);
 
@@ -1291,7 +1302,7 @@ public class TwoFactorAuthController : ControllerBase
             UserId = userId,
             Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
             RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
-            Result = AuditResult.Bypassed,
+            Result = AuditResult.ConfigChanged,
             Method = "app_password_created:" + label,
         }).ConfigureAwait(false);
 
@@ -1320,7 +1331,7 @@ public class TwoFactorAuthController : ControllerBase
             UserId = userId,
             Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
             RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
-            Result = AuditResult.Bypassed,
+            Result = AuditResult.ConfigChanged,
             Method = "app_password_revoked",
         }).ConfigureAwait(false);
 
@@ -1357,9 +1368,31 @@ public class TwoFactorAuthController : ControllerBase
     {
         var userId = GetCurrentUserId();
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
-        var removed = data.PairedDevices.RemoveAll(p => p.Id == id);
-        if (removed == 0) return NotFound();
+        var target = data.PairedDevices.FirstOrDefault(p => p.Id == id);
+        if (target is null) return NotFound();
+        data.PairedDevices.Remove(target);
         await _store.SaveUserDataAsync(data).ConfigureAwait(false);
+
+        // End any live session using this device so the revoke takes effect
+        // immediately rather than waiting for the access token to expire.
+        foreach (var s in _sessionManager.Sessions.Where(s => s.UserId == userId
+            && string.Equals(s.DeviceId, target.DeviceId, StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            try { await _sessionManager.ReportSessionEnded(s.Id).ConfigureAwait(false); }
+            catch { /* best effort */ }
+        }
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            DeviceId = target.DeviceId,
+            DeviceName = target.DeviceName,
+            Result = AuditResult.ConfigChanged,
+            Method = "paired_device_revoked",
+        }).ConfigureAwait(false);
         return Ok();
     }
 
@@ -1400,26 +1433,35 @@ public class TwoFactorAuthController : ControllerBase
         var pending = _pendingPairings.Get(userId, req.DeviceId);
         if (pending is null) return NotFound(new { message = "Pending request not found or expired." });
 
-        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
-        if (data.PairedDevices.Any(p => p.DeviceId == req.DeviceId))
+        if (!_pendingPairings.Remove(userId, req.DeviceId))
         {
-            _pendingPairings.Remove(userId, req.DeviceId);
             return Ok(new { message = "Already paired." });
         }
 
-        data.PairedDevices.Add(new PairedDevice
+        var label = (req.Label ?? string.Empty).Trim();
+        if (label.Length > 80) label = label.Substring(0, 80);
+
+        var alreadyPresent = false;
+        await _store.MutateAsync(userId, ud =>
         {
-            Id = Guid.NewGuid().ToString("N"),
-            DeviceId = pending.DeviceId,
-            DeviceName = string.IsNullOrEmpty(req.Label) ? pending.DeviceName : req.Label.Trim(),
-            AppName = pending.AppName,
-            Source = "auto",
-            CreatedAt = DateTime.UtcNow,
-            LastUsedAt = DateTime.UtcNow,
-            LastIp = pending.RemoteIp,
-        });
-        await _store.SaveUserDataAsync(data).ConfigureAwait(false);
-        _pendingPairings.Remove(userId, req.DeviceId);
+            if (ud.PairedDevices.Any(p => p.DeviceId == req.DeviceId))
+            {
+                alreadyPresent = true;
+                return;
+            }
+            ud.PairedDevices.Add(new PairedDevice
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                DeviceId = pending.DeviceId,
+                DeviceName = string.IsNullOrEmpty(label) ? pending.DeviceName : label,
+                AppName = pending.AppName,
+                Source = "auto",
+                CreatedAt = DateTime.UtcNow,
+                LastUsedAt = DateTime.UtcNow,
+                LastIp = pending.RemoteIp,
+            });
+        }).ConfigureAwait(false);
+        if (alreadyPresent) return Ok(new { message = "Already paired." });
 
         await _store.AddAuditEntryAsync(new AuditEntry
         {
@@ -1429,7 +1471,7 @@ public class TwoFactorAuthController : ControllerBase
             RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
             DeviceId = pending.DeviceId,
             DeviceName = pending.DeviceName,
-            Result = AuditResult.Bypassed,
+            Result = AuditResult.ConfigChanged,
             Method = "device_paired_auto",
         }).ConfigureAwait(false);
 
@@ -1438,13 +1480,168 @@ public class TwoFactorAuthController : ControllerBase
 
     public class DenyPendingBody { public string DeviceId { get; set; } = string.Empty; }
 
+    public class PairingQrBody { public string DeviceId { get; set; } = string.Empty; }
+
+    /// <summary>Generate a signed approve token + QR for a pending pairing so the user
+    /// can approve it by scanning with a phone instead of opening Setup on each device.
+    /// Token format: "pair|userId|deviceId|expiryUnix" signed with CookieSigner.
+    /// TTL 5 minutes; single-consume on the confirm endpoint.</summary>
+    [HttpPost("PairingQr")]
+    [Authorize]
+    public IActionResult CreatePairingQr([FromBody, Required] PairingQrBody req)
+    {
+        var userId = GetCurrentUserId();
+        if (string.IsNullOrEmpty(req.DeviceId)) return BadRequest(new { message = "deviceId required" });
+
+        var pending = _pendingPairings.Get(userId, req.DeviceId);
+        if (pending is null) return NotFound(new { message = "Pending request not found or expired." });
+
+        var expiryUnix = DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds();
+        var payload = $"pair|{userId:N}|{req.DeviceId}|{expiryUnix}";
+        var sig = _cookieSigner.Sign(payload);
+        var token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(payload + "." + sig))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+
+        var scheme = HttpContext.Request.IsHttps ? "https" : "http";
+        var host = HttpContext.Request.Host.Value;
+        var url = $"{scheme}://{host}/TwoFactorAuth/PairConfirm?token={Uri.EscapeDataString(token)}";
+
+        // Generate QR
+        using var qrGen = new QRCoder.QRCodeGenerator();
+        using var qrData = qrGen.CreateQrCode(url, QRCoder.QRCodeGenerator.ECCLevel.M);
+        using var qrPng = new QRCoder.PngByteQRCode(qrData);
+        var qrBytes = qrPng.GetGraphic(5);
+
+        return Ok(new
+        {
+            qrCodeBase64 = Convert.ToBase64String(qrBytes),
+            url,
+            expiresAt = DateTimeOffset.FromUnixTimeSeconds(expiryUnix),
+            deviceName = pending.DeviceName,
+            appName = pending.AppName,
+        });
+    }
+
+    /// <summary>GET /TwoFactorAuth/PairConfirm — anonymous HTML confirm page rendered when
+    /// someone scans the QR. JS on the page verifies they're signed in, decodes the token,
+    /// and shows an approval prompt. Actual approval goes through the POST endpoint.</summary>
+    [HttpGet("PairConfirm")]
+    [AllowAnonymous]
+    [Produces("text/html")]
+    public IActionResult GetPairConfirmPage() => ServeEmbeddedPage("pairconfirm.html");
+
+    public class PairConfirmBody { public string Token { get; set; } = string.Empty; }
+
+    /// <summary>POST /TwoFactorAuth/PairConfirm — authenticates the current signed-in user
+    /// and, if the signed token is valid and matches THIS user, adds the device to paired list.</summary>
+    [HttpPost("PairConfirm")]
+    [Authorize]
+    public async Task<IActionResult> ConfirmPairing([FromBody, Required] PairConfirmBody body)
+    {
+        var userId = GetCurrentUserId();
+        if (string.IsNullOrEmpty(body.Token)) return BadRequest(new { message = "Missing token." });
+
+        // Decode base64url
+        string decoded;
+        try
+        {
+            var fixedToken = body.Token.Replace('-', '+').Replace('_', '/');
+            var pad = fixedToken.Length % 4;
+            if (pad > 0) fixedToken += new string('=', 4 - pad);
+            decoded = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(fixedToken));
+        }
+        catch { return BadRequest(new { message = "Invalid token encoding." }); }
+
+        var dotIdx = decoded.LastIndexOf('.');
+        if (dotIdx < 0) return BadRequest(new { message = "Malformed token." });
+        var payload = decoded.Substring(0, dotIdx);
+        var sig = decoded.Substring(dotIdx + 1);
+
+        if (!_cookieSigner.Verify(payload, sig))
+            return Unauthorized(new { message = "Invalid token signature." });
+
+        var parts = payload.Split('|');
+        if (parts.Length != 4 || parts[0] != "pair")
+            return BadRequest(new { message = "Malformed token." });
+        if (!Guid.TryParseExact(parts[1], "N", out var tokenUserId))
+            return BadRequest(new { message = "Malformed user id." });
+        if (tokenUserId != userId)
+            return Unauthorized(new { message = "This pairing link belongs to a different user." });
+        var deviceId = parts[2];
+        if (!long.TryParse(parts[3], out var expiryUnix))
+            return BadRequest(new { message = "Malformed expiry." });
+        if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() > expiryUnix)
+            return BadRequest(new { message = "Pairing link expired. Generate a new QR." });
+
+        var pending = _pendingPairings.Get(userId, deviceId);
+        if (pending is null) return NotFound(new { message = "Pending pairing no longer exists." });
+
+        // Single-consume: remove the pending entry FIRST so a concurrent
+        // duplicate POST /PairConfirm returns the "already" branch without
+        // re-adding a duplicate PairedDevice. Remove returns false if another
+        // thread got there first.
+        if (!_pendingPairings.Remove(userId, deviceId))
+        {
+            return Ok(new { message = "Already paired." });
+        }
+
+        var alreadyPresent = false;
+        await _store.MutateAsync(userId, ud =>
+        {
+            if (ud.PairedDevices.Any(p => p.DeviceId == deviceId))
+            {
+                alreadyPresent = true;
+                return;
+            }
+            ud.PairedDevices.Add(new PairedDevice
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                DeviceId = deviceId,
+                DeviceName = pending.DeviceName,
+                AppName = pending.AppName,
+                Source = "qr",
+                CreatedAt = DateTime.UtcNow,
+                LastUsedAt = DateTime.UtcNow,
+                LastIp = pending.RemoteIp,
+            });
+        }).ConfigureAwait(false);
+        if (alreadyPresent) return Ok(new { message = "Already paired." });
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            DeviceId = deviceId,
+            DeviceName = pending.DeviceName,
+            Result = AuditResult.ConfigChanged,
+            Method = "device_paired_qr",
+        }).ConfigureAwait(false);
+
+        return Ok(new { deviceName = pending.DeviceName });
+    }
+
     [HttpPost("PendingPairings/Deny")]
     [Authorize]
-    public IActionResult DenyPending([FromBody, Required] DenyPendingBody req)
+    public async Task<IActionResult> DenyPending([FromBody, Required] DenyPendingBody req)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(req.DeviceId)) return BadRequest();
+        var pending = _pendingPairings.Get(userId, req.DeviceId);
         _pendingPairings.Remove(userId, req.DeviceId);
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            DeviceId = req.DeviceId,
+            DeviceName = pending?.DeviceName ?? string.Empty,
+            Result = AuditResult.ConfigChanged,
+            Method = "pending_pair_denied",
+        }).ConfigureAwait(false);
         return Ok();
     }
 
@@ -1475,12 +1672,25 @@ public class TwoFactorAuthController : ControllerBase
 
     [HttpPost("MySessions/{id}/Revoke")]
     [Authorize]
-    public IActionResult RevokeMySession([FromRoute] string id)
+    public async Task<IActionResult> RevokeMySession([FromRoute] string id)
     {
         var userId = GetCurrentUserId();
         var session = _sessionManager.Sessions.FirstOrDefault(s => s.Id == id && s.UserId == userId);
         if (session is null) return NotFound();
-        _sessionManager.ReportSessionEnded(id);
+        await _sessionManager.ReportSessionEnded(id).ConfigureAwait(false);
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            DeviceId = session.DeviceId ?? string.Empty,
+            DeviceName = session.DeviceName ?? string.Empty,
+            Result = AuditResult.ConfigChanged,
+            Method = "session_revoked",
+        }).ConfigureAwait(false);
+
         return Ok();
     }
 }
