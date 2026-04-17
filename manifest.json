@@ -8,6 +8,13 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.3.2.0",
+        "changelog": "CRITICAL FIX: TwoFactorAuthProvider was never registered with Jellyfin's DI container, which meant Jellyfin never invoked it. Every provider-side feature (app passwords, the primary 2FA gate, paired-device check, rate limiting, lockout) was inert code from the day the plugin was written. Discovered by reading the log lines from a real Swiftfin sign-in attempt — only SessionStarted events fired, never the provider. Fixed by adding `services.AddSingleton<IAuthenticationProvider, TwoFactorAuthProvider>()` to PluginServiceRegistrator, matching the Jellyfin LDAP plugin's pattern. Everything that was supposed to work in 1.3.0 and 1.3.1 should finally work now.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.3.2/Jellyfin.Plugin.TwoFactorAuthv1.3.2.zip",
+        "checksum": "980061E38EAD61B98255E6C529C36576"
+      },
+      {
         "version": "1.3.1.0",
         "changelog": "CRITICAL FIX: failing 2FA on one device no longer signs you out on all other devices. Pre-verification and blocking are now scoped to (user, device) instead of user-wide. CRITICAL FIX: Swiftfin/Findroid 2FA bypass when another browser had just completed 2FA — caused by a user-scoped 2-minute pre-verification window that piggy-backed onto any device connecting. App passwords now ACTUALLY work for native clients — implemented as a fast-path in IAuthenticationProvider instead of response rewriting. Submit your app password in the native app's password field; server accepts it and skips the default provider. QR pairing: each pending device can be approved by scanning a QR on a phone that's already signed in. New settings tile on preferences page, back button on challenge page. Security: rate-limited and lockout-checked app password attempts, atomic pending-pairing approval, device-scoped state, ConfigChanged audit category, dead code removed, paired-device revoke now ends live sessions immediately, full challenge state wiped on 2FA disable.",
         "targetAbi": "10.11.0.0",

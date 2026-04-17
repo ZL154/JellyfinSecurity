@@ -1,5 +1,6 @@
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -29,5 +30,12 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddSingleton<IStartupFilter, TwoFactorStartupFilter>();
         services.AddHostedService<AuthenticationEventHandler>();
+
+        // CRITICAL: Jellyfin discovers auth providers through DI, not MEF.
+        // Without this line the provider class is never invoked — which is
+        // why app passwords and the 2FA gate were completely inert in every
+        // release prior to this one. The LDAP plugin does it the same way:
+        // https://github.com/jellyfin/jellyfin-plugin-ldapauth/blob/master/LDAP-Auth/ServiceRegistrator.cs
+        services.AddSingleton<IAuthenticationProvider, TwoFactorAuthProvider>();
     }
 }
