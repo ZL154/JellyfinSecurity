@@ -15,14 +15,14 @@ public class TwoFactorStartupFilter : IStartupFilter
 
     public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next)
     {
-        _logger.LogInformation("[2FA] Startup filter invoked — registering middleware");
+        _logger.LogDebug("[2FA] Startup filter invoked — registering middleware");
         return app =>
         {
             app.UseMiddleware<IndexHtmlInjectionMiddleware>();
             app.UseMiddleware<TrustCookieMiddleware>();
             app.UseMiddleware<TwoFactorEnforcementMiddleware>();
             app.UseMiddleware<RequestBlockerMiddleware>();
-            _logger.LogInformation("[2FA] Middleware registered into pipeline");
+            _logger.LogDebug("[2FA] Middleware registered into pipeline");
             next(app);
         };
     }

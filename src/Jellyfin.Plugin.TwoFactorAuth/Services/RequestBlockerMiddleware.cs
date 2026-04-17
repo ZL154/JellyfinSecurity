@@ -93,13 +93,17 @@ public class RequestBlockerMiddleware
             return;
         }
 
-        var reqDeviceId = context.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
-            ?? context.Request.Headers["X-Emby-DeviceId"].FirstOrDefault();
+        // Identify the session by access token (present on every authenticated
+        // request) rather than device-id header (absent on most Jellyfin Web
+        // requests). Diagnostic run confirmed headerDeviceId=null on every
+        // subsequent request after login.
+        var token = context.Request.Headers["X-Emby-Token"].FirstOrDefault()
+            ?? context.Request.Query["api_key"].FirstOrDefault();
 
-        if (userId != Guid.Empty && _challengeStore.IsDeviceBlocked(userId, reqDeviceId))
+        if (userId != Guid.Empty && !string.IsNullOrEmpty(token) && _challengeStore.IsTokenBlocked(token))
         {
-            _logger.LogInformation("[2FA] BLOCKED {Path} user={UserId} device={Device} — 2FA not completed",
-                path, userId, reqDeviceId);
+            _logger.LogInformation("[2FA] BLOCKED {Path} user={UserId} (token-scoped) — 2FA not completed",
+                path, userId);
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync(

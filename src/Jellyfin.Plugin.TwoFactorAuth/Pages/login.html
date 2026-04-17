@@ -215,9 +215,29 @@
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span>Signing in...';
 
+            // Use the same deviceId that Jellyfin Web uses so the session we
+            // create in AuthenticateNewSession on the server matches the
+            // deviceId this browser will use on subsequent API calls. Without
+            // this, server creates a random-id session, browser has a
+            // different id, browser's calls get blocked, we loop.
+            var deviceId = localStorage.getItem('_deviceId2');
+            if (!deviceId) {
+                // Generate once, persist. Matches the scheme Jellyfin Web uses.
+                deviceId = (crypto.getRandomValues
+                    ? Array.from(crypto.getRandomValues(new Uint8Array(16)))
+                        .map(function(b){return b.toString(16).padStart(2,'0');}).join('')
+                    : String(Date.now()) + Math.random().toString(36).slice(2));
+                localStorage.setItem('_deviceId2', deviceId);
+            }
+            var deviceName = 'Jellyfin Web';
+
             fetch('/TwoFactorAuth/Authenticate', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Emby-Device-Id': deviceId,
+                    'X-Emby-Device-Name': deviceName
+                },
                 body: JSON.stringify({ username: username, password: password, code: code })
             }).then(function(r) {
                 if (r.ok) return r.json();

@@ -1,5 +1,7 @@
 using System.Linq;
+using Jellyfin.Data.Queries;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
+using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -14,6 +16,7 @@ public class AuthenticationEventHandler : IHostedService
     private readonly ChallengeStore _challengeStore;
     private readonly NotificationService _notificationService;
     private readonly PendingPairingService _pendingPairings;
+    private readonly IDeviceManager _deviceManager;
     private readonly ILogger<AuthenticationEventHandler> _logger;
 
     public AuthenticationEventHandler(
@@ -23,6 +26,7 @@ public class AuthenticationEventHandler : IHostedService
         ChallengeStore challengeStore,
         NotificationService notificationService,
         PendingPairingService pendingPairings,
+        IDeviceManager deviceManager,
         ILogger<AuthenticationEventHandler> logger)
     {
         _sessionManager = sessionManager;
@@ -31,13 +35,14 @@ public class AuthenticationEventHandler : IHostedService
         _challengeStore = challengeStore;
         _notificationService = notificationService;
         _pendingPairings = pendingPairings;
+        _deviceManager = deviceManager;
         _logger = logger;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _sessionManager.SessionStarted += OnSessionStarted;
-        _logger.LogInformation("[2FA] Subscribed to ISessionManager.SessionStarted");
+        _logger.LogDebug("[2FA] Subscribed to ISessionManager.SessionStarted");
         return Task.CompletedTask;
     }
 
@@ -81,11 +86,30 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
-        _logger.LogInformation("[2FA] SessionStarted for user {Name} (id={Id}) device={Device} ip={Ip}",
+        _logger.LogDebug("[2FA] SessionStarted for user {Name} (id={Id}) device={Device} ip={Ip}",
             info.UserName, info.UserId, info.DeviceName, info.RemoteEndPoint);
 
+        // Look up the access token that Jellyfin minted for this session. The
+        // middleware's response-intercept runs on a parallel code path and
+        // cannot always see DeviceId (Samsung Tizen sends no X-Emby-Authorization).
+        // When we decide to ALLOW a session below, we mark its token approved
+        // so the middleware won't then overwrite the auth body with a challenge.
+        string? approvedToken = null;
+        try
+        {
+            var devices = _deviceManager.GetDevices(new DeviceQuery { UserId = info.UserId });
+            var match = devices.Items.FirstOrDefault(d =>
+                !string.IsNullOrEmpty(info.DeviceId)
+                && string.Equals(d.DeviceId, info.DeviceId, StringComparison.Ordinal));
+            approvedToken = match?.AccessToken;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[2FA] Couldn't look up access token for approved session");
+        }
+
         var userData = await _store.GetUserDataAsync(info.UserId).ConfigureAwait(false);
-        _logger.LogInformation("[2FA] User {Name} TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
+        _logger.LogDebug("[2FA] User {Name} TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
             info.UserName, userData.TotpEnabled, userData.TotpVerified, config.RequireForAllUsers);
 
         if (!userData.TotpEnabled && !config.RequireForAllUsers)
@@ -99,7 +123,8 @@ public class AuthenticationEventHandler : IHostedService
         // free pass — a foot-gun that was live in v1.3.0.
         if (_challengeStore.IsDevicePreVerified(info.UserId, info.DeviceId))
         {
-            _logger.LogInformation("[2FA] {Name} within device-verified window — session allowed", info.UserName);
+            _logger.LogDebug("[2FA] {Name} within device-verified window — session allowed", info.UserName);
+            if (approvedToken is not null) _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
             await _store.AddAuditEntryAsync(new AuditEntry
             {
                 Timestamp = DateTime.UtcNow,
@@ -118,7 +143,8 @@ public class AuthenticationEventHandler : IHostedService
         // code. The TV's session (with a different deviceId) consumes it once.
         if (_challengeStore.ConsumeQuickConnectPending(info.UserId))
         {
-            _logger.LogInformation("[2FA] {Name} QuickConnect-pending consumed — session allowed", info.UserName);
+            _logger.LogDebug("[2FA] {Name} QuickConnect-pending consumed — session allowed", info.UserName);
+            if (approvedToken is not null) _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
             await _store.AddAuditEntryAsync(new AuditEntry
             {
                 Timestamp = DateTime.UtcNow,
@@ -134,17 +160,20 @@ public class AuthenticationEventHandler : IHostedService
         }
 
         // Paired-device bypass: TV/native client the user has explicitly approved.
+        // Reject empty/whitespace stored deviceId — never match a missing id.
         var userDataPaired = userData.PairedDevices.FirstOrDefault(p =>
-            !string.IsNullOrEmpty(info.DeviceId) &&
-            string.Equals(p.DeviceId, info.DeviceId, StringComparison.OrdinalIgnoreCase));
+            !string.IsNullOrWhiteSpace(info.DeviceId)
+            && !string.IsNullOrWhiteSpace(p.DeviceId)
+            && string.Equals(p.DeviceId, info.DeviceId, StringComparison.Ordinal));
         if (userDataPaired is not null)
         {
-            _logger.LogInformation("[2FA] {Name} paired device {Device} — session allowed",
+            _logger.LogDebug("[2FA] {Name} paired device {Device} — session allowed",
                 info.UserName, userDataPaired.DeviceName);
+            if (approvedToken is not null) _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
             await _store.MutateAsync(info.UserId, ud =>
             {
                 var p = ud.PairedDevices.FirstOrDefault(x =>
-                    string.Equals(x.DeviceId, info.DeviceId, StringComparison.OrdinalIgnoreCase));
+                    string.Equals(x.DeviceId, info.DeviceId, StringComparison.Ordinal));
                 if (p is not null)
                 {
                     p.LastUsedAt = DateTime.UtcNow;
@@ -180,6 +209,33 @@ public class AuthenticationEventHandler : IHostedService
         {
             _logger.LogInformation("[2FA] Bypass applied for {Name} from {Ip} (reason={Reason})",
                 info.UserName, info.RemoteEndPoint, bypass.Reason);
+            if (approvedToken is not null) _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
+            // Same physical browser often hits the server via both LAN (bypassed)
+            // and public-IP routes (challenged) within seconds — same deviceId,
+            // different IPs (Cloudflare split-horizon, Wi-Fi captive, VPN). To
+            // avoid nuisance pending entries for a device the user is actively
+            // signing in from on LAN, auto-register the deviceId on LAN-bypass
+            // so later non-LAN hits match `registered_device` bypass. Also
+            // clear any stale pending for the same device.
+            if (!string.IsNullOrEmpty(info.DeviceId))
+            {
+                _pendingPairings.Remove(info.UserId, info.DeviceId);
+                if (string.Equals(bypass.Reason, "lan", StringComparison.OrdinalIgnoreCase)
+                    && info.DeviceId!.Length <= 128)
+                {
+                    // Same 50-device cap as explicit /Devices/Register — prevents
+                    // an attacker who controls a LAN device from spamming unique
+                    // deviceIds to inflate storage.
+                    await _store.MutateAsync(info.UserId, ud =>
+                    {
+                        if (ud.RegisteredDeviceIds.Count < 50
+                            && !ud.RegisteredDeviceIds.Contains(info.DeviceId!))
+                        {
+                            ud.RegisteredDeviceIds.Add(info.DeviceId!);
+                        }
+                    }).ConfigureAwait(false);
+                }
+            }
             await _store.AddAuditEntryAsync(new AuditEntry
             {
                 Timestamp = DateTime.UtcNow,
@@ -194,22 +250,27 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
-        _logger.LogWarning("[2FA] Blocking {Name} device={Device} until they complete /TwoFactorAuth/Login",
-            info.UserName, info.DeviceId);
+        _logger.LogInformation("[2FA] 2FA required for {Name} — middleware will replace response with challenge",
+            info.UserName);
 
-        // Device-scoped block: only this device gets 401'd. Other signed-in
-        // devices on other platforms stay logged in. Previously user-scoped.
-        _challengeStore.BlockDevice(info.UserId, info.DeviceId);
-
-        // Record this as a pending pairing so the user can approve it from
-        // Setup. Safe because SessionStarted only fires after Jellyfin's own
-        // password check has passed.
+        // Record pending pairing here (in addition to the middleware) because
+        // SessionInfo.DeviceId is authoritative whereas the middleware's
+        // header-parsed deviceId can come up null for clients that use
+        // unusual auth header formats. PendingPairingService uses AddOrUpdate,
+        // so double-recording is a safe idempotent merge — not a dupe.
         _pendingPairings.Record(
             info.UserId,
             info.DeviceId ?? string.Empty,
             info.DeviceName ?? "Unknown",
             info.Client ?? string.Empty,
             info.RemoteEndPoint ?? string.Empty);
+
+        // We DO NOT block/revoke the access token. The middleware's response
+        // intercept replaces the auth body with a challenge JSON BEFORE it
+        // reaches the client. The client never sees the token unless they
+        // complete 2FA via Verify (which replays the stashed body). Blocking
+        // or logging out the token produced edge cases where Verify then
+        // handed back a dead token, causing the infamous login loop.
 
         await _store.AddAuditEntryAsync(new AuditEntry
         {

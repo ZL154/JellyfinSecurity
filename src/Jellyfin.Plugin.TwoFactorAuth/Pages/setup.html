@@ -117,6 +117,9 @@
 </head>
 <body>
     <div class="container">
+        <p style="margin-bottom:18px;">
+            <a href="/web/index.html" style="color:#888;font-size:13px;text-decoration:none;">← Back to Jellyfin</a>
+        </p>
         <h1>Two-Factor Authentication</h1>
         <p class="subtitle">Protect your Jellyfin account with TOTP, recovery codes, and device-level controls.</p>
 
@@ -340,7 +343,22 @@
                 api('GET', 'TwoFactorAuth/MySessions').catch(function() { return []; }),
             ]).then(function(r) {
                 var users = r[0] || [], me = r[1];
-                if (!me) return;
+                if (!me) {
+                    // /Users/Me failed — most likely the access token was
+                    // rejected (blocked, expired, or not present). Tell the
+                    // user what's wrong instead of leaving "Loading…" stuck.
+                    var pill = document.getElementById('statusPill');
+                    pill.className = 'pill warn';
+                    pill.textContent = 'Not signed in';
+                    document.getElementById('statusContent').innerHTML =
+                        '<p style="color:#ef5350;line-height:1.6;">' +
+                        "We couldn't verify your Jellyfin session. Please " +
+                        '<a href="/web/index.html" style="color:#00a4dc;">sign in on the main page</a>' +
+                        ' and then return to this page. If you just signed in and this keeps happening, ' +
+                        'refresh the page once.' +
+                        '</p>';
+                    return;
+                }
                 var myData = users.find(function(u) { return (u.userId || u.UserId) === me.Id; });
                 var totpOn = myData && (myData.totpEnabled || myData.TotpEnabled);
                 renderStatus(me, totpOn);
@@ -515,21 +533,33 @@
         function renderSessions(list) {
             var box = document.getElementById('sessionsList');
             if (!list || !list.length) {
-                box.innerHTML = '<div class="empty">No active sessions.</div>';
+                box.innerHTML = '<div class="empty">No signed-in devices.</div>';
                 return;
             }
             box.innerHTML = list.map(function(s) {
+                var subtitle = [];
+                if (s.appName) subtitle.push(escapeHtml(s.appName) + (s.appVersion ? ' ' + escapeHtml(s.appVersion) : ''));
+                if (s.remoteEndPoint) subtitle.push(escapeHtml(s.remoteEndPoint));
+                subtitle.push('last active ' + fmtRel(s.lastActivity));
+                if (s.nowPlaying) subtitle.push('▶ ' + escapeHtml(s.nowPlaying));
+                var currentBadge = s.isCurrent
+                    ? ' <span class="pending-pill" style="background:rgba(76,175,80,0.15);color:#66bb6a;">This browser</span>'
+                    : '';
+                var revokeBtn = s.isCurrent
+                    ? '<button class="btn-ghost btn-sm" disabled title="Sign out from the user menu instead">Sign out</button>'
+                    : '<button class="btn-ghost btn-sm tfa-revoke-sess" data-id="' + escapeHtml(s.id) + '">Sign out</button>';
                 return '<div class="device-row">' +
-                    '<div class="device-icon">' + deviceIcon((s.deviceName || '') + ' ' + (s.client || '')) + '</div>' +
+                    '<div class="device-icon">' + deviceIcon((s.deviceName || '') + ' ' + (s.appName || '')) + '</div>' +
                     '<div class="device-info">' +
-                        '<div class="device-name">' + escapeHtml(s.deviceName || 'Unknown') + (s.isActive ? ' · <span class="pending-pill" style="background:rgba(76,175,80,0.15);color:#66bb6a;">Active</span>' : '') + '</div>' +
-                        '<div class="device-meta">' + escapeHtml(s.client || '') + ' ' + escapeHtml(s.appVersion || '') + ' · ' + escapeHtml(s.remoteEndPoint || '') + ' · ' + fmtRel(s.lastActivityDate) + (s.nowPlaying ? ' · playing ' + escapeHtml(s.nowPlaying) : '') + '</div>' +
+                        '<div class="device-name">' + escapeHtml(s.deviceName || 'Unknown') + currentBadge + '</div>' +
+                        '<div class="device-meta">' + subtitle.join(' · ') + '</div>' +
                     '</div>' +
-                    '<button class="btn-ghost btn-sm tfa-revoke-sess" data-id="' + escapeHtml(s.id) + '">Sign out</button>' +
+                    revokeBtn +
                     '</div>';
             }).join('');
             box.querySelectorAll('.tfa-revoke-sess').forEach(function(b) {
                 b.addEventListener('click', function() {
+                    if (!confirm('Sign out this device? Its access token will be revoked immediately.')) return;
                     api('POST', 'TwoFactorAuth/MySessions/' + b.dataset.id + '/Revoke').then(loadAll);
                 });
             });

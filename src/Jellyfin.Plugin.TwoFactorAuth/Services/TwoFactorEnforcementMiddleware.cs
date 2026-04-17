@@ -166,26 +166,27 @@ public class TwoFactorEnforcementMiddleware
             return;
         }
 
-        _logger.LogInformation("[2FA] Detected auth-shaped response on POST {Path}", path);
+        _logger.LogDebug("[2FA] Detected auth-shaped response on POST {Path}", path);
 
         try
         {
             var authResult = JsonSerializer.Deserialize<AuthResult>(bodyBytes, ParseJsonOptions);
+            var userGuid = authResult?.User?.IdGuid ?? Guid.Empty;
             if (authResult is null || authResult.User is null
                 || string.IsNullOrEmpty(authResult.AccessToken)
-                || authResult.User.Id == Guid.Empty)
+                || userGuid == Guid.Empty)
             {
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
                 return;
             }
 
-            var userData = await _store.GetUserDataAsync(authResult.User.Id).ConfigureAwait(false);
-            _logger.LogInformation("[2FA] User {Name} (id={Id}) TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
-                authResult.User.Name, authResult.User.Id, userData.TotpEnabled, userData.TotpVerified, config.RequireForAllUsers);
+            var userData = await _store.GetUserDataAsync(userGuid).ConfigureAwait(false);
+            _logger.LogDebug("[2FA] User {Name} (id={Id}) TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
+                authResult.User.Name, userGuid, userData.TotpEnabled, userData.TotpVerified, config.RequireForAllUsers);
 
             if (!userData.TotpEnabled && !config.RequireForAllUsers)
             {
-                _logger.LogInformation("[2FA] User has no 2FA and RequireForAllUsers=false — passing through");
+                _logger.LogDebug("[2FA] User has no 2FA and RequireForAllUsers=false — passing through");
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
                 return;
             }
@@ -193,9 +194,43 @@ public class TwoFactorEnforcementMiddleware
             var remoteIp = context.Connection.RemoteIpAddress?.ToString();
             var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
             var twoFactorToken = context.Request.Headers["X-TwoFactor-Token"].FirstOrDefault();
+            // Jellyfin web/Tizen clients don't always send X-Emby-Device-Id
+            // as a dedicated header — they pack it inside X-Emby-Authorization
+            // as `DeviceId="..."`. Without parsing that we fail to match the
+            // paired-device list for those clients, and they get challenged
+            // despite having been approved (this bit Samsung TV specifically).
+            var authHeader = context.Request.Headers["X-Emby-Authorization"].FirstOrDefault();
             var deviceId = context.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
-                ?? context.Request.Headers["X-Emby-DeviceId"].FirstOrDefault();
-            var deviceName = context.Request.Headers["X-Emby-Device-Name"].FirstOrDefault() ?? "Unknown";
+                ?? context.Request.Headers["X-Emby-DeviceId"].FirstOrDefault()
+                ?? ParseEmbyAuth(authHeader, "DeviceId");
+            var deviceName = context.Request.Headers["X-Emby-Device-Name"].FirstOrDefault()
+                ?? ParseEmbyAuth(authHeader, "Device")
+                ?? "Unknown";
+
+            // SessionStarted handler runs on a parallel code path that sees the
+            // authoritative SessionInfo.DeviceId — for clients that don't send
+            // X-Emby-Authorization (Samsung Tizen), it's the only path that can
+            // match a paired device. If it already decided to allow this token,
+            // don't overwrite the response with a challenge. Since the two
+            // paths race on the same request, briefly poll for the approval
+            // flag (~500ms total) before deciding to challenge. Single-consume
+            // so a stale approval can't be reused on a subsequent request.
+            var approved = _challengeStore.ConsumeTokenApproval(authResult.AccessToken, userGuid, deviceId);
+            if (!approved)
+            {
+                for (var i = 0; i < 10 && !approved; i++)
+                {
+                    await Task.Delay(50).ConfigureAwait(false);
+                    approved = _challengeStore.ConsumeTokenApproval(authResult.AccessToken, userGuid, deviceId);
+                }
+            }
+            if (approved)
+            {
+                _logger.LogDebug("[2FA] Token pre-approved by event handler — passing auth response through for {Name}",
+                    authResult.User.Name);
+                await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
+                return;
+            }
             var apiKeys = await _store.GetApiKeysAsync().ConfigureAwait(false);
 
             var bypass = _bypassEvaluator.Evaluate(
@@ -215,7 +250,7 @@ public class TwoFactorEnforcementMiddleware
                 await _store.AddAuditEntryAsync(new AuditEntry
                 {
                     Timestamp = DateTime.UtcNow,
-                    UserId = authResult.User.Id,
+                    UserId = userGuid,
                     Username = authResult.User.Name ?? string.Empty,
                     RemoteIp = remoteIp ?? string.Empty,
                     DeviceId = deviceId ?? string.Empty,
@@ -229,20 +264,23 @@ public class TwoFactorEnforcementMiddleware
 
             // Paired-device bypass: TV/native client whose DeviceId the user
             // already approved (via QR pairing OR by approving a pending request).
-            if (!string.IsNullOrEmpty(deviceId))
+            // Reject empty/whitespace deviceIds explicitly — an empty request
+            // id must never match an empty stored id (belt-and-braces for H3).
+            if (!string.IsNullOrWhiteSpace(deviceId))
             {
                 var paired = userData.PairedDevices.FirstOrDefault(p =>
-                    string.Equals(p.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase));
+                    !string.IsNullOrWhiteSpace(p.DeviceId)
+                    && string.Equals(p.DeviceId, deviceId, StringComparison.Ordinal));
                 if (paired is not null)
                 {
                     // Atomic update of LastUsedAt to avoid lost-update vs. concurrent
                     // Setup-page edits adding/revoking devices for the same user.
                     var capturedRemoteIp = remoteIp ?? string.Empty;
                     var capturedDeviceId = deviceId;
-                    await _store.MutateAsync(authResult.User.Id, ud =>
+                    await _store.MutateAsync(userGuid, ud =>
                     {
                         var p = ud.PairedDevices.FirstOrDefault(x =>
-                            string.Equals(x.DeviceId, capturedDeviceId, StringComparison.OrdinalIgnoreCase));
+                            string.Equals(x.DeviceId, capturedDeviceId, StringComparison.Ordinal));
                         if (p is not null)
                         {
                             p.LastUsedAt = DateTime.UtcNow;
@@ -252,7 +290,7 @@ public class TwoFactorEnforcementMiddleware
                     await _store.AddAuditEntryAsync(new AuditEntry
                     {
                         Timestamp = DateTime.UtcNow,
-                        UserId = authResult.User.Id,
+                        UserId = userGuid,
                         Username = authResult.User.Name ?? string.Empty,
                         RemoteIp = remoteIp ?? string.Empty,
                         DeviceId = deviceId,
@@ -272,7 +310,7 @@ public class TwoFactorEnforcementMiddleware
             // Rate-limited to prevent brute force through the Jellyfin auth endpoint.
             if (!string.IsNullOrEmpty(submittedPassword) && userData.AppPasswords.Count > 0)
             {
-                var apIp = remoteIp ?? "unknown";
+                var apIp = RateLimiter.ClientKey(context);
                 var apRl = _rateLimiter.CheckAndRecord("mw_ap:" + apIp, 10, TimeSpan.FromMinutes(1));
                 Models.AppPassword? matchedAp = null;
                 if (apRl.allowed)
@@ -284,7 +322,7 @@ public class TwoFactorEnforcementMiddleware
                     var matchedId = matchedAp.Id;
                     var capturedDeviceIdAp = deviceId ?? string.Empty;
                     var capturedDeviceNameAp = deviceName;
-                    await _store.MutateAsync(authResult.User.Id, ud =>
+                    await _store.MutateAsync(userGuid, ud =>
                     {
                         var ap = ud.AppPasswords.FirstOrDefault(x => x.Id == matchedId);
                         if (ap is not null)
@@ -297,7 +335,7 @@ public class TwoFactorEnforcementMiddleware
                     await _store.AddAuditEntryAsync(new AuditEntry
                     {
                         Timestamp = DateTime.UtcNow,
-                        UserId = authResult.User.Id,
+                        UserId = userGuid,
                         Username = authResult.User.Name ?? string.Empty,
                         RemoteIp = remoteIp ?? string.Empty,
                         DeviceId = deviceId ?? string.Empty,
@@ -319,7 +357,7 @@ public class TwoFactorEnforcementMiddleware
                 var appName = context.Request.Headers["X-Emby-Client"].FirstOrDefault()
                     ?? ParseClientFromAuthHeader(context.Request.Headers["X-Emby-Authorization"].FirstOrDefault())
                     ?? "Unknown";
-                _pendingPairings.Record(authResult.User.Id, deviceId, deviceName, appName, remoteIp ?? string.Empty);
+                _pendingPairings.Record(userGuid, deviceId, deviceName, appName, remoteIp ?? string.Empty);
             }
 
             _logger.LogInformation("[2FA] Issuing challenge for {Name} from {Ip}", authResult.User.Name, remoteIp);
@@ -330,7 +368,7 @@ public class TwoFactorEnforcementMiddleware
             if (methods.Count == 0) methods.Add("email");
 
             var challenge = _challengeStore.CreateChallenge(
-                authResult.User.Id,
+                userGuid,
                 authResult.User.Name ?? string.Empty,
                 methods,
                 deviceId,
@@ -342,7 +380,7 @@ public class TwoFactorEnforcementMiddleware
             await _store.AddAuditEntryAsync(new AuditEntry
             {
                 Timestamp = DateTime.UtcNow,
-                UserId = authResult.User.Id,
+                UserId = userGuid,
                 Username = authResult.User.Name ?? string.Empty,
                 RemoteIp = remoteIp ?? string.Empty,
                 DeviceId = deviceId ?? string.Empty,
@@ -383,12 +421,13 @@ public class TwoFactorEnforcementMiddleware
     private static bool IsAuthPath(string path)
     {
         if (string.IsNullOrEmpty(path)) return false;
-        if (path.Contains("/Users/AuthenticateByName", StringComparison.OrdinalIgnoreCase)) return true;
-        if (path.Contains("/Users/AuthenticateWithQuickConnect", StringComparison.OrdinalIgnoreCase)) return true;
-        // Matches /Users/{id}/Authenticate (passwordless quick-login)
+        // Anchor match to the path ROOT — previously used `Contains` which
+        // matched any nested path segment containing /Users/AuthenticateByName
+        // (e.g. a third-party plugin's /Plugins/X/PassThrough/Users/AuthenticateByName
+        // would trigger challenge injection on an unrelated response).
         return System.Text.RegularExpressions.Regex.IsMatch(
             path,
-            @"^/Users/[0-9a-fA-F-]+/Authenticate(\?|/|$)",
+            @"^/Users/(AuthenticateByName|AuthenticateWithQuickConnect|[0-9a-fA-F-]{32,36}/Authenticate)(\?|/|$)",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 
@@ -401,13 +440,33 @@ public class TwoFactorEnforcementMiddleware
     }
 
     private static string? ParseClientFromAuthHeader(string? header)
+        => ParseEmbyAuth(header, "Client");
+
+    /// <summary>Parse a key (Client, Device, DeviceId, Version, Token) from the
+    /// X-Emby-Authorization header. Format: `MediaBrowser Client="Foo",
+    /// Device="Bar", DeviceId="abc", Version="1.0", Token="..."`.</summary>
+    internal static string? ParseEmbyAuth(string? header, string key)
     {
-        if (string.IsNullOrEmpty(header)) return null;
-        var idx = header.IndexOf("Client=", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(header) || string.IsNullOrEmpty(key)) return null;
+        var needle = key + "=";
+        var idx = header.IndexOf(needle, StringComparison.OrdinalIgnoreCase);
         if (idx < 0) return null;
-        var rest = header.Substring(idx + "Client=".Length).TrimStart('"');
-        var end = rest.IndexOfAny(new[] { ',', '"' });
-        return end > 0 ? rest.Substring(0, end) : rest;
+        // Make sure we matched a word boundary — ", Client=" not "XClient=".
+        if (idx > 0)
+        {
+            var prev = header[idx - 1];
+            if (prev != ',' && prev != ' ') return null;
+        }
+        var rest = header.Substring(idx + needle.Length);
+        if (rest.StartsWith("\"", StringComparison.Ordinal))
+        {
+            // Quoted: read until the next unescaped quote
+            var end = rest.IndexOf('"', 1);
+            return end > 0 ? rest.Substring(1, end - 1) : null;
+        }
+        // Unquoted: read until comma or end
+        var comma = rest.IndexOf(',');
+        return (comma > 0 ? rest.Substring(0, comma) : rest).Trim();
     }
 
     private sealed class AuthResult
@@ -419,8 +478,14 @@ public class TwoFactorEnforcementMiddleware
 
     private sealed class AuthUser
     {
-        public Guid Id { get; set; }
+        // Jellyfin serializes user Ids as 32-char hex (no dashes). System.Text.Json
+        // won't coerce that into Guid, so we keep it as a string and parse on demand.
+        public string? Id { get; set; }
 
         public string? Name { get; set; }
+
+        public Guid IdGuid => Guid.TryParseExact(Id, "N", out var g)
+            ? g
+            : (Guid.TryParse(Id, out var d) ? d : Guid.Empty);
     }
 }

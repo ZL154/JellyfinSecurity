@@ -22,6 +22,20 @@ public class ChallengeStore : IDisposable
     // Previously user-scoped, which signed every other device out on failure.
     private readonly ConcurrentDictionary<string, DateTime> _blockedDevices = new();
 
+    // Blocked by access token — Jellyfin Web doesn't send X-Emby-Device-Id on
+    // most requests (verified via diagnostic logging), so the device-keyed
+    // block silently missed every request. Tokens are always present in
+    // X-Emby-Token so we block-by-token as the actual enforcement mechanism.
+    private readonly ConcurrentDictionary<string, DateTime> _blockedTokens = new();
+
+    // Tokens the event handler has already approved (paired device / preVerified /
+    // IP bypass). The middleware checks this before issuing a challenge so a
+    // response whose paired-device status can only be determined via SessionInfo
+    // (e.g. Samsung Tizen, which sends no X-Emby-Authorization) doesn't get
+    // re-challenged after the event handler already said yes. Short expiry —
+    // these are one-shot per /Authenticate response intercept.
+    private readonly ConcurrentDictionary<string, DateTime> _approvedTokens = new();
+
     private readonly Timer _cleanupTimer;
     private bool _disposed;
 
@@ -123,6 +137,85 @@ public class ChallengeStore : IDisposable
         return false;
     }
 
+    /// <summary>Block a specific access token. Middleware 401s every request
+    /// using it until the user completes 2FA and UnblockToken is called.
+    /// Short expiry (10 min) so a token that never gets verified is unblocked
+    /// by timeout — at which point the cleanup sweep should Logout the token
+    /// anyway. Previously 24h, which caused stale blocks that 401'd legitimate
+    /// sessions after testing.</summary>
+    public void BlockToken(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return;
+        _blockedTokens[token] = DateTime.UtcNow.AddMinutes(10);
+    }
+
+    public void UnblockToken(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return;
+        _blockedTokens.TryRemove(token, out _);
+    }
+
+    public bool IsTokenBlocked(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return false;
+        if (_blockedTokens.TryGetValue(token, out var exp))
+        {
+            if (exp > DateTime.UtcNow) return true;
+            _blockedTokens.TryRemove(token, out _);
+        }
+        return false;
+    }
+
+    /// <summary>Mark an access token as pre-approved by the event handler so the
+    /// response-intercept middleware won't overwrite the auth body with a 2FA
+    /// challenge. Approval is bound to (userId, deviceId, token) so a stale
+    /// flag on a recycled token can't leak bypass across users/devices.
+    /// Short 30s TTL — only needs to survive the single /Authenticate round trip.</summary>
+    public void ApproveToken(string token, Guid userId, string? deviceId)
+    {
+        if (string.IsNullOrEmpty(token)) return;
+        _approvedTokens[ApprovalKey(token, userId, deviceId)] = DateTime.UtcNow.AddSeconds(30);
+    }
+
+    /// <summary>Single-use read — removes the flag atomically so a second call
+    /// with the same key returns false. This prevents a stale approval from
+    /// surviving into a second auth request reusing the same access token.</summary>
+    public bool ConsumeTokenApproval(string token, Guid userId, string? deviceId)
+    {
+        if (string.IsNullOrEmpty(token)) return false;
+        var key = ApprovalKey(token, userId, deviceId);
+        if (_approvedTokens.TryRemove(key, out var exp) && exp > DateTime.UtcNow)
+        {
+            return true;
+        }
+        return false;
+    }
+
+    private static string ApprovalKey(string token, Guid userId, string? deviceId)
+        => $"{userId:N}|{deviceId ?? string.Empty}|{token}";
+
+    // Seen PairConfirm signatures — prevents an attacker with a captured
+    // signed QR-pair link from replaying it inside the 5-minute TTL window
+    // after the user unpaired/paired anew.
+    private readonly ConcurrentDictionary<string, DateTime> _seenPairTokens = new();
+
+    /// <summary>Try to mark this pair-confirm token as consumed. Returns false
+    /// if the exact signature was seen before (replay).</summary>
+    public bool TryConsumePairToken(string signature)
+    {
+        if (string.IsNullOrEmpty(signature)) return true;
+        // 10-minute window covers the 5-minute token TTL with generous margin.
+        return _seenPairTokens.TryAdd(signature, DateTime.UtcNow.AddMinutes(10));
+    }
+
+    public void UnblockAllTokensForUser(Guid userId, IEnumerable<string> userTokens)
+    {
+        foreach (var t in userTokens)
+        {
+            if (!string.IsNullOrEmpty(t)) _blockedTokens.TryRemove(t, out _);
+        }
+    }
+
     public ChallengeStore()
     {
         // Run cleanup every 60 seconds
@@ -222,6 +315,18 @@ public class ChallengeStore : IDisposable
         foreach (var kv in _blockedDevices)
         {
             if (kv.Value <= now) _blockedDevices.TryRemove(kv.Key, out _);
+        }
+        foreach (var kv in _blockedTokens)
+        {
+            if (kv.Value <= now) _blockedTokens.TryRemove(kv.Key, out _);
+        }
+        foreach (var kv in _approvedTokens)
+        {
+            if (kv.Value <= now) _approvedTokens.TryRemove(kv.Key, out _);
+        }
+        foreach (var kv in _seenPairTokens)
+        {
+            if (kv.Value <= now) _seenPairTokens.TryRemove(kv.Key, out _);
         }
     }
 

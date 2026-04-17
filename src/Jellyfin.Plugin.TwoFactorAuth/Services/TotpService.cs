@@ -27,6 +27,8 @@ public class TotpService
     /// <summary>
     /// Loads a persistent 32-byte AES key from the plugin data directory, creating one if needed.
     /// This survives Jellyfin restarts so encrypted TOTP secrets remain decryptable.
+    /// Unix: chmod 0600. Windows: inherits plugin-dir ACLs — admins should
+    /// ensure the plugin dir is restricted to the Jellyfin service account.
     /// </summary>
     private byte[] LoadOrCreateKey(IApplicationPaths applicationPaths)
     {
@@ -39,11 +41,7 @@ public class TotpService
             try
             {
                 var bytes = File.ReadAllBytes(keyPath);
-                if (bytes.Length == 32)
-                {
-                    return bytes;
-                }
-
+                if (bytes.Length == 32) return bytes;
                 _logger.LogWarning("Existing secret.key is not 32 bytes — regenerating");
             }
             catch (Exception ex)
@@ -56,13 +54,12 @@ public class TotpService
         File.WriteAllBytes(keyPath, key);
         try
         {
-            // Restrict permissions on Unix-like systems
-            File.SetUnixFileMode(keyPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(keyPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
         }
-        catch
-        {
-            // Best effort — ignore on Windows or if permission change fails
-        }
+        catch { /* best effort */ }
 
         _logger.LogInformation("Generated new persistent encryption key at {Path}", keyPath);
         return key;

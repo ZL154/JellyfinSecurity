@@ -5,8 +5,10 @@ using System.Linq;
 using System.Net.Mime;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using Jellyfin.Data.Queries;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
+using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Authorization;
@@ -35,6 +37,7 @@ public class TwoFactorAuthController : ControllerBase
     private readonly RecoveryCodeService _recoveryCodes;
     private readonly AppPasswordService _appPasswords;
     private readonly PendingPairingService _pendingPairings;
+    private readonly IDeviceManager _deviceManager;
     private readonly ILogger<TwoFactorAuthController> _logger;
 
     public TwoFactorAuthController(
@@ -52,6 +55,7 @@ public class TwoFactorAuthController : ControllerBase
         RecoveryCodeService recoveryCodes,
         AppPasswordService appPasswords,
         PendingPairingService pendingPairings,
+        IDeviceManager deviceManager,
         ILogger<TwoFactorAuthController> logger)
     {
         _store = store;
@@ -68,6 +72,7 @@ public class TwoFactorAuthController : ControllerBase
         _recoveryCodes = recoveryCodes;
         _appPasswords = appPasswords;
         _pendingPairings = pendingPairings;
+        _deviceManager = deviceManager;
         _logger = logger;
     }
 
@@ -134,7 +139,7 @@ public class TwoFactorAuthController : ControllerBase
         {
             // Per-IP rate limit: 10 attempts per minute. Prevents online brute-force on
             // the OTP code space and on the username/password combo.
-            var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var ip = RateLimiter.ClientKey(HttpContext);
             var rl = _rateLimiter.CheckAndRecord("auth:" + ip, 10, TimeSpan.FromMinutes(1));
             if (!rl.allowed)
             {
@@ -313,7 +318,14 @@ public class TwoFactorAuthController : ControllerBase
                 userData.TrustedDevices.Add(trustRecord);
                 await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
 
-                var cookieValue = $"{user.Id:N}.{trustRecord.Id}";
+                // v2 cookie: deviceId and expiry are signed into the payload so
+                // (a) a stolen cookie can't be replayed with an attacker-chosen
+                // X-Emby-Device-Id header and (b) an attacker who tampers with
+                // the trust record file can't extend the window.
+                var expiryUnix = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds();
+                var deviceB64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(deviceId ?? string.Empty))
+                    .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+                var cookieValue = $"{user.Id:N}.{trustRecord.Id}.{deviceB64}.{expiryUnix}";
                 var hmac = _cookieSigner.Sign(cookieValue);
                 Response.Cookies.Append("__2fa_trust", $"{cookieValue}.{hmac}", new CookieOptions
                 {
@@ -350,20 +362,19 @@ public class TwoFactorAuthController : ControllerBase
     private static int FindRecoveryCodeIndex(UserTwoFactorData userData, string submitted)
     {
         var normalized = RecoveryCodeService.NormalizeForCompare(submitted);
-        var hash = RecoveryCodeService.HashCode(normalized);
-        var hashBytes = System.Text.Encoding.UTF8.GetBytes(hash);
+        // Iterate in constant time relative to the user's code count — don't
+        // early-return on match so timing can't reveal which index matched.
+        int found = -1;
         for (int i = 0; i < userData.RecoveryCodes.Count; i++)
         {
             var stored = userData.RecoveryCodes[i];
             if (stored.Used) continue;
-            if (System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
-                hashBytes,
-                System.Text.Encoding.UTF8.GetBytes(stored.Hash)))
+            if (RecoveryCodeService.Verify(normalized, stored.Hash) && found < 0)
             {
-                return i;
+                found = i;
             }
         }
-        return -1;
+        return found;
     }
 
     // -------------------------------------------------------------------------
@@ -399,6 +410,15 @@ public class TwoFactorAuthController : ControllerBase
 
         using var reader = new System.IO.StreamReader(stream);
         var html = reader.ReadToEnd();
+
+        // Anti-framing: /Setup reveals recovery codes and QR secret on screen;
+        // /Challenge has a "Trust this device" click target. Both are prime
+        // clickjacking targets. frame-ancestors 'none' is the modern equivalent
+        // of X-Frame-Options: DENY; include both for browser coverage.
+        Response.Headers["X-Frame-Options"] = "DENY";
+        Response.Headers["Content-Security-Policy"] = "frame-ancestors 'none'";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers["Referrer-Policy"] = "no-referrer";
         return Content(html, "text/html; charset=utf-8");
     }
 
@@ -415,7 +435,7 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<ActionResult<VerifyResponse>> Verify([FromBody, Required] VerifyRequest request)
     {
         // Per-IP rate limit on Verify (prevents brute force across multiple challenges)
-        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var ip = RateLimiter.ClientKey(HttpContext);
         var rl = _rateLimiter.CheckAndRecord("verify:" + ip, 10, TimeSpan.FromMinutes(1));
         if (!rl.allowed)
         {
@@ -431,6 +451,21 @@ public class TwoFactorAuthController : ControllerBase
         if (challenge is null)
         {
             return BadRequest(new { message = "Invalid or expired challenge." });
+        }
+
+        // Per-user rate limit on Verify — defense in depth against an attacker
+        // using an IP rotator to sidestep the per-IP bucket. 15 attempts per 15
+        // minutes matches the per-challenge 5-limit * typical churn without
+        // locking out a flaky-connection legitimate user.
+        var userRl = _rateLimiter.CheckAndRecord("verify_user:" + challenge.UserId.ToString("N"), 15, TimeSpan.FromMinutes(15));
+        if (!userRl.allowed)
+        {
+            Response.Headers.Append("Retry-After", userRl.retryAfterSeconds.ToString());
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many attempts for this account. Try again in {userRl.retryAfterSeconds} seconds.",
+                retryAfterSeconds = userRl.retryAfterSeconds,
+            });
         }
 
         // Per-challenge attempt limit — burns the challenge after 5 failed guesses
@@ -488,6 +523,28 @@ public class TwoFactorAuthController : ControllerBase
 
         _challengeStore.ConsumeChallenge(request.ChallengeToken);
         await _store.ResetFailedAttemptsAsync(challenge.UserId).ConfigureAwait(false);
+        _rateLimiter.Reset("verify_user:" + challenge.UserId.ToString("N"));
+        _rateLimiter.Reset("verify:" + ip);
+
+        // Mark this (user, device) pre-verified so the WebSocket / follow-up
+        // SessionStarted events that Jellyfin fires seconds after this don't
+        // get blocked again. Without this we'd re-block the token we just
+        // unblocked, and the browser ends up looping.
+        _logger.LogDebug("[2FA] Verify pre-verify path: challenge.DeviceId='{D}'",
+            challenge.DeviceId ?? "(null)");
+        if (!string.IsNullOrEmpty(challenge.DeviceId))
+        {
+            _challengeStore.MarkDevicePreVerified(challenge.UserId, challenge.DeviceId);
+            _logger.LogDebug("[2FA] MarkDevicePreVerified called for user {U} device '{D}'",
+                challenge.UserId, challenge.DeviceId);
+            // Device that just completed 2FA via code doesn't need to ALSO be
+            // approved from a pending-pairing entry. Drop any matching one.
+            _pendingPairings.Remove(challenge.UserId, challenge.DeviceId);
+        }
+        else
+        {
+            _logger.LogWarning("[2FA] challenge.DeviceId was null/empty — NOT marking pre-verified. Next session will be re-blocked.");
+        }
         await _store.AddAuditEntryAsync(new AuditEntry
         {
             Timestamp = DateTime.UtcNow,
@@ -518,6 +575,28 @@ public class TwoFactorAuthController : ControllerBase
         // client ends up with a valid session identical to a non-2FA login.
         if (!string.IsNullOrEmpty(challenge.PendingAuthResponse))
         {
+            // Unblock the access token inside the stashed response — it was
+            // blocked at middleware level when the challenge was issued, and
+            // now that 2FA is complete the client is authorized to use it.
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(challenge.PendingAuthResponse);
+                if (doc.RootElement.TryGetProperty("AccessToken", out var tokEl)
+                    && tokEl.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    var tok = tokEl.GetString();
+                    if (!string.IsNullOrEmpty(tok))
+                    {
+                        _challengeStore.UnblockToken(tok);
+                        _logger.LogInformation("[2FA] Unblocked access token for {User} after successful 2FA", challenge.Username);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[2FA] Could not parse stashed auth response to unblock token");
+            }
+
             Response.ContentType = "application/json";
             if (deviceToken is not null)
             {
@@ -730,6 +809,33 @@ public class TwoFactorAuthController : ControllerBase
         userData.TrustedDevices.Remove(device);
         await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
 
+        // Wipe in-memory pre-verify state for this device — otherwise a user
+        // who just revoked would be in a ~2-minute window where the device
+        // could still bypass 2FA.
+        if (!string.IsNullOrWhiteSpace(device.DeviceId))
+        {
+            _challengeStore.ConsumeDevicePreVerified(userId, device.DeviceId);
+        }
+
+        // End any live Jellyfin session token tied to this device id.
+        try
+        {
+            var devices = _deviceManager.GetDevices(new DeviceQuery { UserId = userId });
+            foreach (var d in devices.Items.Where(d =>
+                !string.IsNullOrEmpty(d.DeviceId)
+                && !string.IsNullOrEmpty(device.DeviceId)
+                && string.Equals(d.DeviceId, device.DeviceId, StringComparison.Ordinal)
+                && !string.IsNullOrEmpty(d.AccessToken)))
+            {
+                try { await _sessionManager.Logout(d.AccessToken).ConfigureAwait(false); }
+                catch (Exception inner) { _logger.LogDebug(inner, "[2FA] Failed to logout token for device {Dev}", d.DeviceId); }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[2FA] Failed to end sessions on trusted device revoke");
+        }
+
         return Ok();
     }
 
@@ -743,7 +849,26 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<ActionResult> RegisterDevice([FromBody, Required] RegisterDeviceRequest request)
     {
         var userId = GetCurrentUserId();
+
+        // Validate — deviceIds are client-controlled, so without bounds a
+        // hostile client can inflate the user's JSON file indefinitely.
+        if (!IsValidDeviceId(request.DeviceId))
+        {
+            return BadRequest(new { message = "Invalid device id" });
+        }
+
         var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+
+        // Hard cap — if the user already has 50 registered devices, refuse to
+        // add more (likely a bug or a churn attack). Admins can clear via
+        // Setup page. 50 is comfortably beyond any realistic number of
+        // simultaneously-used browsers/clients a user owns.
+        const int MaxRegisteredDevices = 50;
+        if (userData.RegisteredDeviceIds.Count >= MaxRegisteredDevices
+            && !userData.RegisteredDeviceIds.Contains(request.DeviceId))
+        {
+            return StatusCode(429, new { message = "Registered device limit reached. Revoke old devices from Setup." });
+        }
 
         if (!userData.RegisteredDeviceIds.Contains(request.DeviceId))
         {
@@ -752,6 +877,20 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         return Ok();
+    }
+
+    /// <summary>DeviceId validator — 1-128 chars, printable ASCII, no control bytes.
+    /// Jellyfin clients use short hex-ish or base64-ish ids; anything else is
+    /// either a bug or an attempt to smuggle control characters into storage.</summary>
+    private static bool IsValidDeviceId(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        if (id.Length > 128) return false;
+        foreach (var c in id)
+        {
+            if (c < 0x20 || c > 0x7E) return false;
+        }
+        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -764,7 +903,7 @@ public class TwoFactorAuthController : ControllerBase
     public ActionResult InitiatePairing([FromBody, Required] InitiatePairingRequest req)
     {
         // Throttle TV-initiated pairings per IP to keep the in-memory store small.
-        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var ip = RateLimiter.ClientKey(HttpContext);
         var rl = _rateLimiter.CheckAndRecord("pair:" + ip, 5, TimeSpan.FromMinutes(5));
         if (!rl.allowed)
         {
@@ -775,13 +914,37 @@ public class TwoFactorAuthController : ControllerBase
             });
         }
 
-        var pairing = _devicePairingService.InitiatePairing(req.Username ?? string.Empty, req.DeviceName ?? string.Empty);
+        // Sanitize inputs — anonymous endpoint, fields surface in the admin
+        // UI for approval, so reject anything that could be an XSS vector or
+        // a control-character smuggle. Cap length so the list can't be used
+        // as a write-amplification channel.
+        var username = SanitizeDisplay(req.Username, 64);
+        var deviceName = SanitizeDisplay(req.DeviceName, 64);
+
+        var pairing = _devicePairingService.InitiatePairing(username, deviceName);
         return Ok(new
         {
             code = pairing.Code,
             pollToken = pairing.PollToken,
             expiresAt = pairing.ExpiresAt,
         });
+    }
+
+    private static string SanitizeDisplay(string? input, int maxLen)
+    {
+        if (string.IsNullOrEmpty(input)) return string.Empty;
+        var sb = new System.Text.StringBuilder(Math.Min(input.Length, maxLen));
+        foreach (var c in input)
+        {
+            if (sb.Length >= maxLen) break;
+            // Allow printable ASCII + common Latin letters, drop control chars,
+            // drop HTML-significant <, >, ", ', &, `, =, / so even an admin UI
+            // that later uses innerHTML can't be XSS'd via this pathway.
+            if (c < 0x20 || c == 0x7F) continue;
+            if (c == '<' || c == '>' || c == '"' || c == '\'' || c == '&' || c == '`' || c == '=' || c == '/') continue;
+            sb.Append(c);
+        }
+        return sb.ToString().Trim();
     }
 
     // -------------------------------------------------------------------------
@@ -849,6 +1012,15 @@ public class TwoFactorAuthController : ControllerBase
         if (pairing is null)
         {
             return NotFound("Pairing request not found or expired");
+        }
+
+        // Reject pairing records that were initiated without a concrete user or
+        // device — an empty-string DeviceId stored as a paired device would
+        // create a trust record that matches any request whose DeviceId header
+        // also ends up as an empty string (a 2FA bypass primitive).
+        if (pairing.UserId == Guid.Empty || string.IsNullOrWhiteSpace(pairing.DeviceId))
+        {
+            return BadRequest("Pairing is missing user or device — refuse to approve");
         }
 
         var approved = _devicePairingService.ApprovePairing(code);
@@ -948,7 +1120,7 @@ public class TwoFactorAuthController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "[2FA] Test SMTP failed");
-            return StatusCode(500, new { message = "SMTP test failed: " + ex.Message });
+            return StatusCode(500, new { message = "SMTP test failed — check server logs for details." });
         }
     }
 
@@ -1102,10 +1274,21 @@ public class TwoFactorAuthController : ControllerBase
     [HttpGet("ApiKeys")]
     [Authorize(Policy = "RequiresElevation")]
     [ProducesResponseType(typeof(IReadOnlyList<ApiKeyEntry>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<ApiKeyEntry>>> GetApiKeys()
+    public async Task<ActionResult<IReadOnlyList<object>>> GetApiKeys()
     {
         var keys = await _store.GetApiKeysAsync().ConfigureAwait(false);
-        return Ok(keys);
+        // Never expose raw key material — only id/label/preview/created for
+        // admin UI. Legacy keys with a raw Key still use preview from there.
+        var safe = keys.Select(k => new
+        {
+            id = k.Id,
+            label = k.Label,
+            createdAt = k.CreatedAt,
+            preview = !string.IsNullOrEmpty(k.KeyPreview)
+                ? k.KeyPreview
+                : (!string.IsNullOrEmpty(k.Key) && k.Key.Length > 6 ? k.Key.Substring(0, 6) + "…" : ""),
+        }).ToList<object>();
+        return Ok(safe);
     }
 
     // -------------------------------------------------------------------------
@@ -1115,7 +1298,7 @@ public class TwoFactorAuthController : ControllerBase
     [HttpPost("ApiKeys")]
     [Authorize(Policy = "RequiresElevation")]
     [ProducesResponseType(typeof(ApiKeyEntry), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiKeyEntry>> CreateApiKey([FromBody, Required] CreateApiKeyRequest request)
+    public async Task<ActionResult<object>> CreateApiKey([FromBody, Required] CreateApiKeyRequest request)
     {
         var rawKeyBytes = RandomNumberGenerator.GetBytes(32);
         var rawKey = Convert.ToBase64String(rawKeyBytes)
@@ -1123,9 +1306,13 @@ public class TwoFactorAuthController : ControllerBase
             .Replace('/', '_')
             .TrimEnd('=');
 
+        // Store only the hash + a short preview. Raw key is returned to the
+        // admin once; they must copy it immediately.
         var newEntry = new ApiKeyEntry
         {
-            Key = rawKey,
+            Key = string.Empty,
+            KeyHash = BypassEvaluator.HashApiKey(rawKey),
+            KeyPreview = rawKey.Length > 6 ? rawKey.Substring(0, 6) + "…" : rawKey,
             Label = request.Label,
             CreatedAt = DateTime.UtcNow,
         };
@@ -1135,7 +1322,15 @@ public class TwoFactorAuthController : ControllerBase
         mutableKeys.Add(newEntry);
         await _store.SaveApiKeysAsync(mutableKeys).ConfigureAwait(false);
 
-        return Ok(newEntry);
+        return Ok(new
+        {
+            id = newEntry.Id,
+            label = newEntry.Label,
+            createdAt = newEntry.CreatedAt,
+            key = rawKey,
+            preview = newEntry.KeyPreview,
+            warning = "Copy this key now. You won't see it again.",
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -1175,7 +1370,7 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<ActionResult> SendEmailOtp([FromBody, Required] SendEmailOtpRequest request)
     {
         // Per-IP rate limit: 5 sends per 5 minutes
-        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var ip = RateLimiter.ClientKey(HttpContext);
         var rl = _rateLimiter.CheckAndRecord("email:" + ip, 5, TimeSpan.FromMinutes(5));
         if (!rl.allowed)
         {
@@ -1373,14 +1568,30 @@ public class TwoFactorAuthController : ControllerBase
         data.PairedDevices.Remove(target);
         await _store.SaveUserDataAsync(data).ConfigureAwait(false);
 
-        // End any live session using this device so the revoke takes effect
-        // immediately rather than waiting for the access token to expire.
-        foreach (var s in _sessionManager.Sessions.Where(s => s.UserId == userId
-            && string.Equals(s.DeviceId, target.DeviceId, StringComparison.OrdinalIgnoreCase)).ToList())
+        // Wipe any in-memory bypass flag for this device so the revoke takes
+        // effect instantly instead of honoring a ~2-minute pre-verify window.
+        if (!string.IsNullOrWhiteSpace(target.DeviceId))
         {
-            try { await _sessionManager.ReportSessionEnded(s.Id).ConfigureAwait(false); }
-            catch { /* best effort */ }
+            _challengeStore.ConsumeDevicePreVerified(userId, target.DeviceId);
         }
+
+        // End any live session using this device. Revoke via access token
+        // (fully invalidates the token) rather than ReportSessionEnded (which
+        // only clears the transient session object and leaves the token live).
+        try
+        {
+            var devices = _deviceManager.GetDevices(new DeviceQuery { UserId = userId });
+            foreach (var d in devices.Items.Where(d =>
+                !string.IsNullOrEmpty(d.DeviceId)
+                && !string.IsNullOrEmpty(target.DeviceId)
+                && string.Equals(d.DeviceId, target.DeviceId, StringComparison.Ordinal)
+                && !string.IsNullOrEmpty(d.AccessToken)))
+            {
+                try { await _sessionManager.Logout(d.AccessToken).ConfigureAwait(false); }
+                catch { /* best effort */ }
+            }
+        }
+        catch { /* best effort */ }
 
         await _store.AddAuditEntryAsync(new AuditEntry
         {
@@ -1560,6 +1771,10 @@ public class TwoFactorAuthController : ControllerBase
         if (!_cookieSigner.Verify(payload, sig))
             return Unauthorized(new { message = "Invalid token signature." });
 
+        // Replay guard — a signed token inside its TTL can only be consumed once.
+        if (!_challengeStore.TryConsumePairToken(sig))
+            return Unauthorized(new { message = "Token already used." });
+
         var parts = payload.Split('|');
         if (parts.Length != 4 || parts[0] != "pair")
             return BadRequest(new { message = "Malformed token." });
@@ -1649,35 +1864,62 @@ public class TwoFactorAuthController : ControllerBase
     // Active Sessions for the current user (read from Jellyfin SessionManager)
     // =========================================================================
 
+    /// <summary>
+    /// Lists every device that has a live Jellyfin access token for the current
+    /// user. This is stable data from IDeviceManager, not the transient
+    /// ISessionManager.Sessions list (which only holds currently-polling
+    /// sessions and shows "no active sessions" for most signed-in browsers).
+    /// </summary>
     [HttpGet("MySessions")]
     [Authorize]
     public IActionResult MySessions()
     {
         var userId = GetCurrentUserId();
-        var sessions = _sessionManager.Sessions
+        var currentToken = HttpContext.Request.Headers["X-Emby-Token"].FirstOrDefault() ?? string.Empty;
+        var result = _deviceManager.GetDevices(new DeviceQuery { UserId = userId });
+        var live = _sessionManager.Sessions
             .Where(s => s.UserId == userId)
-            .Select(s => new
+            .ToDictionary(s => s.DeviceId ?? string.Empty, s => s, StringComparer.OrdinalIgnoreCase);
+
+        var rows = result.Items.Select(d =>
+        {
+            live.TryGetValue(d.DeviceId ?? string.Empty, out var liveSession);
+            return new
             {
-                id = s.Id,
-                deviceName = s.DeviceName,
-                client = s.Client,
-                appVersion = s.ApplicationVersion,
-                remoteEndPoint = s.RemoteEndPoint,
-                lastActivityDate = s.LastActivityDate,
-                isActive = s.IsActive,
-                nowPlaying = s.NowPlayingItem?.Name,
-            });
-        return Ok(sessions);
+                id = d.Id,
+                deviceId = d.DeviceId,
+                deviceName = d.DeviceName,
+                appName = d.AppName,
+                appVersion = d.AppVersion,
+                lastActivity = d.DateLastActivity,
+                isCurrent = !string.IsNullOrEmpty(currentToken)
+                    && string.Equals(d.AccessToken, currentToken, StringComparison.Ordinal),
+                remoteEndPoint = liveSession?.RemoteEndPoint,
+                nowPlaying = liveSession?.NowPlayingItem?.Name,
+            };
+        }).OrderByDescending(x => x.lastActivity).ToList();
+
+        return Ok(rows);
     }
 
+    /// <summary>Revoke (logout) the access token on the given Device entity.
+    /// Identified by the device's internal numeric Id.</summary>
     [HttpPost("MySessions/{id}/Revoke")]
     [Authorize]
     public async Task<IActionResult> RevokeMySession([FromRoute] string id)
     {
         var userId = GetCurrentUserId();
-        var session = _sessionManager.Sessions.FirstOrDefault(s => s.Id == id && s.UserId == userId);
-        if (session is null) return NotFound();
-        await _sessionManager.ReportSessionEnded(id).ConfigureAwait(false);
+        var result = _deviceManager.GetDevices(new DeviceQuery { UserId = userId });
+        var device = result.Items.FirstOrDefault(d => d.Id.ToString() == id);
+        if (device is null) return NotFound();
+
+        // Calling ISessionManager.Logout(accessToken) revokes the token server-side
+        // and ends any active session using it. The client will get 401 on next call.
+        if (!string.IsNullOrEmpty(device.AccessToken))
+        {
+            try { await _sessionManager.Logout(device.AccessToken).ConfigureAwait(false); }
+            catch (Exception ex) { _logger.LogWarning(ex, "[2FA] Failed to logout device token"); }
+        }
 
         await _store.AddAuditEntryAsync(new AuditEntry
         {
@@ -1685,8 +1927,8 @@ public class TwoFactorAuthController : ControllerBase
             UserId = userId,
             Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
             RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
-            DeviceId = session.DeviceId ?? string.Empty,
-            DeviceName = session.DeviceName ?? string.Empty,
+            DeviceId = device.DeviceId ?? string.Empty,
+            DeviceName = device.DeviceName ?? string.Empty,
             Result = AuditResult.ConfigChanged,
             Method = "session_revoked",
         }).ConfigureAwait(false);

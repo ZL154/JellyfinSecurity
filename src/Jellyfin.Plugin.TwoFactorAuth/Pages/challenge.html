@@ -137,7 +137,20 @@
     <script>
         var params = new URLSearchParams(window.location.search);
         var challengeToken = params.get('token');
-        var returnUrl = params.get('return') || '/web/index.html';
+        // Same-origin check — without this, an attacker could craft
+        // /TwoFactorAuth/Challenge?token=...&return=https://evil/ and phish
+        // users post-verify, or smuggle a javascript: URL via location.href.
+        var returnUrl = (function () {
+            var raw = params.get('return') || '/web/index.html';
+            try {
+                var u = new URL(raw, window.location.origin);
+                if (u.origin !== window.location.origin) return '/web/index.html';
+                if (/^(javascript|data|vbscript|file):/i.test(u.protocol)) return '/web/index.html';
+                return u.pathname + u.search + u.hash;
+            } catch (e) {
+                return '/web/index.html';
+            }
+        })();
         var currentMethod = 'totp';
         var availableMethods = ['totp'];
 
