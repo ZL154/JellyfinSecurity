@@ -34,17 +34,29 @@ public class PendingPairingService : IDisposable
         var userCount = _entries.Values.Count(e => e.UserId == userId);
         if (userCount >= MaxPerUser) return;
         var key = $"{userId:N}|{deviceId}";
-        _entries[key] = new PendingEntry
-        {
-            UserId = userId,
-            DeviceId = deviceId,
-            DeviceName = deviceName ?? string.Empty,
-            AppName = appName ?? string.Empty,
-            RemoteIp = remoteIp ?? string.Empty,
-            FirstSeen = _entries.TryGetValue(key, out var existing) ? existing.FirstSeen : DateTime.UtcNow,
-            LastSeen = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(30),
-        };
+        // AddOrUpdate avoids the read-then-write race on FirstSeen under
+        // concurrent Record calls for the same device.
+        _entries.AddOrUpdate(key,
+            _ => new PendingEntry
+            {
+                UserId = userId,
+                DeviceId = deviceId,
+                DeviceName = deviceName ?? string.Empty,
+                AppName = appName ?? string.Empty,
+                RemoteIp = remoteIp ?? string.Empty,
+                FirstSeen = DateTime.UtcNow,
+                LastSeen = DateTime.UtcNow,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(30),
+            },
+            (_, existing) =>
+            {
+                existing.DeviceName = deviceName ?? existing.DeviceName;
+                existing.AppName = appName ?? existing.AppName;
+                existing.RemoteIp = remoteIp ?? existing.RemoteIp;
+                existing.LastSeen = DateTime.UtcNow;
+                existing.ExpiresAt = DateTime.UtcNow.AddMinutes(30);
+                return existing;
+            });
         _logger.LogInformation("[2FA] Pending pairing recorded user={UserId} device={DeviceName} app={AppName}",
             userId, deviceName, appName);
     }

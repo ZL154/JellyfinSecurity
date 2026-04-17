@@ -84,9 +84,12 @@ public class TrustCookieMiddleware
                 return;
             }
 
-            _logger.LogInformation("[2FA] Valid trust cookie for {UserId} — pre-verifying session", userId);
-            _challengeStore.MarkUserPreVerified(userId);
-            _challengeStore.UnblockUser(userId);
+            var cookieDeviceId = context.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
+                ?? context.Request.Headers["X-Emby-DeviceId"].FirstOrDefault();
+            _logger.LogInformation("[2FA] Valid trust cookie for {UserId} device={Device} — pre-verifying session",
+                userId, cookieDeviceId);
+            _challengeStore.MarkDevicePreVerified(userId, cookieDeviceId);
+            _challengeStore.UnblockDevice(userId, cookieDeviceId);
 
             trustRecord.LastUsedAt = DateTime.UtcNow;
             await _store.SaveUserDataAsync(userData).ConfigureAwait(false);

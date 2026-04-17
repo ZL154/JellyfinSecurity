@@ -46,6 +46,9 @@ public class AppPasswordService
         var parts = storedHash.Split('$');
         if (parts.Length != 4 || parts[0] != "v1") return false;
         if (!int.TryParse(parts[1], out var iterations)) return false;
+        // Reject implausible parameters: prevents a tampered hash from forcing
+        // the server to waste CPU on an absurd iteration count / derive size.
+        if (iterations < 50_000 || iterations > 2_000_000) return false;
 
         byte[] salt;
         byte[] expected;
@@ -55,25 +58,29 @@ public class AppPasswordService
             expected = Convert.FromBase64String(parts[3]);
         }
         catch { return false; }
+        if (salt.Length < 8 || salt.Length > 64) return false;
+        if (expected.Length != HashBytes) return false;
 
         var actual = Rfc2898DeriveBytes.Pbkdf2(
             Encoding.UTF8.GetBytes(plaintext),
             salt,
             iterations,
             HashAlgorithmName.SHA256,
-            expected.Length);
+            HashBytes);
 
         return CryptographicOperations.FixedTimeEquals(actual, expected);
     }
 
-    /// <summary>Find the matching app password for a user, or null. Constant-time
-    /// per entry: every entry is checked even after a match to avoid timing leaks
-    /// about list size.</summary>
+    /// <summary>Find the matching app password for a user, or null.
+    /// Runs at least one PBKDF2 probe regardless of list size so an attacker
+    /// can't tell empty-list vs. populated-list from timing alone.</summary>
     public AppPassword? FindMatch(string plaintext, IEnumerable<AppPassword> entries)
     {
         AppPassword? matched = null;
+        var probedAny = false;
         foreach (var ap in entries)
         {
+            probedAny = true;
             if (Verify(plaintext, ap.PasswordHash) && matched is null)
             {
                 matched = ap;
@@ -81,8 +88,20 @@ public class AppPasswordService
             }
         }
 
+        // No entries: do one dummy PBKDF2 so total time is indistinguishable
+        // from a single-entry probe.
+        if (!probedAny)
+        {
+            Verify(plaintext, $"v1${Iterations}${Convert.ToBase64String(_dummySalt)}${Convert.ToBase64String(_dummyHash)}");
+        }
+
         return matched;
     }
+
+    // Stable dummy salt/hash for the empty-list timing mask. Never actually
+    // matches any real password (the hash is random and unrelated).
+    private static readonly byte[] _dummySalt = RandomNumberGenerator.GetBytes(SaltBytes);
+    private static readonly byte[] _dummyHash = RandomNumberGenerator.GetBytes(HashBytes);
 
     // ---------- helpers ----------
 

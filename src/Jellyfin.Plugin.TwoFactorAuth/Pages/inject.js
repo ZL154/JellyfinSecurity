@@ -131,29 +131,47 @@
     function injectSettingsTile() {
         try {
             var hash = (window.location.hash || '').toLowerCase();
-            if (hash.indexOf('mypreferencesmenu') < 0) return;
+            // Trigger on all preferences-style URLs, including the per-user
+            // settings drawer which opens `#!/mypreferencesmenu.html` but also
+            // on /myprofile, /quickconnect and similar landings.
+            var onPrefsPage = hash.indexOf('mypreferencesmenu') >= 0
+                || hash.indexOf('userprofile') >= 0
+                || hash.indexOf('myprofile') >= 0
+                || hash.indexOf('preferences') >= 0;
+            if (!onPrefsPage) return;
             if (document.getElementById(SETTINGS_TILE_ID)) return;
 
-            // Find the preferences list — try several common containers
+            // Find the preferences list — try several common containers,
+            // then fall back to finding a known tile's parent.
             var list = document.querySelector(
                 '.preferencesContainer .readOnlyContent,' +
                 ' .userPreferencesPage .readOnlyContent,' +
                 ' .preferencesContainer,' +
                 ' .userPreferencesPage'
             );
-            // Fallback: find any list of user-pref links
             if (!list) {
-                var prefLink = document.querySelector('a[href*="myprofile"], a[href*="userpasswordpage"]');
-                if (prefLink) list = prefLink.parentElement;
+                // Fallback: locate any "Profile" / "Quick Connect" / "Playback"
+                // tile and use its parent as the list container.
+                var candidates = document.querySelectorAll('a, button');
+                for (var i = 0; i < candidates.length; i++) {
+                    var t = (candidates[i].textContent || '').trim().toLowerCase();
+                    if (t === 'profile' || t === 'quick connect' || t === 'display' || t === 'playback') {
+                        list = candidates[i].parentElement;
+                        break;
+                    }
+                }
             }
             if (!list) return;
 
-            var template = list.querySelector('a.listItem, a.cardBox, a.button-link, a');
+            // Copy styling from a sibling tile so theme classes carry over
+            var template = list.querySelector('a.listItem, a.cardBox, a.button-link, a, button');
             if (!template) return;
 
-            var tile = document.createElement('a');
+            var useButton = template.tagName && template.tagName.toLowerCase() === 'button';
+            var tile = document.createElement(useButton ? 'button' : 'a');
             tile.id = SETTINGS_TILE_ID;
-            tile.href = '/TwoFactorAuth/Setup';
+            if (!useButton) tile.href = '/TwoFactorAuth/Setup';
+            else tile.addEventListener('click', function (e) { e.preventDefault(); window.location.assign('/TwoFactorAuth/Setup'); });
             tile.className = template.className;
 
             // Mirror the template's inner structure if it uses the listItem layout
@@ -172,7 +190,13 @@
                     'Two-Factor Authentication';
             }
 
-            list.appendChild(tile);
+            // Insert right after the template (typically Profile) so it groups
+            // with identity/security settings rather than getting lost at the end.
+            if (template.parentElement === list && template.nextSibling) {
+                list.insertBefore(tile, template.nextSibling);
+            } else {
+                list.appendChild(tile);
+            }
             console.log('[2FA] Settings tile inserted');
         } catch (e) {
             console.error('[2FA] injectSettingsTile error:', e);

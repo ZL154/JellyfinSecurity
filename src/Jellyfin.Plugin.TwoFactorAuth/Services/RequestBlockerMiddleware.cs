@@ -41,6 +41,7 @@ public class RequestBlockerMiddleware
         "/TwoFactorAuth/Email/Send",
         "/TwoFactorAuth/Challenge",
         "/TwoFactorAuth/inject.js",
+        "/TwoFactorAuth/PairConfirm",
     };
 
     public async Task InvokeAsync(HttpContext context)
@@ -92,9 +93,13 @@ public class RequestBlockerMiddleware
             return;
         }
 
-        if (userId != Guid.Empty && _challengeStore.IsUserBlocked(userId))
+        var reqDeviceId = context.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
+            ?? context.Request.Headers["X-Emby-DeviceId"].FirstOrDefault();
+
+        if (userId != Guid.Empty && _challengeStore.IsDeviceBlocked(userId, reqDeviceId))
         {
-            _logger.LogInformation("[2FA] BLOCKED request to {Path} for user {UserId} — 2FA not completed", path, userId);
+            _logger.LogInformation("[2FA] BLOCKED {Path} user={UserId} device={Device} — 2FA not completed",
+                path, userId, reqDeviceId);
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync(
@@ -103,13 +108,13 @@ public class RequestBlockerMiddleware
             return;
         }
 
-        // If a non-blocked authenticated user is approving a QuickConnect request, they've
-        // already passed 2FA. Pre-verify them so the device that initiated QuickConnect
-        // gets a session that passes our SessionStarted check.
+        // When a 2FA-verified user approves a Quick Connect code on this device,
+        // the INCOMING (TV) session has a different deviceId. Use a single-consume
+        // user-scoped flag so the next SessionStarted for this user gets through.
         if (userId != Guid.Empty && path.Contains("/QuickConnect/Authorize", StringComparison.OrdinalIgnoreCase))
         {
-            _challengeStore.MarkUserPreVerified(userId);
-            _logger.LogInformation("[2FA] QuickConnect authorize by {UserId} — pre-verifying for incoming session", userId);
+            _challengeStore.MarkQuickConnectPending(userId);
+            _logger.LogInformation("[2FA] QuickConnect authorize by {UserId} — one-shot allow for incoming session", userId);
         }
 
         await _next(context).ConfigureAwait(false);

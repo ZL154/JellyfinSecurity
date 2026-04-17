@@ -28,6 +28,9 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     private readonly ChallengeStore _challengeStore;
     private readonly BypassEvaluator _bypassEvaluator;
     private readonly NotificationService _notificationService;
+    private readonly AppPasswordService _appPasswordService;
+    private readonly PendingPairingService _pendingPairings;
+    private readonly RateLimiter _rateLimiter;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<TwoFactorAuthProvider> _logger;
 
@@ -38,6 +41,9 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         ChallengeStore challengeStore,
         BypassEvaluator bypassEvaluator,
         NotificationService notificationService,
+        AppPasswordService appPasswordService,
+        PendingPairingService pendingPairings,
+        RateLimiter rateLimiter,
         IHttpContextAccessor httpContextAccessor,
         ILogger<TwoFactorAuthProvider> logger)
     {
@@ -47,6 +53,9 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         _challengeStore = challengeStore;
         _bypassEvaluator = bypassEvaluator;
         _notificationService = notificationService;
+        _appPasswordService = appPasswordService;
+        _pendingPairings = pendingPairings;
+        _rateLimiter = rateLimiter;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
     }
@@ -61,6 +70,95 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     public async Task<ProviderAuthenticationResult> Authenticate(string username, string password)
     {
         var config = Plugin.Instance?.Configuration;
+
+        // ------------------------------------------------------------------
+        // 0. APP PASSWORD FAST PATH — check if the submitted password is a
+        //    PBKDF2-hashed app password for this user. If so, we synthesize a
+        //    successful result without calling the default provider.
+        //
+        //    SECURITY: Rate-limited per IP (10/min) and gated by lockout to
+        //    prevent brute force. Deviceless requests (no X-Emby-Device-Id)
+        //    do NOT get pre-verified device scoping — they must still pass
+        //    the default provider flow below.
+        // ------------------------------------------------------------------
+        var earlyUser = _userManager.GetUserByName(username);
+        if (earlyUser is not null && !string.IsNullOrEmpty(password))
+        {
+            // Lockout always takes precedence — if the account is locked, we
+            // don't even check app passwords. Matches the fail-closed posture
+            // the default provider would produce.
+            if (await _store.IsLockedOutAsync(earlyUser.Id).ConfigureAwait(false))
+            {
+                _logger.LogWarning("[2FA] App-password attempt refused; user {User} is locked out", username);
+                throw new AuthenticationException("Account is temporarily locked due to too many failed attempts");
+            }
+
+            // Rate-limit BEFORE any PBKDF2 work so attackers can't spin the CPU.
+            var apIp = GetRemoteIp() ?? "unknown";
+            var apRl = _rateLimiter.CheckAndRecord("ap_provider:" + apIp, 10, TimeSpan.FromMinutes(1));
+            if (!apRl.allowed)
+            {
+                _logger.LogWarning("[2FA] App-password attempt rate-limited for IP {Ip}", apIp);
+                throw new AuthenticationException("Too many attempts. Try again later.");
+            }
+
+            var earlyData = await _store.GetUserDataAsync(earlyUser.Id).ConfigureAwait(false);
+            var matched = _appPasswordService.FindMatch(password, earlyData.AppPasswords);
+            if (matched is not null)
+            {
+                var apDeviceId = GetHeader("X-Emby-Device-Id") ?? string.Empty;
+                var apDeviceName = GetHeader("X-Emby-Device-Name") ?? "Unknown";
+                var apRemoteIp = GetRemoteIp() ?? string.Empty;
+                var matchedId = matched.Id;
+                var racedOut = false;
+
+                // Re-verify inside the mutate to close the "revoked between
+                // read and write" race. If the entry is gone, reject.
+                await _store.MutateAsync(earlyUser.Id, ud =>
+                {
+                    var ap = ud.AppPasswords.FirstOrDefault(x => x.Id == matchedId);
+                    if (ap is null) { racedOut = true; return; }
+                    ap.LastUsedAt = DateTime.UtcNow;
+                    ap.LastDeviceId = apDeviceId;
+                    ap.LastDeviceName = apDeviceName;
+                }).ConfigureAwait(false);
+
+                if (racedOut)
+                {
+                    _logger.LogWarning("[2FA] App password '{Label}' was revoked mid-auth for {User}",
+                        matched.Label, username);
+                    throw new AuthenticationException("Invalid credentials");
+                }
+
+                // Pre-verify (user, device). Skip for empty deviceId — the
+                // IsDevicePreVerified fallback would otherwise grant bypass
+                // to every device of this user for 2 minutes.
+                if (!string.IsNullOrEmpty(apDeviceId))
+                {
+                    _challengeStore.MarkDevicePreVerified(earlyUser.Id, apDeviceId);
+                }
+
+                await _store.AddAuditEntryAsync(new AuditEntry
+                {
+                    Timestamp = DateTime.UtcNow,
+                    UserId = earlyUser.Id,
+                    Username = username,
+                    RemoteIp = apRemoteIp,
+                    DeviceId = apDeviceId,
+                    DeviceName = apDeviceName,
+                    Result = AuditResult.Bypassed,
+                    Method = "app_password:" + matched.Label,
+                }).ConfigureAwait(false);
+
+                _logger.LogInformation("[2FA] App password '{Label}' matched for {User} — skipping default provider",
+                    matched.Label, username);
+
+                return new ProviderAuthenticationResult
+                {
+                    Username = earlyUser.Username,
+                };
+            }
+        }
 
         // ------------------------------------------------------------------
         // 1. Resolve and call the default (password) provider for credential
@@ -186,7 +284,52 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             _ = SafeNotifyAsync(() =>
                 _notificationService.NotifyLoginAttemptAsync(username, remoteIp ?? "unknown", deviceName, false));
 
+            // Mark device pre-verified so SessionStarted accepts it without challenge.
+            _challengeStore.MarkDevicePreVerified(userId, deviceId);
             return baseResult;
+        }
+
+        // Paired-device bypass: user has explicitly approved this device ID before.
+        if (!string.IsNullOrEmpty(deviceId))
+        {
+            var paired = userData.PairedDevices.FirstOrDefault(p =>
+                string.Equals(p.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase));
+            if (paired is not null)
+            {
+                _logger.LogInformation("2FA paired-device bypass for '{Username}' device={Device}",
+                    username, paired.DeviceName);
+                var capDev = deviceId;
+                var capIp = remoteIp ?? string.Empty;
+                await _store.MutateAsync(userId, ud =>
+                {
+                    var p = ud.PairedDevices.FirstOrDefault(x =>
+                        string.Equals(x.DeviceId, capDev, StringComparison.OrdinalIgnoreCase));
+                    if (p is not null) { p.LastUsedAt = DateTime.UtcNow; p.LastIp = capIp; }
+                }).ConfigureAwait(false);
+                await _store.AddAuditEntryAsync(new AuditEntry
+                {
+                    Timestamp = DateTime.UtcNow,
+                    UserId = userId,
+                    Username = username,
+                    RemoteIp = capIp,
+                    DeviceId = deviceId,
+                    DeviceName = deviceName,
+                    Result = AuditResult.Bypassed,
+                    Method = "paired_device",
+                }).ConfigureAwait(false);
+                _challengeStore.MarkDevicePreVerified(userId, deviceId);
+                return baseResult;
+            }
+        }
+
+        // No bypass matched. This is a password-OK login that hit the 2FA wall.
+        // Record as a pending pairing so the user can approve it from Setup.
+        if (!string.IsNullOrEmpty(deviceId))
+        {
+            var clientName = GetHeader("X-Emby-Client")
+                ?? ParseClientFromEmbyAuth(GetHeader("X-Emby-Authorization"))
+                ?? string.Empty;
+            _pendingPairings.Record(userId, deviceId, deviceName, clientName, remoteIp ?? string.Empty);
         }
 
         // ------------------------------------------------------------------
@@ -312,6 +455,16 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         return ctx.Request.Headers.TryGetValue(name, out var value)
             ? value.ToString()
             : null;
+    }
+
+    private static string? ParseClientFromEmbyAuth(string? header)
+    {
+        if (string.IsNullOrEmpty(header)) return null;
+        var idx = header.IndexOf("Client=", StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return null;
+        var rest = header.Substring(idx + "Client=".Length).TrimStart('"');
+        var end = rest.IndexOfAny(new[] { ',', '"' });
+        return end > 0 ? rest.Substring(0, end) : rest;
     }
 
     private static async Task SafeNotifyAsync(Func<Task> action)

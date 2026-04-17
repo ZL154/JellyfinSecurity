@@ -402,6 +402,7 @@
                         '<div class="device-meta">' + escapeHtml(p.appName || 'Unknown app') + ' · ' + escapeHtml(p.remoteIp) + ' · last try ' + fmtRel(p.lastSeen) + '</div>' +
                     '</div>' +
                     '<button class="btn-primary btn-sm tfa-approve" data-did="' + escapeHtml(p.deviceId) + '" data-name="' + escapeHtml(p.deviceName) + '">Trust</button>' +
+                    '<button class="btn-ghost btn-sm tfa-qr" data-did="' + escapeHtml(p.deviceId) + '" title="Show QR to approve on phone">QR</button>' +
                     '<button class="btn-ghost btn-sm tfa-deny" data-did="' + escapeHtml(p.deviceId) + '">Deny</button>' +
                     '</div>';
             }).join('');
@@ -415,6 +416,31 @@
                     api('POST', 'TwoFactorAuth/PendingPairings/Deny', { deviceId: b.dataset.did }).then(loadAll);
                 });
             });
+            box.querySelectorAll('.tfa-qr').forEach(function(b) {
+                b.addEventListener('click', function() {
+                    api('POST', 'TwoFactorAuth/PairingQr', { deviceId: b.dataset.did }).then(showQrModal);
+                });
+            });
+        }
+
+        function showQrModal(r) {
+            // Overlay modal with QR + URL. Click outside or press Esc to close.
+            var overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+            overlay.innerHTML =
+                '<div style="background:#1a1a1a;border:1px solid #333;border-radius:12px;padding:26px;max-width:360px;width:100%;text-align:center;">' +
+                    '<h3 style="font-size:17px;margin-bottom:6px;">Scan on another device</h3>' +
+                    '<p style="font-size:13px;color:#888;margin-bottom:16px;line-height:1.5;">Open this QR with a phone or tablet that\'s already signed in. Confirm there to trust <strong>' + escapeHtml(r.deviceName || 'this device') + '</strong>.</p>' +
+                    '<div style="background:#fff;padding:14px;border-radius:8px;display:inline-block;"><img src="data:image/png;base64,' + r.qrCodeBase64 + '" alt="Pairing QR" style="width:220px;height:220px;display:block;" /></div>' +
+                    '<p style="margin-top:14px;font-size:12px;color:#666;">Valid for 5 minutes</p>' +
+                    '<button style="margin-top:16px;padding:10px 20px;background:#00a4dc;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer;" id="qrClose">Close</button>' +
+                '</div>';
+            document.body.appendChild(overlay);
+            function close() { overlay.remove(); document.removeEventListener('keydown', onKey); loadAll(); }
+            function onKey(e) { if (e.key === 'Escape') close(); }
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+            document.getElementById('qrClose').addEventListener('click', close);
+            document.addEventListener('keydown', onKey);
         }
         function renderPaired(totpOn, list) {
             document.getElementById('cardPaired').style.display = totpOn ? 'block' : 'none';

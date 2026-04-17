@@ -157,8 +157,10 @@ public class TwoFactorEnforcementMiddleware
         var bodyBytes = buffer.ToArray();
         var bodyText = Encoding.UTF8.GetString(bodyBytes);
 
-        // Quick shape check — does the body look like an auth response?
-        if (!LooksLikeAuthResponse(bodyText))
+        // Restrict activation to actual Jellyfin auth endpoints AND to responses
+        // that structurally look like auth results. Prevents false positives on
+        // admin APIs that return lists of users/sessions.
+        if (!IsAuthPath(path) || !LooksLikeAuthResponse(bodyText))
         {
             await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
             return;
@@ -374,10 +376,22 @@ public class TwoFactorEnforcementMiddleware
     }
 
     /// <summary>
-    /// Match by both path AND response shape to avoid false positives.
-    /// Path: known Jellyfin auth endpoints. Shape: AccessToken + User + SessionInfo present.
-    /// No size cap on the path check; size cap on body parse only as a sanity bound.
+    /// Match by both path AND response shape to avoid false positives — any other
+    /// 200 JSON response that happens to contain the substrings would otherwise
+    /// get routed into the 2FA challenge flow.
     /// </summary>
+    private static bool IsAuthPath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        if (path.Contains("/Users/AuthenticateByName", StringComparison.OrdinalIgnoreCase)) return true;
+        if (path.Contains("/Users/AuthenticateWithQuickConnect", StringComparison.OrdinalIgnoreCase)) return true;
+        // Matches /Users/{id}/Authenticate (passwordless quick-login)
+        return System.Text.RegularExpressions.Regex.IsMatch(
+            path,
+            @"^/Users/[0-9a-fA-F-]+/Authenticate(\?|/|$)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+
     private static bool LooksLikeAuthResponse(string body)
     {
         if (string.IsNullOrEmpty(body) || body.Length > 1_000_000) return false;

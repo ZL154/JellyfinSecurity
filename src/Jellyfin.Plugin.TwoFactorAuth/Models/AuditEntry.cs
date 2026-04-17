@@ -29,5 +29,8 @@ public enum AuditResult
     Failed,
     Bypassed,
     Locked,
-    ChallengeIssued
+    ChallengeIssued,
+    /// <summary>Config-change events (app password created/revoked, device paired/revoked,
+    /// admin toggle). Not an auth bypass — keeps the audit log correctly filterable.</summary>
+    ConfigChanged
 }

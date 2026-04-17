@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirm Device Pairing</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: linear-gradient(135deg, #0a0a0a 0%, #151515 100%);
+            color: #e0e0e0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+            display: flex; align-items: center; justify-content: center;
+            padding: 20px;
+        }
+        .card {
+            background: #1a1a1a; border: 1px solid #333; border-radius: 12px;
+            padding: 32px 28px; width: 100%; max-width: 420px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        .icon { text-align: center; font-size: 44px; margin-bottom: 8px; }
+        h1 { text-align: center; font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+        .subtitle { text-align: center; color: #888; font-size: 13px; margin-bottom: 22px; line-height: 1.5; }
+        .device-card {
+            background: #0a0a0a; border: 1px solid #2a2a2a; border-radius: 8px;
+            padding: 16px; margin-bottom: 20px;
+        }
+        .device-label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .device-value { font-size: 14px; color: #e0e0e0; margin-bottom: 12px; }
+        .device-value:last-child { margin-bottom: 0; }
+        button {
+            width: 100%; padding: 14px; border: none; border-radius: 8px;
+            font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit;
+            transition: background 0.2s;
+        }
+        .btn-primary { background: #00a4dc; color: #fff; margin-bottom: 10px; }
+        .btn-primary:hover:not(:disabled) { background: #0087b3; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-ghost { background: transparent; color: #888; border: 1px solid #333; }
+        .btn-ghost:hover { color: #ccc; border-color: #555; }
+        .status {
+            margin-top: 14px; padding: 12px; border-radius: 6px; font-size: 13px;
+            text-align: center; display: none;
+        }
+        .status.show { display: block; }
+        .status.success { background: rgba(76,175,80,0.1); color: #66bb6a; border: 1px solid rgba(76,175,80,0.2); }
+        .status.error { background: rgba(244,67,54,0.1); color: #ef5350; border: 1px solid rgba(244,67,54,0.2); }
+        .muted { color: #666; font-size: 12px; text-align: center; margin-top: 18px; }
+        a { color: #00a4dc; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">🔐</div>
+        <h1>Confirm Device Pairing</h1>
+        <p class="subtitle">You're about to trust this device to skip two-factor authentication on future sign-ins.</p>
+
+        <div class="device-card" id="deviceCard" style="display:none;">
+            <div class="device-label">Device</div>
+            <div class="device-value" id="deviceName">—</div>
+            <div class="device-label">App</div>
+            <div class="device-value" id="appName">—</div>
+        </div>
+
+        <button class="btn-primary" id="btnConfirm" disabled>Trust This Device</button>
+        <button class="btn-ghost" id="btnCancel">Cancel</button>
+
+        <div class="status" id="statusBox"></div>
+        <p class="muted">Only pair devices you recognize.</p>
+    </div>
+
+    <script>
+        function getToken() {
+            try {
+                var c = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}');
+                return (c.Servers && c.Servers[0] && c.Servers[0].AccessToken) || '';
+            } catch (e) { return ''; }
+        }
+        function showStatus(msg, ok) {
+            var el = document.getElementById('statusBox');
+            el.className = 'status show ' + (ok ? 'success' : 'error');
+            el.textContent = msg;
+        }
+        var params = new URLSearchParams(window.location.search);
+        var token = params.get('token');
+
+        if (!token) {
+            showStatus('Missing pairing token.', false);
+        } else if (!getToken()) {
+            showStatus('You need to sign in first. ', false);
+            document.getElementById('statusBox').innerHTML += '<a href="/web/index.html">Sign in →</a>';
+        } else {
+            // Decode token payload client-side (just for display — server re-verifies signature)
+            try {
+                var fixed = token.replace(/-/g, '+').replace(/_/g, '/');
+                while (fixed.length % 4) fixed += '=';
+                var decoded = atob(fixed);
+                var dotIdx = decoded.lastIndexOf('.');
+                var payload = decoded.substring(0, dotIdx);
+                var parts = payload.split('|');
+                var deviceId = parts[2];
+                var exp = parseInt(parts[3], 10);
+                if (Date.now() / 1000 > exp) {
+                    showStatus('This pairing link has expired. Generate a new QR.', false);
+                } else {
+                    // We don't know the device name client-side — it's stored server-side
+                    // in the pending pairing record. Show deviceId as fallback.
+                    document.getElementById('deviceName').textContent = deviceId;
+                    document.getElementById('appName').textContent = 'Pairing server-side';
+                    document.getElementById('deviceCard').style.display = 'block';
+                    document.getElementById('btnConfirm').disabled = false;
+                }
+            } catch (e) { showStatus('Invalid token.', false); }
+        }
+
+        document.getElementById('btnConfirm').addEventListener('click', function() {
+            this.disabled = true;
+            this.textContent = 'Pairing…';
+            fetch('/TwoFactorAuth/PairConfirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Emby-Token': getToken() },
+                body: JSON.stringify({ token: token })
+            }).then(function(r) {
+                return r.json().then(function(b) { return { ok: r.ok, body: b }; });
+            }).then(function(r) {
+                if (r.ok) {
+                    showStatus('✓ Device paired. You can now sign in on ' + (r.body.deviceName || 'the device') + '.', true);
+                    document.getElementById('btnConfirm').style.display = 'none';
+                    document.getElementById('btnCancel').textContent = 'Done';
+                } else {
+                    showStatus(r.body.message || 'Pairing failed.', false);
+                    document.getElementById('btnConfirm').disabled = false;
+                    document.getElementById('btnConfirm').textContent = 'Trust This Device';
+                }
+            }).catch(function() {
+                showStatus('Network error. Try again.', false);
+                document.getElementById('btnConfirm').disabled = false;
+                document.getElementById('btnConfirm').textContent = 'Trust This Device';
+            });
+        });
+
+        document.getElementById('btnCancel').addEventListener('click', function() {
+            window.location.href = '/TwoFactorAuth/Setup';
+        });
+    </script>
+</body>
+</html>
