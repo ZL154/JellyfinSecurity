@@ -31,10 +31,15 @@ public class CookieSigner
 
     public bool Verify(string payload, string signature)
     {
+        if (string.IsNullOrEmpty(signature)) return false;
         var expected = Sign(payload);
-        return CryptographicOperations.FixedTimeEquals(
-            Encoding.UTF8.GetBytes(expected),
-            Encoding.UTF8.GetBytes(signature));
+        // Length check before FixedTimeEquals — the call throws on length
+        // mismatch, and the throw/non-throw distinction is a (tiny) timing
+        // oracle. Pre-checking removes that channel.
+        var expectedBytes = Encoding.UTF8.GetBytes(expected);
+        var signatureBytes = Encoding.UTF8.GetBytes(signature);
+        if (expectedBytes.Length != signatureBytes.Length) return false;
+        return CryptographicOperations.FixedTimeEquals(expectedBytes, signatureBytes);
     }
 
     private byte[] LoadOrCreateKey(IApplicationPaths applicationPaths)
@@ -61,12 +66,12 @@ public class CookieSigner
         File.WriteAllBytes(keyPath, key);
         try
         {
-            File.SetUnixFileMode(keyPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(keyPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
         }
-        catch
-        {
-            // Windows / permission errors — best effort
-        }
+        catch { /* best effort */ }
 
         _logger.LogInformation("Generated new persistent cookie signing key at {Path}", keyPath);
         return key;

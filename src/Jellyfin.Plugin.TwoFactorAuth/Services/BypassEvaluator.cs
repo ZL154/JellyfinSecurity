@@ -37,12 +37,22 @@ public class BypassEvaluator
         List<string> registeredDeviceIds,
         IReadOnlyList<Models.ApiKeyEntry> apiKeys)
     {
-        // 1. API key check
+        // 1. API key check — compare hashes. Raw key is 256 bits of entropy
+        // so a plain SHA-256 suffices (no PBKDF2 cost). Hashing at rest means
+        // a leaked user-data directory doesn't hand over live API keys.
         if (!string.IsNullOrWhiteSpace(embyToken))
         {
+            var submittedHash = HashApiKey(embyToken);
             foreach (var apiKey in apiKeys)
             {
-                if (string.Equals(embyToken, apiKey.Key, StringComparison.Ordinal))
+                var stored = !string.IsNullOrEmpty(apiKey.KeyHash)
+                    ? apiKey.KeyHash
+                    : (!string.IsNullOrEmpty(apiKey.Key) ? HashApiKey(apiKey.Key) : null);
+                if (stored is null) continue;
+                if (submittedHash.Length == stored.Length
+                    && CryptographicOperations.FixedTimeEquals(
+                        Encoding.UTF8.GetBytes(submittedHash),
+                        Encoding.UTF8.GetBytes(stored)))
                 {
                     _logger.LogDebug("Bypass granted via API key");
                     return BypassResult.Bypassed("apikey");
@@ -127,6 +137,9 @@ public class BypassEvaluator
 
         return BypassResult.NotBypassed;
     }
+
+    internal static string HashApiKey(string rawKey)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawKey)));
 
     /// <summary>
     /// Checks whether the given IP address falls within the specified CIDR range.

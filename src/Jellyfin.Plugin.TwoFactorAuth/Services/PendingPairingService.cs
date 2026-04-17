@@ -57,7 +57,7 @@ public class PendingPairingService : IDisposable
                 existing.ExpiresAt = DateTime.UtcNow.AddMinutes(30);
                 return existing;
             });
-        _logger.LogInformation("[2FA] Pending pairing recorded user={UserId} device={DeviceName} app={AppName}",
+        _logger.LogDebug("[2FA] Pending pairing recorded user={UserId} device={DeviceName} app={AppName}",
             userId, deviceName, appName);
     }
 

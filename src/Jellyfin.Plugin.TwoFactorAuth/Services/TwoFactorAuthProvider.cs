@@ -23,7 +23,6 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 public class TwoFactorAuthProvider : IAuthenticationProvider
 {
     private readonly IApplicationHost _appHost;
-    private readonly IUserManager _userManager;
     private readonly UserTwoFactorStore _store;
     private readonly ChallengeStore _challengeStore;
     private readonly BypassEvaluator _bypassEvaluator;
@@ -34,9 +33,15 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<TwoFactorAuthProvider> _logger;
 
+    // IUserManager is NOT constructor-injected: UserManager itself takes
+    // IEnumerable<IAuthenticationProvider>, so injecting it here creates a
+    // circular dependency (verified by reading the DI crash log on v1.3.2).
+    // We resolve it lazily from IApplicationHost when we actually need it,
+    // matching the pattern used by the Jellyfin LDAP-Auth plugin.
+    private IUserManager UserManager => _appHost.Resolve<IUserManager>();
+
     public TwoFactorAuthProvider(
         IApplicationHost appHost,
-        IUserManager userManager,
         UserTwoFactorStore store,
         ChallengeStore challengeStore,
         BypassEvaluator bypassEvaluator,
@@ -48,7 +53,6 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         ILogger<TwoFactorAuthProvider> logger)
     {
         _appHost = appHost;
-        _userManager = userManager;
         _store = store;
         _challengeStore = challengeStore;
         _bypassEvaluator = bypassEvaluator;
@@ -81,7 +85,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         //    do NOT get pre-verified device scoping — they must still pass
         //    the default provider flow below.
         // ------------------------------------------------------------------
-        var earlyUser = _userManager.GetUserByName(username);
+        var earlyUser = UserManager.GetUserByName(username);
         if (earlyUser is not null && !string.IsNullOrEmpty(password))
         {
             // Lockout always takes precedence — if the account is locked, we
@@ -106,7 +110,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             var matched = _appPasswordService.FindMatch(password, earlyData.AppPasswords);
             if (matched is not null)
             {
-                var apDeviceId = GetHeader("X-Emby-Device-Id") ?? string.Empty;
+                var apDeviceId = GetDeviceHeader("X-Emby-Device-Id", "DeviceId") ?? string.Empty;
                 var apDeviceName = GetHeader("X-Emby-Device-Name") ?? "Unknown";
                 var apRemoteIp = GetRemoteIp() ?? string.Empty;
                 var matchedId = matched.Id;
@@ -190,7 +194,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // ------------------------------------------------------------------
         // 3. Resolve the Jellyfin user entity so we have their Id.
         // ------------------------------------------------------------------
-        var jellyfinUser = _userManager.GetUserByName(username);
+        var jellyfinUser = UserManager.GetUserByName(username);
         if (jellyfinUser is null)
         {
             // User authenticated but not found in manager — pass through.
@@ -225,8 +229,8 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 UserId = userId,
                 Username = username,
                 RemoteIp = GetRemoteIp() ?? string.Empty,
-                DeviceId = GetHeader("X-Emby-Device-Id") ?? string.Empty,
-                DeviceName = GetHeader("X-Emby-Device-Name") ?? string.Empty,
+                DeviceId = GetDeviceHeader("X-Emby-Device-Id", "DeviceId") ?? string.Empty,
+                DeviceName = GetDeviceHeader("X-Emby-Device-Name", "Device") ?? string.Empty,
                 Result = AuditResult.Locked,
                 Method = "login",
                 Details = "Account locked out during 2FA gate"
@@ -242,8 +246,8 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         var forwardedFor = GetHeader("X-Forwarded-For");
         var twoFactorToken = GetHeader("X-TwoFactor-Token");
         var embyToken = GetHeader("X-Emby-Token") ?? GetHeader("X-MediaBrowser-Token");
-        var deviceId = GetHeader("X-Emby-Device-Id");
-        var deviceName = GetHeader("X-Emby-Device-Name") ?? string.Empty;
+        var deviceId = GetDeviceHeader("X-Emby-Device-Id", "DeviceId");
+        var deviceName = GetDeviceHeader("X-Emby-Device-Name", "Device") ?? string.Empty;
 
         // ------------------------------------------------------------------
         // 7. Evaluate bypass rules.
@@ -293,7 +297,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         if (!string.IsNullOrEmpty(deviceId))
         {
             var paired = userData.PairedDevices.FirstOrDefault(p =>
-                string.Equals(p.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase));
+                string.Equals(p.DeviceId, deviceId, StringComparison.Ordinal));
             if (paired is not null)
             {
                 _logger.LogInformation("2FA paired-device bypass for '{Username}' device={Device}",
@@ -303,7 +307,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 await _store.MutateAsync(userId, ud =>
                 {
                     var p = ud.PairedDevices.FirstOrDefault(x =>
-                        string.Equals(x.DeviceId, capDev, StringComparison.OrdinalIgnoreCase));
+                        string.Equals(x.DeviceId, capDev, StringComparison.Ordinal));
                     if (p is not null) { p.LastUsedAt = DateTime.UtcNow; p.LastIp = capIp; }
                 }).ConfigureAwait(false);
                 await _store.AddAuditEntryAsync(new AuditEntry
@@ -458,13 +462,41 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     }
 
     private static string? ParseClientFromEmbyAuth(string? header)
+        => ParseEmbyAuth(header, "Client");
+
+    /// <summary>Pull a key (Client / Device / DeviceId / Version / Token) out
+    /// of an X-Emby-Authorization header. Jellyfin Web and Tizen clients pack
+    /// the device id in here instead of the dedicated X-Emby-Device-Id header,
+    /// and not parsing it made paired-device matching silently fail for them.</summary>
+    internal static string? ParseEmbyAuth(string? header, string key)
     {
-        if (string.IsNullOrEmpty(header)) return null;
-        var idx = header.IndexOf("Client=", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(header) || string.IsNullOrEmpty(key)) return null;
+        var needle = key + "=";
+        var idx = header.IndexOf(needle, StringComparison.OrdinalIgnoreCase);
         if (idx < 0) return null;
-        var rest = header.Substring(idx + "Client=".Length).TrimStart('"');
-        var end = rest.IndexOfAny(new[] { ',', '"' });
-        return end > 0 ? rest.Substring(0, end) : rest;
+        if (idx > 0)
+        {
+            var prev = header[idx - 1];
+            if (prev != ',' && prev != ' ') return null;
+        }
+        var rest = header.Substring(idx + needle.Length);
+        if (rest.StartsWith("\"", StringComparison.Ordinal))
+        {
+            var end = rest.IndexOf('"', 1);
+            return end > 0 ? rest.Substring(1, end - 1) : null;
+        }
+        var comma = rest.IndexOf(',');
+        return (comma > 0 ? rest.Substring(0, comma) : rest).Trim();
+    }
+
+    /// <summary>Header-first, then auth-header fallback. Prefer this to GetHeader()
+    /// for device identity lookups so TV/Web clients aren't silently treated as
+    /// deviceless (which breaks paired-device bypass).</summary>
+    private string? GetDeviceHeader(string dedicatedHeader, string authKey)
+    {
+        var v = GetHeader(dedicatedHeader);
+        if (!string.IsNullOrEmpty(v)) return v;
+        return ParseEmbyAuth(GetHeader("X-Emby-Authorization"), authKey);
     }
 
     private static async Task SafeNotifyAsync(Func<Task> action)

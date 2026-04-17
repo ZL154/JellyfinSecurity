@@ -26,16 +26,67 @@
     function handleTwoFactorBody(body) {
         if (!body || typeof body !== 'object') return false;
         if (!body.TwoFactorRequired && !body.twoFactorRequired) return false;
-        var url = body.ChallengePageUrl || body.challengePageUrl;
-        if (!url) return false;
-        console.log('[2FA] Server requested 2FA challenge — redirecting to', url);
+        // Hardcode the redirect path — never trust the server-supplied URL
+        // (a malicious/compromised plugin or MITM could return an off-origin
+        // ChallengePageUrl and steal the 2FA flow). The challenge token is
+        // the only variable part.
+        var token = body.ChallengeToken || body.challengeToken || '';
+        var url = '/TwoFactorAuth/Challenge?token=' + encodeURIComponent(token);
+        console.log('[2FA] Server requested 2FA challenge — redirecting');
         window.location.href = url;
         return true;
     }
+    // Ensure every auth request carries a STABLE DeviceId even when the user
+    // signs in via stock Jellyfin UI on LAN (which doesn't set one, so Jellyfin
+    // falls back to a UserAgent-hash that differs from what the Cloudflare /
+    // plugin login page sent — same browser ends up with multiple deviceIds,
+    // one trusted, another pending, forever.)
+    function getStableDeviceId() {
+        var id = null;
+        try { id = localStorage.getItem('_deviceId2'); } catch (e) {}
+        if (!id) {
+            try {
+                id = crypto.getRandomValues
+                    ? Array.from(crypto.getRandomValues(new Uint8Array(16)))
+                        .map(function(b){return b.toString(16).padStart(2,'0');}).join('')
+                    : String(Date.now()) + Math.random().toString(36).slice(2);
+                localStorage.setItem('_deviceId2', id);
+            } catch (e) {}
+        }
+        return id;
+    }
+    function injectDeviceId(headers) {
+        if (!headers) return headers;
+        var id = getStableDeviceId();
+        if (!id) return headers;
+        try {
+            if (headers instanceof Headers) {
+                // Overwrite any existing UA-hash deviceId with our stable one.
+                var existing = headers.get('X-Emby-Authorization') || '';
+                if (existing && /DeviceId=/i.test(existing)) {
+                    existing = existing.replace(/DeviceId="[^"]*"/i, 'DeviceId="' + id + '"');
+                    headers.set('X-Emby-Authorization', existing);
+                }
+                headers.set('X-Emby-Device-Id', id);
+            } else if (typeof headers === 'object') {
+                headers['X-Emby-Device-Id'] = id;
+                if (headers['X-Emby-Authorization'] && /DeviceId=/i.test(headers['X-Emby-Authorization'])) {
+                    headers['X-Emby-Authorization'] = headers['X-Emby-Authorization']
+                        .replace(/DeviceId="[^"]*"/i, 'DeviceId="' + id + '"');
+                }
+            }
+        } catch (e) {}
+        return headers;
+    }
+
     var origFetch = window.fetch ? window.fetch.bind(window) : null;
     if (origFetch) {
         window.fetch = function (input, init) {
             var url = (typeof input === 'string') ? input : (input && input.url) || '';
+            if (isAuthPath(url)) {
+                init = init || {};
+                init.headers = injectDeviceId(init.headers || new Headers());
+            }
             var p = origFetch(input, init);
             if (!isAuthPath(url)) return p;
             return p.then(function (resp) {
@@ -50,13 +101,34 @@
     }
     var origOpen = XMLHttpRequest.prototype.open;
     var origSend = XMLHttpRequest.prototype.send;
+    var origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
     XMLHttpRequest.prototype.open = function (method, url) {
         this.__tfa_url = url;
+        this.__tfa_authHeader = null;
         return origOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+        // Capture existing X-Emby-Authorization so we can mutate the DeviceId
+        // substring before it hits the wire (Jellyfin stock UI on LAN sets it
+        // with a UA-hash deviceId; we overwrite with our stable one).
+        if (typeof name === 'string' && name.toLowerCase() === 'x-emby-authorization') {
+            this.__tfa_authHeader = value;
+        }
+        return origSetHeader.apply(this, arguments);
     };
     XMLHttpRequest.prototype.send = function () {
         var xhr = this;
         if (isAuthPath(xhr.__tfa_url)) {
+            try {
+                var id = getStableDeviceId();
+                if (id) {
+                    origSetHeader.call(xhr, 'X-Emby-Device-Id', id);
+                    if (xhr.__tfa_authHeader && /DeviceId=/i.test(xhr.__tfa_authHeader)) {
+                        var patched = xhr.__tfa_authHeader.replace(/DeviceId="[^"]*"/i, 'DeviceId="' + id + '"');
+                        origSetHeader.call(xhr, 'X-Emby-Authorization', patched);
+                    }
+                }
+            } catch (e) {}
             xhr.addEventListener('readystatechange', function () {
                 if (xhr.readyState !== 4) return;
                 if (xhr.status !== 401) return;
@@ -131,9 +203,6 @@
     function injectSettingsTile() {
         try {
             var hash = (window.location.hash || '').toLowerCase();
-            // Trigger on all preferences-style URLs, including the per-user
-            // settings drawer which opens `#!/mypreferencesmenu.html` but also
-            // on /myprofile, /quickconnect and similar landings.
             var onPrefsPage = hash.indexOf('mypreferencesmenu') >= 0
                 || hash.indexOf('userprofile') >= 0
                 || hash.indexOf('myprofile') >= 0
@@ -141,63 +210,69 @@
             if (!onPrefsPage) return;
             if (document.getElementById(SETTINGS_TILE_ID)) return;
 
-            // Find the preferences list — try several common containers,
-            // then fall back to finding a known tile's parent.
-            var list = document.querySelector(
-                '.preferencesContainer .readOnlyContent,' +
-                ' .userPreferencesPage .readOnlyContent,' +
-                ' .preferencesContainer,' +
-                ' .userPreferencesPage'
-            );
-            if (!list) {
-                // Fallback: locate any "Profile" / "Quick Connect" / "Playback"
-                // tile and use its parent as the list container.
-                var candidates = document.querySelectorAll('a, button');
-                for (var i = 0; i < candidates.length; i++) {
-                    var t = (candidates[i].textContent || '').trim().toLowerCase();
-                    if (t === 'profile' || t === 'quick connect' || t === 'display' || t === 'playback') {
-                        list = candidates[i].parentElement;
-                        break;
-                    }
+            // Find Profile to anchor placement. We intentionally do NOT clone
+            // any sibling tile's markup — themes (JellyFlare / StarTrack /
+            // KefinTweaks) inject extra glyphs via CSS selectors matched on
+            // href, class, or inner material-icons text. Every clone we tried
+            // leaked at least one decorative icon. Building from scratch with
+            // only Jellyfin's base classes avoids all theme targeting.
+            var profile = null;
+            var all = document.querySelectorAll('a, button');
+            for (var i = 0; i < all.length; i++) {
+                var txt = (all[i].textContent || '').trim().toLowerCase();
+                if (txt === 'profile' || txt.indexOf('profile') === 0) {
+                    profile = all[i];
+                    break;
                 }
             }
-            if (!list) return;
+            if (!profile) return;
 
-            // Copy styling from a sibling tile so theme classes carry over
-            var template = list.querySelector('a.listItem, a.cardBox, a.button-link, a, button');
-            if (!template) return;
+            // Walk up from Profile to the real row (direct child of the list).
+            var template = profile;
+            var container = profile.parentElement;
+            while (container && container !== document.body) {
+                var siblingTiles = 0;
+                var children = container.children || [];
+                for (var j = 0; j < children.length; j++) {
+                    var c = children[j];
+                    if (c === template) continue;
+                    var tn = c.tagName ? c.tagName.toLowerCase() : '';
+                    if (tn === 'a' || tn === 'button' || (c.className && /listItem|cardBox|button-link/i.test(c.className))) {
+                        siblingTiles++;
+                        if (siblingTiles >= 1) break;
+                    }
+                }
+                if (siblingTiles >= 1) break;
+                template = container;
+                container = container.parentElement;
+            }
+            if (!container || container === document.body) return;
 
-            var useButton = template.tagName && template.tagName.toLowerCase() === 'button';
-            var tile = document.createElement(useButton ? 'button' : 'a');
+            // Build from scratch. Use Jellyfin's base listItem classes (the
+            // same set the stock UI uses when themes aren't active) so layout
+            // inherits the drawer's row spacing without matching theme rules.
+            var tile = document.createElement('a');
             tile.id = SETTINGS_TILE_ID;
-            if (!useButton) tile.href = '/TwoFactorAuth/Setup';
-            else tile.addEventListener('click', function (e) { e.preventDefault(); window.location.assign('/TwoFactorAuth/Setup'); });
-            tile.className = template.className;
+            // Don't set href — Jellyfin's emby-linkbutton + router would
+            // rewrite /TwoFactorAuth/Setup to /web/index.html#/TwoFactorAuth/Setup,
+            // which is a SPA route and 404s. Use a click handler for a hard
+            // navigation that leaves the SPA entirely.
+            tile.style.cursor = 'pointer';
+            tile.addEventListener('click', function (e) {
+                e.preventDefault();
+                window.location.assign('/TwoFactorAuth/Setup');
+            });
+            tile.className = 'listItem listItem-border listItem-button';
+            tile.innerHTML =
+                '<span class="material-icons listItemIcon listItemIcon-transparent" aria-hidden="true" style="font-family:\'Material Icons\';">security</span>' +
+                '<div class="listItemBody">' +
+                    '<div class="listItemBodyText">Two-Factor Authentication</div>' +
+                '</div>' +
+                '<span class="material-icons" aria-hidden="true" style="font-family:\'Material Icons\';margin-left:auto;opacity:0.5;">chevron_right</span>';
 
-            // Mirror the template's inner structure if it uses the listItem layout
-            var hadIconAndBody = template.querySelector('.listItemBody');
-            if (hadIconAndBody) {
-                tile.innerHTML =
-                    '<span class="material-icons listItemIcon listItemIcon-transparent" aria-hidden="true">security</span>' +
-                    '<div class="listItemBody">' +
-                        '<div class="listItemBodyText">Two-Factor Authentication</div>' +
-                        '<div class="listItemBodyText secondary">Manage TOTP, recovery codes, paired devices, and app passwords</div>' +
-                    '</div>' +
-                    '<span class="material-icons" aria-hidden="true" style="margin-left:auto;opacity:0.4;">chevron_right</span>';
-            } else {
-                tile.innerHTML =
-                    '<span class="material-icons" style="margin-right:8px;vertical-align:middle;">security</span>' +
-                    'Two-Factor Authentication';
-            }
-
-            // Insert right after the template (typically Profile) so it groups
-            // with identity/security settings rather than getting lost at the end.
-            if (template.parentElement === list && template.nextSibling) {
-                list.insertBefore(tile, template.nextSibling);
-            } else {
-                list.appendChild(tile);
-            }
-            console.log('[2FA] Settings tile inserted');
+            if (template.nextSibling) container.insertBefore(tile, template.nextSibling);
+            else container.appendChild(tile);
+            console.log('[2FA] Settings tile inserted next to Profile');
         } catch (e) {
             console.error('[2FA] injectSettingsTile error:', e);
         }

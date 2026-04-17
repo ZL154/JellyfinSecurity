@@ -239,7 +239,32 @@ public class UserTwoFactorStore
         await _apiKeysLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            return await ReadApiKeysFileAsync().ConfigureAwait(false);
+            var keys = await ReadApiKeysFileAsync().ConfigureAwait(false);
+
+            // One-shot migration: any legacy entry with a plaintext Key and
+            // no KeyHash gets hashed in place. After this we re-save so the
+            // raw key is wiped from disk. Idempotent — subsequent loads skip.
+            var migrated = false;
+            foreach (var k in keys)
+            {
+                if (string.IsNullOrEmpty(k.KeyHash) && !string.IsNullOrEmpty(k.Key))
+                {
+                    k.KeyHash = BypassEvaluator.HashApiKey(k.Key);
+                    if (string.IsNullOrEmpty(k.KeyPreview))
+                    {
+                        k.KeyPreview = k.Key.Length > 6 ? k.Key.Substring(0, 6) + "…" : k.Key;
+                    }
+                    k.Key = string.Empty;
+                    migrated = true;
+                }
+            }
+            if (migrated)
+            {
+                var json = JsonSerializer.Serialize(keys, JsonOptions);
+                await AtomicWriteAsync(_apiKeysFilePath, json).ConfigureAwait(false);
+            }
+
+            return keys;
         }
         finally
         {

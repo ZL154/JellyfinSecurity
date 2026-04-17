@@ -11,11 +11,11 @@
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Authentication-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/badge/Version-1.3.0-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
+  <img src="https://img.shields.io/badge/Version-1.3.3-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
-# 🔐 Two-Factor Authentication for Jellyfin(THIS PLUGIN IS A WORK IN PROGRESS - DO NOT EXPECT IT TO WORK IF INSTALLED NOW - this message will be removed when needed)
+# 🔐 Two-Factor Authentication for Jellyfin
 
 A native server-side 2FA plugin that **enforces verification on every login** using TOTP authenticator apps, recovery codes, or email OTP. Built around a per-device trust model so users only enter codes when needed.
 
@@ -37,6 +37,7 @@ A native server-side 2FA plugin that **enforces verification on every login** us
 - [API endpoints](#-api-endpoints)
 - [Security model](#-security-model)
 - [Limitations](#-limitations)
+- [Changelog](#-changelog)
 - [License](#-license)
 
 ---
@@ -151,20 +152,53 @@ Restart Jellyfin after copying.
 
 ### As an admin
 
-1. After installing, go to **Dashboard → Plugins → Two-Factor Authentication**
-2. Open the **Settings** tab and verify:
-   - ✅ Plugin Enabled
-   - ✅ LAN Bypass enabled (skip 2FA on local network)
-   - ✅ Email OTP allowed (optional fallback)
-3. If you're behind a reverse proxy (Cloudflare Tunnel, nginx, Caddy), enable **Trust X-Forwarded-For** and add your proxy IPs to **Trusted Proxy CIDRs**
+1. Install the plugin from the manifest URL in **Dashboard → Plugins → Repositories → Add**, then install **Two-Factor Authentication** from the catalog and restart Jellyfin.
+2. Go to **Dashboard → Plugins → Two-Factor Authentication**
+3. Open the **Settings** tab and verify:
+   - ✅ **Enabled** — master switch
+   - ✅ **Require for all users** — off by default. When on, every user with a password must enroll (existing trusted sessions keep working). When off, 2FA is opt-in per user.
+   - ✅ **LAN Bypass** — skip 2FA when the request comes from a LAN IP (192.168/16, 10/8, 172.16/12 by default). Adds convenience, reduces prompts on local devices.
+   - **Email OTP** — optional fallback if a user loses their authenticator. Requires SMTP config below.
+4. If you're behind a reverse proxy (Cloudflare, nginx, Caddy, Traefik):
+   - Enable **Trust X-Forwarded-For**
+   - Add your proxy IPs (or Cloudflare's IP ranges) to **Trusted Proxy CIDRs**
+   - Without this, rate limiting collapses to a single bucket because every request looks like it comes from the proxy's loopback.
+5. Optional: configure **Notifications** (Gotify, ntfy, or webhook) to get alerts when someone triggers a 2FA prompt.
 
 ### As a user (enroll in 2FA)
 
-1. Visit `https://your-jellyfin/TwoFactorAuth/Setup`
-2. Click **Set up Authenticator App**
-3. Scan the QR code with your authenticator app
-4. Type the 6-digit code shown in the app to confirm
-5. **Generate recovery codes** and save them somewhere safe (password manager). Each code works once and can sign you in if you lose your phone.
+1. Sign in to Jellyfin normally (no 2FA yet)
+2. Open **Profile → Two-Factor Authentication** (or visit `https://your-jellyfin/TwoFactorAuth/Setup`)
+3. Click **Set up Authenticator App**
+4. Scan the QR code with your authenticator (Google Authenticator, Authy, 1Password, Bitwarden, etc.)
+5. Enter the 6-digit code shown in the app to confirm
+6. **Generate recovery codes** — you get 10 single-use codes. Save them in your password manager. Each one can sign you in if you lose your phone.
+7. (Optional) Add your email under **Email OTP** if you want email as a backup factor.
+
+### Signing in with 2FA on the web
+
+From this point, every login from a new browser prompts for a code:
+
+1. Sign in at `/web` with username + password as usual
+2. You'll be redirected to the 2FA challenge page
+3. Enter the 6-digit code from your authenticator
+4. Done — this browser is trusted for 30 days (cookie bound to your device)
+
+### Native apps / TVs (Jellyfin for Tizen, Swiftfin, Jellyfin Android, etc.)
+
+Native apps don't know how to do a 2FA flow, so the plugin uses **device pairing** instead:
+
+1. Open the native app and sign in with your username + password
+2. The app will show "Invalid" or fail to load — that's expected. The server recorded a **pending pairing** for this device.
+3. On any already-trusted device (your laptop, phone browser), go to **Setup → Devices Waiting for Approval**
+4. You'll see the TV/app listed. Click **Trust**.
+5. Back on the TV/app, retry sign-in — it now works and is remembered permanently.
+
+This way a TV/console/media-box that can't type a TOTP code still gets its own credential you can revoke later.
+
+### Native apps that can't do the pairing flow (scripts, older tools)
+
+Use **app passwords**: in Setup → App Passwords → Generate. You get a one-time shown random password. Use it in the app **in place of your Jellyfin password**. The plugin matches it via PBKDF2 hash and bypasses the 2FA prompt. Each app password can be revoked independently.
 
 ---
 
@@ -176,13 +210,15 @@ Restart Jellyfin after copying.
 - Enter your username, password, and 6-digit code from your app
 - After first sign-in on this browser, you won't be asked for the code again for 30 days
 
-### Mobile apps (Swiftfin, Findroid, etc.)
+### Mobile / TV apps (Swiftfin, Findroid, Jellyfin for Tizen, Android TV, etc.)
 
-Mobile apps don't currently support 2FA flows. Workaround:
-1. Sign in once via the web on the same device using `/TwoFactorAuth/Login`
-2. Then configure the mobile app — it will use a session token from a successful 2FA login
+Use the **device pairing** flow described in [First-time setup](#-first-time-setup):
+1. Sign in on the TV/mobile app with your password
+2. It'll fail once — that's normal, the server recorded a pending pairing
+3. Approve the device from Setup on any already-trusted browser
+4. Retry on the TV/app — it now works permanently
 
-A native mobile flow requires app-side support which is out of scope for this plugin.
+Alternative: generate an **app password** in Setup and use it in place of your real password. Useful for older apps or anything that can't tolerate the pairing-request delay.
 
 ### Sonarr / Radarr / Overseerr / Jellyseerr
 
@@ -367,7 +403,48 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 - **TV pairing flow** — backend exists, no TV-side UI yet. Use trusted device tokens or admin pre-registration of device IDs.
 - **Quick Connect** — works as Jellyfin's normal flow but creates a session subject to 2FA enforcement (user will be blocked until they complete 2FA via `/TwoFactorAuth/Login`).
 - **Email OTP requires admin to set per-user email** — Jellyfin's user entity doesn't expose email consistently across versions, so admins enter emails in the Users tab.
-- **Cookie isn't bound to IP** — a stolen trust cookie works from any IP for 30 days. Standard for browser cookies; revoke the device in admin if a browser is compromised.
+- **Cookie isn't bound to IP** — a stolen trust cookie works from any IP for 30 days, within the signed deviceId. Revoke the device in admin if a browser is compromised.
+
+---
+
+## 📝 Changelog
+
+### 1.3.3 — Security hardening
+
+**Critical fixes**
+- Trust cookie now signs the `deviceId` and expiry into the payload. A stolen cookie can no longer be replayed with an attacker-chosen `X-Emby-Device-Id` header (device substitution bypass). Cookie rotates on every use.
+- Token-approval race between the SessionStarted event handler and response-intercept middleware is now bound to `(userId, deviceId, token)` and single-consume — closes a narrow timing window that could leak a bypass.
+- Recovery codes upgraded from plain SHA-256 to PBKDF2-SHA256 (100k iters, per-code salt). Legacy codes still validate seamlessly; new generations write the hardened format.
+- Open redirect in `/TwoFactorAuth/Challenge?return=` closed — same-origin check with `javascript:` / `data:` / `file:` rejection.
+
+**High-severity fixes**
+- `PairedDevice` / `TrustedDevice` `deviceId` comparisons are now case-sensitive (`Ordinal`). Previously `OrdinalIgnoreCase` allowed case-variant bypass.
+- Pairing approve refuses records with `Guid.Empty` user or empty `deviceId` (phantom-user write prevention).
+- `RegisteredDeviceIds` capped at 50 per user with 128-char printable-ASCII validation — no more storage-inflation DoS.
+- `IsAuthPath` is now anchored to `^/Users/…` instead of substring `Contains` — closes a confused-deputy path where a third-party plugin's response could be rewritten as a 2FA challenge.
+- `X-Frame-Options: DENY`, `CSP frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` on all embedded pages (anti-clickjacking).
+- Rate limiter is now reverse-proxy aware via `TrustForwardedFor` + `TrustedProxyCidrs`. IPv6 is bucketed by `/64` to prevent host-rotation bypass.
+- `/Verify` now has a per-user rate limit (15 per 15 min) in addition to per-IP.
+- `/Pairings/Initiate` input (`Username`, `DeviceName`) sanitized against control characters and HTML-significant bytes; length-capped at 64.
+
+**Medium-severity fixes**
+- `inject.js` redirects to a hardcoded `/TwoFactorAuth/Challenge?token=…` path instead of trusting the server body's `ChallengePageUrl`.
+- `TestSmtp` admin endpoint no longer echoes `ex.Message` — full detail goes to server logs.
+- Device revocation (both paired and trusted) wipes in-memory pre-verified flags and calls `Logout(accessToken)` on any live session for that device.
+- `PairConfirm` records a short-TTL seen-signature set — the same signed pairing token can only be used once.
+- API keys are now stored as SHA-256 hash + short preview. Raw key is shown once on create. Legacy plaintext keys auto-migrate on first load; the API key listing never returns the raw secret.
+- `CookieSigner.Verify` length-checks signatures before `FixedTimeEquals` to eliminate the throw/non-throw timing oracle.
+
+**Quality of life**
+- Settings tile now renders inline with Profile/Quick Connect/Display under the user section of themed drawers (JellyFlare, StarTrack, KefinTweaks). Previously appeared in a floating bottom-left position.
+- Dev-only log chatter moved to Debug. Info/Warn retained only for audit-worthy events (challenge issued, bypass applied, lockout, paired device added/revoked).
+- LAN bypass now auto-registers the `deviceId` and clears stale pending pairings for the same device — browsers that alternate between LAN and Cloudflare (NAT hairpin) no longer accumulate pending entries.
+
+### 1.3.2
+
+- Fixed DI circular dependency when registering `IAuthenticationProvider` (`TwoFactorAuthProvider` now resolves `IUserManager` lazily via `IApplicationHost`).
+- Samsung Tizen / Jellyfin for Tizen pairing works end-to-end.
+- Login loop fixed by removing access-token blocking — middleware response-intercept is now the only gate.
 
 ---
 
