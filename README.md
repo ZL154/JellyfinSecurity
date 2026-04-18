@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Authentication-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/badge/Version-1.3.3-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
+  <img src="https://img.shields.io/badge/Version-1.4.0-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -183,6 +183,57 @@ From this point, every login from a new browser prompts for a code:
 2. You'll be redirected to the 2FA challenge page
 3. Enter the 6-digit code from your authenticator
 4. Done — this browser is trusted for 30 days (cookie bound to your device)
+
+### Passkeys (v1.4) — sign in with Face ID / fingerprint / YubiKey
+
+Passkeys replace the 6-digit code with a biometric or hardware tap. They are phishing-resistant (the credential is bound to your exact domain) and require no typing.
+
+**Important — server config first.** Passkeys require HTTPS AND the WebAuthn Relying Party ID + origin to match the URL the browser is on. In **Dashboard → Plugins → Two-Factor Authentication → Settings → WebAuthn / passkeys**:
+
+- **Relying Party ID**: enter your public hostname only — `jellyfin.example.com`. No `https://`, no port, no path.
+- **Allowed origins**: one per line, full origin including scheme and port — e.g. `https://jellyfin.example.com` and `https://jellyfin.example.com:8096`. Add every URL users actually hit.
+
+If you skip this, browsers will refuse to register or use passkeys (Apple Safari is the strictest).
+
+#### Add a passkey on a desktop browser
+
+1. Open the Setup page on the URL you configured above
+2. Setup → **Passkeys** card → optionally type a label → **Add a passkey**
+3. Browser prompts your platform authenticator (Windows Hello / Touch ID / a YubiKey USB key)
+4. Tap / scan / confirm — the passkey is saved
+
+#### Add a passkey on iPhone (Safari)
+
+1. Open **Safari** and visit your Jellyfin HTTPS URL — must be the URL configured as the WebAuthn origin, not the bare LAN IP
+2. Sign in with username + password + 2FA code
+3. Setup → **Passkeys** → label it (e.g. "iPhone") → **Add a passkey**
+4. iOS shows "Save passkey for ...?" — confirm with **Face ID / Touch ID**
+5. The passkey is saved to **iCloud Keychain** and syncs to every Apple device on the same Apple ID
+
+#### Add a passkey on Android (Chrome)
+
+1. Open **Chrome** on Android and visit your Jellyfin HTTPS URL
+2. Sign in with username + password + 2FA code
+3. Setup → **Passkeys** → label it (e.g. "Pixel 8") → **Add a passkey**
+4. Android shows "Save passkey to Google Password Manager?" — confirm with **fingerprint / face unlock**
+5. The passkey now lives in your Google account and syncs to every Android signed in with the same Google account
+
+**Common Android gotchas:**
+- "Add a passkey" does nothing → your phone needs a screen lock (PIN/pattern/biometric). Android refuses to create passkeys without one.
+- "No passkey provider available" → Settings → Passwords & accounts → Passwords → enable Google Password Manager, or set Bitwarden / 1Password as your default credential provider.
+- Samsung Internet sometimes hides the passkey button — use **Chrome** instead.
+
+#### Using a passkey to sign in
+
+1. Visit your Jellyfin URL → enter username + password as usual
+2. At the 2FA challenge page → tap **🔑 Use a passkey instead**
+3. The browser prompts your authenticator → confirm with biometric / hardware key
+4. You're in. No code typed.
+
+#### What passkeys do NOT do
+
+- **Native apps (Findroid, Streamyfin, Swiftfin, official Jellyfin app) cannot use passkeys.** WebAuthn is a browser-only API; native apps have no hook to call it. For app sign-in use **device pairing** (below) and the **app's own biometric lock** (Findroid → Settings → Biometric authentication, Swiftfin → Settings → Security → Lock with Face ID, etc.).
+- Passkeys do not replace your password — they replace the **2FA code step**. You still enter username + password first.
 
 ### Native apps / TVs (Jellyfin for Tizen, Swiftfin, Jellyfin Android, etc.)
 
@@ -408,6 +459,44 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 1.4.0 — Passkeys + safety net
+
+**New factors**
+- **Passkeys / WebAuthn** as a 2nd-factor option. Sign in with Face ID, Windows Hello, Touch ID, a YubiKey, or any FIDO2 authenticator. Phishing-resistant (signature is bound to your domain). Add and remove passkeys from Setup → Passkeys. Passkey verification replaces the OTP step at the 2FA challenge — username + password still happen first.
+
+**User self-service**
+- **"I lost my phone" emergency lockout** — single button on Setup. Terminates every session, revokes every trusted/paired device, requires recovery code or email OTP to sign back in.
+- **TOTP secret rotation** — replace your authenticator seed without admin involvement (current code + a recovery code).
+- **Recovery codes PDF + print** — download as PDF or print directly from the browser instead of the .txt download.
+- **QR-pair-from-phone** — Setup page renders a QR an already-signed-in phone can scan to add this browser as a paired device. Reverse direction of the existing TV pairing.
+- **`autocomplete="one-time-code"`** on the OTP input — iOS picks codes from Messages.
+
+**Admin tools**
+- **Overview / adoption dashboard** — % enrolled, recent enrollments, failed verifies + lockouts in last 24h, users past the configured enrollment deadline.
+- **Diagnostics tab** — run a green/red checklist (signing keys readable, audit chain intact, IAuthenticationProvider registered, recovery hash format upgrade complete, GeoIP DBs loaded, etc.).
+- **Rate-limit observability** — see when buckets trip, key by key, since last restart.
+- **Bulk user actions** — disable 2FA / rotate recovery / revoke paired / revoke trusted / force logout, applied across N users at once.
+- **User search + filter** in the Users tab.
+- **Force-logout user** button per row — kills every session, clears trust state.
+- **Per-user GDPR export** — JSON dump of everything we have on file (no secrets).
+- **Webhook events** — POST `{event, user, ip, timestamp, payload}` to any URL. Optional HMAC-SHA256 signature header (`X-2FA-Signature: sha256=...`) computed over `<unix-timestamp>.<body>`. The unix timestamp is also exposed as `X-2FA-Timestamp` so receivers can do replay/skew checks without parsing the JSON body. Events: lockout, new device, recovery used, suspicious login, passkey registered, TOTP rotated, emergency lockout, admin force-logout.<br><br>**Privacy note:** webhook payloads include the username, source IP, device name, and (for suspicious-login events) ASN + country code. Don't send webhooks to a third-party service you wouldn't share that data with. The plugin refuses to dispatch to RFC1918, loopback, link-local (incl. cloud metadata 169.254/16) or IPv6 private/link-local addresses as a basic SSRF guard.
+- **Suspicious-login alerts** — first sign-in from a never-seen ASN/country fires a notification. Requires admin to drop free MaxMind GeoLite2 .mmdb files into the config dir (paths configurable in Settings).
+
+**Security & integrity**
+- **Audit log hash chain** — each entry's hash chains the previous, so silent tampering with `audit.json` is detectable. The Diagnostics tab verifies the chain on demand.
+- **Per-user concurrent-session cap** — admin sets a default and per-user override; oldest non-paired sessions get evicted when over the limit.
+- **NAT-hairpin self-IP bypass** (opt-in) — admin can have the plugin auto-discover the server's public IP at startup and treat hairpinned requests as LAN. Documented with an explicit warning about the IoT/guest-WiFi blast radius.
+
+**Tunables**
+- Pre-verify window (the brief allowance after a successful verify so follow-up sessions go through) — configurable 30s–900s.
+- Trust cookie TTL — configurable 1d–90d.
+- Optional enrollment deadline — flagged on the Overview dashboard.
+
+**New dependencies bundled** (Linux x64 native libs included; Windows / macOS users currently need Docker or to manually supply `libsodium`):
+- Fido2NetLib (MIT) — FIDO2 / WebAuthn server-side
+- MaxMind.Db (Apache 2.0) — offline ASN/country lookup
+- QuestPDF (Community license — free under USD 1M revenue) — recovery-codes PDF render
 
 ### 1.3.3 — Security hardening
 

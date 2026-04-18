@@ -53,10 +53,12 @@ public class ChallengeStore : IDisposable
         if (string.IsNullOrEmpty(deviceId))
         {
             // Refuse to set a deviceless pre-verified mark — it would grant
-            // a 2-minute free-pass to every other device of this user.
+            // a free-pass window to every other device of this user.
             return;
         }
-        _preVerifiedDevices[DeviceKey(userId, deviceId)] = DateTime.UtcNow.AddMinutes(2);
+        var seconds = Math.Clamp(
+            Plugin.Instance?.Configuration?.PreVerifyWindowSeconds ?? 120, 30, 900);
+        _preVerifiedDevices[DeviceKey(userId, deviceId)] = DateTime.UtcNow.AddSeconds(seconds);
     }
 
     public bool IsDevicePreVerified(Guid userId, string? deviceId)

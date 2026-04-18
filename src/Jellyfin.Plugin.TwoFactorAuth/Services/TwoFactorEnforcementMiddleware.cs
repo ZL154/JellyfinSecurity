@@ -363,8 +363,23 @@ public class TwoFactorEnforcementMiddleware
             _logger.LogInformation("[2FA] Issuing challenge for {Name} from {Ip}", authResult.User.Name, remoteIp);
 
             var methods = new List<string>();
-            if (userData.TotpVerified) methods.Add("totp");
-            if (config.EmailOtpEnabled) methods.Add("email");
+            // v1.4: emergency lockout sets ForceRecoveryOnNextLogin to true.
+            // Strip TOTP and passkey from the available methods until the user
+            // consumes a recovery code OR an email OTP — that's the contract
+            // the user-facing button promises ("recovery code required to sign
+            // in"). The flag is cleared in the controller's Verify path on
+            // successful recovery.
+            if (userData.ForceRecoveryOnNextLogin)
+            {
+                methods.Add("recovery");
+                if (config.EmailOtpEnabled) methods.Add("email");
+            }
+            else
+            {
+                if (userData.TotpVerified) methods.Add("totp");
+                if (userData.Passkeys.Count > 0) methods.Add("passkey");
+                if (config.EmailOtpEnabled) methods.Add("email");
+            }
             if (methods.Count == 0) methods.Add("email");
 
             var challenge = _challengeStore.CreateChallenge(

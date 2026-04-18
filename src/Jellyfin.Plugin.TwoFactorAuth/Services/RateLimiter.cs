@@ -14,6 +14,17 @@ public class RateLimiter
 {
     private readonly ConcurrentDictionary<string, List<DateTime>> _hits = new();
 
+    // v1.4 observability: bounded list of recent rate-limit trips so admins
+    // can see when buckets are firing and tune limits / spot abuse. Bounded
+    // at 200 — anything beyond that is recurring noise that an admin should
+    // tune away rather than scroll through.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<RateLimitTrip> _recentTrips = new();
+    private const int MaxRecentTrips = 200;
+
+    public record RateLimitTrip(DateTime At, string Key, int Limit, int WindowSeconds, int RetryAfterSeconds);
+
+    public IReadOnlyList<RateLimitTrip> RecentTrips() => _recentTrips.ToArray();
+
     /// <summary>
     /// Returns true if the request from this key (IP) should be allowed.
     /// Returns false (and the time until next allowed attempt) if rate-limited.
@@ -32,12 +43,19 @@ public class RateLimiter
             {
                 var oldest = bucket[0];
                 var retryAfter = Math.Max(1, (int)((oldest + window) - now).TotalSeconds);
+                RecordTrip(key, maxRequests, (int)window.TotalSeconds, retryAfter);
                 return (false, retryAfter);
             }
 
             bucket.Add(now);
             return (true, 0);
         }
+    }
+
+    private void RecordTrip(string key, int limit, int windowSeconds, int retryAfter)
+    {
+        _recentTrips.Enqueue(new RateLimitTrip(DateTime.UtcNow, key, limit, windowSeconds, retryAfter));
+        while (_recentTrips.Count > MaxRecentTrips && _recentTrips.TryDequeue(out _)) { }
     }
 
     /// <summary>

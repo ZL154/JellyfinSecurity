@@ -38,6 +38,22 @@
             #TwoFactorAuth .tfa-btn-success { background: rgba(76,175,80,0.15); color: #4caf50; border: 1px solid rgba(76,175,80,0.3); }
             #TwoFactorAuth .tfa-btn-success:hover { background: rgba(76,175,80,0.25); }
             #TwoFactorAuth .tfa-empty { text-align: center; padding: 40px; color: #666; font-size: 14px; }
+            #TwoFactorAuth .tfa-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+            #TwoFactorAuth .tfa-stat { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 18px; }
+            #TwoFactorAuth .tfa-stat-val { font-size: 32px; font-weight: 700; color: #00a4dc; line-height: 1; }
+            #TwoFactorAuth .tfa-stat-lbl { font-size: 13px; color: #ccc; margin-top: 6px; }
+            #TwoFactorAuth .tfa-stat-hint { font-size: 11px; color: #888; margin-top: 4px; }
+            #TwoFactorAuth .tfa-stat-warn { border-color: #f44336; }
+            #TwoFactorAuth .tfa-stat-warn .tfa-stat-val { color: #f44336; }
+
+            /* v1.4 polish: Users-table actions cell — breathing room between
+               badges, vertical alignment, and small action buttons that don't
+               overflow on a narrow viewport. */
+            #TwoFactorAuth .tfa-users-table td { vertical-align: middle; padding: 10px 8px; }
+            #TwoFactorAuth .tfa-users-table .tfa-badge { display: inline-flex; align-items: center; gap: 3px; margin: 1px 2px; padding: 2px 7px; font-size: 10px; line-height: 1.4; border-radius: 4px; }
+            #TwoFactorAuth .tfa-users-table td:nth-child(7) .tfa-btn { margin: 2px 0; padding: 5px 10px; font-size: 12px; line-height: 1.2; display: inline-block; }
+            #TwoFactorAuth .tfa-users-table td:nth-child(7) { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 280px; }
+            #TwoFactorAuth .tfa-row-toggle { display: inline-block; margin-top: 2px; }
             #TwoFactorAuth .tfa-filter { width: 100%; padding: 8px 12px; margin-bottom: 12px; }
             #TwoFactorAuth .tfa-note { background: rgba(0,164,220,0.08); border-left: 3px solid #00a4dc; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: #aaa; border-radius: 4px; }
             #TwoFactorAuth .tfa-note.warn { background: rgba(255,152,0,0.08); border-left-color: #ff9800; }
@@ -52,19 +68,42 @@
                     <div class="tfa-note">Service integrations like Sonarr/Radarr use standard Jellyfin API keys, which already bypass user authentication — no plugin configuration needed.</div>
 
                     <div class="tfa-tabs">
-                        <div class="tfa-tab active" data-tab="users">Users</div>
+                        <div class="tfa-tab active" data-tab="overview">Overview</div>
+                        <div class="tfa-tab" data-tab="users">Users</div>
                         <div class="tfa-tab" data-tab="devices">Trusted Devices</div>
                         <div class="tfa-tab" data-tab="pairings">Pairings</div>
                         <div class="tfa-tab" data-tab="audit">Audit Log</div>
+                        <div class="tfa-tab" data-tab="diagnostics">Diagnostics</div>
+                        <div class="tfa-tab" data-tab="trips">Rate Limits</div>
                         <div class="tfa-tab" data-tab="settings">Settings</div>
                     </div>
 
+                    <!-- OVERVIEW (v1.4) -->
+                    <div class="tfa-panel active" id="panel-overview">
+                        <div class="tfa-section">
+                            <h2>2FA Adoption</h2>
+                            <div id="statsBody" class="tfa-stats-grid">Loading…</div>
+                        </div>
+                    </div>
+
                     <!-- USERS -->
-                    <div class="tfa-panel active" id="panel-users">
+                    <div class="tfa-panel" id="panel-users">
                         <div class="tfa-section">
                             <h2>User 2FA Status</h2>
-                            <table class="tfa-table">
-                                <thead><tr><th>User</th><th>TOTP</th><th>Devices</th><th>Recovery</th><th>Email</th><th>Status</th><th>Actions</th></tr></thead>
+                            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+                                <input type="text" id="usersFilter" placeholder="Search by username..." class="tfa-input" style="flex:1;min-width:240px;" />
+                                <select id="usersBulkAction" class="tfa-input" style="width:240px;">
+                                    <option value="">Bulk action…</option>
+                                    <option value="reset_2fa">Reset 2FA (full wipe)</option>
+                                    <option value="rotate_recovery">Rotate recovery codes</option>
+                                    <option value="revoke_paired_devices">Revoke paired devices</option>
+                                    <option value="revoke_trusted_browsers">Revoke trusted browsers</option>
+                                    <option value="force_logout">Force logout</option>
+                                </select>
+                                <button id="usersBulkApply" class="tfa-btn" type="button">Apply to selected</button>
+                            </div>
+                            <table class="tfa-table tfa-users-table">
+                                <thead><tr><th style="width:30px;"><input type="checkbox" id="usersSelectAll" /></th><th>User</th><th>2FA</th><th>Devices</th><th>Email</th><th>Status</th><th style="width:1%;white-space:nowrap;">Actions</th></tr></thead>
                                 <tbody id="usersBody"><tr><td colspan="7" class="tfa-empty">Loading...</td></tr></tbody>
                             </table>
                         </div>
@@ -76,8 +115,8 @@
                             <h2>All Trusted Devices</h2>
                             <p style="font-size:13px;color:#888;margin-bottom:12px;">Devices that bypass 2FA. Revoke any you don't recognize.</p>
                             <table class="tfa-table">
-                                <thead><tr><th>User</th><th>Device</th><th>Added</th><th>Last used</th><th>Expires</th><th></th></tr></thead>
-                                <tbody id="devicesBody"><tr><td colspan="6" class="tfa-empty">Loading...</td></tr></tbody>
+                                <thead><tr><th>Device</th><th>Added</th><th>Last used</th><th>Expires</th><th></th></tr></thead>
+                                <tbody id="devicesBody"><tr><td colspan="5" class="tfa-empty">Loading...</td></tr></tbody>
                             </table>
                         </div>
                     </div>
@@ -105,7 +144,10 @@
                     <div class="tfa-panel" id="panel-audit">
                         <div class="tfa-section">
                             <h2>Login Audit Log</h2>
-                            <input type="text" id="auditFilter" placeholder="Filter by user, IP, device, result..." class="tfa-input tfa-filter" />
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+                                <input type="text" id="auditFilter" placeholder="Filter by user, IP, device, result..." class="tfa-input tfa-filter" style="flex:1;min-width:240px;" />
+                                <button id="auditExportCsv" class="tfa-btn" type="button">Export CSV</button>
+                            </div>
                             <table class="tfa-table">
                                 <thead><tr><th>Time</th><th>User</th><th>IP</th><th>Device</th><th>Result</th><th>Method</th></tr></thead>
                                 <tbody id="auditBody"><tr><td colspan="6" class="tfa-empty">No audit entries yet</td></tr></tbody>
@@ -115,6 +157,29 @@
                                 <span class="page-info" id="auditPageInfo">—</span>
                                 <button class="tfa-btn tfa-btn-primary" id="auditNext">Next ›</button>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- DIAGNOSTICS (v1.4) -->
+                    <div class="tfa-panel" id="panel-diagnostics">
+                        <div class="tfa-section">
+                            <h2>Plugin Diagnostics</h2>
+                            <p style="font-size:13px;color:#888;margin-bottom:12px;">Run a checklist of common configuration / state checks. Re-run after changing settings or a Jellyfin upgrade.</p>
+                            <button id="diagRun" class="tfa-btn tfa-btn-primary" type="button">Run diagnostics</button>
+                            <div id="diagResults" style="margin-top:14px;"></div>
+                        </div>
+                    </div>
+
+                    <!-- RATE LIMITS (v1.4) -->
+                    <div class="tfa-panel" id="panel-trips">
+                        <div class="tfa-section">
+                            <h2>Recent Rate-Limit Trips</h2>
+                            <p style="font-size:13px;color:#888;margin-bottom:10px;">Per-bucket rate-limit hits since last restart. A burst here usually means someone is brute-forcing — or the limit is too tight for legitimate use.</p>
+                            <button id="tripsRefresh" class="tfa-btn" type="button">Refresh</button>
+                            <table class="tfa-table" style="margin-top:10px;">
+                                <thead><tr><th>Time</th><th>Bucket</th><th>Limit</th><th>Window (s)</th><th>Retry after (s)</th></tr></thead>
+                                <tbody id="tripsBody"><tr><td colspan="5" class="tfa-empty">No trips since startup</td></tr></tbody>
+                            </table>
                         </div>
                     </div>
 
@@ -238,6 +303,68 @@
                                 <label style="font-size:13px;color:#888;">Admin email addresses for security alerts (one per line)</label>
                                 <textarea id="cfgEmails" class="tfa-input"></textarea>
                             </div>
+                            <div class="tfa-row">
+                                <label>Webhook URL (POST every event as JSON)</label>
+                                <input type="text" id="cfgWebhookUrl" class="tfa-input" style="width:300px;" placeholder="https://your-webhook" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Webhook secret (optional — adds X-2FA-Signature HMAC)</label>
+                                <input type="text" id="cfgWebhookSecret" class="tfa-input" style="width:300px;" />
+                            </div>
+                            <div style="margin-top:8px;">
+                                <button type="button" class="tfa-btn" id="btnTestWebhook">Send test event</button>
+                                <span id="webhookTestResult" style="margin-left:10px;font-size:13px;"></span>
+                            </div>
+                        </div>
+
+                        <div class="tfa-section">
+                            <h2>Suspicious-login detection (v1.4)</h2>
+                            <div class="tfa-note">Resolve sign-in IPs to ASN + country via MaxMind GeoLite2 .mmdb files. Sign in once with a free MaxMind account, download GeoLite2-ASN and GeoLite2-Country, place the .mmdb files inside Jellyfin's config directory, and paste the absolute paths below. Without these the plugin still works — just no first-seen alerts.</div>
+                            <div class="tfa-row">
+                                <label>GeoLite2-ASN.mmdb path</label>
+                                <input type="text" id="cfgGeoAsn" class="tfa-input" style="width:400px;" placeholder="/config/geoip/GeoLite2-ASN.mmdb" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>GeoLite2-Country.mmdb path (optional)</label>
+                                <input type="text" id="cfgGeoCountry" class="tfa-input" style="width:400px;" placeholder="/config/geoip/GeoLite2-Country.mmdb" />
+                            </div>
+                        </div>
+
+                        <div class="tfa-section">
+                            <h2>WebAuthn / passkeys (v1.4)</h2>
+                            <div class="tfa-note">Most setups can leave these blank — RP ID and origin are derived from the request. Override only when behind a reverse proxy whose public hostname differs from the internal one.</div>
+                            <div class="tfa-row">
+                                <label>Relying Party ID</label>
+                                <input type="text" id="cfgRpId" class="tfa-input" style="width:300px;" placeholder="e.g. jellyfin.example.com" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Allowed origins (one per line, https://...)</label>
+                                <textarea id="cfgRpOrigins" class="tfa-input"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="tfa-section">
+                            <h2>Tunables (v1.4)</h2>
+                            <div class="tfa-row">
+                                <label>Pre-verify window (seconds, 30-900)</label>
+                                <input type="number" id="cfgPreVerify" class="tfa-input" min="30" max="900" style="width:120px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Trust cookie TTL (days, 1-90)</label>
+                                <input type="number" id="cfgTrustTtl" class="tfa-input" min="1" max="90" style="width:120px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Default max concurrent sessions per user (0 = unlimited)</label>
+                                <input type="number" id="cfgMaxSess" class="tfa-input" min="0" max="100" style="width:120px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Enrollment deadline (UTC, optional — yyyy-MM-dd)</label>
+                                <input type="text" id="cfgDeadline" class="tfa-input" style="width:200px;" placeholder="2026-12-31" />
+                            </div>
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="cfgHairpin" is="emby-checkbox" /> <span>Treat server's own public IP as LAN (NAT hairpin) — see security note</span></label>
+                                <p style="font-size:12px;color:#aa8;margin-top:4px;">Anyone sharing the same WAN egress (other devices on the same router, including IoT or guest WiFi) bypasses 2FA. Off by default.</p>
+                            </div>
                         </div>
 
                         <button type="button" class="tfa-btn tfa-btn-primary" id="btnSaveSettings" style="margin-top:8px;padding:11px 32px;font-size:15px;">Save Settings</button>
@@ -278,8 +405,60 @@
                         if (tab.dataset.tab === 'pairings') loadPairings();
                         if (tab.dataset.tab === 'audit') loadAudit();
                         if (tab.dataset.tab === 'settings') loadSettings();
+                        if (tab.dataset.tab === 'overview') loadStats();
+                        if (tab.dataset.tab === 'diagnostics') { /* run on click */ }
+                        if (tab.dataset.tab === 'trips') loadTrips();
                     });
                 });
+
+                // ---- v1.4: STATS / OVERVIEW ----
+                function loadStats() {
+                    var box = page.querySelector('#statsBody');
+                    box.textContent = 'Loading…';
+                    apiGet('TwoFactorAuth/Stats').then(function(s) {
+                        var stat = function(label, val, hint) {
+                            return '<div class="tfa-stat"><div class="tfa-stat-val">' + val + '</div><div class="tfa-stat-lbl">' + escapeHtml(label) + '</div>' + (hint ? '<div class="tfa-stat-hint">' + escapeHtml(hint) + '</div>' : '') + '</div>';
+                        };
+                        var html = stat('Users enrolled', (s.enrolledCount || s.EnrolledCount) + ' / ' + (s.totalUsers || s.TotalUsers), (s.enrolledPercent || s.EnrolledPercent) + '%')
+                            + stat('Recent enrollments (7d)', (s.recentEnrollments7d || s.RecentEnrollments7d))
+                            + stat('Successful logins (24h)', (s.successfulLogins24h || s.SuccessfulLogins24h))
+                            + stat('Failed verifies (24h)', (s.failedVerifies24h || s.FailedVerifies24h))
+                            + stat('Lockouts (24h)', (s.lockouts24h || s.Lockouts24h));
+                        var behind = s.usersBehindDeadline || s.UsersBehindDeadline || [];
+                        if (behind.length) {
+                            html += '<div class="tfa-stat tfa-stat-warn"><div class="tfa-stat-val">' + behind.length + '</div><div class="tfa-stat-lbl">Past enrollment deadline</div><div class="tfa-stat-hint">' + behind.map(function(u){return escapeHtml(u.username || u.Username);}).slice(0,5).join(', ') + (behind.length > 5 ? '…' : '') + '</div></div>';
+                        }
+                        box.innerHTML = html;
+                    }).catch(function() { box.textContent = 'Failed to load stats.'; });
+                }
+
+                // ---- v1.4: DIAGNOSTICS ----
+                page.querySelector('#diagRun').addEventListener('click', function() {
+                    var box = page.querySelector('#diagResults');
+                    box.innerHTML = 'Running…';
+                    apiGet('TwoFactorAuth/Diagnostics').then(function(rows) {
+                        if (!rows || !rows.length) { box.innerHTML = '<em>No checks ran.</em>'; return; }
+                        box.innerHTML = '<table class="tfa-table"><thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead><tbody>' +
+                            rows.map(function(r) {
+                                var s = (r.status || r.Status || '').toLowerCase();
+                                var cls = s === 'ok' ? 'on' : (s === 'warn' ? 'warn' : 'locked');
+                                return '<tr><td>' + escapeHtml(r.label || r.Label) + '</td><td><span class="tfa-badge ' + cls + '">' + (r.status || r.Status) + '</span></td><td style="font-size:12px;color:#aaa;">' + escapeHtml(r.detail || r.Detail) + '</td></tr>';
+                            }).join('') + '</tbody></table>';
+                    }).catch(function() { box.innerHTML = '<span style="color:#f44336;">Failed to run diagnostics.</span>'; });
+                });
+
+                // ---- v1.4: RATE LIMIT TRIPS ----
+                function loadTrips() {
+                    apiGet('TwoFactorAuth/RateLimitTrips').then(function(rows) {
+                        var body = page.querySelector('#tripsBody');
+                        if (!rows || !rows.length) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No trips since startup</td></tr>'; return; }
+                        body.innerHTML = rows.slice().reverse().map(function(t) {
+                            var d = new Date(t.at || t.At).toLocaleString();
+                            return '<tr><td style="font-size:12px;">' + d + '</td><td style="font-family:monospace;font-size:12px;">' + escapeHtml(t.key || t.Key) + '</td><td>' + (t.limit || t.Limit) + '</td><td>' + (t.windowSeconds || t.WindowSeconds) + '</td><td>' + (t.retryAfterSeconds || t.RetryAfterSeconds) + '</td></tr>';
+                        }).join('');
+                    }).catch(function() { page.querySelector('#tripsBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load</td></tr>'; });
+                }
+                page.querySelector('#tripsRefresh').addEventListener('click', loadTrips);
 
                 // ---- USERS ----
                 var allUsersData = [];
@@ -305,24 +484,145 @@
                 }
                 function renderUsersRow(emails) {
                     var body = page.querySelector('#usersBody');
-                    body.innerHTML = allUsersData.map(function(u) {
+                    var q = (page.querySelector('#usersFilter').value || '').toLowerCase();
+                    var rows = allUsersData.filter(function(u) {
+                        if (!q) return true;
+                        return (u.username || u.Username || '').toLowerCase().indexOf(q) >= 0;
+                    });
+                    if (!rows.length) { body.innerHTML = '<tr><td colspan="7" class="tfa-empty">No users match</td></tr>'; return; }
+                    body.innerHTML = rows.map(function(u) {
                         var uid = u.userId || u.UserId;
                         var uidPlain = String(uid).replace(/-/g,'');
                         var totp = u.totpEnabled || u.TotpEnabled;
+                        var passkeyCount = u.passkeyCount || u.PasskeyCount || 0;
                         var locked = u.isLockedOut || u.IsLockedOut;
                         var devices = u.trustedDeviceCount || u.TrustedDeviceCount || 0;
                         var recoveryRemaining = u.recoveryCodesRemaining || u.RecoveryCodesRemaining || 0;
                         var email = emails[uidPlain.toLowerCase()] || '';
-                        return '<tr>' +
-                            '<td>' + escapeHtml(u.username || u.Username || 'Unknown') + '</td>' +
-                            '<td><span class="tfa-badge ' + (totp ? 'on' : 'off') + '">' + (totp ? 'Enabled' : 'Off') + '</span></td>' +
+                        // Consolidated 2FA cell — TOTP + passkeys + recovery in one column
+                        var twoFa = '';
+                        twoFa += totp ? '<span class="tfa-badge on" title="TOTP">TOTP</span> ' : '<span class="tfa-badge off" title="TOTP off">TOTP</span> ';
+                        if (passkeyCount > 0) twoFa += '<span class="tfa-badge on" title="Passkeys">🔑×' + passkeyCount + '</span> ';
+                        twoFa += recoveryRemaining > 0
+                            ? '<span class="tfa-badge on" title="Recovery codes left">RC×' + recoveryRemaining + '</span>'
+                            : '<span class="tfa-badge warn" title="No recovery codes">no RC</span>';
+                        return '<tr class="tfa-user-row" data-uid="' + uid + '">' +
+                            '<td><input type="checkbox" class="tfa-user-select" data-uid="' + uid + '" /></td>' +
+                            '<td><strong>' + escapeHtml(u.username || u.Username || 'Unknown') + '</strong> ' +
+                              '<a href="#" class="tfa-row-toggle" data-uid="' + uid + '" style="font-size:11px;color:#888;text-decoration:none;margin-left:4px;">▸ details</a></td>' +
+                            '<td>' + twoFa + '</td>' +
                             '<td>' + devices + '</td>' +
-                            '<td>' + (recoveryRemaining > 0 ? recoveryRemaining : '<span class="tfa-badge warn">none</span>') + '</td>' +
                             '<td><input type="email" class="tfa-input tfa-email" data-uid="' + uidPlain + '" value="' + escapeHtml(email) + '" placeholder="user@example.com" style="width:200px;" /></td>' +
                             '<td>' + (locked ? '<span class="tfa-badge locked">Locked</span>' : '<span class="tfa-badge on">OK</span>') + '</td>' +
-                            '<td><button class="tfa-btn tfa-btn-primary tfa-toggle" data-id="' + uid + '" data-next="' + !totp + '">' + (totp ? 'Disable' : 'Enable') + '</button></td>' +
+                            '<td style="white-space:nowrap;">' +
+                              '<button class="tfa-btn tfa-btn-primary tfa-toggle" data-id="' + uid + '" data-next="' + !totp + '">' + (totp ? 'Disable' : 'Enable') + '</button> ' +
+                              '<button class="tfa-btn tfa-btn-danger tfa-force-logout" data-id="' + uid + '">Force logout</button> ' +
+                              '<button class="tfa-btn tfa-revoke-all" data-id="' + uid + '">Revoke all</button> ' +
+                              '<button class="tfa-btn tfa-export-user" data-id="' + uid + '">Export</button>' +
+                            '</td>' +
+                            '</tr>' +
+                            // Hidden details row — populated lazily on first toggle
+                            '<tr class="tfa-user-details" data-uid="' + uid + '" style="display:none;">' +
+                              '<td colspan="7" style="background:rgba(0,0,0,0.25);padding:14px;font-size:12px;">' +
+                                '<div class="tfa-details-content" data-loaded="0">Click ▸ details to load</div>' +
+                              '</td>' +
                             '</tr>';
                     }).join('');
+                    body.querySelectorAll('.tfa-force-logout').forEach(function(b) {
+                        b.addEventListener('click', function() {
+                            if (!confirm('Force-logout this user? All their Jellyfin sessions are terminated and trust state is cleared.')) return;
+                            apiPost('TwoFactorAuth/Users/' + b.dataset.id + '/ForceLogout').then(function(r) {
+                                alert('Terminated ' + (r.sessionsTerminated || 0) + ' sessions.');
+                                loadUsers();
+                            });
+                        });
+                    });
+                    body.querySelectorAll('.tfa-revoke-all').forEach(function(b) {
+                        b.addEventListener('click', function() {
+                            if (!confirm('Revoke EVERY trusted browser, paired device, registered device id and app password for this user? They will need to re-do 2FA on every client.')) return;
+                            // Use bulk endpoint with three sequential actions for atomicity
+                            Promise.all([
+                                apiPost('TwoFactorAuth/Admin/Bulk', { action: 'revoke_paired_devices', userIds: [b.dataset.id] }),
+                                apiPost('TwoFactorAuth/Admin/Bulk', { action: 'revoke_trusted_browsers', userIds: [b.dataset.id] }),
+                                apiPost('TwoFactorAuth/Admin/Bulk', { action: 'force_logout', userIds: [b.dataset.id] })
+                            ]).then(function() { alert('Revoked.'); loadUsers(); });
+                        });
+                    });
+                    body.querySelectorAll('.tfa-export-user').forEach(function(b) {
+                        b.addEventListener('click', function() {
+                            window.open(ApiClient.serverAddress() + '/TwoFactorAuth/Users/' + b.dataset.id + '/Export?api_key=' + encodeURIComponent(ApiClient.accessToken()), '_blank');
+                        });
+                    });
+                    wireUsersRowExtras();
+                    body.querySelectorAll('.tfa-row-toggle').forEach(function(t) {
+                        t.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            var uid = t.dataset.uid;
+                            var det = body.querySelector('.tfa-user-details[data-uid="' + uid + '"]');
+                            if (!det) return;
+                            var open = det.style.display !== 'none';
+                            det.style.display = open ? 'none' : 'table-row';
+                            t.textContent = open ? '▸ details' : '▾ hide';
+                            if (!open) {
+                                var content = det.querySelector('.tfa-details-content');
+                                if (content && content.dataset.loaded === '0') {
+                                    content.dataset.loaded = '1';
+                                    content.innerHTML = 'Loading…';
+                                    apiGet('TwoFactorAuth/Users/' + uid + '/Export').then(function(exp) {
+                                        var trusted = (exp.devices && exp.devices.trusted) || [];
+                                        var paired = (exp.devices && exp.devices.paired) || [];
+                                        var passkeys = (exp.twoFactor && exp.twoFactor.passkeys) || [];
+                                        var apps = (exp.twoFactor && exp.twoFactor.appPasswords) || [];
+                                        content.innerHTML =
+                                            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">' +
+                                              renderDetailList('Trusted browsers (' + trusted.length + ')', trusted, function(d) { return escapeHtml(d.deviceName) + ' <span class="muted">' + new Date(d.lastUsedAt).toLocaleDateString() + '</span>'; }) +
+                                              renderDetailList('Paired devices (' + paired.length + ')', paired, function(d) { return escapeHtml(d.deviceName) + ' <span class="muted">' + escapeHtml(d.appName || '') + '</span>'; }) +
+                                              renderDetailList('Passkeys (' + passkeys.length + ')', passkeys, function(d) { return escapeHtml(d.label || 'Passkey') + ' <span class="muted">' + new Date(d.createdAt).toLocaleDateString() + '</span>'; }) +
+                                              renderDetailList('App passwords (' + apps.length + ')', apps, function(d) { return escapeHtml(d.label) + ' <span class="muted">' + new Date(d.createdAt).toLocaleDateString() + '</span>'; }) +
+                                            '</div>';
+                                    }).catch(function() { content.innerHTML = 'Failed to load details.'; });
+                                }
+                            }
+                        });
+                    });
+                }
+
+                // Collapsible list helper for the details row — caps visible
+                // entries at 3 by default with an "expand" link if more exist.
+                function renderDetailList(title, items, fmt) {
+                    if (!items.length) return '<div><strong>' + escapeHtml(title) + '</strong><div class="muted">none</div></div>';
+                    var head = '<div><strong>' + escapeHtml(title) + '</strong>';
+                    var visible = items.slice(0, 3).map(fmt);
+                    var hidden = items.slice(3).map(fmt);
+                    var html = head;
+                    visible.forEach(function(v) { html += '<div>' + v + '</div>'; });
+                    if (hidden.length) {
+                        var moreId = 'more_' + Math.random().toString(36).slice(2, 8);
+                        html += '<div id="' + moreId + '" style="display:none;">';
+                        hidden.forEach(function(v) { html += '<div>' + v + '</div>'; });
+                        html += '</div>';
+                        html += '<a href="#" class="tfa-detail-more" data-target="' + moreId + '" style="font-size:11px;color:#00a4dc;text-decoration:none;">+ ' + hidden.length + ' more</a>';
+                    }
+                    html += '</div>';
+                    return html;
+                }
+                // Wire expand links — delegate via panel root since details rows
+                // populate lazily.
+                page.querySelector('#panel-users').addEventListener('click', function(e) {
+                    var t = e.target;
+                    if (!t.classList || !t.classList.contains('tfa-detail-more')) return;
+                    e.preventDefault();
+                    var box = document.getElementById(t.dataset.target);
+                    if (!box) return;
+                    var open = box.style.display !== 'none';
+                    box.style.display = open ? 'none' : 'block';
+                    var n = box.querySelectorAll('div').length;
+                    t.textContent = open ? ('+ ' + n + ' more') : '− collapse';
+                });
+                // Original handlers (toggle + email blur) — these were originally
+                // inside renderUsersRow; restored here as inline finishers.
+                function wireUsersRowExtras() {
+                    var body = page.querySelector('#usersBody');
                     body.querySelectorAll('.tfa-toggle').forEach(function(btn) {
                         btn.addEventListener('click', function() {
                             apiPost('TwoFactorAuth/Users/' + btn.dataset.id + '/Toggle', { enabled: btn.dataset.next === 'true' }).then(loadUsers);
@@ -342,28 +642,68 @@
                     });
                 }
 
-                // ---- TRUSTED DEVICES (all users) ----
+                // ---- TRUSTED DEVICES (all users, grouped, collapsible) ----
                 function loadAllDevices() {
                     apiGet('TwoFactorAuth/AllTrustedDevices').then(function(rows) {
                         var body = page.querySelector('#devicesBody');
                         if (!rows || !rows.length) { body.innerHTML = '<tr><td colspan="6" class="tfa-empty">No trusted devices</td></tr>'; return; }
-                        body.innerHTML = rows.map(function(r) {
-                            var added = new Date(r.createdAt || r.CreatedAt);
-                            var last = new Date(r.lastUsedAt || r.LastUsedAt);
-                            var expires = new Date(added.getTime() + 30*24*3600*1000);
-                            return '<tr>' +
-                                '<td>' + escapeHtml(r.username || r.Username) + '</td>' +
-                                '<td>' + escapeHtml(r.deviceName || r.DeviceName) + '</td>' +
-                                '<td>' + added.toLocaleString() + '</td>' +
-                                '<td>' + last.toLocaleString() + '</td>' +
-                                '<td>' + expires.toLocaleDateString() + '</td>' +
-                                '<td><button class="tfa-btn tfa-btn-danger tfa-revoke-dev" data-uid="' + (r.userId || r.UserId) + '" data-id="' + (r.id || r.Id) + '">Revoke</button></td>' +
-                                '</tr>';
-                        }).join('');
+                        // Group by user — long unbroken lists are unreadable.
+                        var byUser = {};
+                        rows.forEach(function(r) {
+                            var uid = r.userId || r.UserId;
+                            (byUser[uid] = byUser[uid] || { user: r.username || r.Username, devices: [] }).devices.push(r);
+                        });
+                        var groupHtml = '';
+                        Object.keys(byUser).forEach(function(uid) {
+                            var g = byUser[uid];
+                            var first = g.devices.slice(0, 3);
+                            var rest = g.devices.slice(3);
+                            var devRow = function(r) {
+                                var added = new Date(r.createdAt || r.CreatedAt);
+                                var last = new Date(r.lastUsedAt || r.LastUsedAt);
+                                var expires = new Date(added.getTime() + 30*24*3600*1000);
+                                return '<tr>' +
+                                    '<td style="padding-left:20px;">' + escapeHtml(r.deviceName || r.DeviceName) + '</td>' +
+                                    '<td>' + added.toLocaleDateString() + '</td>' +
+                                    '<td>' + last.toLocaleString() + '</td>' +
+                                    '<td>' + expires.toLocaleDateString() + '</td>' +
+                                    '<td><button class="tfa-btn tfa-btn-danger tfa-revoke-dev" data-uid="' + uid + '" data-id="' + (r.id || r.Id) + '">Revoke</button></td>' +
+                                    '</tr>';
+                            };
+                            var groupId = 'g_' + String(uid).replace(/-/g,'');
+                            groupHtml += '<tr class="tfa-dev-group-row" style="background:rgba(0,164,220,0.08);">' +
+                                '<td colspan="5" style="font-weight:700;">' + escapeHtml(g.user) +
+                                ' <span class="muted" style="font-weight:normal;font-size:12px;">(' + g.devices.length + ')</span> ' +
+                                '<button class="tfa-btn tfa-btn-danger tfa-revoke-user-all" data-uid="' + uid + '" style="margin-left:8px;font-size:11px;padding:2px 8px;">Revoke all for user</button></td></tr>';
+                            first.forEach(function(r) { groupHtml += devRow(r); });
+                            if (rest.length) {
+                                groupHtml += '<tr class="tfa-dev-more-toggle-row"><td colspan="5" style="padding-left:20px;"><a href="#" class="tfa-dev-expand" data-target="' + groupId + '" style="color:#00a4dc;font-size:12px;">+ ' + rest.length + ' more</a></td></tr>';
+                                groupHtml += '<tbody id="' + groupId + '" style="display:none;">';
+                                rest.forEach(function(r) { groupHtml += devRow(r); });
+                                groupHtml += '</tbody>';
+                            }
+                        });
+                        body.innerHTML = groupHtml;
                         body.querySelectorAll('.tfa-revoke-dev').forEach(function(b) {
                             b.addEventListener('click', function() {
                                 if (!confirm('Revoke this device?')) return;
                                 apiDelete('TwoFactorAuth/Users/' + b.dataset.uid + '/Devices/' + b.dataset.id).then(loadAllDevices);
+                            });
+                        });
+                        body.querySelectorAll('.tfa-revoke-user-all').forEach(function(b) {
+                            b.addEventListener('click', function() {
+                                if (!confirm('Revoke EVERY trusted browser for this user?')) return;
+                                apiPost('TwoFactorAuth/Admin/Bulk', { action: 'revoke_trusted_browsers', userIds: [b.dataset.uid] }).then(loadAllDevices);
+                            });
+                        });
+                        body.querySelectorAll('.tfa-dev-expand').forEach(function(a) {
+                            a.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                var box = document.getElementById(a.dataset.target);
+                                if (!box) return;
+                                var open = box.style.display !== 'none';
+                                box.style.display = open ? 'none' : '';
+                                a.textContent = open ? a.textContent.replace('− collapse', '+ ' + box.children.length + ' more') : '− collapse';
                             });
                         });
                     }).catch(function() {
@@ -421,6 +761,67 @@
                     page.querySelector('#auditNext').disabled = auditPage >= totalPages - 1;
                 }
                 page.querySelector('#auditFilter').addEventListener('input', function() { auditPage = 0; renderAudit(); });
+                // v1.4: users filter + bulk
+                page.querySelector('#usersFilter').addEventListener('input', function() { renderUsers(); });
+                page.querySelector('#usersSelectAll').addEventListener('change', function(ev) {
+                    page.querySelectorAll('.tfa-user-select').forEach(function(c) { c.checked = ev.target.checked; });
+                });
+                page.querySelector('#usersBulkApply').addEventListener('click', function() {
+                    var action = page.querySelector('#usersBulkAction').value;
+                    if (!action) { alert('Pick a bulk action first.'); return; }
+                    var ids = Array.prototype.slice.call(page.querySelectorAll('.tfa-user-select:checked')).map(function(c){return c.dataset.uid;});
+                    if (!ids.length) { alert('Select at least one user.'); return; }
+                    if (!confirm('Apply "' + action + '" to ' + ids.length + ' user(s)?')) return;
+                    apiPost('TwoFactorAuth/Admin/Bulk', { action: action, userIds: ids }).then(function(r) {
+                        alert('Processed ' + (r.processed || 0) + ' user(s).');
+                        loadUsers();
+                    });
+                });
+                // v1.4: audit CSV export
+                page.querySelector('#auditExportCsv').addEventListener('click', function() {
+                    if (!allAudit.length) { alert('Nothing to export.'); return; }
+                    var rows = [['Time','User','IP','DeviceId','DeviceName','Result','Method','Details']];
+                    allAudit.forEach(function(e) {
+                        rows.push([
+                            (e.timestamp || e.Timestamp || ''),
+                            (e.username || e.Username || ''),
+                            (e.remoteIp || e.RemoteIp || ''),
+                            (e.deviceId || e.DeviceId || ''),
+                            (e.deviceName || e.DeviceName || ''),
+                            String(e.result === undefined ? e.Result : e.result),
+                            (e.method || e.Method || ''),
+                            (e.details || e.Details || ''),
+                        ]);
+                    });
+                    var csv = rows.map(function(r) { return r.map(function(v) { var s = String(v == null ? '' : v); if (/[",\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"'; return s; }).join(','); }).join('\n');
+                    var blob = new Blob([csv], { type: 'text/csv' });
+                    var a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = 'jellyfin-2fa-audit.csv';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                });
+                // v1.4: webhook test — auto-save the form first because users
+                // get confused when the test button uses last-saved settings
+                // instead of what they just typed in.
+                page.querySelector('#btnTestWebhook').addEventListener('click', function() {
+                    var out = page.querySelector('#webhookTestResult');
+                    var url = page.querySelector('#cfgWebhookUrl').value.trim();
+                    if (!url) { out.style.color = '#f44336'; out.textContent = '✗ Enter a Webhook URL first.'; return; }
+                    out.style.color = '#888'; out.textContent = 'Saving + sending…';
+                    // Persist current Webhook URL/Secret so the server-side
+                    // dispatch uses what the admin sees in the input boxes.
+                    ApiClient.getPluginConfiguration(pluginId).then(function(c) {
+                        c.WebhookUrl = url;
+                        c.WebhookSecret = page.querySelector('#cfgWebhookSecret').value.trim();
+                        return ApiClient.updatePluginConfiguration(pluginId, c);
+                    }).then(function() {
+                        return apiPost('TwoFactorAuth/Admin/WebhookTest');
+                    }).then(function(r) {
+                        out.style.color = '#4caf50'; out.textContent = '✓ ' + (r.message || 'Sent');
+                    }).catch(function(e) { out.style.color = '#f44336'; out.textContent = '✗ Failed (check server log).'; });
+                });
                 page.querySelector('#auditPrev').addEventListener('click', function() { if (auditPage > 0) { auditPage--; renderAudit(); } });
                 page.querySelector('#auditNext').addEventListener('click', function() { auditPage++; renderAudit(); });
 
@@ -450,6 +851,18 @@
                         page.querySelector('#cfgGotifyToken').value = c.GotifyAppToken || '';
                         page.querySelector('#cfgEmails').value = (c.NotifyEmailAddresses || []).join('\n');
                         page.querySelector('#cfgIssuer').value = c.TotpIssuerName || 'Jellyfin';
+                        // v1.4 fields
+                        page.querySelector('#cfgWebhookUrl').value = c.WebhookUrl || '';
+                        page.querySelector('#cfgWebhookSecret').value = c.WebhookSecret || '';
+                        page.querySelector('#cfgGeoAsn').value = c.GeoIpAsnDbPath || '';
+                        page.querySelector('#cfgGeoCountry').value = c.GeoIpCountryDbPath || '';
+                        page.querySelector('#cfgRpId').value = c.WebAuthnRpId || '';
+                        page.querySelector('#cfgRpOrigins').value = (c.WebAuthnOrigins || []).join('\n');
+                        page.querySelector('#cfgPreVerify').value = c.PreVerifyWindowSeconds || 120;
+                        page.querySelector('#cfgTrustTtl').value = c.TrustCookieTtlDays || 30;
+                        page.querySelector('#cfgMaxSess').value = c.DefaultMaxConcurrentSessions || 0;
+                        page.querySelector('#cfgDeadline').value = c.EnrollmentDeadline ? String(c.EnrollmentDeadline).slice(0,10) : '';
+                        page.querySelector('#cfgHairpin').checked = !!c.NatHairpinSelfIpBypass;
                     });
                 }
                 page.querySelector('#btnTestSmtp').addEventListener('click', function() {
@@ -490,6 +903,19 @@
                         c.GotifyAppToken = page.querySelector('#cfgGotifyToken').value.trim();
                         c.NotifyEmailAddresses = page.querySelector('#cfgEmails').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.TotpIssuerName = page.querySelector('#cfgIssuer').value.trim() || 'Jellyfin';
+                        // v1.4 fields
+                        c.WebhookUrl = page.querySelector('#cfgWebhookUrl').value.trim();
+                        c.WebhookSecret = page.querySelector('#cfgWebhookSecret').value.trim();
+                        c.GeoIpAsnDbPath = page.querySelector('#cfgGeoAsn').value.trim();
+                        c.GeoIpCountryDbPath = page.querySelector('#cfgGeoCountry').value.trim();
+                        c.WebAuthnRpId = page.querySelector('#cfgRpId').value.trim();
+                        c.WebAuthnOrigins = page.querySelector('#cfgRpOrigins').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+                        c.PreVerifyWindowSeconds = Math.max(30, Math.min(900, parseInt(page.querySelector('#cfgPreVerify').value) || 120));
+                        c.TrustCookieTtlDays = Math.max(1, Math.min(90, parseInt(page.querySelector('#cfgTrustTtl').value) || 30));
+                        c.DefaultMaxConcurrentSessions = Math.max(0, Math.min(100, parseInt(page.querySelector('#cfgMaxSess').value) || 0));
+                        var dl = page.querySelector('#cfgDeadline').value.trim();
+                        c.EnrollmentDeadline = dl ? new Date(dl + 'T00:00:00Z').toISOString() : null;
+                        c.NatHairpinSelfIpBypass = page.querySelector('#cfgHairpin').checked;
                         return ApiClient.updatePluginConfiguration(pluginId, c);
                     }).then(function() {
                         var s = page.querySelector('#saveStatus');
@@ -498,7 +924,13 @@
                     });
                 });
 
-                page.addEventListener('pageshow', loadUsers);
+                // Overview is the default active tab, but the tab-click handler
+                // only loads its data on click. Kick off loadStats explicitly
+                // so the tile populates on first paint without a tab toggle.
+                page.addEventListener('pageshow', function() {
+                    loadStats();
+                    loadUsers();
+                });
             })();
         </script>
     </div>

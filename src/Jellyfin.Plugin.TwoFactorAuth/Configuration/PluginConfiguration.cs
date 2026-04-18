@@ -93,4 +93,63 @@ public class PluginConfiguration : BasePluginConfiguration
     // What appears in authenticator apps (issuer field of otpauth:// URI).
     // Defaults to "Jellyfin"; admins can override per server (e.g., "MyServer Jellyfin").
     public string TotpIssuerName { get; set; } = "Jellyfin";
+
+    // ---- v1.4 additions ----
+
+    /// <summary>How long a successful 2FA verification pre-authorizes follow-up
+    /// session opens for the same (user, device). Default 120s — covers the
+    /// usual flurry of WebSocket + HTTP sessions Jellyfin spawns immediately
+    /// after sign-in. Range 30-900.</summary>
+    public int PreVerifyWindowSeconds { get; set; } = 120;
+
+    /// <summary>Lifetime of the per-device trust cookie (browser stays trusted
+    /// without re-prompting). Range 1-90 days. Cookie rotates on every use,
+    /// so a freshly-rotated cookie always gets a fresh window of this length.</summary>
+    public int TrustCookieTtlDays { get; set; } = 30;
+
+    /// <summary>Convenience for setups behind NAT hairpin: when enabled the
+    /// plugin discovers its own public IP at startup (one outbound HTTPS GET)
+    /// and treats requests arriving from that IP as if they came from LAN.
+    /// Off by default — anyone sharing the same WAN egress, including IoT
+    /// devices on the same router, would also bypass.</summary>
+    public bool NatHairpinSelfIpBypass { get; set; }
+
+    /// <summary>Server-wide default for max concurrent Jellyfin sessions per
+    /// user. 0 = unlimited. Per-user override on UserTwoFactorData wins.
+    /// Paired devices (TVs etc.) are excluded from the count.</summary>
+    public int DefaultMaxConcurrentSessions { get; set; }
+
+    /// <summary>Optional deadline by which RequireForAllUsers becomes effective
+    /// in the admin UI's adoption dashboard. The plugin doesn't auto-flip the
+    /// flag — it's a target date for the dashboard to flag stragglers.</summary>
+    public DateTime? EnrollmentDeadline { get; set; }
+
+    /// <summary>Webhook URL to POST every notable auth event to (lockouts,
+    /// new-device sign-ins, recovery codes used, suspicious logins, passkey
+    /// registers/uses, emergency lockouts, admin force-logouts).</summary>
+    public string WebhookUrl { get; set; } = string.Empty;
+
+    /// <summary>Optional shared secret. When set, every webhook POST carries
+    /// `X-2FA-Signature: sha256=<hex>` HMAC over the body so receivers can
+    /// authenticate the source.</summary>
+    public string WebhookSecret { get; set; } = string.Empty;
+
+    /// <summary>Path to a MaxMind GeoLite2-ASN.mmdb file. When set, the
+    /// suspicious-login detector resolves remote IPs to ASN + country and
+    /// notifies on first-seen contexts per user.</summary>
+    public string GeoIpAsnDbPath { get; set; } = string.Empty;
+
+    /// <summary>Path to a MaxMind GeoLite2-Country.mmdb file. Optional —
+    /// without it, suspicious-login detection still works on ASN alone.</summary>
+    public string GeoIpCountryDbPath { get; set; } = string.Empty;
+
+    /// <summary>Optional explicit Relying Party ID for WebAuthn. If empty, the
+    /// plugin derives it from the request Host. Required when behind a reverse
+    /// proxy where the public hostname differs from the internal one.</summary>
+    public string WebAuthnRpId { get; set; } = string.Empty;
+
+    /// <summary>Allowed origins for WebAuthn (`https://yourdomain` form). If
+    /// empty the request origin is used. Multiple allowed for multi-domain
+    /// deployments.</summary>
+    public string[] WebAuthnOrigins { get; set; } = Array.Empty<string>();
 }
