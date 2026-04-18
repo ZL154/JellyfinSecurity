@@ -137,8 +137,11 @@ public class BypassEvaluator
             }
         }
 
-        // 4. Registered device ID
-        if (!string.IsNullOrWhiteSpace(deviceId) && registeredDeviceIds.Contains(deviceId))
+        // 4. Registered device ID — use DeviceIdMatches so Jellyfin Web's
+        // UA-hash IDs with per-session timestamp suffixes still match across
+        // Tizen/SmartTV app restarts.
+        if (!string.IsNullOrWhiteSpace(deviceId)
+            && registeredDeviceIds.Any(r => DeviceIdMatches(r, deviceId)))
         {
             _logger.LogDebug("Bypass granted via registered device ID {DeviceId}", deviceId);
             return BypassResult.Bypassed("registered_device");
@@ -149,6 +152,42 @@ public class BypassEvaluator
 
     internal static string HashApiKey(string rawKey)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawKey)));
+
+    /// <summary>Normalise a Jellyfin Web-generated UA-hash deviceId so that
+    /// per-session timestamp suffixes don't defeat paired-device matching.
+    /// Jellyfin Web (incl. inside the Tizen webview) uses a deviceId formed
+    /// from base64(UserAgent) + "|" + millis-since-boot or similar — every app
+    /// restart changes the suffix while the prefix stays stable. We strip the
+    /// trailing "|digits" segment so pairings survive Tizen app restarts.
+    ///
+    /// Non-UA-hash deviceIds (regular 16/32-char hex from native apps, GUIDs
+    /// from Swiftfin, etc) pass through unchanged.</summary>
+    public static string NormaliseDeviceId(string? id)
+    {
+        if (string.IsNullOrEmpty(id)) return string.Empty;
+        // Jellyfin Web pattern: starts with a long base64 chunk and ends
+        // with "|digits" (usually 10-20 digits of millisecond timestamp).
+        // Only strip when the suffix looks like the session timestamp —
+        // don't touch deviceIds that legitimately contain a pipe.
+        var lastPipe = id.LastIndexOf('|');
+        if (lastPipe > 16 && lastPipe < id.Length - 4)
+        {
+            var suffix = id.AsSpan(lastPipe + 1);
+            bool allDigits = true;
+            foreach (var c in suffix) { if (c < '0' || c > '9') { allDigits = false; break; } }
+            if (allDigits) return id.Substring(0, lastPipe);
+        }
+        return id;
+    }
+
+    /// <summary>Paired/trusted-device comparator that normalises both sides
+    /// so Tizen/SmartTV UA-hash deviceIds match across app restarts. Callers
+    /// previously used raw Ordinal string.Equals which broke for Tizen.</summary>
+    public static bool DeviceIdMatches(string? a, string? b)
+    {
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return false;
+        return string.Equals(NormaliseDeviceId(a), NormaliseDeviceId(b), StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Checks whether the given IP address falls within the specified CIDR range.

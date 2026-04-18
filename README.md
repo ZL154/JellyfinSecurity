@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Authentication-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/badge/Version-1.4.0-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
+  <img src="https://img.shields.io/badge/Version-1.4.1-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -460,6 +460,17 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 1.4.1 — Tizen / reverse-proxy bug fix
+
+**Critical regression fix.** Samsung Tizen (Smart TV) clients behind any reverse proxy (Caddy, nginx, Cloudflare Tunnel, etc) couldn't sign in after upgrading to v1.4 — password entry returned "Invalid username or password" immediately. Root cause: the TV's `AuthenticateByName` request arrives at the server without an `X-Emby-Device-Id` header and with a reformatted `X-Emby-Authorization` that the plugin's parser couldn't extract a deviceId from. No deviceId meant paired-device and registered-device bypasses silently skipped, and the middleware rewrote the auth response as a 2FA challenge — which the native Tizen app can't render, so it just looped on "Invalid".
+
+**Fixes:**
+- Enforcement middleware now reads `SessionInfo.DeviceId` from Jellyfin's auth response body as a fallback when request headers don't carry a deviceId. That value is always present and authoritative.
+- `RegisteredDeviceIds` bypass lookup now uses the same UA-hash normalisation as `PairedDevices` so Tizen webview deviceIds (which include a per-session timestamp suffix that changes on every app restart) match across restarts.
+- Removed dev-only diagnostic log lines accumulated during the investigation.
+
+If you're on Tizen / Jellyfin for Smart TV and couldn't sign in after v1.4, this release fixes it. No re-pair needed.
 
 ### 1.4.0 — Passkeys + safety net
 

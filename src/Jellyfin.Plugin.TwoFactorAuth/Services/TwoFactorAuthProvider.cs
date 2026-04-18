@@ -297,7 +297,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         if (!string.IsNullOrEmpty(deviceId))
         {
             var paired = userData.PairedDevices.FirstOrDefault(p =>
-                string.Equals(p.DeviceId, deviceId, StringComparison.Ordinal));
+                BypassEvaluator.DeviceIdMatches(p.DeviceId, deviceId));
             if (paired is not null)
             {
                 _logger.LogInformation("2FA paired-device bypass for '{Username}' device={Device}",
@@ -307,7 +307,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 await _store.MutateAsync(userId, ud =>
                 {
                     var p = ud.PairedDevices.FirstOrDefault(x =>
-                        string.Equals(x.DeviceId, capDev, StringComparison.Ordinal));
+                        BypassEvaluator.DeviceIdMatches(x.DeviceId, capDev));
                     if (p is not null) { p.LastUsedAt = DateTime.UtcNow; p.LastIp = capIp; }
                 }).ConfigureAwait(false);
                 await _store.AddAuditEntryAsync(new AuditEntry

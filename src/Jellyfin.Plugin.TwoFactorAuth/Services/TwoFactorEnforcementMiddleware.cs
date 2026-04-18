@@ -207,6 +207,36 @@ public class TwoFactorEnforcementMiddleware
                 ?? ParseEmbyAuth(authHeader, "Device")
                 ?? "Unknown";
 
+            // Samsung Tizen Jellyfin Web over Cloudflare+Caddy doesn't reliably
+            // send X-Emby-Device-Id OR a parseable X-Emby-Authorization — so
+            // deviceId comes up null and we can't check paired/registered
+            // bypasses. Fallback: Jellyfin's auth RESPONSE body (which we
+            // already parsed into authResult) contains SessionInfo.DeviceId,
+            // which is the authoritative value Jellyfin assigned this session.
+            if (string.IsNullOrEmpty(deviceId))
+            {
+                try
+                {
+                    using var authDoc = JsonDocument.Parse(bodyBytes);
+                    if (authDoc.RootElement.TryGetProperty("SessionInfo", out var si))
+                    {
+                        if (si.TryGetProperty("DeviceId", out var did) && did.ValueKind == JsonValueKind.String)
+                        {
+                            deviceId = did.GetString();
+                        }
+                        if (string.Equals(deviceName, "Unknown", StringComparison.Ordinal)
+                            && si.TryGetProperty("DeviceName", out var dn) && dn.ValueKind == JsonValueKind.String)
+                        {
+                            deviceName = dn.GetString() ?? "Unknown";
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[2FA] Could not fallback-parse SessionInfo.DeviceId from auth body");
+                }
+            }
+
             // SessionStarted handler runs on a parallel code path that sees the
             // authoritative SessionInfo.DeviceId — for clients that don't send
             // X-Emby-Authorization (Samsung Tizen), it's the only path that can
@@ -264,13 +294,12 @@ public class TwoFactorEnforcementMiddleware
 
             // Paired-device bypass: TV/native client whose DeviceId the user
             // already approved (via QR pairing OR by approving a pending request).
-            // Reject empty/whitespace deviceIds explicitly — an empty request
-            // id must never match an empty stored id (belt-and-braces for H3).
+            // DeviceIdMatches normalises UA-hash deviceIds so Tizen webview
+            // pairings survive app restarts.
             if (!string.IsNullOrWhiteSpace(deviceId))
             {
                 var paired = userData.PairedDevices.FirstOrDefault(p =>
-                    !string.IsNullOrWhiteSpace(p.DeviceId)
-                    && string.Equals(p.DeviceId, deviceId, StringComparison.Ordinal));
+                    BypassEvaluator.DeviceIdMatches(p.DeviceId, deviceId));
                 if (paired is not null)
                 {
                     // Atomic update of LastUsedAt to avoid lost-update vs. concurrent
@@ -280,7 +309,7 @@ public class TwoFactorEnforcementMiddleware
                     await _store.MutateAsync(userGuid, ud =>
                     {
                         var p = ud.PairedDevices.FirstOrDefault(x =>
-                            string.Equals(x.DeviceId, capturedDeviceId, StringComparison.Ordinal));
+                            BypassEvaluator.DeviceIdMatches(x.DeviceId, capturedDeviceId));
                         if (p is not null)
                         {
                             p.LastUsedAt = DateTime.UtcNow;
