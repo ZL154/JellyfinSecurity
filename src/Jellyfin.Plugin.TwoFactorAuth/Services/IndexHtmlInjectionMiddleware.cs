@@ -17,6 +17,12 @@ public class IndexHtmlInjectionMiddleware
     private readonly RequestDelegate _next;
     private readonly ILogger<IndexHtmlInjectionMiddleware> _logger;
 
+    // v1.4 diagnostics: count requests we've SEEN (regardless of whether we
+    // injected). Used by DiagnosticsService to confirm the middleware is
+    // actually wired into the pipeline. Counter resets on Jellyfin restart.
+    private static long _requestsSeen;
+    public static long RequestsSeen => System.Threading.Interlocked.Read(ref _requestsSeen);
+
     public IndexHtmlInjectionMiddleware(RequestDelegate next, ILogger<IndexHtmlInjectionMiddleware> logger)
     {
         _next = next;
@@ -31,6 +37,7 @@ public class IndexHtmlInjectionMiddleware
             return;
         }
 
+        System.Threading.Interlocked.Increment(ref _requestsSeen);
         var originalBody = context.Response.Body;
         using var buffer = new MemoryStream();
         context.Response.Body = buffer;

@@ -58,6 +58,9 @@ public class UserTwoFactorStatus
     public int RecoveryCodesRemaining { get; set; }
 
     public bool IsLockedOut { get; set; }
+
+    /// <summary>v1.4: count of registered passkey credentials.</summary>
+    public int PasskeyCount { get; set; }
 }
 
 public class TrustedDeviceWithUser

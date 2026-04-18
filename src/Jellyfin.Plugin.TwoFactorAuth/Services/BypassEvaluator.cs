@@ -103,6 +103,15 @@ public class BypassEvaluator
                         return BypassResult.Bypassed("lan");
                     }
                 }
+                // v1.4 NAT hairpin: discovered self-public-IP also counts as LAN.
+                // Loaded once at startup; admins must restart on WAN IP change.
+                if (config.NatHairpinSelfIpBypass
+                    && !string.IsNullOrEmpty(SelfIpDetector.SelfPublicIp)
+                    && string.Equals(ipToCheck, SelfIpDetector.SelfPublicIp, StringComparison.Ordinal))
+                {
+                    _logger.LogDebug("Bypass granted via NAT hairpin for self-public IP {Ip}", ipToCheck);
+                    return BypassResult.Bypassed("hairpin");
+                }
             }
         }
 

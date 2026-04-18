@@ -161,7 +161,9 @@ public class TrustCookieMiddleware
 
     internal void IssueTrustCookie(HttpContext context, Guid userId, string trustRecordId, string deviceId)
     {
-        var expiryUnix = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds();
+        var ttlDays = Math.Clamp(
+            Plugin.Instance?.Configuration?.TrustCookieTtlDays ?? 30, 1, 90);
+        var expiryUnix = DateTimeOffset.UtcNow.AddDays(ttlDays).ToUnixTimeSeconds();
         var deviceB64 = Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(deviceId ?? string.Empty));
         var payload = $"{userId:N}.{trustRecordId}.{deviceB64}.{expiryUnix}";
         var hmac = _cookieSigner.Sign(payload);
@@ -170,7 +172,7 @@ public class TrustCookieMiddleware
             HttpOnly = true,
             Secure = context.Request.IsHttps,
             SameSite = SameSiteMode.Strict,
-            Expires = DateTimeOffset.UtcNow.AddDays(30),
+            Expires = DateTimeOffset.UtcNow.AddDays(ttlDays),
             Path = "/",
             IsEssential = true,
         });

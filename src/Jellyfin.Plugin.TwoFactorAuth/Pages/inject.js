@@ -144,6 +144,87 @@
     //    Jellyfin's emby-button styling, insert as a sibling.
     // ============================================================
 
+    var DASHBOARD_NAV_ID = '__twofactor_dashnav';
+    /// Inject a "Two-Factor Auth" item into the admin Dashboard left sidebar
+    /// (where Achievements, File Transformation, etc live). Only fires when
+    /// the user is on a /web/#!/dashboard route — out on the main app drawer
+    /// the existing injectSidebar adds a user-facing entry instead.
+    function injectDashboardNav() {
+        try {
+            var hash = (window.location.hash || '').toLowerCase();
+            // Jellyfin admin dashboard hash routes look like #!/dashboard,
+            // #!/plugins, #!/scheduledtasks etc. Match anything under
+            // /web/#!/dashboard or the plugin pages it generates.
+            if (hash.indexOf('dashboard') < 0 && hash.indexOf('plugin') < 0
+                && hash.indexOf('scheduledtask') < 0 && hash.indexOf('users') < 0
+                && hash.indexOf('library') < 0 && hash.indexOf('configuration') < 0
+                && hash.indexOf('serveractivity') < 0 && hash.indexOf('apikeys') < 0) {
+                return;
+            }
+            if (document.getElementById(DASHBOARD_NAV_ID)) return;
+            // SEC-L5: gate on admin status — non-admins shouldn't see the
+            // entry at all (clicking it just lands on a "no permission" page,
+            // but cosmetic-only links to admin pages are still confusing for
+            // regular users). ApiClient.getCurrentUser is async; bail early
+            // if it's not yet available.
+            try {
+                if (window.ApiClient && ApiClient.getCurrentUser) {
+                    ApiClient.getCurrentUser().then(function(u) {
+                        var isAdmin = u && u.Policy && u.Policy.IsAdministrator;
+                        if (!isAdmin) return;
+                        injectDashboardNavInner();
+                    });
+                    return;
+                }
+            } catch (e) { /* fall through */ }
+            injectDashboardNavInner();
+        } catch (outerE) {
+            console.error('[2FA] injectDashboardNav outer error:', outerE);
+        }
+    }
+    function injectDashboardNavInner() {
+        try {
+            if (document.getElementById(DASHBOARD_NAV_ID)) return;
+
+            // Dashboard sidebar uses .adminDrawerLogo + nav links with
+            // class .navMenuOption inside .mainDrawerScrollSlider OR
+            // newer Jellyfin: .navDrawer-button rows. Try to find the
+            // "Plugins" link as anchor.
+            var anchor = null;
+            var navLinks = document.querySelectorAll('a.navMenuOption, a.navDrawer-button, a[href*="/dashboard"]');
+            for (var i = 0; i < navLinks.length; i++) {
+                var t = (navLinks[i].textContent || '').trim().toLowerCase();
+                if (t === 'plugins' || t.indexOf('plugins') === 0) { anchor = navLinks[i]; break; }
+            }
+            if (!anchor) return;
+
+            var parent = anchor.parentElement;
+            if (!parent) return;
+
+            var a = document.createElement('a');
+            a.id = DASHBOARD_NAV_ID;
+            a.href = '#';
+            a.className = anchor.className || 'navMenuOption emby-button';
+            a.setAttribute('role', 'menuitem');
+            a.style.cursor = 'pointer';
+            a.addEventListener('click', function (e) {
+                e.preventDefault();
+                // Plugin admin config page lives at the standard plugin
+                // configuration URL — this drops into Jellyfin's normal
+                // plugin-config view of our admin tabs.
+                window.location.assign('/web/index.html#!/configurationpage?name=TwoFactorAuth');
+            });
+            a.innerHTML =
+                '<span class="material-icons navMenuOptionIcon" style="font-family:Material Icons;" aria-hidden="true">security</span>' +
+                '<span class="navMenuOptionText">Two-Factor Auth</span>';
+
+            if (anchor.nextSibling) parent.insertBefore(a, anchor.nextSibling);
+            else parent.appendChild(a);
+        } catch (e) {
+            console.error('[2FA] injectDashboardNav error:', e);
+        }
+    }
+
     function injectSidebar() {
         try {
             if (document.getElementById(SIDEBAR_ID)) return;
@@ -341,6 +422,7 @@
     function tryInject() {
         addLoginButton();
         injectSidebar();
+        injectDashboardNav();
         injectSettingsTile();
     }
 

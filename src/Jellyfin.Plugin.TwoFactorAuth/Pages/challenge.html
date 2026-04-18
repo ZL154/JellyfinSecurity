@@ -127,6 +127,7 @@
 
         <button class="btn-primary" id="btnVerify">Verify</button>
         <button class="btn-secondary" id="btnSendEmail" style="display:none;">Send code by email</button>
+        <button class="btn-secondary" id="btnPasskey" style="display:none;">🔑 Use a passkey instead</button>
 
         <p class="hint">Codes rotate every 30 seconds.</p>
         <p class="hint" style="margin-top:14px;">
@@ -254,6 +255,54 @@
                 btn.textContent = 'Verify';
                 showError('Network error. Try again.');
             });
+        });
+
+        // ============ v1.4: Passkey verification path ============
+        function b64uToBytes(s) { s = s.replace(/-/g,'+').replace(/_/g,'/'); while (s.length % 4) s += '='; var b = atob(s); var a = new Uint8Array(b.length); for (var i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a.buffer; }
+        function bytesToB64u(buf) { var b = new Uint8Array(buf); var s=''; for (var i=0;i<b.length;i++) s += String.fromCharCode(b[i]); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+
+        // Show the passkey button only when WebAuthn is exposed AND we're in
+        // a secure context — mobile browsers hide PublicKeyCredential entirely
+        // on plain HTTP, so checking both surfaces the right diagnostic.
+        if (window.isSecureContext && window.PublicKeyCredential) {
+            document.getElementById('btnPasskey').style.display = 'block';
+        }
+        document.getElementById('btnPasskey').addEventListener('click', async function() {
+            clearError();
+            var btn = document.getElementById('btnPasskey');
+            btn.disabled = true; btn.textContent = 'Waiting for authenticator…';
+            try {
+                var begin = await fetch('/TwoFactorAuth/Verify/Passkey/Begin', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ challengeToken: challengeToken })
+                }).then(function(r){ if (!r.ok) throw new Error('Begin failed'); return r.json(); });
+                var opts = begin.options;
+                opts.challenge = b64uToBytes(opts.challenge);
+                if (opts.allowCredentials) opts.allowCredentials.forEach(function(c){ c.id = b64uToBytes(c.id); });
+                var assertion = await navigator.credentials.get({ publicKey: opts });
+                var resp = {
+                    id: assertion.id,
+                    rawId: bytesToB64u(assertion.rawId),
+                    type: assertion.type,
+                    response: {
+                        authenticatorData: bytesToB64u(assertion.response.authenticatorData),
+                        clientDataJSON: bytesToB64u(assertion.response.clientDataJSON),
+                        signature: bytesToB64u(assertion.response.signature),
+                        userHandle: assertion.response.userHandle ? bytesToB64u(assertion.response.userHandle) : null,
+                    },
+                };
+                var finishR = await fetch('/TwoFactorAuth/Verify/Passkey/Finish', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ challengeToken: challengeToken, nonce: begin.nonce, response: JSON.stringify(resp) })
+                });
+                if (!finishR.ok) { btn.disabled = false; btn.textContent = '🔑 Use a passkey instead'; showError('Passkey verification failed.'); return; }
+                var authData = await finishR.json();
+                if (!authData || !authData.AccessToken) { showError('Verified, but no auth response — sign in again.'); return; }
+                storeCredentials(authData).then(function() { window.location.href = returnUrl; });
+            } catch (e) {
+                btn.disabled = false; btn.textContent = '🔑 Use a passkey instead';
+                showError('Passkey error: ' + (e.message || e));
+            }
         });
 
         function storeCredentials(authData) {

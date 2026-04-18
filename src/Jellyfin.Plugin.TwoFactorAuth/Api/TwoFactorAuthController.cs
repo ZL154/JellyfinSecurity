@@ -5,7 +5,9 @@ using System.Linq;
 using System.Net.Mime;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using Jellyfin.Data;
 using Jellyfin.Data.Queries;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using MediaBrowser.Controller.Devices;
@@ -38,6 +40,13 @@ public class TwoFactorAuthController : ControllerBase
     private readonly AppPasswordService _appPasswords;
     private readonly PendingPairingService _pendingPairings;
     private readonly IDeviceManager _deviceManager;
+    private readonly SessionTerminationService _sessionTerm;
+    private readonly PasskeyService _passkeys;
+    private readonly PasskeyChallengeStore _passkeyChallenges;
+    private readonly DiagnosticsService _diagnostics;
+    private readonly StatsService _stats;
+    private readonly UserExportService _userExport;
+    private readonly RecoveryCodePdfService _recoveryPdf;
     private readonly ILogger<TwoFactorAuthController> _logger;
 
     public TwoFactorAuthController(
@@ -56,6 +65,13 @@ public class TwoFactorAuthController : ControllerBase
         AppPasswordService appPasswords,
         PendingPairingService pendingPairings,
         IDeviceManager deviceManager,
+        SessionTerminationService sessionTerm,
+        PasskeyService passkeys,
+        PasskeyChallengeStore passkeyChallenges,
+        DiagnosticsService diagnostics,
+        StatsService stats,
+        UserExportService userExport,
+        RecoveryCodePdfService recoveryPdf,
         ILogger<TwoFactorAuthController> logger)
     {
         _store = store;
@@ -73,6 +89,13 @@ public class TwoFactorAuthController : ControllerBase
         _appPasswords = appPasswords;
         _pendingPairings = pendingPairings;
         _deviceManager = deviceManager;
+        _sessionTerm = sessionTerm;
+        _passkeys = passkeys;
+        _passkeyChallenges = passkeyChallenges;
+        _diagnostics = diagnostics;
+        _stats = stats;
+        _userExport = userExport;
+        _recoveryPdf = recoveryPdf;
         _logger = logger;
     }
 
@@ -208,6 +231,11 @@ public class TwoFactorAuthController : ControllerBase
                         // We persist this even if password verification fails afterwards.
                         userData.RecoveryCodes[codeConsumedRecoveryIndex].Used = true;
                         userData.RecoveryCodes[codeConsumedRecoveryIndex].UsedAt = DateTime.UtcNow;
+                        // v1.4: clear the "force recovery on next login" flag set
+                        // by emergency lockout — the user has now demonstrated
+                        // possession of a recovery code, restoring their normal
+                        // 2FA methods on subsequent sign-ins.
+                        userData.ForceRecoveryOnNextLogin = false;
                         await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
                         codeValid = true;
                         usedMethod = "recovery";
@@ -321,8 +349,11 @@ public class TwoFactorAuthController : ControllerBase
                 // v2 cookie: deviceId and expiry are signed into the payload so
                 // (a) a stolen cookie can't be replayed with an attacker-chosen
                 // X-Emby-Device-Id header and (b) an attacker who tampers with
-                // the trust record file can't extend the window.
-                var expiryUnix = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds();
+                // the trust record file can't extend the window. TTL is admin-
+                // configurable in v1.4 (default 30 days, range 1-90).
+                var ttlDays = Math.Clamp(
+                    Plugin.Instance?.Configuration?.TrustCookieTtlDays ?? 30, 1, 90);
+                var expiryUnix = DateTimeOffset.UtcNow.AddDays(ttlDays).ToUnixTimeSeconds();
                 var deviceB64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(deviceId ?? string.Empty))
                     .TrimEnd('=').Replace('+', '-').Replace('/', '_');
                 var cookieValue = $"{user.Id:N}.{trustRecord.Id}.{deviceB64}.{expiryUnix}";
@@ -332,7 +363,7 @@ public class TwoFactorAuthController : ControllerBase
                     HttpOnly = true,
                     Secure = HttpContext.Request.IsHttps, // Browsers reject Secure on plain http localhost
                     SameSite = SameSiteMode.Strict,
-                    Expires = DateTimeOffset.UtcNow.AddDays(30),
+                    Expires = DateTimeOffset.UtcNow.AddDays(ttlDays),
                     Path = "/",
                     IsEssential = true,
                 });
@@ -482,10 +513,32 @@ public class TwoFactorAuthController : ControllerBase
 
         var userData = await _store.GetUserDataAsync(challenge.UserId).ConfigureAwait(false);
         bool valid;
+        int consumedRecoveryIdx = -1;
+
+        // v1.4: ForceRecoveryOnNextLogin (set by emergency lockout) limits the
+        // user to recovery / email until they consume one of those — block any
+        // other method for this challenge.
+        var lockedToRecovery = userData.ForceRecoveryOnNextLogin;
+        if (lockedToRecovery
+            && !string.Equals(request.Method, "email", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(request.Method, "recovery", StringComparison.OrdinalIgnoreCase))
+        {
+            return Unauthorized(new { message = "Account is in recovery mode — use a recovery code or email OTP." });
+        }
 
         if (string.Equals(request.Method, "email", StringComparison.OrdinalIgnoreCase))
         {
             valid = _emailOtpService.ValidateCode(request.ChallengeToken, request.Code);
+        }
+        else if (string.Equals(request.Method, "recovery", StringComparison.OrdinalIgnoreCase))
+        {
+            consumedRecoveryIdx = FindRecoveryCodeIndex(userData, request.Code);
+            valid = consumedRecoveryIdx >= 0;
+            if (valid)
+            {
+                userData.RecoveryCodes[consumedRecoveryIdx].Used = true;
+                userData.RecoveryCodes[consumedRecoveryIdx].UsedAt = DateTime.UtcNow;
+            }
         }
         else
         {
@@ -500,6 +553,22 @@ public class TwoFactorAuthController : ControllerBase
             try { secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret); }
             catch { return StatusCode(500, new { message = "TOTP secret is corrupted. Re-enroll 2FA." }); }
             valid = _totpService.ValidateCode(secret, request.Code, challenge.UserId.ToString());
+        }
+
+        // Clear emergency-recovery lock on successful recovery / email use.
+        if (valid && lockedToRecovery
+            && (string.Equals(request.Method, "email", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(request.Method, "recovery", StringComparison.OrdinalIgnoreCase)))
+        {
+            userData.ForceRecoveryOnNextLogin = false;
+        }
+        if (valid && consumedRecoveryIdx >= 0)
+        {
+            await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+        }
+        else if (valid && lockedToRecovery)
+        {
+            await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
         }
 
         if (!valid)
@@ -1093,6 +1162,7 @@ public class TwoFactorAuthController : ControllerBase
                 TrustedDeviceCount = data.TrustedDevices.Count,
                 RecoveryCodesRemaining = data.RecoveryCodes.Count(c => !c.Used),
                 IsLockedOut = isLockedOut,
+                PasskeyCount = data.Passkeys.Count,
             });
         }
 
@@ -1934,5 +2004,650 @@ public class TwoFactorAuthController : ControllerBase
         }).ConfigureAwait(false);
 
         return Ok();
+    }
+
+    // =========================================================================
+    // v1.4 — Passkey / WebAuthn (additive 2nd factor)
+    // =========================================================================
+
+    public class PasskeyRegisterFinishRequest
+    {
+        public string Nonce { get; set; } = string.Empty;
+        public string Response { get; set; } = string.Empty;
+        public string Label { get; set; } = string.Empty;
+    }
+
+    /// <summary>Returns what RP ID and origin the server sees for THIS
+    /// request. Useful for diagnosing reverse-proxy mismatches without
+    /// touching server logs.</summary>
+    [HttpGet("Passkeys/Diagnose")]
+    [Authorize(Policy = "RequiresElevation")]
+    public IActionResult PasskeyDiagnose()
+    {
+        var config = Plugin.Instance?.Configuration;
+        return Ok(new
+        {
+            requestHost = HttpContext.Request.Host.Value,
+            requestScheme = HttpContext.Request.Scheme,
+            xForwardedHost = HttpContext.Request.Headers["X-Forwarded-Host"].FirstOrDefault(),
+            xForwardedProto = HttpContext.Request.Headers["X-Forwarded-Proto"].FirstOrDefault(),
+            remoteIp = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            configuredRpId = config?.WebAuthnRpId,
+            configuredOrigins = config?.WebAuthnOrigins,
+            trustForwardedFor = config?.TrustForwardedFor,
+            trustedProxyCidrCount = config?.TrustedProxyCidrs.Length,
+        });
+    }
+
+    /// <summary>Begin a passkey registration ceremony for the current user.
+    /// Returns the JSON the browser passes to navigator.credentials.create()
+    /// + a nonce that must be echoed on RegisterFinish.</summary>
+    [HttpPost("Passkeys/RegisterBegin")]
+    [Authorize]
+    public async Task<IActionResult> PasskeyRegisterBegin()
+    {
+        var userId = GetCurrentUserId();
+        var user = _userManager.GetUserById(userId);
+        if (user is null) return Unauthorized();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+
+        var optionsJson = _passkeys.BuildRegistrationOptions(HttpContext, userId, user.Username, data.Passkeys);
+        var nonce = _passkeyChallenges.Begin(optionsJson, userId);
+        return Content("{\"nonce\":\"" + nonce + "\",\"options\":" + optionsJson + "}", "application/json");
+    }
+
+    /// <summary>Validate the browser's attestation and persist the new passkey.</summary>
+    [HttpPost("Passkeys/RegisterFinish")]
+    [Authorize]
+    public async Task<IActionResult> PasskeyRegisterFinish([FromBody, Required] PasskeyRegisterFinishRequest req)
+    {
+        var userId = GetCurrentUserId();
+        var (optionsJson, ownerId) = _passkeyChallenges.Consume(req.Nonce);
+        if (optionsJson is null || ownerId != userId)
+            return BadRequest(new { message = "Registration challenge expired or invalid" });
+
+        try
+        {
+            var cred = await _passkeys.CompleteRegistrationAsync(HttpContext, userId, optionsJson, req.Response, req.Label).ConfigureAwait(false);
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+            await _notificationService.NotifyPasskeyRegisteredAsync(
+                _userManager.GetUserById(userId)?.Username ?? userId.ToString(), cred.Label, ip).ConfigureAwait(false);
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = userId,
+                Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
+                RemoteIp = ip,
+                Result = AuditResult.ConfigChanged,
+                Method = "passkey_registered:" + cred.Label,
+            }).ConfigureAwait(false);
+            return Ok(new { id = cred.Id, label = cred.Label, aaguid = cred.Aaguid });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Passkey registration failed");
+            return BadRequest(new { message = "Registration failed: " + ex.Message });
+        }
+    }
+
+    /// <summary>List a user's passkeys for the Setup page (no public key
+    /// material exposed).</summary>
+    [HttpGet("Passkeys")]
+    [Authorize]
+    public async Task<IActionResult> ListPasskeys()
+    {
+        var userId = GetCurrentUserId();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        return Ok(data.Passkeys.Select(p => new
+        {
+            id = p.Id,
+            label = p.Label,
+            aaguid = p.Aaguid,
+            createdAt = p.CreatedAt,
+            lastUsedAt = p.LastUsedAt,
+        }));
+    }
+
+    public class PasskeyClientLog { public string Phase { get; set; } = ""; public string Name { get; set; } = ""; public string Message { get; set; } = ""; public string Ua { get; set; } = ""; }
+
+    /// <summary>Browser-side WebAuthn errors only show as a generic
+    /// "not allowed" string in some browsers (looking at you, Safari). The
+    /// Setup page POSTs the actual DOMException name + message here so admins
+    /// can debug from the server log. Rate-limited and length-capped because
+    /// any signed-in user can hit this — without bounds it would be a
+    /// trivial log-spam vector.</summary>
+    [HttpPost("Passkeys/ClientLog")]
+    [Authorize]
+    public IActionResult LogPasskeyClientError([FromBody, Required] PasskeyClientLog body)
+    {
+        var userId = GetCurrentUserId();
+        var rl = _rateLimiter.CheckAndRecord("passkey_log:" + userId.ToString("N"), 10, TimeSpan.FromMinutes(5));
+        if (!rl.allowed) return StatusCode(429);
+        static string Trim(string? s) => string.IsNullOrEmpty(s) ? string.Empty : (s.Length > 200 ? s.Substring(0, 200) : s);
+        _logger.LogInformation("[2FA] Passkey client error phase={Phase} name={Name} msg={Msg} ua={Ua}",
+            Trim(body.Phase), Trim(body.Name), Trim(body.Message), Trim(body.Ua));
+        return Ok();
+    }
+
+    [HttpDelete("Passkeys/{id}")]
+    [Authorize]
+    public async Task<IActionResult> DeletePasskey([FromRoute] string id)
+    {
+        var userId = GetCurrentUserId();
+        var removed = false;
+        await _store.MutateAsync(userId, ud =>
+        {
+            removed = ud.Passkeys.RemoveAll(p => string.Equals(p.Id, id, StringComparison.Ordinal)) > 0;
+        }).ConfigureAwait(false);
+        if (!removed) return NotFound();
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            Result = AuditResult.ConfigChanged,
+            Method = "passkey_revoked",
+        }).ConfigureAwait(false);
+        return Ok();
+    }
+
+    public class PasskeyAssertBeginRequest { public string ChallengeToken { get; set; } = string.Empty; }
+    public class PasskeyAssertFinishRequest
+    {
+        public string ChallengeToken { get; set; } = string.Empty;
+        public string Nonce { get; set; } = string.Empty;
+        public string Response { get; set; } = string.Empty;
+    }
+
+    /// <summary>Begin an assertion ceremony to satisfy the 2FA challenge step
+    /// with a passkey. Anonymous: the challenge token identifies which user
+    /// already passed username+password.</summary>
+    [HttpPost("Verify/Passkey/Begin")]
+    [AllowAnonymous]
+    public async Task<IActionResult> PasskeyAssertBegin([FromBody, Required] PasskeyAssertBeginRequest req)
+    {
+        var challenge = _challengeStore.GetChallenge(req.ChallengeToken);
+        if (challenge is null) return BadRequest(new { message = "Invalid or expired challenge" });
+        var data = await _store.GetUserDataAsync(challenge.UserId).ConfigureAwait(false);
+        if (data.Passkeys.Count == 0) return BadRequest(new { message = "No passkeys registered for this user" });
+
+        var optionsJson = _passkeys.BuildAssertionOptions(HttpContext, data.Passkeys);
+        var nonce = _passkeyChallenges.Begin(optionsJson, challenge.UserId);
+        return Content("{\"nonce\":\"" + nonce + "\",\"options\":" + optionsJson + "}", "application/json");
+    }
+
+    /// <summary>Validate the assertion and consume the 2FA challenge — returns
+    /// the same VerifyResponse shape the TOTP path returns so the browser
+    /// flow is uniform.</summary>
+    [HttpPost("Verify/Passkey/Finish")]
+    [AllowAnonymous]
+    public async Task<IActionResult> PasskeyAssertFinish([FromBody, Required] PasskeyAssertFinishRequest req)
+    {
+        var challenge = _challengeStore.GetChallenge(req.ChallengeToken);
+        if (challenge is null) return BadRequest(new { message = "Invalid or expired challenge" });
+        var (optionsJson, userId) = _passkeyChallenges.Consume(req.Nonce);
+        if (optionsJson is null || userId != challenge.UserId)
+            return BadRequest(new { message = "Assertion challenge expired or invalid" });
+
+        var ok = false;
+        try
+        {
+            ok = await _passkeys.CompleteAssertionAsync(HttpContext, challenge.UserId, optionsJson, req.Response).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Passkey assertion failed");
+        }
+
+        if (!ok)
+        {
+            await _store.RecordFailedAttemptAsync(challenge.UserId).ConfigureAwait(false);
+            return Unauthorized(new { message = "Passkey verification failed" });
+        }
+
+        // Consume the challenge — same code path as TOTP-success (controller
+        // already has Verify endpoint for that; we delegate by re-issuing the
+        // stash). Simplest reuse: mark device pre-verified and return the
+        // stashed PendingAuthResponse the way the TOTP Verify does.
+        if (!_challengeStore.ConsumeChallenge(req.ChallengeToken))
+            return BadRequest(new { message = "Challenge already consumed" });
+
+        _challengeStore.MarkDevicePreVerified(challenge.UserId, challenge.DeviceId);
+        _pendingPairings.Remove(challenge.UserId, challenge.DeviceId ?? string.Empty);
+
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = challenge.UserId,
+            Username = challenge.Username,
+            RemoteIp = ip,
+            DeviceId = challenge.DeviceId ?? string.Empty,
+            DeviceName = challenge.DeviceName ?? string.Empty,
+            Result = AuditResult.Success,
+            Method = "passkey",
+        }).ConfigureAwait(false);
+
+        // Return the stashed Jellyfin auth payload verbatim — same shape the
+        // standard challenge.html flow consumes (parses out AccessToken etc.).
+        var stashed = challenge.PendingAuthResponse;
+        if (string.IsNullOrEmpty(stashed))
+        {
+            return Ok(new { message = "Verified, but no stashed auth response — sign in again from the start" });
+        }
+        return Content(stashed, "application/json");
+    }
+
+    // =========================================================================
+    // v1.4 — Self-service emergency lockout
+    // =========================================================================
+
+    [HttpPost("Setup/EmergencyLockout")]
+    [Authorize]
+    public async Task<IActionResult> EmergencyLockout()
+    {
+        var userId = GetCurrentUserId();
+        var user = _userManager.GetUserById(userId);
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+
+        // Wipe persisted bypass routes so no stale device sneaks back in.
+        await _store.MutateAsync(userId, ud =>
+        {
+            ud.TrustedDevices.Clear();
+            ud.PairedDevices.Clear();
+            ud.RegisteredDeviceIds.Clear();
+            ud.ForceRecoveryOnNextLogin = true;
+        }).ConfigureAwait(false);
+
+        var killed = await _sessionTerm.LogoutAllForUserAsync(userId).ConfigureAwait(false);
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = user?.Username ?? userId.ToString(),
+            RemoteIp = ip,
+            Result = AuditResult.ConfigChanged,
+            Method = "emergency_lockout",
+        }).ConfigureAwait(false);
+
+        await _notificationService.NotifyEmergencyLockoutAsync(user?.Username ?? userId.ToString(), ip).ConfigureAwait(false);
+
+        return Ok(new { sessionsTerminated = killed });
+    }
+
+    // =========================================================================
+    // v1.4 — Admin force-logout (single user)
+    // =========================================================================
+
+    [HttpPost("Users/{userId:guid}/ForceLogout")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> AdminForceLogout([FromRoute] Guid userId)
+    {
+        var target = _userManager.GetUserById(userId);
+        if (target is null) return NotFound();
+
+        var adminId = GetCurrentUserId();
+        // v1.4 SEC-M2: refuse to lock out the last remaining admin (which
+        // would render the server unrecoverable without CLI access). Two
+        // guards: (1) admin can self-force-logout if other admins exist;
+        // (2) any admin can be force-logged-out unless they're the only one.
+        // SEC-M2: refuse to force-logout the only remaining administrator —
+        // would lock the server out of the admin UI permanently.
+        try
+        {
+            if (target.HasPermission(PermissionKind.IsAdministrator))
+            {
+                var adminCount = _userManager.Users.Count(u =>
+                    u.HasPermission(PermissionKind.IsAdministrator));
+                if (adminCount <= 1)
+                {
+                    return Conflict(new { message = "Refusing to force-logout the only remaining administrator." });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[2FA] Couldn't enumerate admins for last-admin guard — proceeding");
+        }
+
+        await _store.MutateAsync(userId, ud =>
+        {
+            ud.TrustedDevices.Clear();
+            ud.RegisteredDeviceIds.Clear();
+        }).ConfigureAwait(false);
+
+        var killed = await _sessionTerm.LogoutAllForUserAsync(userId).ConfigureAwait(false);
+
+        var adminName = _userManager.GetUserById(adminId)?.Username ?? adminId.ToString();
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = target.Username,
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            Result = AuditResult.ConfigChanged,
+            Method = $"admin_force_logout_by:{adminName}",
+        }).ConfigureAwait(false);
+
+        await _notificationService.NotifyAdminForceLogoutAsync(target.Username, adminName, killed).ConfigureAwait(false);
+        return Ok(new { sessionsTerminated = killed });
+    }
+
+    // =========================================================================
+    // v1.4 — Bulk admin actions
+    // =========================================================================
+
+    public class BulkActionRequest
+    {
+        public string Action { get; set; } = string.Empty;
+        public List<Guid> UserIds { get; set; } = new();
+    }
+
+    [HttpPost("Admin/Bulk")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> BulkAction([FromBody, Required] BulkActionRequest req)
+    {
+        if (req.UserIds.Count == 0) return BadRequest(new { message = "No users selected" });
+        // SEC-M8: `disable_2fa` was an inconsistent half-wipe (cleared TOTP +
+        // recovery + passkeys but left app passwords + registered device IDs +
+        // email-OTP preference). Renamed to `reset_2fa` and made it a full
+        // wipe so the action does what its label implies. Old name kept as an
+        // alias for one release for any admin scripts that called the API.
+        var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "reset_2fa", "disable_2fa", "rotate_recovery", "revoke_paired_devices", "revoke_trusted_browsers", "force_logout"
+        };
+        if (!allowed.Contains(req.Action))
+            return BadRequest(new { message = "Unknown action: " + req.Action });
+
+        var adminId = GetCurrentUserId();
+        var adminName = _userManager.GetUserById(adminId)?.Username ?? adminId.ToString();
+        var actorIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+
+        int processed = 0;
+        foreach (var uid in req.UserIds.Distinct())
+        {
+            try
+            {
+                switch (req.Action.ToLowerInvariant())
+                {
+                    // SEC-M8: full reset — wipes EVERY 2FA artifact for the user.
+                    case "reset_2fa":
+                    case "disable_2fa": // legacy alias
+                        await _store.MutateAsync(uid, ud =>
+                        {
+                            ud.TotpEnabled = false;
+                            ud.TotpVerified = false;
+                            ud.EncryptedTotpSecret = null;
+                            ud.RecoveryCodes.Clear();
+                            ud.RecoveryCodesGeneratedAt = null;
+                            ud.Passkeys.Clear();
+                            ud.AppPasswords.Clear();
+                            ud.RegisteredDeviceIds.Clear();
+                            ud.PairedDevices.Clear();
+                            ud.TrustedDevices.Clear();
+                            ud.SeenContexts.Clear();
+                            ud.EmailOtpPreferred = false;
+                            ud.ForceRecoveryOnNextLogin = false;
+                        }).ConfigureAwait(false);
+                        _challengeStore.WipeAllForUser(uid);
+                        break;
+                    case "rotate_recovery":
+                        var (plain, records) = _recoveryCodes.GenerateCodes();
+                        await _store.MutateAsync(uid, ud =>
+                        {
+                            ud.RecoveryCodes = records;
+                            ud.RecoveryCodesGeneratedAt = DateTime.UtcNow;
+                        }).ConfigureAwait(false);
+                        // Plaintext is NOT returned in bulk — admin must reset per user to see codes.
+                        break;
+                    case "revoke_paired_devices":
+                        await _store.MutateAsync(uid, ud => ud.PairedDevices.Clear()).ConfigureAwait(false);
+                        break;
+                    case "revoke_trusted_browsers":
+                        await _store.MutateAsync(uid, ud => ud.TrustedDevices.Clear()).ConfigureAwait(false);
+                        break;
+                    case "force_logout":
+                        await _sessionTerm.LogoutAllForUserAsync(uid).ConfigureAwait(false);
+                        break;
+                }
+                // SEC-L1: per-user audit entry so the hash chain reflects bulk
+                // admin actions — without this the audit log silently drops them.
+                await _store.AddAuditEntryAsync(new AuditEntry
+                {
+                    Timestamp = DateTime.UtcNow,
+                    UserId = uid,
+                    Username = _userManager.GetUserById(uid)?.Username ?? uid.ToString(),
+                    RemoteIp = actorIp,
+                    Result = AuditResult.ConfigChanged,
+                    Method = $"bulk:{req.Action.ToLowerInvariant()}_by:{adminName}",
+                }).ConfigureAwait(false);
+                processed++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[2FA] Bulk action {Action} failed for user {UserId}", req.Action, uid);
+            }
+        }
+        return Ok(new { processed, action = req.Action });
+    }
+
+    // =========================================================================
+    // v1.4 — Recovery codes PDF
+    // =========================================================================
+
+    public class RecoveryPdfRequest { public List<string> Codes { get; set; } = new(); }
+
+    /// <summary>Render the just-generated recovery codes as a PDF the user can
+    /// print + save. Codes must be supplied by the caller (we don't keep
+    /// plaintext) — the Setup page POSTs back what /Generate returned.</summary>
+    [HttpPost("RecoveryCodes/Pdf")]
+    [Authorize]
+    public IActionResult GenerateRecoveryPdf([FromBody, Required] RecoveryPdfRequest req)
+    {
+        if (req.Codes.Count == 0) return BadRequest(new { message = "No codes provided" });
+        // SEC-M5: cap inputs so a logged-in user can't ask for a 10000-code
+        // PDF as a memory/CPU resource hog.
+        if (req.Codes.Count > 50) return BadRequest(new { message = "Too many codes" });
+        foreach (var c in req.Codes)
+        {
+            if (c is null || c.Length > 64) return BadRequest(new { message = "Code too long" });
+        }
+        var userId = GetCurrentUserId();
+        var username = _userManager.GetUserById(userId)?.Username ?? userId.ToString();
+        // Sanitize username for use inside Content-Disposition: header injection
+        // (\r\n) and filename-unsafe chars stripped; if nothing useful remains,
+        // fall back to the user GUID.
+        var safeName = new string(username.Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '-' || c == '.').ToArray());
+        if (string.IsNullOrEmpty(safeName)) safeName = userId.ToString("N");
+        var serverName = "Jellyfin";
+        var bytes = _recoveryPdf.Render(username, req.Codes, serverName);
+        Response.Headers["Content-Disposition"] = $"attachment; filename=jellyfin-2fa-recovery-{safeName}.pdf";
+        return File(bytes, "application/pdf");
+    }
+
+    // =========================================================================
+    // v1.4 — Diagnostics + Stats + Export + Rate-limit observability
+    // =========================================================================
+
+    [HttpGet("Diagnostics")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> RunDiagnostics()
+    {
+        var checks = await _diagnostics.RunAsync().ConfigureAwait(false);
+        return Ok(checks.Select(c => new { id = c.Id, label = c.Label, status = c.Status.ToString(), detail = c.Detail }));
+    }
+
+    [HttpGet("Stats")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> GetStats()
+    {
+        var s = await _stats.ComputeAsync().ConfigureAwait(false);
+        return Ok(s);
+    }
+
+    [HttpGet("Users/{userId:guid}/Export")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> ExportUser([FromRoute] Guid userId)
+    {
+        var data = await _userExport.BuildExportAsync(userId).ConfigureAwait(false);
+        var json = System.Text.Json.JsonSerializer.Serialize(data, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        Response.Headers["Content-Disposition"] = $"attachment; filename=2fa-export-{userId:N}.json";
+        return Content(json, "application/json");
+    }
+
+    [HttpGet("RateLimitTrips")]
+    [Authorize(Policy = "RequiresElevation")]
+    public IActionResult GetRateLimitTrips() => Ok(_rateLimiter.RecentTrips());
+
+    // =========================================================================
+    // v1.4 — TOTP self-service rotate (current code + recovery code)
+    // =========================================================================
+
+    public class TotpRotateRequest
+    {
+        public string CurrentCode { get; set; } = string.Empty;
+        public string RecoveryCode { get; set; } = string.Empty;
+    }
+
+    [HttpPost("Setup/Totp/Rotate")]
+    [Authorize]
+    public async Task<IActionResult> RotateTotp([FromBody, Required] TotpRotateRequest req)
+    {
+        var userId = GetCurrentUserId();
+        var user = _userManager.GetUserById(userId);
+        if (user is null) return Unauthorized();
+
+        if (await _store.IsLockedOutAsync(userId).ConfigureAwait(false))
+            return StatusCode(429, new { message = "Account locked" });
+
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (!data.TotpEnabled || string.IsNullOrEmpty(data.EncryptedTotpSecret))
+            return BadRequest(new { message = "TOTP not enabled" });
+
+        if (!_totpService.ValidateCode(data.EncryptedTotpSecret, req.CurrentCode, userId.ToString("N")))
+        {
+            await _store.RecordFailedAttemptAsync(userId).ConfigureAwait(false);
+            return Unauthorized(new { message = "Current TOTP code is invalid" });
+        }
+        var rIdx = FindRecoveryCodeIndex(data, req.RecoveryCode);
+        if (rIdx < 0)
+        {
+            await _store.RecordFailedAttemptAsync(userId).ConfigureAwait(false);
+            return Unauthorized(new { message = "Recovery code is invalid" });
+        }
+
+        var (newSecret, newQr, newManual) = _totpService.GenerateSecret(user.Username);
+        await _store.MutateAsync(userId, ud =>
+        {
+            ud.EncryptedTotpSecret = newSecret;
+            // Mark the recovery code we used as consumed so the same one
+            // can't be replayed.
+            if (rIdx < ud.RecoveryCodes.Count) ud.RecoveryCodes[rIdx].Used = true;
+            if (rIdx < ud.RecoveryCodes.Count) ud.RecoveryCodes[rIdx].UsedAt = DateTime.UtcNow;
+            ud.TotpVerified = false; // user must re-confirm with the new authenticator
+        }).ConfigureAwait(false);
+
+        var rotateIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = user.Username,
+            RemoteIp = rotateIp,
+            Result = AuditResult.ConfigChanged,
+            Method = "totp_rotated",
+        }).ConfigureAwait(false);
+        // SEC-M3: fire a notification so the legitimate user notices if an
+        // attacker who already has both factors silently rotates their seed.
+        try { await _notificationService.NotifyTotpRotatedAsync(user.Username, rotateIp).ConfigureAwait(false); }
+        catch (Exception ex) { _logger.LogDebug(ex, "[2FA] TOTP rotate notification failed"); }
+
+        return Ok(new { qrCode = newQr, manualEntryKey = newManual });
+    }
+
+    // =========================================================================
+    // v1.4 — QR-pair-from-phone (reverse of TV pairing flow)
+    // Desktop browser asks for a signed pair-token, renders as QR. Phone
+    // (already signed in) scans → existing /PairConfirm endpoint completes.
+    // =========================================================================
+
+    /// <summary>Issues a signed pair-confirm token for the CURRENT browser
+    /// (so a phone scanning its QR can mark this browser as a paired device).
+    /// Reuses the existing PairConfirm verification path.</summary>
+    [HttpGet("Setup/QrPair/Begin")]
+    [Authorize]
+    public IActionResult QrPairBegin()
+    {
+        var userId = GetCurrentUserId();
+        var deviceId = HttpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
+            ?? TwoFactorEnforcementMiddleware.ParseEmbyAuth(
+                HttpContext.Request.Headers["X-Emby-Authorization"].FirstOrDefault(), "DeviceId")
+            ?? string.Empty;
+        if (string.IsNullOrEmpty(deviceId))
+            return BadRequest(new { message = "Cannot determine current device id" });
+
+        // v1.4 SEC-H4: cross-check that the deviceId in headers matches a real
+        // device record for the calling user — without this, a signed-in user
+        // could mint a QR token for an arbitrary deviceId and trick someone
+        // into approving a device that isn't theirs.
+        var token = HttpContext.Request.Headers["X-Emby-Token"].FirstOrDefault();
+        var devices = _deviceManager.GetDevices(new DeviceQuery { UserId = userId });
+        var ownsDevice = devices.Items.Any(d =>
+            !string.IsNullOrEmpty(d.DeviceId)
+            && string.Equals(d.DeviceId, deviceId, StringComparison.Ordinal)
+            && (string.IsNullOrEmpty(token) || string.Equals(d.AccessToken, token, StringComparison.Ordinal)));
+        if (!ownsDevice)
+            return Unauthorized(new { message = "Caller does not own the supplied deviceId" });
+
+        var expiry = DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds();
+        var payload = $"pair|{userId:N}|{deviceId}|{expiry}";
+        var sig = _cookieSigner.Sign(payload);
+        var combined = payload + "." + sig;
+        var b64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(combined))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var scheme = HttpContext.Request.IsHttps ? "https" : "http";
+        var host = HttpContext.Request.Host.Value;
+        var url = $"{scheme}://{host}/TwoFactorAuth/PairConfirm?token={Uri.EscapeDataString(b64)}";
+        return Ok(new { url, expiresAt = DateTimeOffset.FromUnixTimeSeconds(expiry) });
+    }
+
+    // =========================================================================
+    // v1.4 — Per-user max concurrent sessions (admin override)
+    // =========================================================================
+
+    public class MaxSessionsRequest { public int? Max { get; set; } }
+
+    [HttpPut("Users/{userId:guid}/MaxSessions")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> SetMaxSessions([FromRoute] Guid userId, [FromBody, Required] MaxSessionsRequest req)
+    {
+        if (req.Max.HasValue && (req.Max.Value < 0 || req.Max.Value > 100))
+            return BadRequest(new { message = "Max must be 0-100 or null" });
+        await _store.MutateAsync(userId, ud => ud.MaxConcurrentSessions = req.Max).ConfigureAwait(false);
+        return Ok();
+    }
+
+    // =========================================================================
+    // v1.4 — Webhook test ping (admin)
+    // =========================================================================
+
+    [HttpPost("Admin/WebhookTest")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> TestWebhook()
+    {
+        // SEC-L9: rate-limit so admin spam-clicking the test button can't DoS
+        // their own webhook receiver (or be used to amplify pings from a
+        // compromised admin session). 5/minute is plenty for genuine testing.
+        var rl = _rateLimiter.CheckAndRecord("webhook_test", 5, TimeSpan.FromMinutes(1));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            return StatusCode(429, new { message = $"Too many test requests. Retry in {rl.retryAfterSeconds}s." });
+        }
+        await _notificationService.NotifyLoginAttemptAsync("__test_user__", "127.0.0.1", "Webhook test", true).ConfigureAwait(false);
+        return Ok(new { message = "Test event dispatched. Check your webhook receiver." });
     }
 }

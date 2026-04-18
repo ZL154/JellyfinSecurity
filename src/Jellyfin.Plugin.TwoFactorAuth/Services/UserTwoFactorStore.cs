@@ -192,11 +192,22 @@ public class UserTwoFactorStore
         try
         {
             var entries = await ReadAuditFileAsync().ConfigureAwait(false);
+
+            // Hash chain: tie the new entry's PreviousHash to the prior entry's
+            // EntryHash, then compute and stamp this entry's EntryHash. Old
+            // entries from pre-v1.4 have empty hashes — treated as the chain
+            // origin (prior=zero, entry hash recomputed lazily by the verifier).
+            var prior = entries.Count > 0 ? entries[^1].EntryHash : string.Empty;
+            entry.PreviousHash = string.IsNullOrEmpty(prior) ? new string('0', 64) : prior;
+            entry.EntryHash = ComputeAuditEntryHash(entry);
+
             entries.Add(entry);
 
             int maxEntries = Plugin.Instance?.Configuration?.AuditLogMaxEntries ?? 1000;
 
-            // Prune to max entries (keep most recent)
+            // Prune to max entries (keep most recent). Pruning breaks the chain
+            // back to the new oldest entry — that's a known and documented
+            // tradeoff: bounded retention vs unbroken history forever.
             if (entries.Count > maxEntries)
             {
                 entries = entries.Skip(entries.Count - maxEntries).ToList();
@@ -208,6 +219,26 @@ public class UserTwoFactorStore
         {
             _auditLock.Release();
         }
+    }
+
+    /// <summary>Canonical hash for audit entries. Includes every persisted field
+    /// EXCEPT EntryHash itself (otherwise the value would depend on itself).
+    /// PreviousHash IS included so tampering with one entry cascades.</summary>
+    internal static string ComputeAuditEntryHash(AuditEntry e)
+    {
+        var canonical = string.Join("\x1F",
+            e.PreviousHash,
+            e.Timestamp.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            e.UserId.ToString("N"),
+            e.Username ?? string.Empty,
+            e.RemoteIp ?? string.Empty,
+            e.DeviceId ?? string.Empty,
+            e.DeviceName ?? string.Empty,
+            ((int)e.Result).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            e.Method ?? string.Empty,
+            e.Details ?? string.Empty);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(canonical);
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
     }
 
     public async Task<IReadOnlyList<AuditEntry>> GetAuditLogAsync(int? limit = null)
