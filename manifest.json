@@ -8,6 +8,13 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.4.2.0",
+        "changelog": "CRITICAL fix for 1.4.0/1.4.1: the /web/ index page was rendered as raw gzip bytes in the browser (wall of garbage, Jellyfin UI refused to load) when Kestrel served the pre-compressed index.html.gz static asset. IndexHtmlInjectionMiddleware now strips Accept-Encoding on the incoming /web/ request so the upstream responds with identity-encoded HTML we can safely inject into. Only applied to /web/ /web /web/index.html — other assets still compress normally. Upgrade if you saw mojibake on the web UI.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.4.2/Jellyfin.Plugin.TwoFactorAuthv1.4.2.zip",
+        "checksum": "118B6DBDC30FE860161B854CE49702E6"
+      },
+      {
         "version": "1.4.1.0",
         "changelog": "Bug-fix release. CRITICAL: Samsung Tizen / Smart TV clients behind a reverse proxy (Caddy, nginx, Cloudflare, etc) couldn't sign in after the v1.4 upgrade — their AuthenticateByName requests arrive at the server without X-Emby-Device-Id or a parseable X-Emby-Authorization, so the plugin couldn't extract a deviceId and the paired-device/registered-device bypasses never fired, forcing the TV through a 2FA challenge it can't render. Fixed: the enforcement middleware now falls back to reading SessionInfo.DeviceId from Jellyfin's own auth response body when request headers don't carry a deviceId. RegisteredDeviceIds lookup now uses the same normalisation as PairedDevices so Jellyfin Web UA-hash deviceIds match across session-timestamp suffix changes (Tizen webview restarts). Also removed leftover dev-only diagnostic log lines accumulated during this investigation.",
         "targetAbi": "10.11.0.0",

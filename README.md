@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Authentication-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/badge/Version-1.4.1-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
+  <img src="https://img.shields.io/badge/Version-1.4.2-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -460,6 +460,14 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 1.4.2 — Fix gzip-encoded `/web/` corruption
+
+**Critical fix for anyone upgrading to 1.4.x.** The IndexHtml injection middleware (which inserts `<script src="/TwoFactorAuth/inject.js">` into Jellyfin's main index page) was reading the response buffer as UTF-8 text without checking `Content-Encoding`. When Jellyfin served the pre-gzipped `index.html.gz` static asset, the middleware read compressed bytes as text, mangled them, and wrote garbage back — the browser then tried to render the binary gzip payload as text, producing a wall of mojibake and the entire web UI refusing to load.
+
+**Fix:** strip `Accept-Encoding` from the incoming `/web/` request before the response is generated, so Kestrel's static-file handler responds with identity-encoded HTML we can safely inject into. Only applied to the three specific paths the middleware intercepts (`/web/`, `/web`, `/web/index.html`) — other assets still compress normally. Cost: one uncompressed ~50KB HTML per page load. Negligible.
+
+If you're on 1.4.0 or 1.4.1 and the web UI renders as random characters, upgrade.
 
 ### 1.4.1 — Tizen / reverse-proxy bug fix
 
