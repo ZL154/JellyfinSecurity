@@ -160,11 +160,11 @@ public class AuthenticationEventHandler : IHostedService
         }
 
         // Paired-device bypass: TV/native client the user has explicitly approved.
-        // Reject empty/whitespace stored deviceId — never match a missing id.
+        // DeviceIdMatches normalises Jellyfin Web UA-hash ids (Tizen/SmartTV)
+        // so the per-session timestamp suffix doesn't break matching across
+        // app restarts.
         var userDataPaired = userData.PairedDevices.FirstOrDefault(p =>
-            !string.IsNullOrWhiteSpace(info.DeviceId)
-            && !string.IsNullOrWhiteSpace(p.DeviceId)
-            && string.Equals(p.DeviceId, info.DeviceId, StringComparison.Ordinal));
+            BypassEvaluator.DeviceIdMatches(p.DeviceId, info.DeviceId));
         if (userDataPaired is not null)
         {
             _logger.LogDebug("[2FA] {Name} paired device {Device} — session allowed",
@@ -173,7 +173,7 @@ public class AuthenticationEventHandler : IHostedService
             await _store.MutateAsync(info.UserId, ud =>
             {
                 var p = ud.PairedDevices.FirstOrDefault(x =>
-                    string.Equals(x.DeviceId, info.DeviceId, StringComparison.Ordinal));
+                    BypassEvaluator.DeviceIdMatches(x.DeviceId, info.DeviceId));
                 if (p is not null)
                 {
                     p.LastUsedAt = DateTime.UtcNow;
