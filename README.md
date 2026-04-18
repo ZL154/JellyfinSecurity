@@ -38,6 +38,7 @@ A native server-side 2FA plugin that **enforces verification on every login** us
 - [Security model](#-security-model)
 - [Limitations](#-limitations)
 - [Changelog](#-changelog)
+- [Support the project](#-support-the-project)
 - [License](#-license)
 
 ---
@@ -534,6 +535,18 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 - Fixed DI circular dependency when registering `IAuthenticationProvider` (`TwoFactorAuthProvider` now resolves `IUserManager` lazily via `IApplicationHost`).
 - Samsung Tizen / Jellyfin for Tizen pairing works end-to-end.
 - Login loop fixed by removing access-token blocking — middleware response-intercept is now the only gate.
+
+---
+
+## ❤ Support the project
+
+2FA for Jellyfin is built and maintained in my spare time. If it's protecting your server and you'd like to support ongoing development, any of these means a lot:
+
+- ⭐ **Star this repo** — it's free and helps others find it
+- 💖 **[Sponsor on GitHub](https://github.com/sponsors/ZL154)** — one-off or monthly, every dollar reaches the project
+- ☕ **[Buy me a coffee on Ko-fi](https://ko-fi.com/zl154)** — one-off tips
+
+Not expected, just appreciated. Security issues reported responsibly are equally valuable.
 
 ---
 
