@@ -38,6 +38,16 @@ public class IndexHtmlInjectionMiddleware
         }
 
         System.Threading.Interlocked.Increment(ref _requestsSeen);
+
+        // Strip Accept-Encoding on the INCOMING request so upstream handlers
+        // (Kestrel static file, Jellyfin web) respond with identity-encoded
+        // bytes we can safely inject a script tag into. Restoring the header
+        // afterwards isn't needed — this middleware only runs on /web/ index
+        // requests, and downstream handlers don't re-read the request header.
+        // The browser gets its response uncompressed; slightly larger payload
+        // but /web/ index is tiny.
+        context.Request.Headers.Remove("Accept-Encoding");
+
         var originalBody = context.Response.Body;
         using var buffer = new MemoryStream();
         context.Response.Body = buffer;
@@ -60,6 +70,19 @@ public class IndexHtmlInjectionMiddleware
         var contentType = context.Response.ContentType ?? string.Empty;
         if (!contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase)
             || context.Response.StatusCode != StatusCodes.Status200OK)
+        {
+            await buffer.CopyToAsync(originalBody).ConfigureAwait(false);
+            return;
+        }
+
+        // If the upstream response is already compressed (Kestrel's static
+        // file handler gzips pre-encoded .gz assets), we'd need to decompress,
+        // inject, and recompress. Simpler and safer: pass through untouched.
+        // The inject.js script is also served via a direct plugin route so
+        // non-patched /web/ responses don't break functionality — the browser
+        // still loads inject.js on other pages where we DO manage to inject.
+        var contentEncoding = context.Response.Headers.ContentEncoding.ToString();
+        if (!string.IsNullOrEmpty(contentEncoding) && !contentEncoding.Equals("identity", StringComparison.OrdinalIgnoreCase))
         {
             await buffer.CopyToAsync(originalBody).ConfigureAwait(false);
             return;
