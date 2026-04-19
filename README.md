@@ -181,7 +181,7 @@ Restart Jellyfin after copying.
 From this point, every login from a new browser prompts for a code:
 
 1. Sign in at `/web` with username + password as usual
-2. You'll be redirected to the 2FA challenge page
+2. You will be redirected to the 2FA challenge page
 3. Enter the 6-digit code from your authenticator
 4. Done — this browser is trusted for 30 days (cookie bound to your device)
 
