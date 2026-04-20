@@ -566,6 +566,17 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 
 ## 📝 Changelog
 
+### 2.1.0 — Passkey primary login
+
+**New**
+- **"Sign in with passkey" button** on the standard Jellyfin login page, below the 2FA button. Type username → click → authenticator prompt (Face ID / Touch ID / Windows Hello / YubiKey) → signed in. No password needed, no 2FA challenge layered on top. Uses the same one-shot bridge-token mechanism as OIDC.
+- New endpoints `POST /TwoFactorAuth/Passkey/LoginBegin` + `POST /TwoFactorAuth/Passkey/LoginComplete` (anonymous, rate-limited 20/5min per IP).
+
+**Fix**
+- `inject.js` now served with `Cache-Control: no-store` so CDN / reverse-proxy caching doesn't pin old script after plugin upgrades. If you hit this on v2.0 (Cloudflare 24h default), just upgrade — new buttons and hardening now appear immediately without a manual purge.
+
+**Note**: WebAuthn requires a secure context (HTTPS, or plain localhost). The passkey button is hidden when accessing Jellyfin over plain-HTTP LAN IPs — that's a browser rule, not a plugin limit.
+
 ### 2.0.0 — Jellyfin Security
 
 **Plugin rename** from "Two-Factor Authentication" to "Jellyfin Security" (GUID unchanged — upgrades in place). The plugin now spans the whole auth + hardening stack.

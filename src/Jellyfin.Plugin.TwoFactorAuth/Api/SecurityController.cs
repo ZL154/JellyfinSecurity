@@ -6,6 +6,7 @@ using System.Net.Mime;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
+using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -27,6 +28,10 @@ public class SecurityController : ControllerBase
     private readonly IpBanService _bans;
     private readonly IpAllowlistService _allowlist;
     private readonly UserTwoFactorStore _store;
+    private readonly PasskeyService _passkeys;
+    private readonly PasskeyChallengeStore _passkeyChallenges;
+    private readonly IUserManager _userManager;
+    private readonly RateLimiter _rateLimiter;
     private readonly ILogger<SecurityController> _logger;
 
     public SecurityController(
@@ -35,6 +40,10 @@ public class SecurityController : ControllerBase
         IpBanService bans,
         IpAllowlistService allowlist,
         UserTwoFactorStore store,
+        PasskeyService passkeys,
+        PasskeyChallengeStore passkeyChallenges,
+        IUserManager userManager,
+        RateLimiter rateLimiter,
         ILogger<SecurityController> logger)
     {
         _oidc = oidc;
@@ -42,6 +51,10 @@ public class SecurityController : ControllerBase
         _bans = bans;
         _allowlist = allowlist;
         _store = store;
+        _passkeys = passkeys;
+        _passkeyChallenges = passkeyChallenges;
+        _userManager = userManager;
+        _rateLimiter = rateLimiter;
         _logger = logger;
     }
 
@@ -523,6 +536,115 @@ public class SecurityController : ControllerBase
             ud.IpAllowlistCidrs = req.Cidrs.Select(c => c.Trim()).Where(c => c.Length > 0).Distinct().ToList();
         }).ConfigureAwait(false);
         return Ok();
+    }
+
+    // =========================================================================
+    // PASSKEY PRIMARY LOGIN (v2.1) — username + passkey, no password prompt
+    // =========================================================================
+
+    public class PasskeyLoginBeginRequest { [Required] public string Username { get; set; } = string.Empty; }
+    public class PasskeyLoginCompleteRequest
+    {
+        [Required] public string Username { get; set; } = string.Empty;
+        [Required] public string Nonce { get; set; } = string.Empty;
+        [Required] public string Response { get; set; } = string.Empty;
+    }
+
+    [HttpPost("Passkey/LoginBegin")]
+    [AllowAnonymous]
+    public async Task<IActionResult> PasskeyLoginBegin([FromBody, Required] PasskeyLoginBeginRequest req)
+    {
+        // Rate limit before touching user data — an unauthenticated attacker
+        // hitting this endpoint could enumerate which usernames have passkeys.
+        // Returning identical shape regardless of username validity would be
+        // better but Fido2NetLib's allowCredentials list is user-specific.
+        var ip = RateLimiter.ClientKey(HttpContext);
+        var rl = _rateLimiter.CheckAndRecord("passkey_login:" + ip, 20, TimeSpan.FromMinutes(5));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many attempts. Try again in {rl.retryAfterSeconds}s.",
+            });
+        }
+
+        var user = _userManager.GetUserByName(req.Username);
+        if (user is null)
+        {
+            return NotFound(new { message = "No passkey registered for this user." });
+        }
+        var data = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
+        if (data.Passkeys.Count == 0)
+        {
+            return NotFound(new { message = "No passkey registered for this user." });
+        }
+
+        var optionsJson = _passkeys.BuildAssertionOptions(HttpContext, data.Passkeys);
+        var nonce = _passkeyChallenges.Begin(optionsJson, user.Id);
+
+        // Return raw options JSON; the browser parses it and converts base64url
+        // challenge / credential-id fields to ArrayBuffers before calling
+        // navigator.credentials.get().
+        return Ok(new { options = optionsJson, nonce });
+    }
+
+    [HttpPost("Passkey/LoginComplete")]
+    [AllowAnonymous]
+    public async Task<IActionResult> PasskeyLoginComplete([FromBody, Required] PasskeyLoginCompleteRequest req)
+    {
+        var user = _userManager.GetUserByName(req.Username);
+        if (user is null)
+        {
+            _logger.LogWarning("[2FA] Passkey login: unknown username {User}", req.Username);
+            return Unauthorized(new { message = "Passkey verification failed." });
+        }
+
+        var (optionsJson, storedUserId) = _passkeyChallenges.Consume(req.Nonce);
+        if (optionsJson is null || storedUserId != user.Id)
+        {
+            _logger.LogWarning("[2FA] Passkey login: nonce mismatch for {User}", req.Username);
+            return Unauthorized(new { message = "Passkey verification failed." });
+        }
+
+        bool ok;
+        try
+        {
+            ok = await _passkeys.CompleteAssertionAsync(HttpContext, user.Id, optionsJson, req.Response).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Passkey assertion verify threw");
+            return Unauthorized(new { message = "Passkey verification failed." });
+        }
+        if (!ok)
+        {
+            return Unauthorized(new { message = "Passkey verification failed." });
+        }
+
+        // Reuse the OIDC bridge-token mechanism — mint a 60-second one-shot
+        // token, the caller submits it as the password to /Users/AuthenticateByName,
+        // TwoFactorAuthProvider consumes it and signs the user in with no
+        // password + no further 2FA challenge. Same security guarantees as OIDC.
+        var token = _oidcBridge.Mint(user.Id, user.Username ?? req.Username, "passkey");
+
+        // Route this user's auth through our provider (same as OIDC flow).
+        try
+        {
+            var ourProviderId = typeof(TwoFactorAuthProvider).FullName!;
+            if (!string.Equals(user.AuthenticationProviderId, ourProviderId, StringComparison.Ordinal))
+            {
+                user.AuthenticationProviderId = ourProviderId;
+                await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Passkey login: could not reassign AuthenticationProviderId for {User}", req.Username);
+        }
+
+        _logger.LogInformation("[2FA] Passkey primary sign-in for {User}", req.Username);
+        return Ok(new { username = user.Username, token });
     }
 
     private static bool IsValidCidr(string cidr)
