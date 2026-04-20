@@ -18,9 +18,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public static Plugin? Instance { get; private set; }
 
-    public override string Name => "Two-Factor Authentication";
+    public override string Name => "Jellyfin Security";
 
-    public override string Description => "Native two-factor authentication for Jellyfin with TOTP, email OTP, device pairing, and trusted device support.";
+    public override string Description => "Comprehensive Jellyfin security: TOTP & email 2FA, passkeys, OIDC/SSO sign-in (Google, GitHub, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, ...), brute-force IP banning, impossible-travel detection, per-user IP allowlist, device pairing, trusted browsers, and audit log.";
 
     public override Guid Id => new("94879a0c-da24-4eb1-aa06-f28b4b9333b1");
 

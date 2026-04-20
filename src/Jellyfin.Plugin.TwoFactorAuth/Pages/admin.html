@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Two-Factor Authentication</title>
+    <title>Jellyfin Security</title>
 </head>
 <body>
     <div id="TwoFactorAuth" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-checkbox,emby-input,emby-select">
@@ -16,10 +16,14 @@
             #TwoFactorAuth .tfa-input { background: #1a1a1a; border: 1px solid #444; color: #e0e0e0; padding: 7px 10px; border-radius: 4px; font-size: 14px; font-family: inherit; }
             #TwoFactorAuth .tfa-input:focus { border-color: #00a4dc; outline: none; }
             #TwoFactorAuth textarea.tfa-input { width: 100%; min-height: 70px; resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
-            #TwoFactorAuth .tfa-tabs { display: flex; gap: 0; border-bottom: 2px solid #333; margin-bottom: 20px; flex-wrap: wrap; }
-            #TwoFactorAuth .tfa-tab { padding: 10px 18px; cursor: pointer; color: #888; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; user-select: none; }
-            #TwoFactorAuth .tfa-tab:hover { color: #ccc; }
-            #TwoFactorAuth .tfa-tab.active { color: #00a4dc; border-bottom-color: #00a4dc; }
+            #TwoFactorAuth .tfa-tabs { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; padding: 6px; background: rgba(0,0,0,0.25); border-radius: 10px; border: 1px solid rgba(255,255,255,0.06); }
+            #TwoFactorAuth .tfa-tab { padding: 8px 14px; cursor: pointer; color: #bbb; font-size: 13px; font-weight: 500; border-radius: 6px; transition: all 0.12s ease; user-select: none; white-space: nowrap; }
+            #TwoFactorAuth .tfa-tab:hover { color: #fff; background: rgba(255,255,255,0.05); }
+            #TwoFactorAuth .tfa-tab.active { color: #fff; background: #00a4dc; box-shadow: 0 2px 8px rgba(0,164,220,0.3); }
+            @media (max-width: 700px) {
+              #TwoFactorAuth .tfa-tab { padding: 7px 10px; font-size: 12px; }
+              #TwoFactorAuth .tfa-tabs { gap: 4px; padding: 4px; }
+            }
             #TwoFactorAuth .tfa-panel { display: none !important; }
             #TwoFactorAuth .tfa-panel.active { display: block !important; }
             #TwoFactorAuth .tfa-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -75,6 +79,8 @@
                         <div class="tfa-tab" data-tab="audit">Audit Log</div>
                         <div class="tfa-tab" data-tab="diagnostics">Diagnostics</div>
                         <div class="tfa-tab" data-tab="trips">Rate Limits</div>
+                        <div class="tfa-tab" data-tab="sso">Sign-in Methods</div>
+                        <div class="tfa-tab" data-tab="bans">IP Bans</div>
                         <div class="tfa-tab" data-tab="settings">Settings</div>
                     </div>
 
@@ -180,6 +186,102 @@
                                 <thead><tr><th>Time</th><th>Bucket</th><th>Limit</th><th>Window (s)</th><th>Retry after (s)</th></tr></thead>
                                 <tbody id="tripsBody"><tr><td colspan="5" class="tfa-empty">No trips since startup</td></tr></tbody>
                             </table>
+                        </div>
+                    </div>
+
+                    <!-- SSO / OIDC SIGN-IN METHODS (v2.0) -->
+                    <div class="tfa-panel" id="panel-sso">
+                        <div class="tfa-section">
+                            <h2>OIDC / SSO Providers</h2>
+                            <div class="tfa-note">Add an external identity provider (Google, Microsoft, GitHub, Apple, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, or any OIDC-compliant IdP). Users get a "Sign in with X" button on the login page. Each provider needs its own OAuth client registered at the IdP — set the redirect URI to <code id="ssoCallbackHint" style="background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;">/TwoFactorAuth/Oidc/Callback/&lt;providerId&gt;</code> on this server.</div>
+                            <table class="tfa-table">
+                                <thead><tr><th>Provider</th><th>Preset</th><th>Client ID</th><th>Status</th><th>Actions</th></tr></thead>
+                                <tbody id="ssoBody"><tr><td colspan="5" class="tfa-empty">Loading…</td></tr></tbody>
+                            </table>
+                            <div style="margin-top:14px;">
+                                <button type="button" class="tfa-btn tfa-btn-primary" id="ssoAddBtn">Add provider…</button>
+                            </div>
+                        </div>
+
+                        <!-- Add/edit form (hidden until needed) -->
+                        <div class="tfa-section" id="ssoFormSection" style="display:none;">
+                            <h2 id="ssoFormTitle">New provider</h2>
+                            <div class="tfa-row">
+                                <label>Preset</label>
+                                <select id="ssoPreset" class="tfa-input" style="width:240px;"></select>
+                            </div>
+                            <div class="tfa-row">
+                                <label>Display name</label>
+                                <input type="text" id="ssoDisplay" class="tfa-input" style="width:280px;" placeholder="Sign in with Google" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Discovery URL</label>
+                                <input type="text" id="ssoDiscovery" class="tfa-input" style="width:480px;" placeholder="https://example.com/.well-known/openid-configuration" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Client ID</label>
+                                <input type="text" id="ssoClientId" class="tfa-input" style="width:480px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Client secret</label>
+                                <input type="text" id="ssoClientSecret" class="tfa-input" style="width:480px;" placeholder="(leave blank when editing to keep existing)" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Scopes</label>
+                                <input type="text" id="ssoScopes" class="tfa-input" style="width:360px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Username claim</label>
+                                <input type="text" id="ssoUsernameClaim" class="tfa-input" style="width:240px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>acr_values (optional)</label>
+                                <input type="text" id="ssoAcr" class="tfa-input" style="width:240px;" placeholder="e.g. mfa" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Allowed groups (comma-separated, optional)</label>
+                                <input type="text" id="ssoAllowedGroups" class="tfa-input" style="width:360px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Admin groups (comma-separated, optional)</label>
+                                <input type="text" id="ssoAdminGroups" class="tfa-input" style="width:360px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="ssoAutoCreate" is="emby-checkbox" /> <span>Auto-create Jellyfin users on first sign-in (only enable for trusted IdPs)</span></label>
+                            </div>
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="ssoRequireMfa" is="emby-checkbox" /> <span>Require IdP MFA (refuse sign-in if amr claim doesn't show MFA)</span></label>
+                            </div>
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="ssoBypass2fa" is="emby-checkbox" /> <span>Skip plugin 2FA (recommended — IdP already authenticated the user)</span></label>
+                            </div>
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="ssoEnabled" is="emby-checkbox" /> <span>Show button on login page</span></label>
+                            </div>
+                            <div id="ssoSetupHint" class="tfa-note" style="margin-top:8px;display:none;"></div>
+                            <div style="margin-top:14px;display:flex;gap:10px;">
+                                <button type="button" class="tfa-btn tfa-btn-primary" id="ssoSaveBtn">Save provider</button>
+                                <button type="button" class="tfa-btn" id="ssoCancelBtn">Cancel</button>
+                                <span id="ssoSaveStatus" style="margin-left:14px;color:#4caf50;font-size:13px;"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- IP BANS (v2.0) -->
+                    <div class="tfa-panel" id="panel-bans">
+                        <div class="tfa-section">
+                            <h2>Active IP Bans</h2>
+                            <div class="tfa-note">Source IPs are auto-banned after the configured threshold of failed sign-ins (see Settings → Brute-Force Protection). LAN, trusted-proxy, and exempt CIDRs are never banned.</div>
+                            <table class="tfa-table">
+                                <thead><tr><th>IP</th><th>Banned at</th><th>Expires</th><th>Source</th><th>Note</th><th>Actions</th></tr></thead>
+                                <tbody id="bansBody"><tr><td colspan="6" class="tfa-empty">Loading…</td></tr></tbody>
+                            </table>
+                            <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                <input type="text" id="banIp" class="tfa-input" placeholder="1.2.3.4" style="width:200px;" />
+                                <input type="text" id="banNote" class="tfa-input" placeholder="Reason (optional)" style="width:280px;" />
+                                <input type="number" id="banHours" class="tfa-input" value="24" min="1" max="8760" style="width:90px;" />
+                                <button type="button" class="tfa-btn tfa-btn-danger" id="banAddBtn">Ban IP</button>
+                            </div>
                         </div>
                     </div>
 
@@ -331,6 +433,46 @@
                         </div>
 
                         <div class="tfa-section">
+                            <h2>Brute-Force Protection (v2.0)</h2>
+                            <div class="tfa-note">Auto-bans source IPs that exceed the failure threshold across all users. LAN bypass and trusted-proxy CIDRs are always exempt. Active bans appear under the IP Bans tab.</div>
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="cfgBanEnabled" is="emby-checkbox" /> <span>Enable IP banning</span></label>
+                            </div>
+                            <div class="tfa-row">
+                                <label>Failure threshold</label>
+                                <input type="number" id="cfgBanThreshold" class="tfa-input" min="3" max="100" style="width:90px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Failure window (minutes)</label>
+                                <input type="number" id="cfgBanWindow" class="tfa-input" min="1" max="1440" style="width:90px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>Ban duration (hours)</label>
+                                <input type="number" id="cfgBanDuration" class="tfa-input" min="1" max="8760" style="width:90px;" />
+                            </div>
+                            <div style="margin-top:12px;">
+                                <label style="font-size:13px;color:#888;">Exempt CIDRs (one per line — never banned)</label>
+                                <textarea id="cfgBanExempt" class="tfa-input"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="tfa-section">
+                            <h2>Impossible-Travel Detection (v2.0)</h2>
+                            <div class="tfa-note">Alerts when consecutive sign-ins for the same user are physically impossible given elapsed time (e.g., London then Tokyo 30 min apart). Requires a GeoLite2-City.mmdb database — without it, suspicious-login alerts still work on ASN/country alone.</div>
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="cfgTravelEnabled" is="emby-checkbox" /> <span>Enable</span></label>
+                            </div>
+                            <div class="tfa-row">
+                                <label>Max plausible speed (km/h, default 900 ≈ jet cruise)</label>
+                                <input type="number" id="cfgTravelKmh" class="tfa-input" min="100" max="5000" style="width:120px;" />
+                            </div>
+                            <div class="tfa-row">
+                                <label>GeoLite2-City.mmdb path (optional)</label>
+                                <input type="text" id="cfgGeoCity" class="tfa-input" style="width:400px;" placeholder="/config/geoip/GeoLite2-City.mmdb" />
+                            </div>
+                        </div>
+
+                        <div class="tfa-section">
                             <h2>WebAuthn / passkeys (v1.4)</h2>
                             <div class="tfa-note">Most setups can leave these blank — RP ID and origin are derived from the request. Override only when behind a reverse proxy whose public hostname differs from the internal one.</div>
                             <div class="tfa-row">
@@ -408,6 +550,8 @@
                         if (tab.dataset.tab === 'overview') loadStats();
                         if (tab.dataset.tab === 'diagnostics') { /* run on click */ }
                         if (tab.dataset.tab === 'trips') loadTrips();
+                        if (tab.dataset.tab === 'sso') loadSso();
+                        if (tab.dataset.tab === 'bans') loadBans();
                     });
                 });
 
@@ -863,6 +1007,15 @@
                         page.querySelector('#cfgMaxSess').value = c.DefaultMaxConcurrentSessions || 0;
                         page.querySelector('#cfgDeadline').value = c.EnrollmentDeadline ? String(c.EnrollmentDeadline).slice(0,10) : '';
                         page.querySelector('#cfgHairpin').checked = !!c.NatHairpinSelfIpBypass;
+                        // v2.0
+                        page.querySelector('#cfgBanEnabled').checked = c.IpBanEnabled !== false;
+                        page.querySelector('#cfgBanThreshold').value = c.IpBanFailureThreshold || 10;
+                        page.querySelector('#cfgBanWindow').value = c.IpBanFailureWindowMinutes || 10;
+                        page.querySelector('#cfgBanDuration').value = c.IpBanDurationHours || 24;
+                        page.querySelector('#cfgBanExempt').value = (c.IpBanExemptCidrs || []).join('\n');
+                        page.querySelector('#cfgTravelEnabled').checked = c.ImpossibleTravelEnabled !== false;
+                        page.querySelector('#cfgTravelKmh').value = c.ImpossibleTravelMaxKmh || 900;
+                        page.querySelector('#cfgGeoCity').value = c.GeoIpCityDbPath || '';
                     });
                 }
                 page.querySelector('#btnTestSmtp').addEventListener('click', function() {
@@ -916,11 +1069,191 @@
                         var dl = page.querySelector('#cfgDeadline').value.trim();
                         c.EnrollmentDeadline = dl ? new Date(dl + 'T00:00:00Z').toISOString() : null;
                         c.NatHairpinSelfIpBypass = page.querySelector('#cfgHairpin').checked;
+                        // v2.0
+                        c.IpBanEnabled = page.querySelector('#cfgBanEnabled').checked;
+                        c.IpBanFailureThreshold = Math.max(3, parseInt(page.querySelector('#cfgBanThreshold').value) || 10);
+                        c.IpBanFailureWindowMinutes = Math.max(1, parseInt(page.querySelector('#cfgBanWindow').value) || 10);
+                        c.IpBanDurationHours = Math.max(1, parseInt(page.querySelector('#cfgBanDuration').value) || 24);
+                        c.IpBanExemptCidrs = page.querySelector('#cfgBanExempt').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+                        c.ImpossibleTravelEnabled = page.querySelector('#cfgTravelEnabled').checked;
+                        c.ImpossibleTravelMaxKmh = Math.max(100, parseInt(page.querySelector('#cfgTravelKmh').value) || 900);
+                        c.GeoIpCityDbPath = page.querySelector('#cfgGeoCity').value.trim();
                         return ApiClient.updatePluginConfiguration(pluginId, c);
                     }).then(function() {
                         var s = page.querySelector('#saveStatus');
                         s.textContent = '✓ Saved';
                         setTimeout(function() { s.textContent = ''; }, 2000);
+                    });
+                });
+
+                // ---- v2.0 SSO PROVIDERS ----
+                var ssoPresets = [];
+                var ssoEditingId = null;
+                function loadSso() {
+                    var loadPresetsP = ssoPresets.length
+                        ? Promise.resolve(ssoPresets)
+                        : apiGet('TwoFactorAuth/Oidc/Presets').then(function(p) { ssoPresets = p || []; return ssoPresets; });
+                    loadPresetsP.then(function() {
+                        var sel = page.querySelector('#ssoPreset');
+                        sel.innerHTML = ssoPresets.map(function(p) {
+                            return '<option value="' + escapeHtml(p.key || p.Key) + '">' + escapeHtml(p.displayName || p.DisplayName) + '</option>';
+                        }).join('');
+                    });
+                    apiGet('TwoFactorAuth/Oidc/Providers').then(function(rows) {
+                        var body = page.querySelector('#ssoBody');
+                        if (!rows || !rows.length) {
+                            body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No providers yet. Click "Add provider" to set one up.</td></tr>';
+                            return;
+                        }
+                        body.innerHTML = rows.map(function(p) {
+                            var status = p.enabled ? '<span class="tfa-badge on">enabled</span>' : '<span class="tfa-badge off">disabled</span>';
+                            return '<tr>'
+                                + '<td><strong>' + escapeHtml(p.displayName) + '</strong><br/><span style="font-size:11px;color:#888;">id: ' + escapeHtml(p.id) + '</span></td>'
+                                + '<td>' + escapeHtml(p.preset || '') + '</td>'
+                                + '<td style="font-family:monospace;font-size:12px;">' + escapeHtml((p.clientId || '').slice(0,18)) + (p.clientId && p.clientId.length > 18 ? '…' : '') + '</td>'
+                                + '<td>' + status + '</td>'
+                                + '<td><button class="tfa-btn" data-sso-edit="' + escapeHtml(p.id) + '">Edit</button> '
+                                + '<button class="tfa-btn tfa-btn-danger" data-sso-del="' + escapeHtml(p.id) + '">Delete</button></td>'
+                                + '</tr>';
+                        }).join('');
+                        body.querySelectorAll('[data-sso-edit]').forEach(function(b) {
+                            b.addEventListener('click', function() { editSsoProvider(b.dataset.ssoEdit, rows); });
+                        });
+                        body.querySelectorAll('[data-sso-del]').forEach(function(b) {
+                            b.addEventListener('click', function() {
+                                if (!confirm('Delete this OIDC provider? Users linked to it will lose the link.')) return;
+                                apiDelete('TwoFactorAuth/Oidc/Providers/' + encodeURIComponent(b.dataset.ssoDel)).then(loadSso);
+                            });
+                        });
+                    }).catch(function() {
+                        page.querySelector('#ssoBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load providers</td></tr>';
+                    });
+                }
+                function showSsoForm(prov) {
+                    page.querySelector('#ssoFormSection').style.display = 'block';
+                    page.querySelector('#ssoFormTitle').textContent = prov ? ('Edit ' + prov.displayName) : 'New provider';
+                    page.querySelector('#ssoDisplay').value = prov ? (prov.displayName || '') : '';
+                    page.querySelector('#ssoPreset').value = prov ? (prov.preset || 'generic') : 'generic';
+                    page.querySelector('#ssoDiscovery').value = prov ? (prov.discoveryUrl || '') : '';
+                    page.querySelector('#ssoClientId').value = prov ? (prov.clientId || '') : '';
+                    page.querySelector('#ssoClientSecret').value = '';
+                    page.querySelector('#ssoScopes').value = prov ? (prov.scopes || 'openid profile email') : 'openid profile email';
+                    page.querySelector('#ssoUsernameClaim').value = prov ? (prov.usernameClaim || 'preferred_username') : 'preferred_username';
+                    page.querySelector('#ssoAcr').value = prov ? (prov.acrValues || '') : '';
+                    page.querySelector('#ssoAllowedGroups').value = prov ? (prov.allowedGroups || '') : '';
+                    page.querySelector('#ssoAdminGroups').value = prov ? (prov.adminGroups || '') : '';
+                    page.querySelector('#ssoAutoCreate').checked = prov ? !!prov.autoCreateUsers : false;
+                    page.querySelector('#ssoRequireMfa').checked = prov ? !!prov.requireIdpMfa : false;
+                    page.querySelector('#ssoBypass2fa').checked = prov ? prov.bypassPluginTwoFa !== false : true;
+                    page.querySelector('#ssoEnabled').checked = prov ? prov.enabled !== false : true;
+                    ssoEditingId = prov ? prov.id : null;
+                    updateSsoHint();
+                }
+                function editSsoProvider(id, rows) {
+                    var prov = (rows || []).find(function(r) { return r.id === id; });
+                    if (!prov) return;
+                    showSsoForm(prov);
+                }
+                function updateSsoHint() {
+                    var key = page.querySelector('#ssoPreset').value;
+                    var hint = (ssoPresets || []).find(function(p) { return (p.key || p.Key) === key; });
+                    var box = page.querySelector('#ssoSetupHint');
+                    if (hint && (hint.setupHint || hint.SetupHint)) {
+                        box.style.display = 'block';
+                        box.textContent = hint.setupHint || hint.SetupHint;
+                        // Pre-fill discovery / scopes / username claim if blank
+                        var d = page.querySelector('#ssoDiscovery');
+                        if (!d.value) d.value = hint.discoveryUrl || hint.DiscoveryUrl || '';
+                        var s = page.querySelector('#ssoScopes');
+                        if (!s.value) s.value = hint.scopes || hint.Scopes || 'openid profile email';
+                        var u = page.querySelector('#ssoUsernameClaim');
+                        if (!u.value) u.value = hint.usernameClaim || hint.UsernameClaim || 'preferred_username';
+                    } else {
+                        box.style.display = 'none';
+                    }
+                }
+                page.querySelector('#ssoAddBtn').addEventListener('click', function() { showSsoForm(null); });
+                page.querySelector('#ssoCancelBtn').addEventListener('click', function() {
+                    page.querySelector('#ssoFormSection').style.display = 'none';
+                });
+                page.querySelector('#ssoPreset').addEventListener('change', updateSsoHint);
+                page.querySelector('#ssoSaveBtn').addEventListener('click', function() {
+                    var body = {
+                        DisplayName: page.querySelector('#ssoDisplay').value.trim(),
+                        Preset: page.querySelector('#ssoPreset').value,
+                        DiscoveryUrl: page.querySelector('#ssoDiscovery').value.trim(),
+                        ClientId: page.querySelector('#ssoClientId').value.trim(),
+                        ClientSecret: page.querySelector('#ssoClientSecret').value,
+                        Scopes: page.querySelector('#ssoScopes').value.trim() || 'openid profile email',
+                        UsernameClaim: page.querySelector('#ssoUsernameClaim').value.trim() || 'preferred_username',
+                        AcrValues: page.querySelector('#ssoAcr').value.trim(),
+                        AllowedGroups: page.querySelector('#ssoAllowedGroups').value.trim(),
+                        AdminGroups: page.querySelector('#ssoAdminGroups').value.trim(),
+                        AutoCreateUsers: page.querySelector('#ssoAutoCreate').checked,
+                        RequireIdpMfa: page.querySelector('#ssoRequireMfa').checked,
+                        BypassPluginTwoFa: page.querySelector('#ssoBypass2fa').checked,
+                        Enabled: page.querySelector('#ssoEnabled').checked,
+                    };
+                    if (!body.DisplayName) { alert('Display name is required.'); return; }
+                    if (!body.ClientId) { alert('Client ID is required.'); return; }
+                    var status = page.querySelector('#ssoSaveStatus');
+                    status.style.color = '#888'; status.textContent = 'Saving…';
+                    var p = ssoEditingId
+                        ? fetch(ApiClient.serverAddress() + '/TwoFactorAuth/Oidc/Providers/' + encodeURIComponent(ssoEditingId),
+                            { method: 'PUT', headers: getHeaders(), body: JSON.stringify(body) })
+                        : fetch(ApiClient.serverAddress() + '/TwoFactorAuth/Oidc/Providers',
+                            { method: 'POST', headers: getHeaders(), body: JSON.stringify(body) });
+                    p.then(function(r) {
+                        if (!r.ok) throw r;
+                        status.style.color = '#4caf50'; status.textContent = '✓ Saved';
+                        setTimeout(function() { status.textContent = ''; }, 2000);
+                        page.querySelector('#ssoFormSection').style.display = 'none';
+                        loadSso();
+                    }).catch(function(err) {
+                        status.style.color = '#f44336'; status.textContent = '✗ Save failed';
+                        if (err && err.text) { err.text().then(function(t) { console.error('[2FA] SSO save:', t); }); }
+                    });
+                });
+
+                // ---- v2.0 IP BANS ----
+                function loadBans() {
+                    apiGet('TwoFactorAuth/IpBans').then(function(rows) {
+                        var body = page.querySelector('#bansBody');
+                        if (!rows || !rows.length) {
+                            body.innerHTML = '<tr><td colspan="6" class="tfa-empty">No active bans</td></tr>';
+                            return;
+                        }
+                        body.innerHTML = rows.map(function(b) {
+                            return '<tr>'
+                                + '<td style="font-family:monospace;">' + escapeHtml(b.ip || b.Ip) + '</td>'
+                                + '<td style="font-size:12px;">' + new Date(b.bannedAt || b.BannedAt).toLocaleString() + '</td>'
+                                + '<td style="font-size:12px;">' + new Date(b.expiresAt || b.ExpiresAt).toLocaleString() + '</td>'
+                                + '<td>' + escapeHtml(b.source || b.Source || '') + '</td>'
+                                + '<td>' + escapeHtml(b.note || b.Note || '') + '</td>'
+                                + '<td><button class="tfa-btn tfa-btn-success" data-unban="' + escapeHtml(b.ip || b.Ip) + '">Unban</button></td>'
+                                + '</tr>';
+                        }).join('');
+                        body.querySelectorAll('[data-unban]').forEach(function(btn) {
+                            btn.addEventListener('click', function() {
+                                apiDelete('TwoFactorAuth/IpBans/' + encodeURIComponent(btn.dataset.unban)).then(loadBans);
+                            });
+                        });
+                    }).catch(function() {
+                        page.querySelector('#bansBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">Failed to load</td></tr>';
+                    });
+                }
+                page.querySelector('#banAddBtn').addEventListener('click', function() {
+                    var ip = page.querySelector('#banIp').value.trim();
+                    if (!ip) { alert('IP is required.'); return; }
+                    var body = {
+                        Ip: ip,
+                        Note: page.querySelector('#banNote').value.trim(),
+                        Hours: parseInt(page.querySelector('#banHours').value) || 24,
+                    };
+                    apiPost('TwoFactorAuth/IpBans', body).then(function() {
+                        page.querySelector('#banIp').value = '';
+                        page.querySelector('#banNote').value = '';
+                        loadBans();
                     });
                 });
 

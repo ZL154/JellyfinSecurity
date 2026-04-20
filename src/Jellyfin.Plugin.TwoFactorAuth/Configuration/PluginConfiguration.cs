@@ -152,4 +152,68 @@ public class PluginConfiguration : BasePluginConfiguration
     /// empty the request origin is used. Multiple allowed for multi-domain
     /// deployments.</summary>
     public string[] WebAuthnOrigins { get; set; } = Array.Empty<string>();
+
+    /// <summary>v1.4.3: when a user is routed through a non-default
+    /// IAuthenticationProvider (LDAP, SSO via jellyfin-plugin-sso, etc),
+    /// their auth was already handled at the IdP — typically with that
+    /// IdP's own MFA. Stacking our 2FA challenge on top is redundant and
+    /// breaks federated logins (the IdP-issued token gets overwritten by
+    /// our challenge response). When this is on (default), users on a
+    /// non-default provider skip our 2FA entirely. Users on the stock
+    /// password provider still get challenged normally.
+    ///
+    /// Default ON because the only sensible behaviour for SSO setups; admins
+    /// who explicitly want belt-and-braces (2FA on top of SSO) can disable.
+    /// </summary>
+    public bool BypassForExternalAuthProviders { get; set; } = true;
+
+    // ---- v2.0 additions ----
+
+    /// <summary>OIDC sign-in providers. Each entry adds a "Sign in with X"
+    /// button on the Jellyfin login page and an OAuth client to the plugin.
+    /// Empty = SSO not in use (only the bypass shim above applies, for users
+    /// routed through an external provider via a different plugin).</summary>
+    public List<Models.OidcProvider> OidcProviders { get; set; } = new();
+
+    /// <summary>Optional MaxMind GeoLite2-City.mmdb path. Required for
+    /// impossible-travel detection (city resolution gives lat/lon). If only
+    /// ASN/Country dbs are configured, suspicious-login alerts still work but
+    /// impossible-travel is disabled (nothing to compute distance from).</summary>
+    public string GeoIpCityDbPath { get; set; } = string.Empty;
+
+    /// <summary>Brute-force IP banning — auto-ban a source IP after N failed
+    /// auth attempts within a time window. 0 = disabled.</summary>
+    public bool IpBanEnabled { get; set; } = true;
+
+    /// <summary>Failed-attempt threshold (across ALL users from the same IP)
+    /// that triggers an auto-ban.</summary>
+    public int IpBanFailureThreshold { get; set; } = 10;
+
+    /// <summary>Time window in minutes for the failure threshold count.</summary>
+    public int IpBanFailureWindowMinutes { get; set; } = 10;
+
+    /// <summary>How long an auto-ban persists in hours. Manual bans use this
+    /// as the default but admin can override.</summary>
+    public int IpBanDurationHours { get; set; } = 24;
+
+    /// <summary>IPs / CIDRs that bypass the brute-force ban entirely. Useful
+    /// for the admin's home/office IP so they can never be self-banned. LAN
+    /// CIDRs are usually included implicitly via the LAN bypass list above.</summary>
+    public string[] IpBanExemptCidrs { get; set; } = Array.Empty<string>();
+
+    /// <summary>Impossible-travel detection: alert when a sign-in is too far
+    /// from the user's last known location given the time elapsed. e.g.
+    /// 500km in 30min ≈ Mach 1, almost certainly account compromise.</summary>
+    public bool ImpossibleTravelEnabled { get; set; } = true;
+
+    /// <summary>km/h threshold considered "impossible". 900 ≈ commercial jet
+    /// cruise speed; anything above is suspicious. Lower = more sensitive
+    /// (more false positives), higher = less.</summary>
+    public int ImpossibleTravelMaxKmh { get; set; } = 900;
+
+    /// <summary>Optional Ed25519 private key (PEM) for signing webhook bodies
+    /// asymmetrically. Receivers verify with the matching public key. Empty =
+    /// HMAC-only signing (current v1.4 behaviour). Asymmetric is preferred
+    /// for SIEMs that want to verify without holding the shared secret.</summary>
+    public string WebhookEd25519PrivateKey { get; set; } = string.Empty;
 }

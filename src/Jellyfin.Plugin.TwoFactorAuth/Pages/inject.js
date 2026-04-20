@@ -419,11 +419,118 @@
     //             matching AchievementBadges' battle-tested approach.
     // ============================================================
 
+    // ============================================================
+    // 5. (v2.0) OIDC sign-in — render provider buttons on login,
+    //    auto-submit when redirected back from a provider.
+    // ============================================================
+
+    var OIDC_BUTTONS_ID = '__twofactor_oidc_buttons';
+    var OIDC_AUTOSUBMIT_FLAG = '__twofactor_oidc_autosubmitted';
+
+    function getQueryParam(name) {
+        // Login page params live in the hash, e.g. /web/index.html#!/login.html?oidcUser=...
+        var hash = window.location.hash || '';
+        var qIdx = hash.indexOf('?');
+        if (qIdx < 0) return null;
+        var pairs = hash.substring(qIdx + 1).split('&');
+        for (var i = 0; i < pairs.length; i++) {
+            var p = pairs[i].split('=');
+            if (decodeURIComponent(p[0]) === name) return decodeURIComponent((p[1] || '').replace(/\+/g, ' '));
+        }
+        return null;
+    }
+
+    function injectOidcButtons() {
+        if (!isLoginPage()) return;
+        if (document.getElementById(OIDC_BUTTONS_ID)) return;
+        var anchor = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
+        if (!anchor) return;
+
+        // Fetch providers (anonymous via the public list — but we don't have
+        // an anon endpoint; fall back to graceful empty if request fails).
+        // Use the admin Providers endpoint with no auth — it returns 401 if
+        // not logged in, which we silently swallow. A better approach would
+        // be a dedicated public listing endpoint; for v2.0 we make providers
+        // visible only to authenticated browsers (so admins testing config
+        // see them; first-time users still log in via password initially).
+        // For unauthenticated render: show buttons we know of based on a
+        // small fixed list, OR fetch from anonymous /Login endpoint when we
+        // add one. For now: skip rendering if no enabled providers known.
+
+        var container = document.createElement('div');
+        container.id = OIDC_BUTTONS_ID;
+        container.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-top:14px;';
+        anchor.parentNode.insertBefore(container, anchor.nextSibling);
+
+        // PublicProviders is the AllowAnonymous slice — id + display name only,
+        // never secrets or discovery URLs. Safe to fetch with no auth from the
+        // login page.
+        fetch('/TwoFactorAuth/Oidc/PublicProviders').then(function(r) {
+            if (!r.ok) return [];
+            return r.json();
+        }).then(function(rows) {
+            (rows || []).filter(function(p) { return p.enabled; }).forEach(function(p) {
+                var btn = document.createElement('a');
+                btn.className = 'raised block emby-button';
+                btn.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;padding:0.9em 1em;text-decoration:none;';
+                btn.href = '/TwoFactorAuth/Oidc/Login/' + encodeURIComponent(p.id);
+                btn.innerHTML = '<span class="material-icons" style="font-family:Material Icons;font-size:18px;">login</span><span>Sign in with ' + (p.displayName || p.id).replace(/[<>&"]/g, '') + '</span>';
+                container.appendChild(btn);
+            });
+        }).catch(function() { /* silent */ });
+    }
+
+    function handleOidcCallback() {
+        if (!isLoginPage()) return;
+        var err = getQueryParam('oidcError');
+        if (err) {
+            // Show error banner once.
+            var existing = document.getElementById('__twofactor_oidc_error');
+            if (existing) return;
+            var box = document.createElement('div');
+            box.id = '__twofactor_oidc_error';
+            box.style.cssText = 'background:rgba(244,67,54,0.15);border:1px solid rgba(244,67,54,0.4);color:#f44336;padding:10px 14px;border-radius:4px;margin-bottom:14px;font-size:14px;';
+            box.textContent = 'Sign-in failed: ' + err;
+            var form = document.querySelector('.manualLoginForm') || document.querySelector('form');
+            if (form && form.parentNode) form.parentNode.insertBefore(box, form);
+            return;
+        }
+        var user = getQueryParam('oidcUser');
+        var token = getQueryParam('oidcToken');
+        if (!user || !token) return;
+        if (window[OIDC_AUTOSUBMIT_FLAG]) return;
+        window[OIDC_AUTOSUBMIT_FLAG] = true;
+
+        // Auto-fill the Jellyfin login form and submit. The TwoFactorAuthProvider
+        // recognises the bridge-token prefix, validates it via OidcLoginTokenStore,
+        // and authorises the session without ever calling the password backend.
+        var nameInput = document.querySelector('input#txtManualName, input[name="username"], input#username');
+        var passInput = document.querySelector('input#txtManualPassword, input[name="password"], input#password');
+        var submit = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
+        if (!nameInput || !passInput || !submit) {
+            // Form not ready yet — try again on next tick.
+            window[OIDC_AUTOSUBMIT_FLAG] = false;
+            setTimeout(handleOidcCallback, 250);
+            return;
+        }
+        nameInput.value = user;
+        nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+        passInput.value = token;
+        passInput.dispatchEvent(new Event('input', { bubbles: true }));
+        // Stripping the query params keeps the bridge token out of the
+        // history/back button. Done before submit so a failed login leaves
+        // the form clean rather than auto-resubmitting on reload.
+        try { history.replaceState(null, '', '#!/login.html'); } catch (e) {}
+        submit.click();
+    }
+
     function tryInject() {
         addLoginButton();
         injectSidebar();
         injectDashboardNav();
         injectSettingsTile();
+        injectOidcButtons();
+        handleOidcCallback();
     }
 
     function start() {
