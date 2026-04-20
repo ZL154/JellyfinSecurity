@@ -412,7 +412,85 @@
         var parent = signInBtn.parentNode;
         if (signInBtn.nextSibling) parent.insertBefore(btn, signInBtn.nextSibling);
         else parent.appendChild(btn);
+
+        addPasskeyButton(signInBtn, btn);
     }
+
+    // v2.1: passkey primary login button — sits below the 2FA button. Click
+    // takes the username from the form, asks the server for assertion options,
+    // runs navigator.credentials.get, posts the signed assertion back, gets a
+    // bridge token, fills it in as the password and submits the form.
+    function addPasskeyButton(signInBtn, twoFaBtn) {
+        if (document.getElementById('__twofactor_passkey_btn')) return;
+        // Only show when WebAuthn is available in a secure context.
+        if (!(window.isSecureContext && window.PublicKeyCredential)) return;
+
+        var btn = document.createElement('a');
+        btn.id = '__twofactor_passkey_btn';
+        btn.setAttribute('is', 'emby-linkbutton');
+        btn.className = twoFaBtn.className;
+        btn.innerHTML = '<span class="tfa-icon">🔑</span>Sign in with passkey';
+        btn.style.cursor = 'pointer';
+        btn.href = '#';
+        btn.addEventListener('click', async function(e) {
+            e.preventDefault();
+            var u = findUsername();
+            if (!u) { alert('Enter your username first, then click Sign in with passkey.'); return; }
+            var orig = btn.innerHTML;
+            btn.innerHTML = '<span class="tfa-icon">🔑</span>Waiting for authenticator…';
+            try {
+                var begin = await fetch('/TwoFactorAuth/Passkey/LoginBegin', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ Username: u }),
+                });
+                if (!begin.ok) {
+                    var err = await begin.json().catch(function(){return{};});
+                    throw new Error(err.message || ('HTTP ' + begin.status));
+                }
+                var beginBody = await begin.json();
+                var opts = JSON.parse(beginBody.options);
+                opts.challenge = b64uToBytes(opts.challenge);
+                if (opts.allowCredentials) opts.allowCredentials.forEach(function(c){ c.id = b64uToBytes(c.id); });
+                var assertion = await navigator.credentials.get({ publicKey: opts });
+                var resp = {
+                    id: assertion.id, rawId: bytesToB64u(assertion.rawId), type: assertion.type,
+                    response: {
+                        authenticatorData: bytesToB64u(assertion.response.authenticatorData),
+                        clientDataJSON: bytesToB64u(assertion.response.clientDataJSON),
+                        signature: bytesToB64u(assertion.response.signature),
+                        userHandle: assertion.response.userHandle ? bytesToB64u(assertion.response.userHandle) : null,
+                    },
+                };
+                var complete = await fetch('/TwoFactorAuth/Passkey/LoginComplete', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ Username: u, Nonce: beginBody.nonce, Response: JSON.stringify(resp) }),
+                });
+                if (!complete.ok) {
+                    var err2 = await complete.json().catch(function(){return{};});
+                    throw new Error(err2.message || 'Passkey verification failed');
+                }
+                var data = await complete.json();
+                // Stuff the bridge token into the password field and submit the
+                // standard Jellyfin form — TwoFactorAuthProvider sees the token
+                // prefix and accepts the login with no further challenge.
+                var passInput = document.querySelector('input#txtManualPassword, input[name="password"], input#password');
+                if (!passInput) throw new Error('Password field not found');
+                passInput.value = data.token;
+                passInput.dispatchEvent(new Event('input', { bubbles: true }));
+                signInBtn.click();
+            } catch (err) {
+                btn.innerHTML = orig;
+                alert('Passkey sign-in failed: ' + (err && err.message ? err.message : err));
+            }
+        });
+        var parent = twoFaBtn.parentNode;
+        if (twoFaBtn.nextSibling) parent.insertBefore(btn, twoFaBtn.nextSibling);
+        else parent.appendChild(btn);
+    }
+
+    // Base64url ⇔ ArrayBuffer — same helpers as challenge.html.
+    function b64uToBytes(s) { s = s.replace(/-/g,'+').replace(/_/g,'/'); while (s.length % 4) s += '='; var b = atob(s); var a = new Uint8Array(b.length); for (var i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a.buffer; }
+    function bytesToB64u(buf) { var b = new Uint8Array(buf); var s=''; for (var i=0;i<b.length;i++) s += String.fromCharCode(b[i]); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
 
     // ============================================================
     // Bootstrap — combine MutationObserver + 1s polling for 60s,

@@ -426,6 +426,13 @@ public class TwoFactorAuthController : ControllerBase
 
         using var reader = new System.IO.StreamReader(stream);
         var js = reader.ReadToEnd();
+        // inject.js changes with every plugin upgrade — a CDN / reverse proxy
+        // caching it for 24h means users don't see new login buttons, bug fixes,
+        // or security hardening until the cache expires. Tell every intermediate
+        // to revalidate on each request.
+        Response.Headers.CacheControl = "no-store, no-cache, must-revalidate, max-age=0";
+        Response.Headers.Pragma = "no-cache";
+        Response.Headers.Expires = "0";
         return Content(js, "application/javascript; charset=utf-8");
     }
 
