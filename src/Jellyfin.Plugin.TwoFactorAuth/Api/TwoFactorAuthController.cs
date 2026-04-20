@@ -705,6 +705,10 @@ public class TwoFactorAuthController : ControllerBase
         userData.EncryptedTotpSecret = encryptedSecret;
         await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
 
+        // New secret ⇒ old replay cache entries can collide with codes the
+        // authenticator is about to show. See TotpService.ResetReplayCache.
+        _totpService.ResetReplayCache(userId.ToString());
+
         return Ok(new TotpSetupResponse
         {
             SecretKey = secret,
@@ -1134,6 +1138,33 @@ public class TwoFactorAuthController : ControllerBase
         await _notificationService.NotifyPairingCompletedAsync(pairing.Username, pairing.DeviceName, approved: false).ConfigureAwait(false);
 
         return Ok();
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /TwoFactorAuth/MyStatus [Authorize] — the caller's own 2FA summary.
+    // Non-admin equivalent of /Users filtered to self. Setup page uses this
+    // so non-admin users see accurate status.
+    // -------------------------------------------------------------------------
+
+    [HttpGet("MyStatus")]
+    [Authorize]
+    public async Task<ActionResult<UserTwoFactorStatus>> GetMyStatus()
+    {
+        var userId = GetCurrentUserId();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var jellyfinUser = _userManager.GetUserById(userId);
+        var isLockedOut = await _store.IsLockedOutAsync(userId).ConfigureAwait(false);
+        return Ok(new UserTwoFactorStatus
+        {
+            UserId = userId,
+            Username = jellyfinUser?.Username ?? userId.ToString(),
+            TotpEnabled = data.TotpEnabled && data.TotpVerified,
+            EmailOtpEnabled = data.EmailOtpPreferred,
+            TrustedDeviceCount = data.TrustedDevices.Count,
+            RecoveryCodesRemaining = data.RecoveryCodes.Count(c => !c.Used),
+            IsLockedOut = isLockedOut,
+            PasskeyCount = data.Passkeys.Count,
+        });
     }
 
     // -------------------------------------------------------------------------

@@ -165,6 +165,16 @@ public class TotpService
         return true;
     }
 
+    /// <summary>Drop a user's replay-protection cache. Call after rotating
+    /// their TOTP secret — the old cache's time-steps block legitimate codes
+    /// from the new secret if they happen to share a step, which makes fresh
+    /// setups look broken ("Invalid code" on a code the authenticator just
+    /// showed).</summary>
+    public void ResetReplayCache(string userId)
+    {
+        _usedTimeSteps.TryRemove(userId, out _);
+    }
+
     private static void CleanOldTimeSteps(ConcurrentDictionary<long, byte> userSteps, long currentStep)
     {
         const int maxAge = 3;

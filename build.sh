@@ -29,6 +29,13 @@ for file in \
     System.Formats.Cbor.dll \
     MaxMind.Db.dll \
     QuestPDF.dll \
+    IdentityModel.OidcClient.dll \
+    IdentityModel.dll \
+    Microsoft.IdentityModel.Abstractions.dll \
+    Microsoft.IdentityModel.JsonWebTokens.dll \
+    Microsoft.IdentityModel.Logging.dll \
+    Microsoft.IdentityModel.Tokens.dll \
+    System.IdentityModel.Tokens.Jwt.dll \
 ; do
     if [ -f "$SCRIPT_DIR/dist/publish/$file" ]; then
         cp "$SCRIPT_DIR/dist/publish/$file" "$OUTPUT_DIR/"

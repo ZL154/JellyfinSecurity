@@ -37,6 +37,12 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<UserExportService>();
         services.AddSingleton<RecoveryCodePdfService>();
         services.AddHostedService<SelfIpDetector>();
+        // v2.0
+        services.AddSingleton<OidcService>();
+        services.AddSingleton<IpBanService>();
+        services.AddSingleton<ImpossibleTravelDetector>();
+        services.AddSingleton<IpAllowlistService>();
+        services.AddSingleton<OidcLoginTokenStore>();
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddSingleton<IStartupFilter, TwoFactorStartupFilter>();
         services.AddHostedService<AuthenticationEventHandler>();

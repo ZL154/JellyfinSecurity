@@ -30,6 +30,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     private readonly AppPasswordService _appPasswordService;
     private readonly PendingPairingService _pendingPairings;
     private readonly RateLimiter _rateLimiter;
+    private readonly OidcLoginTokenStore _oidcBridge;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<TwoFactorAuthProvider> _logger;
 
@@ -49,6 +50,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         AppPasswordService appPasswordService,
         PendingPairingService pendingPairings,
         RateLimiter rateLimiter,
+        OidcLoginTokenStore oidcBridge,
         IHttpContextAccessor httpContextAccessor,
         ILogger<TwoFactorAuthProvider> logger)
     {
@@ -60,6 +62,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         _appPasswordService = appPasswordService;
         _pendingPairings = pendingPairings;
         _rateLimiter = rateLimiter;
+        _oidcBridge = oidcBridge;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
     }
@@ -74,6 +77,52 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     public async Task<ProviderAuthenticationResult> Authenticate(string username, string password)
     {
         var config = Plugin.Instance?.Configuration;
+
+        // ------------------------------------------------------------------
+        // -1. OIDC BRIDGE TOKEN FAST PATH — when the password starts with the
+        //     bridge prefix, this is a Jellyfin login form auto-submitted on
+        //     behalf of an OIDC callback. The token was minted server-side
+        //     after a fully verified id_token; nothing else needs checking.
+        //     Single-use + 60s TTL means stolen tokens are useless within
+        //     seconds. We skip the default provider and 2FA entirely (the
+        //     IdP already authenticated; per provider config, 2FA is bypassed).
+        // ------------------------------------------------------------------
+        if (!string.IsNullOrEmpty(password) && OidcLoginTokenStore.LooksLikeBridgeToken(password))
+        {
+            _logger.LogInformation("[2FA] OIDC bridge-token auth attempt for user {User}", username);
+            var consumed = _oidcBridge.Consume(password, username);
+            if (consumed is null)
+            {
+                _logger.LogWarning("[2FA] OIDC bridge token rejected for user {User}", username);
+                throw new AuthenticationException("Invalid or expired sign-in token.");
+            }
+            var bridgeUser = UserManager.GetUserById(consumed.Value.UserId);
+            if (bridgeUser is null)
+            {
+                throw new AuthenticationException("Linked Jellyfin account no longer exists.");
+            }
+
+            // Pre-verify so SessionStarted → AuthenticationEventHandler doesn't
+            // issue a 2FA challenge on top of the already-authenticated OIDC
+            // session. Same shape as the LAN-bypass path below.
+            var oidcDeviceId = GetDeviceHeader("X-Emby-Device-Id", "DeviceId");
+            _challengeStore.MarkDevicePreVerified(bridgeUser.Id, oidcDeviceId);
+
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = bridgeUser.Id,
+                Username = bridgeUser.Username ?? username,
+                RemoteIp = GetRemoteIp() ?? string.Empty,
+                DeviceId = oidcDeviceId ?? string.Empty,
+                DeviceName = GetDeviceHeader("X-Emby-Device-Name", "Device") ?? string.Empty,
+                Result = AuditResult.Bypassed,
+                Method = "oidc:" + consumed.Value.ProviderId,
+            }).ConfigureAwait(false);
+            _logger.LogInformation("[2FA] OIDC sign-in for {User} via {Provider}",
+                bridgeUser.Username, consumed.Value.ProviderId);
+            return new ProviderAuthenticationResult { Username = bridgeUser.Username };
+        }
 
         // ------------------------------------------------------------------
         // 0. APP PASSWORD FAST PATH — check if the submitted password is a
@@ -165,8 +214,17 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         }
 
         // ------------------------------------------------------------------
-        // 1. Resolve and call the default (password) provider for credential
-        //    validation, making sure we don't recurse into ourselves.
+        // 1. Resolve the user first (needed for IRequiresResolvedUser delegation).
+        // ------------------------------------------------------------------
+        var jellyfinUser = UserManager.GetUserByName(username);
+
+        // ------------------------------------------------------------------
+        // 2. Find the default (password) provider and delegate credential
+        //    validation to it, making sure we don't recurse into ourselves.
+        //    Jellyfin 10.11's DefaultAuthenticationProvider only implements
+        //    IRequiresResolvedUser.Authenticate(username, password, user) —
+        //    the plain Authenticate(username, password) overload throws
+        //    NotImplementedException. We must call the user-aware overload.
         // ------------------------------------------------------------------
         var defaultProvider = _appHost
             .GetExports<IAuthenticationProvider>(false)
@@ -178,13 +236,22 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             throw new AuthenticationException("Authentication provider not available");
         }
 
-        // This throws AuthenticationException if credentials are wrong.
-        ProviderAuthenticationResult baseResult = await defaultProvider
-            .Authenticate(username, password)
-            .ConfigureAwait(false);
+        ProviderAuthenticationResult baseResult;
+        if (defaultProvider is MediaBrowser.Controller.Authentication.IRequiresResolvedUser resolvedProvider && jellyfinUser is not null)
+        {
+            baseResult = await resolvedProvider
+                .Authenticate(username, password, jellyfinUser)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            baseResult = await defaultProvider
+                .Authenticate(username, password)
+                .ConfigureAwait(false);
+        }
 
         // ------------------------------------------------------------------
-        // 2. If the plugin is disabled, return the base result immediately.
+        // 3. If the plugin is disabled, return the base result immediately.
         // ------------------------------------------------------------------
         if (config is null || !config.Enabled)
         {
@@ -192,9 +259,8 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         }
 
         // ------------------------------------------------------------------
-        // 3. Resolve the Jellyfin user entity so we have their Id.
+        // 4. Confirm the user was resolvable.
         // ------------------------------------------------------------------
-        var jellyfinUser = UserManager.GetUserByName(username);
         if (jellyfinUser is null)
         {
             // User authenticated but not found in manager — pass through.
@@ -390,19 +456,22 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             _notificationService.NotifyLoginAttemptAsync(username, remoteIp ?? "unknown", deviceName, true));
 
         // ------------------------------------------------------------------
-        // 9. Signal to the caller that a second factor is required by
-        //    throwing with a JSON payload they can parse to redirect the user.
+        // 9. Let the auth request SUCCEED (password was valid). The
+        //    TwoFactorEnforcementMiddleware intercepts the 200 response to
+        //    /Users/AuthenticateByName, sees the challenge exists for this
+        //    user+device in ChallengeStore, and REPLACES the response body
+        //    with a 401 + TwoFactorRequired JSON — inject.js then redirects.
+        //
+        //    Earlier versions of this provider threw an AuthenticationException
+        //    carrying the challenge JSON as its Message — but Jellyfin's
+        //    UserManager eats the exception and returns a generic "Invalid
+        //    username or password" to the client, never giving inject.js the
+        //    payload. The throw path only worked when this provider was NOT
+        //    the user's assigned provider (i.e. never ran). Now that v2 may
+        //    reassign users to us for the OIDC bridge, we MUST go through the
+        //    middleware path, not the throw path.
         // ------------------------------------------------------------------
-        var responsePayload = new TwoFactorRequiredResponse
-        {
-            TwoFactorRequired = true,
-            ChallengeToken = challenge.Token,
-            Methods = methods,
-            ChallengePageUrl = $"web/index.html#!/TwoFactorAuthChallenge?challengeToken={Uri.EscapeDataString(challenge.Token)}"
-        };
-
-        var json = JsonSerializer.Serialize(responsePayload);
-        throw new AuthenticationException(json);
+        return baseResult;
     }
 
     /// <inheritdoc />

@@ -10,16 +10,16 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
-  <img src="https://img.shields.io/badge/System-Authentication-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/badge/Version-1.4.2-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
+  <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
+  <img src="https://img.shields.io/badge/Version-2.0.0-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
-# 🔐 Multi-Factor Authentication for Jellyfin
+# 🔐 Jellyfin Security
 
-A native server-side 2FA plugin that **enforces verification on every login** using TOTP authenticator apps, recovery codes, or email OTP. Built around a per-device trust model so users only enter codes when needed.
+Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email OTP, **OIDC/SSO sign-in**, brute-force IP banning, impossible-travel detection, per-user IP allowlist, device pairing, trusted-browser cookies, and a full audit log — all from one plugin.
 
-> **Why this exists:** Reverse-proxy 2FA (Authelia, Authentik) breaks native Jellyfin clients. This plugin handles 2FA inside Jellyfin so the web UI works correctly while still requiring a second factor for browser sign-ins.
+> **Why this exists:** reverse-proxy auth stacks (Authelia, Authentik) break Jellyfin's native clients, and stacking SSO plugins with 2FA plugins never quite fits. This plugin owns authentication end-to-end inside Jellyfin so web, mobile, and TV clients all behave correctly — and layers defensive features (brute-force ban, impossible-travel alerts, per-user IP allowlist) on top.
 
 ---
 
@@ -31,6 +31,10 @@ A native server-side 2FA plugin that **enforces verification on every login** us
 - [First-time setup](#-first-time-setup)
 - [Daily use](#-daily-use)
 - [Admin guide](#%EF%B8%8F-admin-guide)
+- [SSO / OIDC sign-in (v2.0)](#-sso--oidc-sign-in-v20)
+- [Brute-force IP banning (v2.0)](#-brute-force-ip-banning-v20)
+- [Impossible-travel detection (v2.0)](#-impossible-travel-detection-v20)
+- [Per-user IP allowlist (v2.0)](#-per-user-ip-allowlist-v20)
 - [SMTP setup (email OTP)](#-smtp-setup-email-otp)
 - [Recovery — locked out](#-recovery--locked-out)
 - [Architecture](#-architecture)
@@ -56,6 +60,14 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ---
 
 ## 🧩 Features
+
+### New in v2.0
+- **OIDC / SSO sign-in** — Google, Microsoft/Entra, Apple, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, or any OIDC-compliant IdP. PKCE, id_token signature validation, group-based authorisation, optional AMR-based IdP-MFA enforcement.
+- **Brute-force IP banning** — auto-bans source IPs that exceed N failed sign-ins in M minutes. Persisted across restarts, with admin UI to list/unban.
+- **Impossible-travel detection** — notifies when consecutive sign-ins exceed commercial-jet cruise speed (≈900km/h default). Uses MaxMind GeoLite2-City for lat/lon.
+- **Per-user IP allowlist** — pin high-value accounts (e.g. admin) to specific CIDRs so sign-in is refused from everywhere else.
+- **Login-page provider buttons** — each configured SSO provider shows below the normal sign-in form.
+- **Linked sign-in methods in user Setup** — users see/unlink their external accounts self-service.
 
 ### Authentication
 - **TOTP** (RFC 6238) compatible with Google Authenticator, Authy, 1Password, Microsoft Authenticator, Bitwarden, etc.
@@ -305,6 +317,99 @@ Paginated, filterable login attempt history. Tracks success, failures, lockouts,
 
 ---
 
+## 🌐 SSO / OIDC sign-in (v2.0)
+
+Lets users sign in with Google / Microsoft / Authelia / Authentik / Keycloak / PocketID / Cloudflare Access / etc. instead of (or alongside) a Jellyfin password. 2FA-less accounts work too — SSO replaces the password.
+
+**Matching logic when a user signs in via OIDC:**
+1. Existing SSO link on this Jellyfin user (matched by the IdP's stable `sub`) → signs in
+2. Email returned by the IdP matches a per-user email configured in the plugin → signs in (and links for next time)
+3. Nothing matched + "Auto-create Jellyfin users" is enabled → a new Jellyfin account is created
+4. Nothing matched + auto-create is OFF → sign-in refused with "No Jellyfin user matched"
+
+### Setting up a Google provider (walkthrough)
+
+**1. Register a Google OAuth client**
+1. Go to [Google Cloud Console](https://console.cloud.google.com) → create a project (or pick existing)
+2. **OAuth consent screen** → External → fill App name / support email → add your Gmail as a test user → Finish
+3. **Credentials** → **+ Create credentials** → **OAuth client ID** → **Web application**
+4. **Authorised redirect URIs** → add exactly: `https://YOUR-JELLYFIN-HOSTNAME/TwoFactorAuth/Oidc/Callback/google`
+5. Save. Copy the **Client ID** + **Client secret** from the dialog.
+
+**2. Add the provider in Jellyfin**
+1. Jellyfin admin → Plugins → **Jellyfin Security** → **Sign-in Methods** tab → "Add provider…"
+2. Preset: **Google**. Paste Client ID + Secret. **Username claim:** `email`. Save.
+
+**3. Make sure each Jellyfin user has their Gmail configured**
+- Either: each user sets their email on the Setup page (`/TwoFactorAuth/Setup`), **or**
+- admin fills it in Jellyfin Security → Users tab's email column (press Tab after typing to save)
+
+**4. Done.** Sign out and the login page now shows a "Sign in with Google" button. Click → Google consent → bridge page → signed in.
+
+### Other providers
+
+| Preset | Discovery auto-filled | Notes |
+|---|---|---|
+| Google | ✅ | Username claim: `email` |
+| Microsoft / Entra | ✅ | Replace `common` in discovery URL with tenant ID for single-tenant apps |
+| Apple | ✅ | Returns email only on first sign-in; no `email_verified` claim |
+| Authelia | — | Paste `https://authelia.domain/.well-known/openid-configuration` |
+| Authentik | — | Copy discovery URL from provider details in Authentik admin |
+| Keycloak | — | `https://keycloak.domain/realms/<realm>/.well-known/openid-configuration` |
+| PocketID | — | `https://pocketid.domain/.well-known/openid-configuration` |
+| Cloudflare Access | — | SaaS → OIDC app → discovery URL ends `/cdn-cgi/access/sso/oidc/<app-id>/.well-known/openid-configuration` |
+| GitHub | ❌ | OAuth2 only, not OIDC — not yet supported |
+| Discord | ❌ | OAuth2 only, not OIDC — not yet supported |
+
+### Per-provider options
+- **Allowed groups** — sign-in refused unless IdP's `groups` / `roles` claim contains at least one of these
+- **Require IdP MFA** — refuses sign-in unless the id_token's `amr` claim indicates MFA (`mfa`, `hwk`, `otp`, `sca`)
+- **Auto-create users** — creates a new Jellyfin account for unmatched IdP identities. **Only enable for IdPs where you trust everyone with an account** (not public Google).
+- **Skip plugin 2FA** — default ON; the IdP already authenticated. Disable only if you want belt-and-braces.
+
+---
+
+## 🚫 Brute-force IP banning (v2.0)
+
+Auto-bans source IPs that hammer the login endpoint. Fail2Ban-style, entirely in-process — no external service needed.
+
+**Configure:** Jellyfin Security → **Settings** → "Brute-Force Protection":
+- Failure threshold (default **10**)
+- Window (default **10 min**)
+- Ban duration (default **24 h**)
+- Exempt CIDRs (never banned — e.g. your office IP)
+
+**Always exempt:** LAN-bypass CIDRs, trusted-proxy CIDRs, anything in the exempt list.
+
+**Manage bans:** Jellyfin Security → **IP Bans** tab lists all active bans with expiry. Click "Unban" to clear. You can also manually ban an IP here (e.g. "someone who's been guessing").
+
+Bans persist across restarts via `<config>/plugins/configurations/TwoFactorAuth/ip-bans.json`.
+
+---
+
+## ✈️ Impossible-travel detection (v2.0)
+
+Flags sign-ins where the geographic distance vs. elapsed time exceeds commercial-jet cruise speed. London → Tokyo in 30 minutes ≈ Mach 20: notification fires.
+
+**Requires:** MaxMind GeoLite2-City.mmdb. [Free account](https://www.maxmind.com/en/geolite2/signup), download the City DB, drop it in `/config/geoip/`, paste the path in **Settings → Impossible-Travel Detection**.
+
+**Signal path:** Triggers the same Notification channels the plugin already uses (ntfy, Gotify, webhook, admin emails). Includes distance, duration, inferred speed, and country hop in the message.
+
+Off by default; enable in Settings once the city DB is in place.
+
+---
+
+## 🔒 Per-user IP allowlist (v2.0)
+
+Pin a user account to specific CIDRs. Empty = no restriction (default). Useful for admin accounts where lateral exposure hurts most.
+
+**Configure (user self-service):** Setup page → **IP Allowlist** card → one CIDR per line → Save.
+**Configure (admin, per user):** `PUT /TwoFactorAuth/IpAllowlist/User/{userId}` (UI not wired in yet; edit the user JSON or use the API).
+
+⚠ **Self-lockout risk:** if you typo a CIDR, you can't sign in. Recover by editing `/config/plugins/configurations/TwoFactorAuth/users/<your-guid>.json` and clearing `IpAllowlistCidrs`.
+
+---
+
 ## 📧 SMTP setup (email OTP)
 
 Email OTP requires SMTP credentials. Common providers:
@@ -460,6 +565,30 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.0.0 — Jellyfin Security
+
+**Plugin rename** from "Two-Factor Authentication" to "Jellyfin Security" (GUID unchanged — upgrades in place). The plugin now spans the whole auth + hardening stack.
+
+**New features**
+- **OIDC / SSO sign-in** — Google, Microsoft, Apple, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, or any OIDC-compliant provider via discovery. PKCE (S256), id_token signature + issuer + audience + nonce validation, optional AMR-based IdP-MFA enforcement, optional group allowlist.
+- **Brute-force IP banning** — threshold + window + duration configurable. LAN / trusted-proxy / exempt CIDRs never banned. Bans persist across restarts. Admin IP Bans tab lists/unbans.
+- **Impossible-travel detection** — Haversine distance vs. time exceeding configured km/h fires a notification via existing channels. Uses GeoLite2-City.
+- **Per-user IP allowlist** — pin high-value accounts to specific CIDRs. Self-service in Setup.
+- **Login-page provider buttons** — anonymous public-providers endpoint; inject.js renders "Sign in with X" below the normal form.
+- **OIDC bridge auth** — server-side one-time bridge tokens wire the OIDC success back into a Jellyfin session without relying on fragment params or the SPA router. Auto-reassigns the user's `AuthenticationProviderId` on first link so bridge tokens authenticate correctly.
+- **Admin UI refresh** — pill-style tab bar, new **Sign-in Methods** and **IP Bans** tabs, new Settings sections for brute-force and impossible-travel.
+
+**Security hardening**
+- `X-Forwarded-Host` / `Proto` only honoured when direct peer is in `TrustedProxyCidrs` (prevents redirect_uri poisoning).
+- Rate limit on `/Oidc/Login` (20 per 5 min per IP).
+- Bridge HTML uses `JsonSerializer.Serialize` for JS context injection + strict CSP + `Cache-Control: no-store`.
+- `returnUrl` on sign-in validated to same-origin relative paths.
+- New `/TwoFactorAuth/MyStatus` (auth-only) so the user Setup page shows correct TOTP state without admin permission.
+
+**Bug fixes**
+- TOTP replay cache now cleared on new-secret generation — fixed "Invalid code" false-positive when Begin Setup ran twice.
+- Setup page no longer silently shows "NOT SET UP" for non-admin users (was calling admin-only `/Users` endpoint).
 
 ### 1.4.2 — Fix gzip-encoded `/web/` corruption
 

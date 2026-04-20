@@ -58,6 +58,62 @@ public class UserTwoFactorData
     /// Used by SuspiciousLoginDetector to fire a notification on first-seen
     /// contexts. Bounded — old entries pruned by LastSeen on cleanup.</summary>
     public List<SeenContext> SeenContexts { get; set; } = new();
+
+    // ---- v2.0 additions ----
+
+    /// <summary>SSO/OIDC accounts linked to this Jellyfin user. Each entry is
+    /// (providerId, sub) — the IdP-issued immutable subject identifier. We
+    /// look up by sub on every sign-in so the user can change their email
+    /// at the IdP and we still match correctly. Multiple links allowed so
+    /// one Jellyfin user can have e.g. Google AND GitHub linked.</summary>
+    public List<SsoLink> SsoLinks { get; set; } = new();
+
+    /// <summary>Per-user IP allowlist as CIDRs. When non-empty, sign-ins are
+    /// REFUSED unless the source IP falls within one of these. Empty = no
+    /// restriction (default). Useful for admin accounts ("only my home IP
+    /// can sign in as admin") where exposure is highest.</summary>
+    public List<string> IpAllowlistCidrs { get; set; } = new();
+
+    /// <summary>Last-known {asn, country, lat, lon} of a successful sign-in.
+    /// Used by ImpossibleTravelDetector to flag implausible distance-vs-time
+    /// hops. Only populated when a GeoLite2-City db is configured (else lat/lon
+    /// are 0 and only ASN/country contribute to suspicious-login alerts).</summary>
+    public LastKnownLocation? LastLocation { get; set; }
+}
+
+/// <summary>SSO/OIDC link — ties a Jellyfin user to an external IdP identity.
+/// `Subject` is the IdP's stable user id (Google's `sub`, GitHub's numeric id,
+/// Cloudflare's user id). Email is included for display/audit only — never
+/// trusted for matching, since users can change emails at their IdP.</summary>
+public class SsoLink
+{
+    public string ProviderId { get; set; } = string.Empty;
+
+    public string Subject { get; set; } = string.Empty;
+
+    public string Email { get; set; } = string.Empty;
+
+    public DateTime LinkedAt { get; set; }
+
+    public DateTime? LastUsedAt { get; set; }
+}
+
+/// <summary>Cached geo for impossible-travel detection. Lat/lon may be 0 if
+/// only city-level data wasn't available — detector falls back to country
+/// centroid distances in that case.</summary>
+public class LastKnownLocation
+{
+    public uint Asn { get; set; }
+
+    public string Country { get; set; } = string.Empty;
+
+    public double Latitude { get; set; }
+
+    public double Longitude { get; set; }
+
+    public DateTime At { get; set; }
+
+    public string Ip { get; set; } = string.Empty;
 }
 
 public class RecoveryCode

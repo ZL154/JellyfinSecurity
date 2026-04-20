@@ -1,11 +1,11 @@
 {
-  "Name": "Two-Factor Authentication",
-  "Description": "Native two-factor authentication for Jellyfin with TOTP, email OTP, device pairing, and trusted device support.",
+  "Name": "Jellyfin Security",
+  "Description": "Comprehensive Jellyfin security: TOTP & email 2FA, passkeys, OIDC/SSO sign-in (Google, GitHub, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, ...), brute-force IP banning, impossible-travel detection, per-user IP allowlist, device pairing, trusted browsers, and audit log.",
   "Guid": "94879a0c-da24-4eb1-aa06-f28b4b9333b1",
-  "Version": "1.4.2",
+  "Version": "2.0.0",
   "TargetAbi": "10.11.0.0",
   "Owner": "ZL154",
-  "Overview": "Native two-factor authentication for Jellyfin with TOTP, email OTP, device pairing, and trusted device support.",
+  "Overview": "Comprehensive Jellyfin security: 2FA, passkeys, OIDC/SSO, brute-force protection, impossible-travel detection, IP allowlist, and audit logging.",
   "Category": "General",
   "Assemblies": [
     "Jellyfin.Plugin.TwoFactorAuth.dll",
@@ -14,6 +14,13 @@
     "Fido2.dll",
     "Fido2.Models.dll",
     "MaxMind.Db.dll",
-    "QuestPDF.dll"
+    "QuestPDF.dll",
+    "IdentityModel.OidcClient.dll",
+    "IdentityModel.dll",
+    "Microsoft.IdentityModel.Abstractions.dll",
+    "Microsoft.IdentityModel.JsonWebTokens.dll",
+    "Microsoft.IdentityModel.Logging.dll",
+    "Microsoft.IdentityModel.Tokens.dll",
+    "System.IdentityModel.Tokens.Jwt.dll"
   ]
 }

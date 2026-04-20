@@ -339,6 +339,33 @@
                 <div class="alert success" id="emergencyResult"></div>
             </div>
 
+            <!-- =========== SSO / OIDC LINKS (v2.0) =========== -->
+            <div class="card" id="cardSsoLinks">
+                <div class="card-head">
+                    <div>
+                        <h2><span class="icon">🌐</span> Linked Sign-In Methods</h2>
+                        <div class="desc">External identity providers linked to your account. After linking, you can sign in using the "Sign in with X" buttons on the login page.</div>
+                    </div>
+                </div>
+                <div id="ssoLinksList" class="muted">Loading…</div>
+                <div id="ssoAvailable" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;"></div>
+            </div>
+
+            <!-- =========== IP ALLOWLIST (v2.0) =========== -->
+            <div class="card" id="cardIpAllowlist">
+                <div class="card-head">
+                    <div>
+                        <h2><span class="icon">🌍</span> IP Allowlist</h2>
+                        <div class="desc">Restrict sign-ins to specific IP ranges. Empty = no restriction. <strong>WARNING:</strong> If you mistype your CIDR, you may lock yourself out.</div>
+                    </div>
+                </div>
+                <textarea id="ipAllowlistInput" placeholder="One CIDR per line, e.g. 192.168.1.0/24 or 2001:db8::/32" style="width:100%;min-height:80px;font-family:ui-monospace,monospace;font-size:12px;padding:8px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;border-radius:4px;"></textarea>
+                <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+                    <button class="btn-primary" id="btnSaveAllowlist">Save allowlist</button>
+                    <span id="allowlistStatus" style="font-size:13px;"></span>
+                </div>
+            </div>
+
             <!-- =========== DISABLE 2FA =========== -->
             <div class="card" id="cardDisable" style="display:none;">
                 <div class="card-head">
@@ -407,7 +434,7 @@
                 return;
             }
             Promise.all([
-                api('GET', 'TwoFactorAuth/Users').catch(function() { return []; }),
+                api('GET', 'TwoFactorAuth/MyStatus').catch(function() { return null; }),
                 api('GET', 'Users/Me').catch(function() { return null; }),
                 api('GET', 'TwoFactorAuth/Devices').catch(function() { return []; }),
                 api('GET', 'TwoFactorAuth/RecoveryCodes/Status').catch(function() { return { total:0, remaining:0 }; }),
@@ -417,7 +444,7 @@
                 api('GET', 'TwoFactorAuth/PendingPairings').catch(function() { return []; }),
                 api('GET', 'TwoFactorAuth/MySessions').catch(function() { return []; }),
             ]).then(function(r) {
-                var users = r[0] || [], me = r[1];
+                var myStatus = r[0], me = r[1];
                 if (!me) {
                     // /Users/Me failed — most likely the access token was
                     // rejected (blocked, expired, or not present). Tell the
@@ -434,8 +461,7 @@
                         '</p>';
                     return;
                 }
-                var myData = users.find(function(u) { return (u.userId || u.UserId) === me.Id; });
-                var totpOn = myData && (myData.totpEnabled || myData.TotpEnabled);
+                var totpOn = myStatus && (myStatus.totpEnabled || myStatus.TotpEnabled);
                 renderStatus(me, totpOn);
                 renderEnroll(totpOn);
                 renderRecovery(totpOn, r[3]);
@@ -446,8 +472,74 @@
                 renderTrusted(r[2]);
                 renderSessions(r[8]);
                 document.getElementById('cardDisable').style.display = totpOn ? 'block' : 'none';
+                loadSsoLinks();
+                loadIpAllowlist();
             });
         }
+
+        // ---- v2.0 SSO LINKS ----
+        function loadSsoLinks() {
+            Promise.all([
+                api('GET', 'TwoFactorAuth/Oidc/MyLinks').catch(function() { return []; }),
+                fetch('/TwoFactorAuth/Oidc/PublicProviders').then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
+            ]).then(function(r) {
+                var links = r[0] || [];
+                var providers = r[1] || [];
+                var listBox = document.getElementById('ssoLinksList');
+                if (!links.length) {
+                    listBox.innerHTML = '<p class="muted" style="margin:0;">No external accounts linked yet.</p>';
+                } else {
+                    listBox.innerHTML = links.map(function(l) {
+                        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);">'
+                            + '<div><strong>' + escapeHtml(l.providerDisplay || l.providerId) + '</strong>'
+                            + '<div style="font-size:12px;color:#888;">' + escapeHtml(l.email || l.subject) + '</div></div>'
+                            + '<button class="btn-ghost btn-sm tfa-danger-link" data-unlink-prov="' + escapeHtml(l.providerId) + '" data-unlink-sub="' + escapeHtml(l.subject) + '">Unlink</button>'
+                            + '</div>';
+                    }).join('');
+                    listBox.querySelectorAll('[data-unlink-prov]').forEach(function(btn) {
+                        btn.addEventListener('click', function() {
+                            if (!confirm('Unlink this account?')) return;
+                            api('DELETE', 'TwoFactorAuth/Oidc/MyLinks/'
+                                + encodeURIComponent(btn.dataset.unlinkProv) + '/'
+                                + encodeURIComponent(btn.dataset.unlinkSub)).then(loadSsoLinks);
+                        });
+                    });
+                }
+                var avail = document.getElementById('ssoAvailable');
+                var linkedIds = links.map(function(l) { return l.providerId; });
+                var canLink = providers.filter(function(p) { return linkedIds.indexOf(p.id) < 0; });
+                if (!canLink.length) {
+                    avail.innerHTML = '';
+                } else {
+                    avail.innerHTML = '<span style="color:#888;font-size:13px;">Link a new provider:</span>'
+                        + canLink.map(function(p) {
+                            return ' <a class="btn-ghost btn-sm" href="/TwoFactorAuth/Oidc/Login/'
+                                + encodeURIComponent(p.id) + '?returnUrl=/TwoFactorAuth/Setup">'
+                                + escapeHtml(p.displayName) + '</a>';
+                        }).join('');
+                }
+            });
+        }
+
+        // ---- v2.0 PER-USER IP ALLOWLIST ----
+        function loadIpAllowlist() {
+            api('GET', 'TwoFactorAuth/IpAllowlist').then(function(cidrs) {
+                document.getElementById('ipAllowlistInput').value = (cidrs || []).join('\n');
+            }).catch(function() { /* silent */ });
+        }
+        document.getElementById('btnSaveAllowlist').addEventListener('click', function() {
+            var lines = document.getElementById('ipAllowlistInput').value
+                .split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+            var status = document.getElementById('allowlistStatus');
+            status.style.color = '#888'; status.textContent = 'Saving…';
+            api('PUT', 'TwoFactorAuth/IpAllowlist', { Cidrs: lines }).then(function() {
+                status.style.color = '#4caf50'; status.textContent = '✓ Saved';
+                setTimeout(function() { status.textContent = ''; }, 2000);
+            }).catch(function(err) {
+                status.style.color = '#f44336';
+                status.textContent = '✗ ' + (err.message || 'Save failed');
+            });
+        });
         function renderStatus(me, totpOn) {
             var pill = document.getElementById('statusPill');
             pill.className = 'pill ' + (totpOn ? 'on' : 'off');
@@ -694,11 +786,14 @@
             });
         });
         document.getElementById('btnConfirm').addEventListener('click', function() {
+            var btn = this;
+            if (btn.disabled) return; // guard against double-submit — server replay-rejects the 2nd call
             var code = document.getElementById('confirmCode').value.replace(/\s/g, '');
             var errEl = document.getElementById('confirmError');
             var okEl = document.getElementById('confirmSuccess');
             errEl.classList.remove('show'); okEl.classList.remove('show');
             if (!/^\d{6}$/.test(code)) { errEl.textContent = 'Enter the 6-digit code from your app.'; errEl.classList.add('show'); return; }
+            btn.disabled = true;
             api('POST', 'TwoFactorAuth/Setup/Totp/Confirm', { code: code }).then(function() {
                 okEl.textContent = '2FA enabled! Generate recovery codes below in case you lose your phone.';
                 okEl.classList.add('show');
@@ -706,6 +801,7 @@
             }).catch(function() {
                 errEl.textContent = 'Invalid code. Codes rotate every 30s — try the latest one.';
                 errEl.classList.add('show');
+                btn.disabled = false;
             });
         });
         document.getElementById('confirmCode').addEventListener('input', function(e) {
