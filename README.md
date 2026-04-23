@@ -19,7 +19,7 @@
 
 Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email OTP, **OIDC/SSO sign-in**, brute-force IP banning, impossible-travel detection, per-user IP allowlist, device pairing, trusted-browser cookies, and a full audit log — all from one plugin.
 
-> **Why this exists:** reverse-proxy auth stacks (Authelia, Authentik) break Jellyfin's native clients, and stacking SSO plugins with 2FA plugins never quite fits. This plugin owns authentication end-to-end inside Jellyfin so web, mobile, and TV clients all behave correctly — and layers defensive features (brute-force ban, impossible-travel alerts, per-user IP allowlist) on top.
+> **Why this exists:** for self-hosters who want a complete auth + hardening layer **without standing up a separate identity stack**. Full IdPs like Authentik (with OIDC or LDAP outposts) and Authelia work great with Jellyfin and offer features this plugin doesn't — they're often the right call for serious deployments. This plugin is for the case where you'd rather get TOTP, passkeys, OIDC sign-in, brute-force protection, impossible-travel detection, IP allowlist, audit logging, and a proper admin UI **as a single Jellyfin plugin** — no extra containers, no LDAP outpost, no proxy-auth header juggling, native Jellyfin user model end-to-end.
 
 ---
 
