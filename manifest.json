@@ -12,7 +12,7 @@
         "changelog": "v2.2 — Hardening + performance. Internal hardening pass on the auth pipeline (cookie attributes behind reverse proxies, stricter handling of forwarded headers, token-binding refresh, additional input bounds). Performance: in-memory caches for hot paths (per-user data, audit log, parsed CIDRs, patched /web/ index), background-flushed audit log instead of per-event rewrite, faster login latency by replacing a polling wait with immediate signaling. Operational: trusted-browser cookie now carries the Secure flag correctly when Jellyfin is behind a TLS-terminating proxy (Cloudflare, Caddy, nginx) — set TrustForwardedFor + TrustedProxyCidrs in plugin settings to enable. Audit log is now compact JSON on disk; existing logs continue to read fine. No breaking changes; in-place upgrade.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.2.0/Jellyfin.Plugin.TwoFactorAuthv2.2.0.zip",
-        "checksum": "F7D03114C7A2F1B0ACFDCC60355F6112"
+        "checksum": "EC5D6B200BFE54841D54E384642D8EB9"
       },
       {
         "version": "2.1.0.0",
