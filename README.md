@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/badge/Version-2.2.0-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-2.1.0-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -565,22 +565,6 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
-
-### 2.2.0 — Hardening + performance
-
-**Hardening**
-- Internal hardening pass on the auth pipeline: cookie attribute handling behind reverse proxies, stricter forwarded-header handling, additional input bounds on auth endpoints, tightened token binding.
-- Trusted-browser cookie now correctly carries the `Secure` flag when Jellyfin sits behind a TLS-terminating proxy (Cloudflare, Caddy, nginx, Traefik). Enable by setting **TrustForwardedFor** + **TrustedProxyCidrs** in plugin settings.
-
-**Performance**
-- In-memory caches on the hot auth path: per-user data, audit log, parsed CIDRs, and the patched `/web/` index. Disk I/O on every login is now near-zero.
-- Login latency improved by replacing an internal polling wait with immediate signaling — fewer 50–500ms ticks per successful sign-in.
-- Audit log is now background-flushed instead of rewritten on every event, and stored as compact JSON. Existing logs continue to read fine.
-
-**Packaging**
-- Release zip ships only `runtimes/linux-x64/` native libs (matching v2.1.0). Earlier rev of v2.2.0 incorrectly bundled Windows + macOS native runtimes which Jellyfin's plugin loader attempted to load as managed assemblies.
-
-**No breaking changes.** In-place upgrade — existing TOTP enrollments, passkeys, OIDC links, trusted browsers, paired devices, and audit history all carry over.
 
 ### 2.1.0 — Passkey primary login
 
