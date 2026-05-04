@@ -146,11 +146,25 @@ public class PasskeyService
         return options.ToJson();
     }
 
+    // SEC-L1: hard cap on registered passkeys per user. WebAuthn registration
+    // is auth-allowed by design and a buggy or malicious client could spam
+    // the endpoint to inflate the user record. 20 is generous — most users
+    // register 1-3 passkeys (phone biometric + laptop + hardware key).
+    public const int MaxPasskeysPerUser = 20;
+
     /// <summary>Validate the browser's attestation response and append the new
     /// credential to the user's record.</summary>
     public async Task<PasskeyCredential> CompleteRegistrationAsync(
         HttpContext context, Guid userId, string optionsJson, string responseJson, string label)
     {
+        // SEC-L1: enforce cap before doing the expensive crypto work.
+        var existing = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (existing.Passkeys.Count >= MaxPasskeysPerUser)
+        {
+            throw new InvalidOperationException(
+                $"Passkey limit reached ({MaxPasskeysPerUser}). Revoke an existing passkey before adding another.");
+        }
+
         var fido2 = BuildFido2(context);
         var options = CredentialCreateOptions.FromJson(optionsJson);
         var raw = JsonSerializer.Deserialize<AuthenticatorAttestationRawResponse>(

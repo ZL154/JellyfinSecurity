@@ -245,15 +245,14 @@ public class TwoFactorEnforcementMiddleware
             // paths race on the same request, briefly poll for the approval
             // flag (~500ms total) before deciding to challenge. Single-consume
             // so a stale approval can't be reused on a subsequent request.
-            var approved = _challengeStore.ConsumeTokenApproval(authResult.AccessToken, userGuid, deviceId);
-            if (!approved)
-            {
-                for (var i = 0; i < 10 && !approved; i++)
-                {
-                    await Task.Delay(50).ConfigureAwait(false);
-                    approved = _challengeStore.ConsumeTokenApproval(authResult.AccessToken, userGuid, deviceId);
-                }
-            }
+            // PERF-P2: WaitForApprovalAsync replaces the 50ms × 10-tick polling
+            // loop. The previous loop forced every successful login to pay
+            // 50–500ms of artificial latency. Now we register a TaskCompletionSource
+            // that ApproveToken signals immediately on completion. Cap at 500ms
+            // for fail-safety (matches the previous worst case).
+            var approved = await _challengeStore
+                .WaitForApprovalAsync(authResult.AccessToken, userGuid, deviceId, TimeSpan.FromMilliseconds(500))
+                .ConfigureAwait(false);
             if (approved)
             {
                 _logger.LogDebug("[2FA] Token pre-approved by event handler — passing auth response through for {Name}",

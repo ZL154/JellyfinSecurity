@@ -14,6 +14,75 @@ public class NotificationService
     private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
     private readonly ILogger<NotificationService> _logger;
 
+    // SEC-M2: list of pre-validated allowed IPs for the webhook send currently
+    // in flight. ConnectCallback consults this on the actual TCP connect —
+    // which happens AFTER .NET's socket layer does its own DNS lookup — so a
+    // DNS-rebinding attacker who flips the record between IsSafeWebhookUrl's
+    // resolution and the connect is rejected at the boundary.
+    [ThreadStatic]
+    private static System.Net.IPAddress[]? _pinnedAllowedAddresses;
+
+    private static readonly HttpClient _webhookHttpClient = BuildPinnedHttpClient();
+
+    private static HttpClient BuildPinnedHttpClient()
+    {
+        var handler = new System.Net.Http.SocketsHttpHandler
+        {
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+            ConnectCallback = async (ctx, ct) =>
+            {
+                var allowed = _pinnedAllowedAddresses;
+                if (allowed is null || allowed.Length == 0)
+                {
+                    throw new System.Net.Sockets.SocketException(
+                        (int)System.Net.Sockets.SocketError.ConnectionRefused);
+                }
+                System.Net.IPAddress[] resolved;
+                try
+                {
+                    resolved = await System.Net.Dns.GetHostAddressesAsync(ctx.DnsEndPoint.Host, ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    throw new System.Net.Sockets.SocketException(
+                        (int)System.Net.Sockets.SocketError.HostNotFound);
+                }
+                System.Net.IPAddress? pick = null;
+                foreach (var ip in resolved)
+                {
+                    if (IsPrivateOrLoopback(ip)) continue;
+                    foreach (var safe in allowed)
+                    {
+                        if (ip.Equals(safe)) { pick = ip; break; }
+                    }
+                    if (pick is not null) break;
+                }
+                if (pick is null)
+                {
+                    throw new System.Net.Sockets.SocketException(
+                        (int)System.Net.Sockets.SocketError.ConnectionRefused);
+                }
+                var sock = new System.Net.Sockets.Socket(
+                    pick.AddressFamily, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp)
+                {
+                    NoDelay = true,
+                };
+                try
+                {
+                    await sock.ConnectAsync(new System.Net.IPEndPoint(pick, ctx.DnsEndPoint.Port), ct).ConfigureAwait(false);
+                    return new System.Net.Sockets.NetworkStream(sock, ownsSocket: true);
+                }
+                catch
+                {
+                    sock.Dispose();
+                    throw;
+                }
+            },
+        };
+        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
+    }
+
     public NotificationService(ILogger<NotificationService> logger)
     {
         _logger = logger;
@@ -170,7 +239,12 @@ public class NotificationService
 
         // v1.4 webhook — single endpoint, JSON body, optional HMAC signature.
         // Fire-and-forget at the call site; bounded by the HttpClient timeout.
-        if (!string.IsNullOrWhiteSpace(config.WebhookUrl) && IsSafeWebhookUrl(config.WebhookUrl))
+        // SEC-M2: validate URL + resolve allowed IPs; the pinned HttpClient
+        // re-resolves at connect-time and refuses if DNS drifted.
+        var pinnedAddresses = !string.IsNullOrWhiteSpace(config.WebhookUrl)
+            ? GetSafeWebhookAddresses(config.WebhookUrl)
+            : null;
+        if (pinnedAddresses is { Length: > 0 })
         {
             try
             {
@@ -247,11 +321,12 @@ public class NotificationService
                 {
                     Content = new StringContent(body, Encoding.UTF8, "application/json"),
                 };
-                // SEC-M4: surface timestamp as a header so receivers can do
-                // skew checks without parsing JSON, and HMAC over
-                // `timestamp.body` so a downstream proxy that minifies the
-                // body still produces a verifiable signature (the receiver
-                // recomputes from the header timestamp + raw body).
+                // SEC-M4 (legacy comment, retained): surface timestamp as a
+                // header so receivers can do skew checks without parsing JSON,
+                // and HMAC over `timestamp.body` so a downstream proxy that
+                // minifies the body still produces a verifiable signature
+                // (the receiver recomputes from the header timestamp + raw
+                // body).
                 var tsUnix = new DateTimeOffset(nowUtc).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
                 request.Headers.TryAddWithoutValidation("X-2FA-Timestamp", tsUnix);
                 if (!string.IsNullOrEmpty(config.WebhookSecret))
@@ -261,7 +336,18 @@ public class NotificationService
                     var sig = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(signed))).ToLowerInvariant();
                     request.Headers.TryAddWithoutValidation("X-2FA-Signature", "sha256=" + sig);
                 }
-                using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                // SEC-M2: pin the validated allowed-IP set into a thread-local
+                // for the dispatch HttpClient's ConnectCallback to read. Cleared
+                // in `finally` so a leaked pin doesn't authorize a later send.
+                _pinnedAllowedAddresses = pinnedAddresses;
+                try
+                {
+                    using var response = await _webhookHttpClient.SendAsync(request).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _pinnedAllowedAddresses = null;
+                }
             }
             catch (Exception ex)
             {
@@ -270,37 +356,41 @@ public class NotificationService
         }
     }
 
-    /// <summary>SSRF guard for admin-supplied webhook URL. Rejects:
-    /// - non-http(s) schemes (no file://, gopher://, etc)
-    /// - hostnames that resolve to RFC1918 / loopback / link-local / unique-local-IPv6,
-    ///   so an attacker who tricks an admin into pasting the URL can't make the
-    ///   server hit AWS/GCP metadata, internal Docker hosts, etc.
-    /// Returns true if URL is safe to dispatch to.</summary>
-    private bool IsSafeWebhookUrl(string url)
+    /// <summary>SEC-M2: SSRF guard. Resolves once, validates every IP, and
+    /// returns the validated set so the dispatch HttpClient's ConnectCallback
+    /// can re-resolve at connect-time and reject if the result drifted (DNS-
+    /// rebinding defence). Returns null if URL is unsafe.
+    ///
+    /// Rejects:
+    /// - non-http(s) schemes (no file://, gopher://, etc.)
+    /// - hostnames that resolve to RFC1918 / loopback / link-local /
+    ///   ULA-IPv6 / link-local-IPv6 / CGNAT-100.64.0.0/10 (SEC-L7) — an
+    ///   attacker who tricks an admin into pasting an internal URL can't
+    ///   make the server hit AWS/GCP metadata, Docker hosts, or carrier-
+    ///   internal addresses.</summary>
+    private System.Net.IPAddress[]? GetSafeWebhookAddresses(string url)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return false;
-        if (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps) return false;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return null;
+        if (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps) return null;
 
         try
         {
-            // Resolve once and check every returned address. Webhook receivers
-            // are public services so a multi-A-record DNS round-robin should
-            // never include private IPs.
             var addrs = System.Net.Dns.GetHostAddresses(u.Host);
+            if (addrs is null || addrs.Length == 0) return null;
             foreach (var a in addrs)
             {
                 if (IsPrivateOrLoopback(a))
                 {
                     _logger.LogWarning("[2FA] Webhook URL {Url} resolves to private address {Ip} — refusing to dispatch (SSRF guard)", url, a);
-                    return false;
+                    return null;
                 }
             }
-            return true;
+            return addrs;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[2FA] Webhook DNS lookup failed for {Host}", u.Host);
-            return false;
+            return null;
         }
     }
 
@@ -322,6 +412,11 @@ public class NotificationService
             if (b[0] == 127) return true;
             // 0.0.0.0/8
             if (b[0] == 0) return true;
+            // SEC-L7: 100.64.0.0/10 — CGNAT (RFC 6598). Used by some carriers
+            // for internal NAT; an attacker hitting an ISP customer's exposed
+            // CGNAT IP from inside the carrier net would otherwise bypass the
+            // private-network guard.
+            if (b[0] == 100 && (b[1] & 0xC0) == 64) return true;
         }
         else if (a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
         {

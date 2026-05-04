@@ -79,6 +79,14 @@ public class UserTwoFactorData
     /// hops. Only populated when a GeoLite2-City db is configured (else lat/lon
     /// are 0 and only ASN/country contribute to suspicious-login alerts).</summary>
     public LastKnownLocation? LastLocation { get; set; }
+
+    /// <summary>SEC-M4: highest TOTP time-step ever accepted for this user.
+    /// Persisted across restart so a code captured pre-restart can't be
+    /// replayed once Jellyfin comes back up (the in-memory replay cache is
+    /// empty after boot, but a captured 30-second-window code might still
+    /// validate). Updated on every successful TOTP validation; only ever
+    /// monotonically increases.</summary>
+    public long LastUsedTotpStep { get; set; }
 }
 
 /// <summary>SSO/OIDC link — ties a Jellyfin user to an external IdP identity.

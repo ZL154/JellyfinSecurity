@@ -4,6 +4,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -84,12 +85,14 @@ public class BypassEvaluator
 
                 if (remoteIsTrustedProxy)
                 {
-                    // Use the first (leftmost) IP from X-Forwarded-For as the real client IP
-                    var parts = forwardedFor.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length > 0)
-                    {
-                        ipToCheck = parts[0];
-                    }
+                    // SEC-H2: walk XFF right-to-left and pick the first hop that
+                    // is NOT a trusted proxy. The leftmost entry is attacker-
+                    // controllable when proxies (Cloudflare, nginx without
+                    // set_real_ip_from) APPEND to XFF instead of overwriting.
+                    // Without this, a request with `X-Forwarded-For: 10.0.0.5`
+                    // arrives as `10.0.0.5, real_client_ip` after the proxy,
+                    // and trusting first[0] hands LAN bypass to anyone.
+                    ipToCheck = PickRealClientIp(forwardedFor, config.TrustedProxyCidrs) ?? ipToCheck;
                 }
             }
 
@@ -189,53 +192,80 @@ public class BypassEvaluator
         return string.Equals(NormaliseDeviceId(a), NormaliseDeviceId(b), StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Checks whether the given IP address falls within the specified CIDR range.
-    /// Supports both IPv4 and IPv6.
-    /// </summary>
-    internal static bool IsIpInCidr(string ip, string cidr)
+    // PERF-P5: parsed CIDR cache. The hot path used to call IPAddress.TryParse
+    // on every check, every request — with ~10 configured CIDRs (LAN bypass +
+    // trusted proxies + IP-ban exempt) that's 10 parses per auth request.
+    // We cache the parse result per literal CIDR string. Cap is generous
+    // (admins rarely have >100 CIDRs).
+    private record ParsedCidr(byte[] NetworkBytes, int PrefixLength);
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ParsedCidr?> _cidrCache = new();
+    private const int CidrCacheMaxEntries = 1024;
+
+    private static ParsedCidr? ParseCidrCached(string cidr)
     {
+        if (_cidrCache.TryGetValue(cidr, out var cached)) return cached;
+
+        ParsedCidr? parsed = null;
         var slashIndex = cidr.IndexOf('/', StringComparison.Ordinal);
         if (slashIndex < 0)
         {
-            // Treat as a host address with no mask
+            // Host address with no mask: treat as /32 (IPv4) or /128 (IPv6).
+            if (IPAddress.TryParse(cidr, out var hostAddr))
+            {
+                if (hostAddr.IsIPv4MappedToIPv6) hostAddr = hostAddr.MapToIPv4();
+                var bytes = hostAddr.GetAddressBytes();
+                parsed = new ParsedCidr(bytes, bytes.Length * 8);
+            }
+        }
+        else
+        {
+            var networkStr = cidr[..slashIndex];
+            var prefixLenStr = cidr[(slashIndex + 1)..];
+            if (int.TryParse(prefixLenStr, out var prefixLength)
+                && IPAddress.TryParse(networkStr, out var networkAddr))
+            {
+                if (networkAddr.IsIPv4MappedToIPv6) networkAddr = networkAddr.MapToIPv4();
+                parsed = new ParsedCidr(networkAddr.GetAddressBytes(), prefixLength);
+            }
+        }
+
+        // Cheap cap: when oversized, drop a chunk of the oldest-inserted
+        // entries. Admins re-configuring CIDRs through the UI are the only
+        // realistic source of cache growth.
+        if (_cidrCache.Count >= CidrCacheMaxEntries)
+        {
+            foreach (var k in _cidrCache.Keys.Take(CidrCacheMaxEntries / 4))
+            {
+                _cidrCache.TryRemove(k, out _);
+            }
+        }
+        _cidrCache[cidr] = parsed;
+        return parsed;
+    }
+
+    /// <summary>
+    /// Checks whether the given IP address falls within the specified CIDR range.
+    /// Supports both IPv4 and IPv6. PERF-P5: each distinct CIDR string is
+    /// parsed once and cached.
+    /// </summary>
+    internal static bool IsIpInCidr(string ip, string cidr)
+    {
+        if (string.IsNullOrEmpty(ip) || string.IsNullOrEmpty(cidr)) return false;
+
+        var parsed = ParseCidrCached(cidr);
+        if (parsed is null)
+        {
+            // Unparseable mask form — fall back to literal host compare.
             return string.Equals(ip, cidr, StringComparison.OrdinalIgnoreCase);
         }
 
-        var networkStr = cidr[..slashIndex];
-        var prefixLenStr = cidr[(slashIndex + 1)..];
-
-        if (!int.TryParse(prefixLenStr, out var prefixLength))
-        {
-            return false;
-        }
-
-        if (!IPAddress.TryParse(ip, out var ipAddr) ||
-            !IPAddress.TryParse(networkStr, out var networkAddr))
-        {
-            return false;
-        }
-
-        // Normalize IPv4-mapped IPv6 addresses to plain IPv4
-        if (ipAddr.IsIPv4MappedToIPv6)
-        {
-            ipAddr = ipAddr.MapToIPv4();
-        }
-
-        if (networkAddr.IsIPv4MappedToIPv6)
-        {
-            networkAddr = networkAddr.MapToIPv4();
-        }
-
+        if (!IPAddress.TryParse(ip, out var ipAddr)) return false;
+        if (ipAddr.IsIPv4MappedToIPv6) ipAddr = ipAddr.MapToIPv4();
         var ipBytes = ipAddr.GetAddressBytes();
-        var networkBytes = networkAddr.GetAddressBytes();
 
-        if (ipBytes.Length != networkBytes.Length)
-        {
-            return false;
-        }
-
-        return MaskedEquals(ipBytes, networkBytes, prefixLength);
+        if (ipBytes.Length != parsed.NetworkBytes.Length) return false;
+        return MaskedEquals(ipBytes, parsed.NetworkBytes, parsed.PrefixLength);
     }
 
     private static bool MaskedEquals(byte[] a, byte[] b, int prefixLength)
@@ -264,4 +294,101 @@ public class BypassEvaluator
 
         return true;
     }
+
+    /// <summary>SEC-H2: walk a comma-separated X-Forwarded-For value right-to-left
+    /// and return the first hop that is NOT in any of the trusted proxy CIDRs.
+    /// That's the real client — anything to the left of it could have been
+    /// supplied by an attacker before the chain of proxies appended their own
+    /// observed peer addresses.
+    ///
+    /// Returns null if every hop is in the trusted-proxy set (rare — implies
+    /// the call originated from inside the proxy chain, e.g. a load-balancer
+    /// health check) or if the header is empty/malformed.</summary>
+    internal static string? PickRealClientIp(string? forwardedFor, string[] trustedProxyCidrs)
+    {
+        if (string.IsNullOrWhiteSpace(forwardedFor)) return null;
+        var parts = forwardedFor.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return null;
+        // Walk right-to-left. Each step: is this hop a trusted proxy? If yes,
+        // keep walking. The first untrusted hop is the real client.
+        for (var i = parts.Length - 1; i >= 0; i--)
+        {
+            var hop = parts[i];
+            // Strip optional bracketed IPv6 form ("[::1]") and ":port" suffix.
+            if (hop.StartsWith('[')) {
+                var close = hop.IndexOf(']');
+                if (close > 0) hop = hop.Substring(1, close - 1);
+            }
+            else if (hop.Count(c => c == ':') == 1 && hop.IndexOf('.') >= 0) {
+                // IPv4 with port; IPv6 has many colons so this only triggers on v4.
+                hop = hop.Substring(0, hop.IndexOf(':'));
+            }
+            if (!IPAddress.TryParse(hop, out _)) continue;
+            var isTrusted = false;
+            foreach (var cidr in trustedProxyCidrs)
+            {
+                if (IsIpInCidr(hop, cidr)) { isTrusted = true; break; }
+            }
+            if (!isTrusted) return hop;
+        }
+        return null;
+    }
+
+    /// <summary>Returns the real client IP for the request, accounting for a
+    /// trusted reverse-proxy chain. Falls back to the direct peer when no
+    /// proxy is configured or trusted. Centralises the SEC-H2 fix so every
+    /// caller (rate limiter, IP ban checks, audit logs) sees the same view.</summary>
+    public static string? ResolveClientIp(HttpContext context)
+    {
+        var peer = context.Connection.RemoteIpAddress;
+        var peerStr = peer?.ToString();
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || !config.TrustForwardedFor || config.TrustedProxyCidrs.Length == 0)
+            return peerStr;
+        if (string.IsNullOrEmpty(peerStr)) return null;
+
+        // Direct peer must be a trusted proxy before XFF is honoured at all.
+        var peerTrusted = false;
+        foreach (var cidr in config.TrustedProxyCidrs)
+        {
+            if (IsIpInCidr(peerStr, cidr)) { peerTrusted = true; break; }
+        }
+        if (!peerTrusted) return peerStr;
+
+        var xff = context.Request.Headers["X-Forwarded-For"].ToString();
+        var real = PickRealClientIp(xff, config.TrustedProxyCidrs);
+        return real ?? peerStr;
+    }
+
+    /// <summary>Returns the real request scheme ("http" or "https") accounting
+    /// for a TLS-terminating reverse proxy. SEC-H1: behind Cloudflare/Caddy/
+    /// nginx that terminates TLS, context.Request.Scheme is "http" even though
+    /// the browser used HTTPS. Without this, the trust-cookie Secure attribute
+    /// is silently dropped in production deployments.</summary>
+    public static string ResolveScheme(HttpContext context)
+    {
+        var direct = context.Request.Scheme;
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || !config.TrustForwardedFor || config.TrustedProxyCidrs.Length == 0)
+            return direct;
+        var peerStr = context.Connection.RemoteIpAddress?.ToString();
+        if (string.IsNullOrEmpty(peerStr)) return direct;
+        var peerTrusted = false;
+        foreach (var cidr in config.TrustedProxyCidrs)
+        {
+            if (IsIpInCidr(peerStr, cidr)) { peerTrusted = true; break; }
+        }
+        if (!peerTrusted) return direct;
+        var fwdProto = context.Request.Headers["X-Forwarded-Proto"].ToString();
+        if (string.IsNullOrWhiteSpace(fwdProto)) return direct;
+        // X-Forwarded-Proto can be a comma-separated list (rare, when chained
+        // through multiple proxies). Take the leftmost — that's the original
+        // browser-facing scheme. Lowercased + length-checked.
+        var first = fwdProto.Split(',', 2)[0].Trim().ToLowerInvariant();
+        return first is "http" or "https" ? first : direct;
+    }
+
+    /// <summary>True iff the resolved request scheme is HTTPS — proxy-aware.</summary>
+    public static bool IsSecureRequest(HttpContext context)
+        => string.Equals(ResolveScheme(context), "https", StringComparison.Ordinal);
 }

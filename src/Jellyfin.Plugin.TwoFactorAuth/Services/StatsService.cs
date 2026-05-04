@@ -46,10 +46,22 @@ public class StatsService
 
         var recent7 = data.Count(d => d.RecoveryCodesGeneratedAt >= since7);
 
+        // PERF-P9: single pass over the audit log instead of three Count()
+        // calls. Log can be up to 1000 entries — three iterations is only
+        // ~3000 ops but this also avoids the iterator allocations LINQ Count
+        // would do on every call.
         var audit = await _store.GetAuditLogAsync(limit: null).ConfigureAwait(false);
-        int failedVerifies24 = audit.Count(e => e.Timestamp >= since24 && e.Result == AuditResult.Failed);
-        int lockouts24 = audit.Count(e => e.Timestamp >= since24 && e.Result == AuditResult.Locked);
-        int success24 = audit.Count(e => e.Timestamp >= since24 && e.Result == AuditResult.Success);
+        int failedVerifies24 = 0, lockouts24 = 0, success24 = 0;
+        foreach (var e in audit)
+        {
+            if (e.Timestamp < since24) continue;
+            switch (e.Result)
+            {
+                case AuditResult.Failed: failedVerifies24++; break;
+                case AuditResult.Locked: lockouts24++; break;
+                case AuditResult.Success: success24++; break;
+            }
+        }
 
         IReadOnlyList<UserBehindDeadline> behind = Array.Empty<UserBehindDeadline>();
         var deadline = Plugin.Instance?.Configuration?.EnrollmentDeadline;

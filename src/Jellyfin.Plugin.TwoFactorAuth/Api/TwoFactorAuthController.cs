@@ -179,6 +179,18 @@ public class TwoFactorAuthController : ControllerBase
                 return BadRequest(new { message = "Username and password are required." });
             }
 
+            // SEC-L8: cap submitted credential field lengths. Jellyfin's auth
+            // path runs PBKDF2 internally; an unbounded body lets an attacker
+            // burn server CPU per request. 1KB password / 256B username covers
+            // realistic upper bounds (long passphrases ~200 chars) while
+            // killing the DoS vector.
+            if (req.Password.Length > 1024
+                || req.Username.Length > 256
+                || (req.Code is not null && req.Code.Length > 64))
+            {
+                return BadRequest(new { message = "Field too long." });
+            }
+
             _logger.LogInformation("[2FA] /Authenticate username={Name} codeProvided={Has}",
                 req.Username, !string.IsNullOrEmpty(req.Code));
 
@@ -253,7 +265,22 @@ public class TwoFactorAuthController : ControllerBase
                     string secret;
                     try
                     {
-                        secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret);
+                        // SEC-M3: pass userId for AAD-bound v2 ciphertexts.
+                        // Auto-migrate any legacy v1 (no-AAD) record to v2 on
+                        // first successful read — the rewrite happens lazily
+                        // and is idempotent (already-v2 inputs are returned
+                        // unchanged by MigrateToV2).
+                        if (userData.EncryptedTotpSecret is { Length: > 0 } enc
+                            && !enc.StartsWith("v2:", StringComparison.Ordinal))
+                        {
+                            var upgraded = _totpService.MigrateToV2(enc, user.Id);
+                            if (!string.Equals(upgraded, enc, StringComparison.Ordinal))
+                            {
+                                userData.EncryptedTotpSecret = upgraded;
+                                await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+                            }
+                        }
+                        secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret!, user.Id);
                     }
                     catch (Exception ex)
                     {
@@ -261,10 +288,18 @@ public class TwoFactorAuthController : ControllerBase
                         return StatusCode(500, new { message = "Failed to decrypt TOTP secret. Please re-enroll 2FA." });
                     }
 
-                    if (_totpService.ValidateCode(secret, req.Code, user.Id.ToString()))
+                    // SEC-M4: pass persisted replay floor + capture accepted step.
+                    if (_totpService.ValidateCode(secret, req.Code, user.Id.ToString(),
+                        userData.LastUsedTotpStep, out var acceptedStep))
                     {
                         codeValid = true;
                         usedMethod = "totp";
+                        userData.LastUsedTotpStep = acceptedStep;
+                        // Persist the floor immediately — even if the password
+                        // verification below fails, the replay floor advance
+                        // is correct (the code was valid, an attacker who
+                        // intercepted it cannot replay anyway).
+                        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
                     }
                 }
 
@@ -344,6 +379,11 @@ public class TwoFactorAuthController : ControllerBase
                 // Reload userData since we may have saved earlier (recovery code used) before SessionStarted ran
                 userData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
                 userData.TrustedDevices.Add(trustRecord);
+                // SEC-L1: cap trusted-device list. Authenticated users would
+                // otherwise grow this list unbounded by repeatedly opting
+                // "Trust this device". Cap at 30 (~6× typical browser count)
+                // and FIFO-evict the oldest by LastUsedAt when over.
+                EnforceTrustedDeviceCap(userData);
                 await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
 
                 // v2 cookie: deviceId and expiry are signed into the payload so
@@ -361,7 +401,13 @@ public class TwoFactorAuthController : ControllerBase
                 Response.Cookies.Append("__2fa_trust", $"{cookieValue}.{hmac}", new CookieOptions
                 {
                     HttpOnly = true,
-                    Secure = HttpContext.Request.IsHttps, // Browsers reject Secure on plain http localhost
+                    // SEC-H1: see TrustCookieMiddleware.IssueTrustCookie. IsHttps
+                    // reads only the direct TCP scheme — behind a TLS-terminating
+                    // reverse proxy the Secure flag would silently drop. Use the
+                    // proxy-aware resolver instead. Browsers still reject Secure
+                    // on plain-HTTP localhost; the resolver returns false there
+                    // unchanged.
+                    Secure = BypassEvaluator.IsSecureRequest(HttpContext),
                     SameSite = SameSiteMode.Strict,
                     Expires = DateTimeOffset.UtcNow.AddDays(ttlDays),
                     Path = "/",
@@ -557,9 +603,33 @@ public class TwoFactorAuthController : ControllerBase
             }
 
             string secret;
-            try { secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret); }
+            // SEC-M3: lazy v1->v2 migration on first decrypt, then decrypt.
+            try
+            {
+                if (userData.EncryptedTotpSecret is { Length: > 0 } enc
+                    && !enc.StartsWith("v2:", StringComparison.Ordinal))
+                {
+                    var upgraded = _totpService.MigrateToV2(enc, challenge.UserId);
+                    if (!string.Equals(upgraded, enc, StringComparison.Ordinal))
+                    {
+                        userData.EncryptedTotpSecret = upgraded;
+                        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+                    }
+                }
+                secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret!, challenge.UserId);
+            }
             catch { return StatusCode(500, new { message = "TOTP secret is corrupted. Re-enroll 2FA." }); }
-            valid = _totpService.ValidateCode(secret, request.Code, challenge.UserId.ToString());
+            // SEC-M4: enforce persisted replay floor across restarts.
+            long acceptedTotpStep;
+            valid = _totpService.ValidateCode(secret, request.Code, challenge.UserId.ToString(),
+                userData.LastUsedTotpStep, out acceptedTotpStep);
+            if (valid)
+            {
+                userData.LastUsedTotpStep = acceptedTotpStep;
+                // Persist immediately so a parallel concurrent verify with
+                // the same code at the same step is rejected by the floor.
+                await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+            }
         }
 
         // Clear emergency-recovery lock on successful recovery / email use.
@@ -642,6 +712,8 @@ public class TwoFactorAuthController : ControllerBase
 
             userData = await _store.GetUserDataAsync(challenge.UserId).ConfigureAwait(false);
             userData.TrustedDevices.Add(trustedDevice);
+            // SEC-L1: cap trusted-device list (FIFO-evict oldest by LastUsedAt).
+            EnforceTrustedDeviceCap(userData);
             await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
 
             deviceToken = rawToken;
@@ -704,12 +776,16 @@ public class TwoFactorAuthController : ControllerBase
         var username = jellyfinUser?.Username ?? userId.ToString();
 
         var (secret, qrCodeBase64, manualEntryKey) = _totpService.GenerateSecret(username);
-        var encryptedSecret = _totpService.EncryptSecret(secret);
+        // SEC-M3: bind ciphertext to userId via AAD so an attacker with
+        // file-system write access can't swap blobs across user records.
+        var encryptedSecret = _totpService.EncryptSecret(secret, userId);
 
         var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
         userData.TotpEnabled = true;
         userData.TotpVerified = false;
         userData.EncryptedTotpSecret = encryptedSecret;
+        // SEC-M4: reset replay floor on new secret — future codes start fresh.
+        userData.LastUsedTotpStep = 0;
         await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
 
         // New secret ⇒ old replay cache entries can collide with codes the
@@ -742,8 +818,12 @@ public class TwoFactorAuthController : ControllerBase
             return BadRequest("TOTP setup has not been initiated");
         }
 
-        var decryptedSecret = _totpService.DecryptSecret(userData.EncryptedTotpSecret);
-        var valid = _totpService.ValidateCode(decryptedSecret, request.Code, userId.ToString());
+        // SEC-M3: pass userId for AAD-bound v2 ciphertexts. v1 still works.
+        var decryptedSecret = _totpService.DecryptSecret(userData.EncryptedTotpSecret, userId);
+        // SEC-M4: confirm-during-enrollment, no replay floor needed (the
+        // secret was minted seconds ago).
+        var valid = _totpService.ValidateCode(decryptedSecret, request.Code, userId.ToString(),
+            persistedFloor: 0, out var acceptedStep);
 
         if (!valid)
         {
@@ -751,6 +831,7 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         userData.TotpVerified = true;
+        userData.LastUsedTotpStep = acceptedStep;
         await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
 
         return Ok();
@@ -973,6 +1054,21 @@ public class TwoFactorAuthController : ControllerBase
         return true;
     }
 
+    /// <summary>SEC-L1: hard cap on TrustedDevices count per user. Users would
+    /// otherwise grow the list unbounded by ticking "Trust this device" on
+    /// every browser. 30 is generous (typical user has 3-5 active browsers
+    /// across phone/laptop/desktop); LRU-evict the oldest by LastUsedAt when
+    /// the cap is exceeded so the just-added record is preserved.</summary>
+    private const int MaxTrustedDevicesPerUser = 30;
+
+    private static void EnforceTrustedDeviceCap(UserTwoFactorData userData)
+    {
+        if (userData.TrustedDevices.Count <= MaxTrustedDevicesPerUser) return;
+        userData.TrustedDevices.Sort((a, b) => a.LastUsedAt.CompareTo(b.LastUsedAt));
+        var toRemove = userData.TrustedDevices.Count - MaxTrustedDevicesPerUser;
+        userData.TrustedDevices.RemoveRange(0, toRemove);
+    }
+
     // -------------------------------------------------------------------------
     // POST /TwoFactorAuth/Pairings/Initiate [AllowAnonymous]
     // TV calls this to get a code to display + a poll token to check approval status.
@@ -1040,6 +1136,28 @@ public class TwoFactorAuthController : ControllerBase
         if (string.IsNullOrEmpty(token))
         {
             return BadRequest(new { message = "Missing token." });
+        }
+
+        // SEC-L2: per-IP cap so an unauthenticated attacker can't enumerate
+        // pollTokens or hammer the in-memory pairing store. 60/min is generous
+        // for legitimate TVs (typically poll every 2-5s during a single
+        // pairing window); a botnet of polling clients trips it instantly.
+        var pollIp = RateLimiter.ClientKey(HttpContext);
+        var pollRl = _rateLimiter.CheckAndRecord("pair_poll:" + pollIp, 60, TimeSpan.FromMinutes(1));
+        if (!pollRl.allowed)
+        {
+            Response.Headers.Append("Retry-After", pollRl.retryAfterSeconds.ToString());
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many poll requests. Try again in {pollRl.retryAfterSeconds} seconds.",
+            });
+        }
+
+        // Reject obviously malformed tokens cheaply — the pairing store keys
+        // are 32-byte base64url, so anything outside that shape is bogus.
+        if (token.Length > 64 || token.Length < 16)
+        {
+            return NotFound(new { status = "expired" });
         }
 
         var pairing = _devicePairingService.PollByToken(token);

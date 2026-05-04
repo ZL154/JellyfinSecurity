@@ -53,7 +53,14 @@ public class CookieSigner
             try
             {
                 var bytes = File.ReadAllBytes(keyPath);
-                if (bytes.Length == 32) return bytes;
+                if (bytes.Length == 32)
+                {
+                    // SEC-L9: reapply 0600 on every load — a file created by
+                    // an older plugin version, restored from backup, or
+                    // copied by the admin may have lax perms.
+                    TryChmod0600(keyPath);
+                    return bytes;
+                }
                 _logger.LogWarning("cookie.key is not 32 bytes — regenerating (all existing trust cookies will be invalidated)");
             }
             catch (Exception ex)
@@ -64,16 +71,21 @@ public class CookieSigner
 
         var key = RandomNumberGenerator.GetBytes(32);
         File.WriteAllBytes(keyPath, key);
+        TryChmod0600(keyPath);
+
+        _logger.LogInformation("Generated new persistent cookie signing key at {Path}", keyPath);
+        return key;
+    }
+
+    private static void TryChmod0600(string path)
+    {
         try
         {
             if (!OperatingSystem.IsWindows())
             {
-                File.SetUnixFileMode(keyPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             }
         }
         catch { /* best effort */ }
-
-        _logger.LogInformation("Generated new persistent cookie signing key at {Path}", keyPath);
-        return key;
     }
 }
