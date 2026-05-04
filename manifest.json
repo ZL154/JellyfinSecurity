@@ -8,13 +8,6 @@
     "category": "General",
     "versions": [
       {
-        "version": "2.2.0.0",
-        "changelog": "v2.2 — Hardening + performance. Internal hardening pass on the auth pipeline (cookie attributes behind reverse proxies, stricter handling of forwarded headers, token-binding refresh, additional input bounds). Performance: in-memory caches for hot paths (per-user data, audit log, parsed CIDRs, patched /web/ index), background-flushed audit log instead of per-event rewrite, faster login latency by replacing a polling wait with immediate signaling. Operational: trusted-browser cookie now carries the Secure flag correctly when Jellyfin is behind a TLS-terminating proxy (Cloudflare, Caddy, nginx) — set TrustForwardedFor + TrustedProxyCidrs in plugin settings to enable. Audit log is now compact JSON on disk; existing logs continue to read fine. No breaking changes; in-place upgrade.",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.2.0/Jellyfin.Plugin.TwoFactorAuthv2.2.0.zip",
-        "checksum": "EC5D6B200BFE54841D54E384642D8EB9"
-      },
-      {
         "version": "2.1.0.0",
         "changelog": "v2.1 — Passkey primary login. NEW: 'Sign in with passkey' button on the standard login page — users with a passkey registered can sign in with one click (type username → click button → authenticator prompt → done), no password needed. Uses the same one-shot bridge-token mechanism as OIDC. WebAuthn requires a secure context (HTTPS or localhost); button is hidden otherwise. FIX: inject.js now sent with Cache-Control: no-store so CDN/reverse-proxy caching doesn't pin old script after plugin upgrades — if you were on a 24h Cloudflare cache, new buttons + fixes now appear immediately. Heads-up: Cloudflare's default Page Rules may still cache JS; add a Bypass rule for /TwoFactorAuth/* to guarantee immediate propagation.",
         "targetAbi": "10.11.0.0",
