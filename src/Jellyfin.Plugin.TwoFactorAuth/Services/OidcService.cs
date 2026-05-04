@@ -48,8 +48,17 @@ public class OidcService
     private readonly ILogger<OidcService> _logger;
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
 
+    // SEC-M1: JWKs are cached with the same 1h TTL as discovery. IdPs rotate
+    // signing keys (Google ~every few weeks); without a TTL the cache could
+    // (a) reject valid tokens after rotation since the new kid isn't present,
+    // or (b) keep trusting a retired key past its lifetime. GetJwksAsync also
+    // forces a refresh when the requested kid is missing from the cache.
+    private record JwksCacheEntry(JsonWebKeySet Keys, DateTime FetchedAt);
+
+    private static readonly TimeSpan _jwksTtl = TimeSpan.FromHours(1);
+
     private readonly ConcurrentDictionary<string, Discovery> _discoveryCache = new();
-    private readonly ConcurrentDictionary<string, JsonWebKeySet> _jwksCache = new();
+    private readonly ConcurrentDictionary<string, JwksCacheEntry> _jwksCache = new();
     private readonly ConcurrentDictionary<string, PendingFlow> _pendingFlows = new();
     private readonly Timer _cleanupTimer;
 
@@ -305,7 +314,23 @@ public class OidcService
 
     private async Task<ClaimsBundle> VerifyIdTokenAsync(OidcProvider provider, Discovery disc, string idToken, string expectedNonce)
     {
-        var jwks = await GetJwksAsync(provider, disc).ConfigureAwait(false);
+        // SEC-M1: peek the unverified header to extract `kid`, then ask the
+        // JWKs cache for a fresh fetch if that kid isn't already cached.
+        // ValidateToken below still does full crypto verification — the kid
+        // is only used as a cache-miss hint, never as authority.
+        string? requiredKid = null;
+        try
+        {
+            var peekHandler = new JwtSecurityTokenHandler();
+            if (peekHandler.CanReadToken(idToken))
+            {
+                var unverified = peekHandler.ReadJwtToken(idToken);
+                requiredKid = unverified.Header.Kid;
+            }
+        }
+        catch { /* malformed — ValidateToken below will reject */ }
+
+        var jwks = await GetJwksAsync(provider, disc, requiredKid).ConfigureAwait(false);
         var handler = new JwtSecurityTokenHandler();
         var validationParams = new TokenValidationParameters
         {
@@ -367,16 +392,32 @@ public class OidcService
         return disc;
     }
 
-    private async Task<JsonWebKeySet> GetJwksAsync(OidcProvider provider, Discovery disc)
+    private async Task<JsonWebKeySet> GetJwksAsync(OidcProvider provider, Discovery disc, string? requiredKid = null)
     {
-        if (_jwksCache.TryGetValue(provider.Id, out var cached))
+        // SEC-M1: cached entry valid only if (a) within TTL AND (b) the
+        // required kid (if any) is present. If the IdP rotated keys and
+        // issued a token signed with a kid we don't know, force a refresh
+        // — without this, post-rotation tokens fail validation forever
+        // until a manual InvalidateCache call or process restart.
+        if (_jwksCache.TryGetValue(provider.Id, out var cached)
+            && (DateTime.UtcNow - cached.FetchedAt) < _jwksTtl
+            && (requiredKid is null || HasKid(cached.Keys, requiredKid)))
         {
-            return cached;
+            return cached.Keys;
         }
         var json = await _http.GetStringAsync(disc.JwksUri).ConfigureAwait(false);
         var jwks = new JsonWebKeySet(json);
-        _jwksCache[provider.Id] = jwks;
+        _jwksCache[provider.Id] = new JwksCacheEntry(jwks, DateTime.UtcNow);
         return jwks;
+    }
+
+    private static bool HasKid(JsonWebKeySet jwks, string kid)
+    {
+        foreach (var k in jwks.Keys)
+        {
+            if (string.Equals(k.Kid, kid, StringComparison.Ordinal)) return true;
+        }
+        return false;
     }
 
     public void InvalidateCache(string providerId)

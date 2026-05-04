@@ -12,9 +12,18 @@ using MediaBrowser.Common.Configuration;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
-public class UserTwoFactorStore
+public class UserTwoFactorStore : IDisposable
 {
+    // PERF-P4: hot files (users/*.json, audit.json) write compact JSON.
+    // api-keys.json keeps WriteIndented for admin readability via separate options.
     private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = false,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new JsonStringEnumConverter() }
+    };
+
+    private static readonly JsonSerializerOptions ApiKeysJsonOptions = new()
     {
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -30,7 +39,21 @@ public class UserTwoFactorStore
     private readonly SemaphoreSlim _auditLock = new(1, 1);
     private readonly SemaphoreSlim _apiKeysLock = new(1, 1);
 
-    private bool _auditPruned;
+    // PERF-P1: in-memory cache of user records. Populated lazily on first read.
+    // SaveUserDataAsync writes-through (file + cache update). MutateAsync still
+    // takes the per-user semaphore for atomic read-modify-write. GetUserDataAsync
+    // returns a defensive deep-clone so callers can't poison the cache by
+    // mutating without going through Save/Mutate.
+    private readonly ConcurrentDictionary<Guid, UserTwoFactorData> _userCache = new();
+
+    // PERF-P3: audit log lives in memory after first load. Adds append to the
+    // list under _auditLock; a background timer flushes to disk every 5s if
+    // dirty. Reads return a snapshot from memory — no disk I/O on hot paths.
+    private List<AuditEntry>? _auditEntries;
+    private bool _auditDirty;
+    private readonly Timer _auditFlushTimer;
+
+    private bool _disposed;
 
     public UserTwoFactorStore(IApplicationPaths applicationPaths)
     {
@@ -40,6 +63,9 @@ public class UserTwoFactorStore
         _apiKeysFilePath = Path.Combine(_dataPath, "api-keys.json");
 
         Directory.CreateDirectory(_usersPath);
+
+        _auditFlushTimer = new Timer(_ => _ = FlushAuditAsync(),
+            null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }
 
     // -------------------------------------------------------------------------
@@ -54,11 +80,25 @@ public class UserTwoFactorStore
 
     public async Task<UserTwoFactorData> GetUserDataAsync(Guid userId)
     {
+        // PERF-P1: cache fast path. Returns a clone so the caller can mutate
+        // freely; mutations only persist via SaveUserDataAsync / MutateAsync.
+        if (_userCache.TryGetValue(userId, out var cached))
+        {
+            return CloneUserData(cached);
+        }
+
         var sem = GetUserLock(userId);
         await sem.WaitAsync().ConfigureAwait(false);
         try
         {
-            return await ReadUserFileAsync(userId).ConfigureAwait(false);
+            if (_userCache.TryGetValue(userId, out cached))
+            {
+                return CloneUserData(cached);
+            }
+            var data = await ReadUserFileAsync(userId).ConfigureAwait(false);
+            // Cache the canonical (un-cloned) copy; clone for the caller.
+            _userCache[userId] = data;
+            return CloneUserData(data);
         }
         finally
         {
@@ -73,6 +113,8 @@ public class UserTwoFactorStore
         try
         {
             await WriteUserFileAsync(data).ConfigureAwait(false);
+            // Cache stores its own clone so the caller can keep mutating.
+            _userCache[data.UserId] = CloneUserData(data);
         }
         finally
         {
@@ -92,9 +134,16 @@ public class UserTwoFactorStore
         await sem.WaitAsync().ConfigureAwait(false);
         try
         {
-            var data = await ReadUserFileAsync(userId).ConfigureAwait(false);
+            // PERF-P1: prefer cached canonical copy under the lock; fall back
+            // to disk only when uncached. The mutator runs against the canonical
+            // copy directly, then we write-through to disk + update cache.
+            if (!_userCache.TryGetValue(userId, out var data))
+            {
+                data = await ReadUserFileAsync(userId).ConfigureAwait(false);
+            }
             mutator(data);
             await WriteUserFileAsync(data).ConfigureAwait(false);
+            _userCache[userId] = data;
         }
         finally
         {
@@ -115,71 +164,72 @@ public class UserTwoFactorStore
 
     public async Task RecordFailedAttemptAsync(Guid userId)
     {
-        var sem = GetUserLock(userId);
-        await sem.WaitAsync().ConfigureAwait(false);
-        try
+        // Use MutateAsync so cache + file stay consistent.
+        await MutateAsync(userId, ud =>
         {
-            var data = await ReadUserFileAsync(userId).ConfigureAwait(false);
-            data.FailedAttemptCount++;
-
+            ud.FailedAttemptCount++;
             var config = Plugin.Instance?.Configuration;
             int maxAttempts = config?.MaxFailedAttempts ?? 5;
             int lockoutMinutes = config?.LockoutDurationMinutes ?? 15;
-
-            if (data.FailedAttemptCount >= maxAttempts)
+            if (ud.FailedAttemptCount >= maxAttempts)
             {
-                data.LockoutEnd = DateTime.UtcNow.AddMinutes(lockoutMinutes);
+                ud.LockoutEnd = DateTime.UtcNow.AddMinutes(lockoutMinutes);
             }
-
-            await WriteUserFileAsync(data).ConfigureAwait(false);
-        }
-        finally
-        {
-            sem.Release();
-        }
+        }).ConfigureAwait(false);
     }
 
     public async Task ResetFailedAttemptsAsync(Guid userId)
     {
-        var sem = GetUserLock(userId);
-        await sem.WaitAsync().ConfigureAwait(false);
-        try
+        await MutateAsync(userId, ud =>
         {
-            var data = await ReadUserFileAsync(userId).ConfigureAwait(false);
-            data.FailedAttemptCount = 0;
-            data.LockoutEnd = null;
-            await WriteUserFileAsync(data).ConfigureAwait(false);
-        }
-        finally
-        {
-            sem.Release();
-        }
+            ud.FailedAttemptCount = 0;
+            ud.LockoutEnd = null;
+        }).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<UserTwoFactorData>> GetAllUsersAsync()
     {
+        // PERF-P1+P7: enumerate disk once to discover user IDs that aren't
+        // cached, populate cache, then return cached snapshots. Subsequent
+        // calls (passkey uniqueness, OIDC sub-lookup, stats, diagnostics)
+        // are cache-only.
         var files = Directory.GetFiles(_usersPath, "*.json");
-        var results = new List<UserTwoFactorData>(files.Length);
-
         foreach (var file in files)
         {
-            if (!Guid.TryParse(Path.GetFileNameWithoutExtension(file), out var userId))
+            if (!Guid.TryParse(Path.GetFileNameWithoutExtension(file), out var userId)) continue;
+            if (!_userCache.ContainsKey(userId))
             {
-                continue;
-            }
-
-            try
-            {
-                var data = await GetUserDataAsync(userId).ConfigureAwait(false);
-                results.Add(data);
-            }
-            catch (Exception)
-            {
-                // Skip corrupt files
+                try
+                {
+                    // GetUserDataAsync handles the cache-miss path with proper locking.
+                    await GetUserDataAsync(userId).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Skip corrupt files
+                }
             }
         }
 
+        var results = new List<UserTwoFactorData>(_userCache.Count);
+        foreach (var kv in _userCache)
+        {
+            results.Add(CloneUserData(kv.Value));
+        }
         return results.AsReadOnly();
+    }
+
+    /// <summary>PERF-P1: deep clone via JSON round-trip. Cheap for the data
+    /// shape (a few KB at most) and bulletproof — the canonical cached copy
+    /// can never be mutated by a caller because they only ever see clones.
+    /// Avoids the bug-class where a service calls GetUserDataAsync, mutates
+    /// the result, forgets to call Save, and the cache silently advertises
+    /// the mutation to other readers.</summary>
+    private static UserTwoFactorData CloneUserData(UserTwoFactorData source)
+    {
+        var json = JsonSerializer.Serialize(source, JsonOptions);
+        return JsonSerializer.Deserialize<UserTwoFactorData>(json, JsonOptions)
+            ?? new UserTwoFactorData { UserId = source.UserId };
     }
 
     // -------------------------------------------------------------------------
@@ -191,29 +241,25 @@ public class UserTwoFactorStore
         await _auditLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            var entries = await ReadAuditFileAsync().ConfigureAwait(false);
+            // PERF-P3: load once into memory on first access; subsequent
+            // appends are pure list-add. Background timer flushes to disk.
+            _auditEntries ??= await ReadAuditFileAsync().ConfigureAwait(false);
 
             // Hash chain: tie the new entry's PreviousHash to the prior entry's
-            // EntryHash, then compute and stamp this entry's EntryHash. Old
-            // entries from pre-v1.4 have empty hashes — treated as the chain
-            // origin (prior=zero, entry hash recomputed lazily by the verifier).
-            var prior = entries.Count > 0 ? entries[^1].EntryHash : string.Empty;
+            // EntryHash, then compute and stamp this entry's EntryHash.
+            var prior = _auditEntries.Count > 0 ? _auditEntries[^1].EntryHash : string.Empty;
             entry.PreviousHash = string.IsNullOrEmpty(prior) ? new string('0', 64) : prior;
             entry.EntryHash = ComputeAuditEntryHash(entry);
 
-            entries.Add(entry);
+            _auditEntries.Add(entry);
 
             int maxEntries = Plugin.Instance?.Configuration?.AuditLogMaxEntries ?? 1000;
-
-            // Prune to max entries (keep most recent). Pruning breaks the chain
-            // back to the new oldest entry — that's a known and documented
-            // tradeoff: bounded retention vs unbroken history forever.
-            if (entries.Count > maxEntries)
+            if (_auditEntries.Count > maxEntries)
             {
-                entries = entries.Skip(entries.Count - maxEntries).ToList();
+                _auditEntries.RemoveRange(0, _auditEntries.Count - maxEntries);
             }
 
-            await WriteAuditFileAsync(entries).ConfigureAwait(false);
+            _auditDirty = true;
         }
         finally
         {
@@ -246,18 +292,52 @@ public class UserTwoFactorStore
         await _auditLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            var entries = await ReadAuditFileAsync().ConfigureAwait(false);
+            // PERF-P3: serve from memory.
+            _auditEntries ??= await ReadAuditFileAsync().ConfigureAwait(false);
 
-            if (limit.HasValue && limit.Value < entries.Count)
+            if (limit.HasValue && limit.Value < _auditEntries.Count)
             {
-                return entries.Skip(entries.Count - limit.Value).ToList().AsReadOnly();
+                return _auditEntries.Skip(_auditEntries.Count - limit.Value).ToList().AsReadOnly();
             }
 
-            return entries.AsReadOnly();
+            // Return a snapshot so callers can iterate without lock contention.
+            return _auditEntries.ToList().AsReadOnly();
         }
         finally
         {
             _auditLock.Release();
+        }
+    }
+
+    /// <summary>PERF-P3: flush in-memory audit log to disk if dirty. Called
+    /// by the periodic timer. Skips work when nothing changed.</summary>
+    private async Task FlushAuditAsync()
+    {
+        if (_disposed) return;
+        List<AuditEntry>? snapshot = null;
+        await _auditLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (!_auditDirty || _auditEntries is null) return;
+            snapshot = _auditEntries.ToList();
+            _auditDirty = false;
+        }
+        finally
+        {
+            _auditLock.Release();
+        }
+
+        try
+        {
+            var json = JsonSerializer.Serialize(snapshot, JsonOptions);
+            await AtomicWriteAsync(_auditFilePath, json).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Re-mark dirty so the next tick retries. Don't log per-tick to
+            // avoid log spam if the disk is full.
+            await _auditLock.WaitAsync().ConfigureAwait(false);
+            try { _auditDirty = true; } finally { _auditLock.Release(); }
         }
     }
 
@@ -291,7 +371,7 @@ public class UserTwoFactorStore
             }
             if (migrated)
             {
-                var json = JsonSerializer.Serialize(keys, JsonOptions);
+                var json = JsonSerializer.Serialize(keys, ApiKeysJsonOptions);
                 await AtomicWriteAsync(_apiKeysFilePath, json).ConfigureAwait(false);
             }
 
@@ -308,7 +388,7 @@ public class UserTwoFactorStore
         await _apiKeysLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            var json = JsonSerializer.Serialize(keys, JsonOptions);
+            var json = JsonSerializer.Serialize(keys, ApiKeysJsonOptions);
             await AtomicWriteAsync(_apiKeysFilePath, json).ConfigureAwait(false);
         }
         finally
@@ -373,13 +453,9 @@ public class UserTwoFactorStore
             var entries = JsonSerializer.Deserialize<List<AuditEntry>>(json, JsonOptions)
                           ?? new List<AuditEntry>();
 
-            // Prune entries older than 90 days on first load
-            if (!_auditPruned)
-            {
-                _auditPruned = true;
-                var cutoff = DateTime.UtcNow.AddDays(-90);
-                entries = entries.Where(e => e.Timestamp >= cutoff).ToList();
-            }
+            // Prune entries older than 90 days on first load.
+            var cutoff = DateTime.UtcNow.AddDays(-90);
+            entries = entries.Where(e => e.Timestamp >= cutoff).ToList();
 
             return entries;
         }
@@ -387,12 +463,6 @@ public class UserTwoFactorStore
         {
             return new List<AuditEntry>();
         }
-    }
-
-    private async Task WriteAuditFileAsync(List<AuditEntry> entries)
-    {
-        var json = JsonSerializer.Serialize(entries, JsonOptions);
-        await AtomicWriteAsync(_auditFilePath, json).ConfigureAwait(false);
     }
 
     private async Task<List<ApiKeyEntry>> ReadApiKeysFileAsync()
@@ -405,12 +475,22 @@ public class UserTwoFactorStore
         try
         {
             var json = await File.ReadAllTextAsync(_apiKeysFilePath).ConfigureAwait(false);
-            return JsonSerializer.Deserialize<List<ApiKeyEntry>>(json, JsonOptions)
+            return JsonSerializer.Deserialize<List<ApiKeyEntry>>(json, ApiKeysJsonOptions)
                    ?? new List<ApiKeyEntry>();
         }
         catch (Exception)
         {
             return new List<ApiKeyEntry>();
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _auditFlushTimer.Dispose();
+        // Best-effort final flush so no entries are lost on shutdown.
+        try { FlushAuditAsync().GetAwaiter().GetResult(); } catch { /* shutdown */ }
+        GC.SuppressFinalize(this);
     }
 }

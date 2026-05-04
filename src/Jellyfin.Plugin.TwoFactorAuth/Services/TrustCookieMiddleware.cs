@@ -170,7 +170,14 @@ public class TrustCookieMiddleware
         context.Response.Cookies.Append("__2fa_trust", $"{payload}.{hmac}", new CookieOptions
         {
             HttpOnly = true,
-            Secure = context.Request.IsHttps,
+            // SEC-H1: IsHttps reads only the direct TCP scheme. Behind a TLS-
+            // terminating reverse proxy (Cloudflare, Caddy, nginx, Traefik) the
+            // peer connection is plain HTTP even though the browser-facing
+            // origin is HTTPS, and IsHttps would return false — silently
+            // dropping the Secure flag in production. BypassEvaluator.IsSecureRequest
+            // honours X-Forwarded-Proto only when the direct peer is in
+            // TrustedProxyCidrs, so it cannot be spoofed.
+            Secure = BypassEvaluator.IsSecureRequest(context),
             SameSite = SameSiteMode.Strict,
             Expires = DateTimeOffset.UtcNow.AddDays(ttlDays),
             Path = "/",

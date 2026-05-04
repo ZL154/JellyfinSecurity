@@ -80,34 +80,12 @@ public class RateLimiter
     /// </summary>
     public static string ClientKey(HttpContext context)
     {
-        var config = Plugin.Instance?.Configuration;
-        var peer = context.Connection.RemoteIpAddress;
-        var remoteIp = peer?.ToString() ?? "unknown";
-        string? effectiveIp = remoteIp;
-
-        if (config is { TrustForwardedFor: true }
-            && peer is not null
-            && config.TrustedProxyCidrs.Length > 0)
-        {
-            var peerIsTrusted = false;
-            foreach (var cidr in config.TrustedProxyCidrs)
-            {
-                if (BypassEvaluator.IsIpInCidr(peer.ToString(), cidr))
-                {
-                    peerIsTrusted = true;
-                    break;
-                }
-            }
-            if (peerIsTrusted)
-            {
-                var xff = context.Request.Headers["X-Forwarded-For"].ToString();
-                if (!string.IsNullOrWhiteSpace(xff))
-                {
-                    var first = xff.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-                    if (first.Length > 0) effectiveIp = first[0];
-                }
-            }
-        }
+        // SEC-H2: delegate to BypassEvaluator.ResolveClientIp which walks the
+        // X-Forwarded-For chain right-to-left, picking the first hop NOT in
+        // TrustedProxyCidrs. The previous leftmost-of-XFF logic was spoofable
+        // by an attacker prepending an IP to the header, since trusted proxies
+        // (Cloudflare etc.) APPEND rather than overwrite XFF.
+        var effectiveIp = BypassEvaluator.ResolveClientIp(context) ?? "unknown";
 
         // Collapse IPv6 to /64 so per-host rotation within the same network
         // shares a bucket.
@@ -119,6 +97,6 @@ public class RateLimiter
             return new IPAddress(bytes).ToString();
         }
 
-        return effectiveIp ?? "unknown";
+        return effectiveIp;
     }
 }

@@ -23,6 +23,35 @@ public class IndexHtmlInjectionMiddleware
     private static long _requestsSeen;
     public static long RequestsSeen => System.Threading.Interlocked.Read(ref _requestsSeen);
 
+    // PERF-P6: cache the patched /web/ index bytes keyed by a fingerprint of
+    // the upstream response (length + leading 64 bytes). Jellyfin's index is
+    // unchanged across plugin runtime, so this avoids the
+    // UTF-8-decode + search + re-encode work on every page load. On the rare
+    // case where the upstream changes (Jellyfin upgrade, web theme plugin),
+    // the fingerprint mismatches and we re-patch.
+    private static byte[]? _cachedFingerprint;
+    private static byte[]? _cachedPatched;
+    private static readonly object _cacheLock = new();
+
+    private static byte[] ComputeFingerprint(byte[] upstream)
+    {
+        // 8-byte length + up to 64 bytes of head. Distinctive enough for
+        // "did the index change"; collisions only mean we serve identical-
+        // looking output.
+        var fp = new byte[8 + Math.Min(64, upstream.Length)];
+        BitConverter.GetBytes((long)upstream.Length).CopyTo(fp, 0);
+        Array.Copy(upstream, 0, fp, 8, fp.Length - 8);
+        return fp;
+    }
+
+    private static bool FingerprintMatches(byte[]? a, byte[]? b)
+    {
+        if (a is null || b is null) return false;
+        if (a.Length != b.Length) return false;
+        for (var i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+        return true;
+    }
+
     public IndexHtmlInjectionMiddleware(RequestDelegate next, ILogger<IndexHtmlInjectionMiddleware> logger)
     {
         _next = next;
@@ -90,23 +119,51 @@ public class IndexHtmlInjectionMiddleware
 
         try
         {
-            var html = Encoding.UTF8.GetString(buffer.ToArray());
+            var upstream = buffer.ToArray();
+
+            // PERF-P6: fast cache hit when the upstream bytes match the last
+            // patched response. Avoids UTF-8 decode + LastIndexOf + re-encode.
+            var fingerprint = ComputeFingerprint(upstream);
+            byte[]? cachedPatched = null;
+            lock (_cacheLock)
+            {
+                if (FingerprintMatches(_cachedFingerprint, fingerprint))
+                {
+                    cachedPatched = _cachedPatched;
+                }
+            }
+            if (cachedPatched is not null)
+            {
+                context.Response.ContentLength = cachedPatched.Length;
+                await originalBody.WriteAsync(cachedPatched).ConfigureAwait(false);
+                return;
+            }
+
+            var html = Encoding.UTF8.GetString(upstream);
             if (html.Contains(InjectionMarker, StringComparison.Ordinal))
             {
-                // Already patched
-                await originalBody.WriteAsync(Encoding.UTF8.GetBytes(html)).ConfigureAwait(false);
+                // Already patched upstream (e.g. by another middleware) — pass through.
+                await originalBody.WriteAsync(upstream).ConfigureAwait(false);
                 return;
             }
 
             var bodyCloseIndex = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
             if (bodyCloseIndex < 0)
             {
-                await originalBody.WriteAsync(Encoding.UTF8.GetBytes(html)).ConfigureAwait(false);
+                await originalBody.WriteAsync(upstream).ConfigureAwait(false);
                 return;
             }
 
             var patched = html.Insert(bodyCloseIndex, InjectionMarker + ScriptTag);
             var patchedBytes = Encoding.UTF8.GetBytes(patched);
+
+            // PERF-P6: store in cache for the next request.
+            lock (_cacheLock)
+            {
+                _cachedFingerprint = fingerprint;
+                _cachedPatched = patchedBytes;
+            }
+
             context.Response.ContentLength = patchedBytes.Length;
             await originalBody.WriteAsync(patchedBytes).ConfigureAwait(false);
             _logger.LogDebug("[2FA] Injected inject.js script into {Path}", context.Request.Path);

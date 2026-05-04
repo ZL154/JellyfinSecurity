@@ -14,6 +14,10 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 public class PendingPairingService : IDisposable
 {
     private readonly ConcurrentDictionary<string, PendingEntry> _entries = new();
+    // PERF-P8: O(1) per-user count instead of LINQ-Count over up to 5000
+    // entries on every Record. Kept in sync with _entries by Record/Remove/
+    // RemoveAllForUser/Cleanup.
+    private readonly ConcurrentDictionary<Guid, int> _perUserCount = new();
     private readonly Timer _cleanup;
     private readonly ILogger<PendingPairingService> _logger;
     private bool _disposed;
@@ -31,22 +35,26 @@ public class PendingPairingService : IDisposable
     {
         if (userId == Guid.Empty || string.IsNullOrEmpty(deviceId)) return;
         if (_entries.Count >= MaxGlobal) return;
-        var userCount = _entries.Values.Count(e => e.UserId == userId);
-        if (userCount >= MaxPerUser) return;
+        // PERF-P8: O(1) per-user count via maintained counter (replaces LINQ
+        // Count over the full _entries collection on every Record).
+        if (_perUserCount.TryGetValue(userId, out var userCount) && userCount >= MaxPerUser) return;
         var key = $"{userId:N}|{deviceId}";
-        // AddOrUpdate avoids the read-then-write race on FirstSeen under
-        // concurrent Record calls for the same device.
+        var added = false;
         _entries.AddOrUpdate(key,
-            _ => new PendingEntry
+            _ =>
             {
-                UserId = userId,
-                DeviceId = deviceId,
-                DeviceName = deviceName ?? string.Empty,
-                AppName = appName ?? string.Empty,
-                RemoteIp = remoteIp ?? string.Empty,
-                FirstSeen = DateTime.UtcNow,
-                LastSeen = DateTime.UtcNow,
-                ExpiresAt = DateTime.UtcNow.AddMinutes(30),
+                added = true;
+                return new PendingEntry
+                {
+                    UserId = userId,
+                    DeviceId = deviceId,
+                    DeviceName = deviceName ?? string.Empty,
+                    AppName = appName ?? string.Empty,
+                    RemoteIp = remoteIp ?? string.Empty,
+                    FirstSeen = DateTime.UtcNow,
+                    LastSeen = DateTime.UtcNow,
+                    ExpiresAt = DateTime.UtcNow.AddMinutes(30),
+                };
             },
             (_, existing) =>
             {
@@ -57,6 +65,10 @@ public class PendingPairingService : IDisposable
                 existing.ExpiresAt = DateTime.UtcNow.AddMinutes(30);
                 return existing;
             });
+        if (added)
+        {
+            _perUserCount.AddOrUpdate(userId, 1, (_, n) => n + 1);
+        }
         _logger.LogDebug("[2FA] Pending pairing recorded user={UserId} device={DeviceName} app={AppName}",
             userId, deviceName, appName);
     }
@@ -80,16 +92,22 @@ public class PendingPairingService : IDisposable
 
     public bool Remove(Guid userId, string deviceId)
     {
-        return _entries.TryRemove($"{userId:N}|{deviceId}", out _);
+        if (_entries.TryRemove($"{userId:N}|{deviceId}", out _))
+        {
+            // PERF-P8: keep _perUserCount in sync.
+            DecrementPerUser(userId);
+            return true;
+        }
+        return false;
     }
 
     public void RemoveAllForUser(Guid userId)
     {
         foreach (var kv in _entries)
         {
-            if (kv.Value.UserId == userId)
+            if (kv.Value.UserId == userId && _entries.TryRemove(kv.Key, out _))
             {
-                _entries.TryRemove(kv.Key, out _);
+                DecrementPerUser(userId);
             }
         }
     }
@@ -99,10 +117,24 @@ public class PendingPairingService : IDisposable
         var now = DateTime.UtcNow;
         foreach (var kv in _entries)
         {
-            if (kv.Value.ExpiresAt <= now)
+            if (kv.Value.ExpiresAt <= now && _entries.TryRemove(kv.Key, out var removed))
             {
-                _entries.TryRemove(kv.Key, out _);
+                DecrementPerUser(removed.UserId);
             }
+        }
+    }
+
+    private void DecrementPerUser(Guid userId)
+    {
+        // Decrement; remove the slot when zero so the dictionary doesn't grow
+        // unboundedly. Race-tolerant: a parallel Increment/Decrement may
+        // briefly observe stale values but the system corrects itself on the
+        // next Record/Remove. Worst case is over- or under-counting by one
+        // for a few microseconds — never breaking the cap badly.
+        _perUserCount.AddOrUpdate(userId, 0, (_, n) => Math.Max(0, n - 1));
+        if (_perUserCount.TryGetValue(userId, out var n) && n <= 0)
+        {
+            _perUserCount.TryRemove(userId, out _);
         }
     }
 

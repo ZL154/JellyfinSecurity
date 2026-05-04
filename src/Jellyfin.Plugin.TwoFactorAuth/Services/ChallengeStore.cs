@@ -36,6 +36,21 @@ public class ChallengeStore : IDisposable
     // these are one-shot per /Authenticate response intercept.
     private readonly ConcurrentDictionary<string, DateTime> _approvedTokens = new();
 
+    // PERF-P2: TCS waiters keyed by (userId, deviceId, token). The middleware
+    // races SessionStarted (which runs in parallel during Jellyfin auth);
+    // before this fix, the middleware polled _approvedTokens every 50ms up to
+    // 500ms which added 50–500ms of latency to every successful login. Now
+    // ApproveToken signals any matching waiter, and the middleware awaits
+    // with a short cancellation timeout. Worst-case latency is the actual
+    // race time, not 50ms-quantized.
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> _approvalWaiters = new();
+
+    // PERF-P10: soft caps so a botnet can't OOM us by grabbing a billion
+    // entries before the 60s cleanup sweep catches up. Under steady state
+    // these caps are never hit. On overflow we drop the oldest expired
+    // entries; if everything is still live, we drop the lowest-expiry entries.
+    private const int SoftCapPerDict = 100_000;
+
     private readonly Timer _cleanupTimer;
     private bool _disposed;
 
@@ -59,6 +74,7 @@ public class ChallengeStore : IDisposable
         var seconds = Math.Clamp(
             Plugin.Instance?.Configuration?.PreVerifyWindowSeconds ?? 120, 30, 900);
         _preVerifiedDevices[DeviceKey(userId, deviceId)] = DateTime.UtcNow.AddSeconds(seconds);
+        EnforceCap(_preVerifiedDevices);
     }
 
     public bool IsDevicePreVerified(Guid userId, string? deviceId)
@@ -89,6 +105,7 @@ public class ChallengeStore : IDisposable
     public void BlockDevice(Guid userId, string? deviceId)
     {
         _blockedDevices[DeviceKey(userId, deviceId)] = DateTime.UtcNow.AddHours(24);
+        EnforceCap(_blockedDevices);
     }
 
     public void UnblockDevice(Guid userId, string? deviceId)
@@ -149,6 +166,7 @@ public class ChallengeStore : IDisposable
     {
         if (string.IsNullOrEmpty(token)) return;
         _blockedTokens[token] = DateTime.UtcNow.AddMinutes(10);
+        EnforceCap(_blockedTokens);
     }
 
     public void UnblockToken(string token)
@@ -172,11 +190,20 @@ public class ChallengeStore : IDisposable
     /// response-intercept middleware won't overwrite the auth body with a 2FA
     /// challenge. Approval is bound to (userId, deviceId, token) so a stale
     /// flag on a recycled token can't leak bypass across users/devices.
-    /// Short 30s TTL — only needs to survive the single /Authenticate round trip.</summary>
+    /// Short 30s TTL — only needs to survive the single /Authenticate round trip.
+    /// PERF-P2: also signals any TCS waiter the middleware registered, so the
+    /// middleware wakes immediately instead of polling.</summary>
     public void ApproveToken(string token, Guid userId, string? deviceId)
     {
         if (string.IsNullOrEmpty(token)) return;
-        _approvedTokens[ApprovalKey(token, userId, deviceId)] = DateTime.UtcNow.AddSeconds(30);
+        var key = ApprovalKey(token, userId, deviceId);
+        _approvedTokens[key] = DateTime.UtcNow.AddSeconds(30);
+        EnforceCap(_approvedTokens);
+        // Signal any waiter immediately. TrySetResult is cheap if no waiter.
+        if (_approvalWaiters.TryRemove(key, out var tcs))
+        {
+            tcs.TrySetResult(true);
+        }
     }
 
     /// <summary>Single-use read — removes the flag atomically so a second call
@@ -193,8 +220,77 @@ public class ChallengeStore : IDisposable
         return false;
     }
 
+    /// <summary>PERF-P2: register a one-shot waiter that completes when
+    /// ApproveToken is called for the same key, or after the timeout elapses.
+    /// Returns true if approval came in, false on timeout.
+    ///
+    /// Called by the response-intercept middleware AFTER ConsumeTokenApproval
+    /// returns false (covers the race where SessionStarted hasn't completed
+    /// yet). Replaces the earlier 50ms-tick polling loop. The waiter is removed
+    /// when ApproveToken signals it, or when the timeout cleanup fires.</summary>
+    public async Task<bool> WaitForApprovalAsync(string token, Guid userId, string? deviceId, TimeSpan timeout)
+    {
+        if (string.IsNullOrEmpty(token)) return false;
+        var key = ApprovalKey(token, userId, deviceId);
+
+        // Check first — if approval already arrived, no need to wait.
+        if (ConsumeTokenApproval(token, userId, deviceId)) return true;
+
+        // RunContinuationsAsynchronously prevents the ApproveToken caller from
+        // running our continuation synchronously on its thread (which could
+        // deadlock if the caller holds locks).
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registered = _approvalWaiters.GetOrAdd(key, tcs);
+        // If another concurrent caller registered first, await theirs instead.
+        // Either way, ApproveToken will signal whichever TCS won.
+        var winner = registered;
+
+        // Re-check approval AFTER registering the waiter to close the
+        // register-then-approve race: ApproveToken might have run in the
+        // microsecond between the first check and GetOrAdd.
+        if (ConsumeTokenApproval(token, userId, deviceId))
+        {
+            // We won the race against ApproveToken; tear our waiter down.
+            if (_approvalWaiters.TryRemove(key, out var stale)) stale.TrySetResult(false);
+            return true;
+        }
+
+        try
+        {
+            using var cts = new System.Threading.CancellationTokenSource(timeout);
+            await using var _ = cts.Token.Register(() =>
+            {
+                if (_approvalWaiters.TryRemove(key, out var t)) t.TrySetResult(false);
+            });
+            return await winner.Task.ConfigureAwait(false);
+        }
+        catch
+        {
+            // On any unexpected error, treat as no-approval; middleware falls
+            // through to issuing a challenge (the safe default).
+            return false;
+        }
+    }
+
     private static string ApprovalKey(string token, Guid userId, string? deviceId)
         => $"{userId:N}|{deviceId ?? string.Empty}|{token}";
+
+    /// <summary>PERF-P10: enforce SoftCapPerDict on a DateTime-valued
+    /// ConcurrentDictionary. Cheap fast path: if under cap, return. Slow
+    /// path runs only on the unhappy case where a botnet outraced the 60s
+    /// sweep. We drop entries whose expiry is nearest (oldest first).</summary>
+    private static void EnforceCap(ConcurrentDictionary<string, DateTime> dict)
+    {
+        if (dict.Count <= SoftCapPerDict) return;
+        // Snapshot, sort by expiry ascending, evict the bottom 10% to amortise.
+        var snapshot = dict.ToArray();
+        Array.Sort(snapshot, (a, b) => a.Value.CompareTo(b.Value));
+        var evictCount = snapshot.Length / 10;
+        for (var i = 0; i < evictCount; i++)
+        {
+            dict.TryRemove(snapshot[i].Key, out _);
+        }
+    }
 
     // Seen PairConfirm signatures — prevents an attacker with a captured
     // signed QR-pair link from replaying it inside the 5-minute TTL window
