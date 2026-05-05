@@ -8,6 +8,13 @@
     "category": "General",
     "versions": [
       {
+        "version": "2.2.3.0",
+        "changelog": "v2.2.3 — PDF font fix. Recovery-code PDF now actually renders the text. v2.2.2 swapped the font from Fonts.SegoeUI to 'Lato' thinking QuestPDF auto-loaded Lato — it doesn't, the constant is just a name. Skia's fallback found nothing usable inside the Jellyfin Docker container (no system fonts) and rendered every glyph as an empty box. Lato-Regular and Lato-Bold are now embedded as resources in the plugin DLL and registered with QuestPDF's FontManager in the RecoveryCodePdfService static constructor. Works on any container regardless of installed system fonts. No breaking changes; in-place upgrade.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.2.3/Jellyfin.Plugin.TwoFactorAuthv2.2.3.zip",
+        "checksum": "CB8AD6521A47232BA6212335B43542AF"
+      },
+      {
         "version": "2.2.2.0",
         "changelog": "v2.2.2 — UX polish. Recovery-code PDF now renders correctly inside Linux containers (was producing empty glyph boxes due to Windows-only fonts; switched to QuestPDF's bundled Lato font). 2FA challenge page now exposes a Recovery code tab alongside Authenticator and Email so a user without their authenticator can sign in directly. All Setup-page confirmation prompts (regenerate codes, revoke device / app password / trusted browser, disable 2FA, emergency lockout) now use a dark-themed in-page modal instead of the browser native confirm() popup. No breaking changes; in-place upgrade.",
         "targetAbi": "10.11.0.0",
