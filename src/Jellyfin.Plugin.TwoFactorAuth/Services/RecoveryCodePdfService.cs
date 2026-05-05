@@ -136,7 +136,11 @@ public class RecoveryCodePdfService
             {
                 page.Size(PageSizes.A4);
                 page.Margin(40);
-                page.DefaultTextStyle(t => t.FontSize(11).FontFamily(Fonts.SegoeUI));
+                // QuestPDF bundles "Lato" — present on every platform without
+                // needing system-installed fonts. Fonts.SegoeUI / Fonts.Consolas
+                // were Windows-only and rendered as empty glyph boxes inside
+                // Linux containers (Jellyfin Docker).
+                page.DefaultTextStyle(t => t.FontSize(11).FontFamily("Lato"));
 
                 page.Header().Column(col =>
                 {
@@ -167,7 +171,7 @@ public class RecoveryCodePdfService
                             for (var i = 0; i < codes.Count; i++)
                             {
                                 tab.Cell().PaddingVertical(6).Text($"{i + 1:D2}.  {codes[i]}")
-                                    .FontFamily(Fonts.Consolas).FontSize(13);
+                                    .FontFamily("Lato").FontSize(13);
                             }
                         });
                     });
