@@ -42,6 +42,7 @@ Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email O
 - [Security model](#-security-model)
 - [Limitations](#-limitations)
 - [Changelog](#-changelog)
+- [Credits](#-credits)
 - [Support the project](#-support-the-project)
 - [License](#-license)
 
@@ -721,6 +722,16 @@ If you're on Tizen / Jellyfin for Smart TV and couldn't sign in after v1.4, this
 - Fixed DI circular dependency when registering `IAuthenticationProvider` (`TwoFactorAuthProvider` now resolves `IUserManager` lazily via `IApplicationHost`).
 - Samsung Tizen / Jellyfin for Tizen pairing works end-to-end.
 - Login loop fixed by removing access-token blocking — middleware response-intercept is now the only gate.
+
+---
+
+## 🙏 Credits
+
+Contributors who have shipped substantive changes to this plugin:
+
+- **[@glauciocampos](https://github.com/glauciocampos)** — multi-architecture QuestPDF runtime fix and fat-package build flow ([v2.2.1](#221--multi-architecture-support)). Originally cut as `v2.1.0.1` in [their fork](https://github.com/glauciocampos/JellyfinSecurity). Pi / Apple-Silicon-Linux / Alpine deployments work because of this.
+
+Maintained by **[@ZL154](https://github.com/ZL154)**. PRs and issue reports welcome.
 
 ---
 
