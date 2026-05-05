@@ -1,24 +1,35 @@
 #!/bin/bash
-# Build and package the Jellyfin 2FA plugin
+# Build and package the Jellyfin 2FA plugin (fat package by default)
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR/src/Jellyfin.Plugin.TwoFactorAuth"
+MODE="${1:-fat}"
+INSTALL_FLAG="${2:-}"
 OUTPUT_DIR="$SCRIPT_DIR/dist/TwoFactorAuth"
 
-# Clean output
+if [ "$MODE" = "--install" ]; then
+    MODE="fat"
+    INSTALL_FLAG="--install"
+fi
+
+if [ "$MODE" = "fat" ]; then
+    RIDS=(linux-x64 linux-arm64 linux-musl-x64)
+else
+    RIDS=("$MODE")
+    OUTPUT_DIR="$SCRIPT_DIR/dist/TwoFactorAuth-$MODE"
+fi
+
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
-# Build
-echo "Building plugin (Release)..."
-dotnet publish "$PROJECT_DIR" -c Release -o "$SCRIPT_DIR/dist/publish" --nologo
+# Build managed assemblies once without RID (architecture-agnostic).
+BASE_PUBLISH_DIR="$SCRIPT_DIR/dist/publish-base"
+rm -rf "$BASE_PUBLISH_DIR"
+echo "Building managed plugin (Release, no RID)..."
+dotnet publish "$PROJECT_DIR" -c Release --self-contained false -o "$BASE_PUBLISH_DIR" --nologo
 
-# Copy plugin DLL + non-Jellyfin runtime dependencies. Anything Jellyfin
-# already provides (System.*, Microsoft.*) must NOT be copied — Jellyfin
-# rejects plugin assemblies whose names collide with the host. The list
-# below tracks PackageReferences in Jellyfin.Plugin.TwoFactorAuth.csproj.
 for file in \
     Jellyfin.Plugin.TwoFactorAuth.dll \
     Otp.NET.dll \
@@ -37,29 +48,31 @@ for file in \
     Microsoft.IdentityModel.Tokens.dll \
     System.IdentityModel.Tokens.Jwt.dll \
 ; do
-    if [ -f "$SCRIPT_DIR/dist/publish/$file" ]; then
-        cp "$SCRIPT_DIR/dist/publish/$file" "$OUTPUT_DIR/"
+    if [ -f "$BASE_PUBLISH_DIR/$file" ]; then
+        cp "$BASE_PUBLISH_DIR/$file" "$OUTPUT_DIR/"
     fi
 done
 
-# Native libraries — Fido2's NSec.Cryptography depends on libsodium and
-# QuestPDF needs libQuestPdfSkia. Both ship as platform-specific binaries
-# under runtimes/<rid>/native/. Copy the matching ones for the deployment
-# OS so they sit next to the DLLs (which is where the .NET runtime probes).
-# For a Linux Docker target (the primary deployment), copy linux-x64.
-NATIVE_DIR_LINUX="$SCRIPT_DIR/dist/publish/runtimes/linux-x64/native"
-if [ -d "$NATIVE_DIR_LINUX" ]; then
-    mkdir -p "$OUTPUT_DIR/runtimes/linux-x64/native"
-    cp "$NATIVE_DIR_LINUX"/*.so "$OUTPUT_DIR/runtimes/linux-x64/native/" 2>/dev/null || true
-fi
-# NOTE: Jellyfin's plugin manager scans EVERY .dll under the plugin dir as
-# if it's a managed assembly, including ones in runtimes/<rid>/native/.
-# Windows native .dlls (libgcc_s_seh-1.dll, libsodium.dll, qpdf.dll, etc.)
-# are unmanaged binaries — when Jellyfin tries to load them as managed
-# assemblies it throws and disables the whole plugin. We therefore only
-# bundle the Linux .so set (the primary deployment target). Admins on
-# Windows / macOS need a runtime that supplies libsodium and a Skia native
-# (or use the Docker image). Documented in README.
+for RID in "${RIDS[@]}"; do
+    PUBLISH_DIR="$SCRIPT_DIR/dist/publish-$RID"
+    rm -rf "$PUBLISH_DIR"
+    echo "Building plugin (Release, RID=$RID)..."
+    dotnet publish "$PROJECT_DIR" -c Release -r "$RID" --self-contained false -o "$PUBLISH_DIR" --nologo
+
+    NATIVE_DIR="$PUBLISH_DIR/runtimes/$RID/native"
+    TARGET_NATIVE_DIR="$OUTPUT_DIR/runtimes/$RID/native"
+    mkdir -p "$TARGET_NATIVE_DIR"
+
+    # Some packages place native libs under runtimes/<rid>/native, others at publish root.
+    if [ -d "$NATIVE_DIR" ]; then
+        cp "$NATIVE_DIR"/* "$TARGET_NATIVE_DIR/" 2>/dev/null || true
+    fi
+    cp "$PUBLISH_DIR"/*.so "$TARGET_NATIVE_DIR/" 2>/dev/null || true
+
+    # Jellyfin/.NET in this plugin scenario probes native libs from plugin root.
+    # Keep a copy at root to avoid QuestPDF load failures in containers.
+    cp "$PUBLISH_DIR"/*.so "$OUTPUT_DIR/" 2>/dev/null || true
+done
 
 # Copy meta.json
 cp "$PROJECT_DIR/meta.json" "$OUTPUT_DIR/"
@@ -69,7 +82,7 @@ echo "Plugin built to: $OUTPUT_DIR"
 ls -la "$OUTPUT_DIR"
 
 # Install if --install flag passed
-if [ "$1" = "--install" ]; then
+if [ "$INSTALL_FLAG" = "--install" ]; then
     PLUGIN_DIR="${JELLYFIN_DATA:-$HOME/.local/share/jellyfin}/plugins/TwoFactorAuth"
     rm -rf "$PLUGIN_DIR"
     cp -r "$OUTPUT_DIR" "$PLUGIN_DIR"

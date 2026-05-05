@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/badge/Version-2.2.0-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-2.2.1-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -565,6 +565,20 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.2.1 — Multi-architecture support
+
+**New**
+- Recovery-code PDF generation (QuestPDF) now works on **linux-x64**, **linux-arm64**, and **linux-musl-x64** containers. Previously only `linux-x64` shipped working native libs, so Pi / Apple-Silicon-Linux / Alpine deployments couldn't generate the recovery PDF.
+- Runtime architecture + libc detection (`Architecture.X64` / `Arm64` + `/lib/ld-musl-*` sniff) in `RecoveryCodePdfService` picks the right RID's natives at startup, copies them next to the plugin DLL where QuestPDF probes, and `NativeLibrary.Load`s them in dependency order before the first render.
+- PDF init now wraps in try/catch — if native deps fail to load on an unsupported runtime, the rest of the plugin keeps working and PDF render throws a clear `InvalidOperationException` instead of taking the whole plugin down.
+
+**Build**
+- `build.sh` rewritten as a fat-package builder: managed assemblies published once without RID, then per-RID native libs (`linux-x64`, `linux-arm64`, `linux-musl-x64`) bundled into `runtimes/<rid>/native/` with a copy at the plugin root.
+- New `.github/workflows/build-multiarch.yml` runs the fat build inside a `mcr.microsoft.com/dotnet/sdk:9.0` Docker container and publishes the zip + MD5 + SHA256 to a GitHub Release.
+
+**Credit**
+- Multi-arch QuestPDF runtime fix and fat-package build flow contributed by [@glauciocampos](https://github.com/glauciocampos) (originally cut as `v2.1.0.1` in [their fork](https://github.com/glauciocampos/JellyfinSecurity)). Thanks Glaucio.
 
 ### 2.2.0 — Hardening + performance
 

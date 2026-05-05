@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -17,15 +19,116 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// </summary>
 public class RecoveryCodePdfService
 {
+    private static bool _isReady;
+    private static Exception? _initializationException;
+
     static RecoveryCodePdfService()
     {
-        // Required once per process — license must be set before first render.
-        // Community license is free for projects with < $1M revenue.
-        QuestPDF.Settings.License = LicenseType.Community;
+        try
+        {
+            EnsureQuestPdfNativeDependenciesLoaded();
+
+            // Required once per process — license must be set before first render.
+            // Community license is free for projects with < $1M revenue.
+            QuestPDF.Settings.License = LicenseType.Community;
+            _isReady = true;
+        }
+        catch (Exception ex)
+        {
+            _isReady = false;
+            _initializationException = ex;
+        }
+    }
+
+    private static void EnsureQuestPdfNativeDependenciesLoaded()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var rid = GetCurrentLinuxRid();
+        if (rid is null)
+            return;
+
+        var pluginDir = Path.GetDirectoryName(typeof(RecoveryCodePdfService).Assembly.Location);
+        if (string.IsNullOrWhiteSpace(pluginDir))
+            return;
+
+        var nativeDir = Path.Combine(pluginDir, "runtimes", rid, "native");
+        if (!Directory.Exists(nativeDir))
+            return;
+
+        // QuestPDF probes plugin root first on this hosting model.
+        // Ensure root has the native binaries for the current architecture.
+        TryCopyToRoot(nativeDir, pluginDir, "libsodium.so");
+        TryCopyToRoot(nativeDir, pluginDir, "libqpdf.so");
+        TryCopyToRoot(nativeDir, pluginDir, "libQuestPdfSkia.so");
+
+        // Load dependencies before QuestPDF native.
+        TryLoad(Path.Combine(nativeDir, "libsodium.so"));
+        TryLoad(Path.Combine(nativeDir, "libqpdf.so"));
+        TryLoad(Path.Combine(nativeDir, "libQuestPdfSkia.so"));
+    }
+
+    private static string? GetCurrentLinuxRid()
+    {
+        return RuntimeInformation.ProcessArchitecture switch
+        {
+            Architecture.Arm64 => "linux-arm64",
+            Architecture.X64 => IsMusl() ? "linux-musl-x64" : "linux-x64",
+            _ => null
+        };
+    }
+
+    private static bool IsMusl()
+    {
+        return File.Exists("/lib/ld-musl-x86_64.so.1")
+            || File.Exists("/lib/ld-musl-aarch64.so.1")
+            || File.Exists("/lib64/ld-musl-x86_64.so.1")
+            || File.Exists("/lib64/ld-musl-aarch64.so.1");
+    }
+
+    private static void TryLoad(string path)
+    {
+        if (!File.Exists(path))
+            return;
+
+        try
+        {
+            NativeLibrary.Load(path);
+        }
+        catch
+        {
+            // QuestPDF will throw a detailed compatibility error later if load fails.
+        }
+    }
+
+    private static void TryCopyToRoot(string nativeDir, string pluginDir, string fileName)
+    {
+        var source = Path.Combine(nativeDir, fileName);
+        var target = Path.Combine(pluginDir, fileName);
+        if (!File.Exists(source))
+            return;
+
+        try
+        {
+            File.Copy(source, target, overwrite: true);
+        }
+        catch
+        {
+            // If copy fails, TryLoad still attempts absolute path from RID folder.
+        }
     }
 
     public byte[] Render(string username, IReadOnlyList<string> codes, string serverName)
     {
+        if (!_isReady)
+        {
+            throw new InvalidOperationException(
+                "Recovery PDF generation is unavailable on this runtime. " +
+                "Verify QuestPDF native dependencies for the current architecture.",
+                _initializationException);
+        }
+
         var generated = System.DateTime.UtcNow.ToString("u");
         var doc = Document.Create(container =>
         {

@@ -1,0 +1,71 @@
+name: Build Plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Create/update GitHub Release and upload artifacts"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Build fat package in Docker
+        run: |
+          docker run --rm \
+            -u "$(id -u):$(id -g)" \
+            -v "$PWD:/src" \
+            -w /src \
+            -e HOME=/tmp \
+            -e DOTNET_CLI_HOME=/tmp \
+            mcr.microsoft.com/dotnet/sdk:9.0 \
+            bash -lc "chmod +x ./build.sh && ./build.sh fat"
+
+      - name: Zip package
+        run: |
+          VERSION="$(grep -oPm1 '(?<=<Version>)[^<]+' src/Jellyfin.Plugin.TwoFactorAuth/Jellyfin.Plugin.TwoFactorAuth.csproj)"
+          cd dist
+          zip -r "Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip" "TwoFactorAuth"
+          md5sum "Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip" | awk '{print toupper($1)}' > "Jellyfin.Plugin.TwoFactorAuthv${VERSION}.md5"
+          sha256sum "Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip" > "Jellyfin.Plugin.TwoFactorAuthv${VERSION}.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: jellyfin-security-fat-package
+          path: |
+            dist/Jellyfin.Plugin.TwoFactorAuthv*.zip
+            dist/Jellyfin.Plugin.TwoFactorAuthv*.md5
+            dist/Jellyfin.Plugin.TwoFactorAuthv*.sha256
+
+      - name: Create/Update release and upload assets
+        if: ${{ github.event.inputs.publish_release == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="$(grep -oPm1 '(?<=<Version>)[^<]+' src/Jellyfin.Plugin.TwoFactorAuth/Jellyfin.Plugin.TwoFactorAuth.csproj)"
+          TAG="v${VERSION%.*}"
+          ZIP="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip"
+          MD5="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.md5"
+          SHA256="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.sha256"
+
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes "Automated workflow release for Jellyfin Security ${VERSION}."
+
+          gh release upload "$TAG" "$ZIP" "$MD5" "$SHA256" --clobber
