@@ -405,6 +405,49 @@
                 return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
             });
         }
+        // Styled replacement for window.confirm — same theme as the rest of
+        // the Setup page. Returns a Promise<boolean>. Pass either a string
+        // (treated as message) or {title, message, confirmText, danger}.
+        function tfaConfirm(opts) {
+            if (typeof opts === 'string') opts = { message: opts };
+            opts = opts || {};
+            var title = opts.title || 'Are you sure?';
+            var message = opts.message || '';
+            var confirmText = opts.confirmText || 'Confirm';
+            var cancelText = opts.cancelText || 'Cancel';
+            var danger = opts.danger === undefined ? true : opts.danger;
+            return new Promise(function(resolve) {
+                var ov = document.createElement('div');
+                ov.setAttribute('role', 'dialog');
+                ov.setAttribute('aria-modal', 'true');
+                ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;backdrop-filter:blur(4px);';
+                var card = document.createElement('div');
+                card.style.cssText = 'background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:24px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.6);';
+                card.innerHTML =
+                    '<h3 style="margin:0 0 12px;color:#fff;font-size:17px;font-weight:600;">' + escapeHtml(title) + '</h3>' +
+                    '<p style="margin:0 0 22px;color:#ccc;font-size:14px;line-height:1.5;">' + escapeHtml(message) + '</p>' +
+                    '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
+                        '<button data-act="cancel" style="background:transparent;color:#888;border:1px solid #333;padding:9px 16px;border-radius:6px;font-size:13px;cursor:pointer;">' + escapeHtml(cancelText) + '</button>' +
+                        '<button data-act="ok" style="background:' + (danger ? '#f44336' : '#00a4dc') + ';color:#fff;border:none;padding:9px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">' + escapeHtml(confirmText) + '</button>' +
+                    '</div>';
+                ov.appendChild(card);
+                document.body.appendChild(ov);
+                function close(result) {
+                    document.removeEventListener('keydown', onKey);
+                    ov.remove();
+                    resolve(result);
+                }
+                function onKey(e) {
+                    if (e.key === 'Escape') close(false);
+                    if (e.key === 'Enter') close(true);
+                }
+                card.querySelector('[data-act="ok"]').addEventListener('click', function() { close(true); });
+                card.querySelector('[data-act="cancel"]').addEventListener('click', function() { close(false); });
+                ov.addEventListener('click', function(e) { if (e.target === ov) close(false); });
+                document.addEventListener('keydown', onKey);
+                setTimeout(function() { card.querySelector('[data-act="ok"]').focus(); }, 10);
+            });
+        }
         function fmtRel(iso) {
             if (!iso) return 'never';
             var d = new Date(iso);
@@ -497,8 +540,8 @@
                             + '</div>';
                     }).join('');
                     listBox.querySelectorAll('[data-unlink-prov]').forEach(function(btn) {
-                        btn.addEventListener('click', function() {
-                            if (!confirm('Unlink this account?')) return;
+                        btn.addEventListener('click', async function() {
+                            if (!(await tfaConfirm('Unlink this account?'))) return;
                             api('DELETE', 'TwoFactorAuth/Oidc/MyLinks/'
                                 + encodeURIComponent(btn.dataset.unlinkProv) + '/'
                                 + encodeURIComponent(btn.dataset.unlinkSub)).then(loadSsoLinks);
@@ -674,8 +717,8 @@
                     '</div>';
             });
             box.querySelectorAll('.tfa-revoke-paired').forEach(function(b) {
-                b.addEventListener('click', function() {
-                    if (!confirm('Revoke this device? It will need to re-pair on next sign-in.')) return;
+                b.addEventListener('click', async function() {
+                    if (!(await tfaConfirm('Revoke this device? It will need to re-pair on next sign-in.'))) return;
                     api('DELETE', 'TwoFactorAuth/PairedDevices/' + b.dataset.id).then(loadAll);
                 });
             });
@@ -698,8 +741,8 @@
                     '</div>';
             }).join('');
             box.querySelectorAll('.tfa-revoke-ap').forEach(function(b) {
-                b.addEventListener('click', function() {
-                    if (!confirm('Revoke this app password? Any client using it will be signed out next time it tries to authenticate.')) return;
+                b.addEventListener('click', async function() {
+                    if (!(await tfaConfirm('Revoke this app password? Any client using it will be signed out next time it tries to authenticate.'))) return;
                     api('DELETE', 'TwoFactorAuth/AppPasswords/' + b.dataset.id).then(loadAll);
                 });
             });
@@ -720,8 +763,8 @@
                     '</div>';
             });
             box.querySelectorAll('.tfa-revoke-trust').forEach(function(b) {
-                b.addEventListener('click', function() {
-                    if (!confirm('Revoke this trusted browser? It will need 2FA again on next sign-in.')) return;
+                b.addEventListener('click', async function() {
+                    if (!(await tfaConfirm('Revoke this trusted browser? It will need 2FA again on next sign-in.'))) return;
                     api('DELETE', 'TwoFactorAuth/Devices/' + b.dataset.id).then(loadAll);
                 });
             });
@@ -761,8 +804,8 @@
                     '</div>';
             });
             box.querySelectorAll('.tfa-revoke-sess').forEach(function(b) {
-                b.addEventListener('click', function() {
-                    if (!confirm('Sign out this device? Its access token will be revoked immediately.')) return;
+                b.addEventListener('click', async function() {
+                    if (!(await tfaConfirm('Sign out this device? Its access token will be revoked immediately.'))) return;
                     api('POST', 'TwoFactorAuth/MySessions/' + b.dataset.id + '/Revoke').then(loadAll);
                 });
             });
@@ -809,8 +852,8 @@
         });
 
         // ============ RECOVERY HANDLERS ============
-        document.getElementById('btnGenerateCodes').addEventListener('click', function() {
-            if (!confirm('Generate new recovery codes? Any existing codes will stop working.')) return;
+        document.getElementById('btnGenerateCodes').addEventListener('click', async function() {
+            if (!(await tfaConfirm({ title: 'Regenerate recovery codes?', message: 'Any existing codes will stop working immediately. Make sure to save the new ones.', confirmText: 'Generate', danger: true }))) return;
             api('POST', 'TwoFactorAuth/RecoveryCodes/Generate').then(function(result) {
                 var grid = document.getElementById('recoveryGrid');
                 grid.innerHTML = (result.codes || []).map(function(c) { return '<div>' + escapeHtml(c) + '</div>'; }).join('');
@@ -932,24 +975,24 @@
         document.getElementById('btnRefreshSessions').addEventListener('click', loadAll);
 
         // ============ v1.4: Revoke-all buttons (paired / trusted / sessions) ============
-        document.getElementById('btnRevokeAllPaired').addEventListener('click', function() {
-            if (!confirm('Revoke EVERY paired device? Each will need to re-pair on next sign-in.')) return;
+        document.getElementById('btnRevokeAllPaired').addEventListener('click', async function() {
+            if (!(await tfaConfirm('Revoke EVERY paired device? Each will need to re-pair on next sign-in.'))) return;
             api('GET', 'TwoFactorAuth/PairedDevices').then(function(list) {
                 return Promise.all((list || []).map(function(d) {
                     return api('DELETE', 'TwoFactorAuth/PairedDevices/' + d.id).catch(function(){});
                 }));
             }).then(loadAll);
         });
-        document.getElementById('btnRevokeAllTrusted').addEventListener('click', function() {
-            if (!confirm('Revoke EVERY trusted browser? Each will need 2FA again on next sign-in.')) return;
+        document.getElementById('btnRevokeAllTrusted').addEventListener('click', async function() {
+            if (!(await tfaConfirm('Revoke EVERY trusted browser? Each will need 2FA again on next sign-in.'))) return;
             api('GET', 'TwoFactorAuth/Devices').then(function(list) {
                 return Promise.all((list || []).map(function(d) {
                     return api('DELETE', 'TwoFactorAuth/Devices/' + (d.id || d.Id)).catch(function(){});
                 }));
             }).then(loadAll);
         });
-        document.getElementById('btnRevokeAllSessions').addEventListener('click', function() {
-            if (!confirm('Sign out EVERY other session (your current browser stays signed in)?')) return;
+        document.getElementById('btnRevokeAllSessions').addEventListener('click', async function() {
+            if (!(await tfaConfirm('Sign out EVERY other session (your current browser stays signed in)?'))) return;
             api('GET', 'TwoFactorAuth/MySessions').then(function(list) {
                 return Promise.all((list || []).filter(function(s) { return !s.isCurrent; }).map(function(s) {
                     return api('POST', 'TwoFactorAuth/MySessions/' + s.id + '/Revoke').catch(function(){});
@@ -958,8 +1001,8 @@
         });
 
         // ============ DISABLE HANDLER ============
-        document.getElementById('btnDisable').addEventListener('click', function() {
-            if (!confirm('Disable 2FA? This will remove ALL recovery codes, paired devices, app passwords, and trusted browsers. You will only need your password to sign in.')) return;
+        document.getElementById('btnDisable').addEventListener('click', async function() {
+            if (!(await tfaConfirm({ title: 'Disable 2FA?', message: 'This removes ALL recovery codes, paired devices, app passwords, and trusted browsers. Only your password will be required to sign in.', confirmText: 'Disable 2FA', danger: true }))) return;
             api('POST', 'TwoFactorAuth/Setup/Disable').then(loadAll);
         });
 
@@ -1000,8 +1043,8 @@
                         '</div>';
                 }).join('');
                 box.querySelectorAll('.tfa-passkey-del').forEach(function(b){
-                    b.addEventListener('click', function(){
-                        if (!confirm('Remove this passkey?')) return;
+                    b.addEventListener('click', async function(){
+                        if (!(await tfaConfirm('Remove this passkey?'))) return;
                         api('DELETE', 'TwoFactorAuth/Passkeys/' + b.dataset.id).then(loadPasskeys);
                     });
                 });
@@ -1100,8 +1143,8 @@
         // We'll toggle it from loadAll in a wrapper below.
 
         // ============ v1.4: Emergency lockout ============
-        document.getElementById('btnEmergency').addEventListener('click', function() {
-            if (!confirm('Are you sure? This terminates EVERY session and revokes EVERY trusted/paired device. You will need a recovery code or email OTP to sign back in.')) return;
+        document.getElementById('btnEmergency').addEventListener('click', async function() {
+            if (!(await tfaConfirm({ title: 'Emergency lockout', message: 'This terminates EVERY session and revokes EVERY trusted / paired device. You will need a recovery code or email OTP to sign back in.', confirmText: 'Lock out now', danger: true }))) return;
             var ok = document.getElementById('emergencyResult'); ok.classList.remove('show');
             api('POST', 'TwoFactorAuth/Setup/EmergencyLockout').then(function(r) {
                 ok.textContent = '✓ Lockout complete. ' + (r.sessionsTerminated || 0) + ' session(s) ended. Sign in again to regain access.';

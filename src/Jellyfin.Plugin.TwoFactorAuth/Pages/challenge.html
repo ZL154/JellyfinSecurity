@@ -63,8 +63,14 @@
             margin-bottom: 16px;
             transition: border-color 0.2s;
         }
+        .code-input.recovery {
+            font-size: 18px;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+        }
         .code-input:focus { border-color: #00a4dc; outline: none; }
         .code-input::placeholder { color: #444; letter-spacing: 12px; }
+        .code-input.recovery::placeholder { letter-spacing: 4px; }
         .trust-row {
             display: flex;
             align-items: center;
@@ -110,8 +116,9 @@
         <div class="logo">Jellyfin</div>
         <h1>Two-Factor Authentication</h1>
 
-        <div class="method-tabs" id="methodTabs" style="display:none;">
+        <div class="method-tabs" id="methodTabs">
             <div class="method-tab active" data-method="totp">Authenticator</div>
+            <div class="method-tab" data-method="recovery">Recovery</div>
             <div class="method-tab" data-method="email">Email</div>
         </div>
 
@@ -129,7 +136,7 @@
         <button class="btn-secondary" id="btnSendEmail" style="display:none;">Send code by email</button>
         <button class="btn-secondary" id="btnPasskey" style="display:none;">🔑 Use a passkey instead</button>
 
-        <p class="hint">Codes rotate every 30 seconds.</p>
+        <p class="hint" id="bottomHint">Codes rotate every 30 seconds.</p>
         <p class="hint" style="margin-top:14px;">
             <a href="/TwoFactorAuth/Login" style="color:#888;text-decoration:none;">← Back to sign in</a>
         </p>
@@ -173,7 +180,33 @@
                 t.classList.toggle('active', t.dataset.method === method);
             });
             document.getElementById('btnSendEmail').style.display = method === 'email' ? 'block' : 'none';
-            document.getElementById('codeLabel').textContent = method === 'email' ? 'Enter the 6-digit code sent to your email' : 'Enter the 6-digit code from your authenticator app';
+            var input = document.getElementById('codeInput');
+            var label = document.getElementById('codeLabel');
+            var hint = document.getElementById('bottomHint');
+            if (method === 'recovery') {
+                label.textContent = 'Enter a recovery code (XXXXX-XXXXX)';
+                input.classList.add('recovery');
+                input.setAttribute('inputmode', 'text');
+                input.setAttribute('maxlength', '11'); // 5 + dash + 5
+                input.setAttribute('placeholder', 'XXXXX-XXXXX');
+                input.removeAttribute('pattern');
+                input.value = '';
+                if (hint) hint.textContent = 'Each recovery code works once. Save the others somewhere safe.';
+            } else {
+                label.textContent = method === 'email'
+                    ? 'Enter the 6-digit code sent to your email'
+                    : 'Enter the 6-digit code from your authenticator app';
+                input.classList.remove('recovery');
+                input.setAttribute('inputmode', 'numeric');
+                input.setAttribute('maxlength', '6');
+                input.setAttribute('placeholder', '000000');
+                input.setAttribute('pattern', '[0-9]{6}');
+                input.value = '';
+                if (hint) hint.textContent = method === 'email'
+                    ? 'Email codes expire 5 minutes after they are sent.'
+                    : 'Codes rotate every 30 seconds.';
+            }
+            input.focus();
         }
 
         document.querySelectorAll('.method-tab').forEach(function(tab) {
@@ -181,7 +214,12 @@
         });
 
         document.getElementById('codeInput').addEventListener('input', function(e) {
-            e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+            if (currentMethod === 'recovery') {
+                // Allow A-Z, 0-9, dash; uppercase as user types.
+                e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 11);
+            } else {
+                e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+            }
             clearError();
         });
         document.getElementById('codeInput').addEventListener('keypress', function(e) {
@@ -214,9 +252,19 @@
 
         document.getElementById('btnVerify').addEventListener('click', function() {
             var code = document.getElementById('codeInput').value.trim();
-            if (!/^\d{6}$/.test(code)) {
-                showError('Enter the 6-digit code.');
-                return;
+            if (currentMethod === 'recovery') {
+                // Server normalises (strips dashes/spaces, uppercases) before
+                // PBKDF2-comparing — accept either XXXXXXXXXX or XXXXX-XXXXX.
+                var normalised = code.replace(/[-\s]/g, '');
+                if (!/^[A-Z0-9]{8,12}$/.test(normalised)) {
+                    showError('Enter a recovery code (10 chars, letters + digits).');
+                    return;
+                }
+            } else {
+                if (!/^\d{6}$/.test(code)) {
+                    showError('Enter the 6-digit code.');
+                    return;
+                }
             }
             clearError();
             var btn = document.getElementById('btnVerify');

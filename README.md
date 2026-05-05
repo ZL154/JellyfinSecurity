@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/badge/Version-2.2.1-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-2.2.2-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -566,6 +566,15 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.2.2 — UX polish
+
+**Fixes**
+- Recovery-code PDF now renders correctly inside Linux containers — the previous build used `Fonts.SegoeUI` / `Fonts.Consolas` (Windows-only fonts), which produced a PDF full of empty glyph boxes when generated on a Linux host. Switched to the cross-platform `Lato` font that QuestPDF bundles by default.
+- 2FA challenge page now exposes a **Recovery code** tab alongside Authenticator and Email, so a user who lost their authenticator can sign in directly from the challenge screen instead of having to reach the standalone Login page.
+
+**UI**
+- All Setup-page confirmation prompts (regenerate recovery codes, revoke device / app password / trusted browser, disable 2FA, emergency lockout, etc.) now use a dark-themed in-page modal instead of the browser's native `confirm()` popup. Esc cancels, Enter confirms, click outside cancels.
 
 ### 2.2.1 — Multi-architecture support
 
