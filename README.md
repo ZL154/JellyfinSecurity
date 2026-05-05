@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/badge/Version-2.2.2-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-2.2.3-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -566,6 +566,12 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.2.3 — PDF font fix (real this time)
+
+**Fixes**
+- Recovery-code PDF now actually renders the text. v2.2.2 swapped the font from `Fonts.SegoeUI` to `"Lato"` thinking QuestPDF auto-loaded Lato — it doesn't, the constant is just a name. Skia's fallback found nothing usable inside the Jellyfin Docker container (no system fonts) and rendered every glyph as an empty box.
+- Lato-Regular and Lato-Bold are now **embedded as resources** in the plugin DLL and registered with QuestPDF's `FontManager` in the `RecoveryCodePdfService` static constructor. Works on any container regardless of installed system fonts.
 
 ### 2.2.2 — UX polish
 

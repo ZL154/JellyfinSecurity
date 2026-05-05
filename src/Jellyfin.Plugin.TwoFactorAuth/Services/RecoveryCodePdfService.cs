@@ -28,6 +28,14 @@ public class RecoveryCodePdfService
         {
             EnsureQuestPdfNativeDependenciesLoaded();
 
+            // Register embedded Lato fonts. Without this, on a Linux container
+            // with no system fonts installed (the typical Jellyfin Docker
+            // image), Skia falls back to "no glyphs" and the PDF renders as
+            // empty boxes. QuestPDF only auto-loads fonts that are actually
+            // registered — the constant string "Lato" by itself does nothing.
+            RegisterEmbeddedFont("Jellyfin.Plugin.TwoFactorAuth.Fonts.Lato-Regular.ttf");
+            RegisterEmbeddedFont("Jellyfin.Plugin.TwoFactorAuth.Fonts.Lato-Bold.ttf");
+
             // Required once per process — license must be set before first render.
             // Community license is free for projects with < $1M revenue.
             QuestPDF.Settings.License = LicenseType.Community;
@@ -38,6 +46,14 @@ public class RecoveryCodePdfService
             _isReady = false;
             _initializationException = ex;
         }
+    }
+
+    private static void RegisterEmbeddedFont(string resourceName)
+    {
+        var asm = typeof(RecoveryCodePdfService).Assembly;
+        using var stream = asm.GetManifestResourceStream(resourceName);
+        if (stream is null) return;
+        QuestPDF.Drawing.FontManager.RegisterFont(stream);
     }
 
     private static void EnsureQuestPdfNativeDependenciesLoaded()
