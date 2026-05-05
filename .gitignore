@@ -1,0 +1,9 @@
+bin/
+obj/
+dist/
+*.user
+*.suo
+.vs/
+*.nupkg
+publish/
+Jellyfin.Plugin.TwoFactorAuth*.zip

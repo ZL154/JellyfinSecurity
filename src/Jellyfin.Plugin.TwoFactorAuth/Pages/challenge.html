@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Two-Factor Authentication</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: linear-gradient(135deg, #0a0a0a 0%, #151515 100%);
+            color: #e0e0e0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .card {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 36px 32px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        .logo {
+            text-align: center;
+            color: #00a4dc;
+            font-size: 26px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            letter-spacing: 0.5px;
+        }
+        h1 { text-align: center; font-size: 15px; font-weight: 400; color: #888; margin-bottom: 28px; }
+        .method-tabs { display: flex; gap: 0; margin-bottom: 20px; background: #0a0a0a; border-radius: 6px; padding: 4px; }
+        .method-tab {
+            flex: 1;
+            padding: 8px;
+            text-align: center;
+            cursor: pointer;
+            color: #888;
+            font-size: 13px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .method-tab.active { background: #00a4dc; color: #fff; font-weight: 500; }
+        .method-tab:not(.active):hover { color: #ccc; }
+        label { display: block; color: #888; font-size: 12px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .code-input {
+            width: 100%;
+            background: #252525;
+            border: 2px solid #333;
+            color: #e0e0e0;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 24px;
+            text-align: center;
+            letter-spacing: 12px;
+            margin-bottom: 16px;
+            transition: border-color 0.2s;
+        }
+        .code-input:focus { border-color: #00a4dc; outline: none; }
+        .code-input::placeholder { color: #444; letter-spacing: 12px; }
+        .trust-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 12px 0 20px;
+            font-size: 14px;
+            color: #ccc;
+            cursor: pointer;
+        }
+        .trust-row input { width: 16px; height: 16px; cursor: pointer; }
+        button {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: #00a4dc; color: #fff; }
+        .btn-primary:hover { background: #0087b3; }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-secondary {
+            background: transparent;
+            color: #888;
+            border: 1px solid #333;
+            margin-top: 8px;
+            font-size: 13px;
+            padding: 10px;
+        }
+        .btn-secondary:hover { color: #ccc; border-color: #555; }
+        .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .error { color: #f44336; font-size: 13px; margin-bottom: 12px; text-align: center; display: none; padding: 8px; background: rgba(244,67,54,0.1); border-radius: 4px; }
+        .error.show { display: block; }
+        .hint { color: #666; font-size: 12px; text-align: center; margin-top: 16px; }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: -2px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">Jellyfin</div>
+        <h1>Two-Factor Authentication</h1>
+
+        <div class="method-tabs" id="methodTabs" style="display:none;">
+            <div class="method-tab active" data-method="totp">Authenticator</div>
+            <div class="method-tab" data-method="email">Email</div>
+        </div>
+
+        <div class="error" id="errorMsg"></div>
+
+        <label id="codeLabel">Enter the 6-digit code</label>
+        <input type="text" id="codeInput" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code" autofocus />
+
+        <label class="trust-row">
+            <input type="checkbox" id="trustDevice" />
+            <span>Trust this device (skip 2FA for future logins)</span>
+        </label>
+
+        <button class="btn-primary" id="btnVerify">Verify</button>
+        <button class="btn-secondary" id="btnSendEmail" style="display:none;">Send code by email</button>
+        <button class="btn-secondary" id="btnPasskey" style="display:none;">🔑 Use a passkey instead</button>
+
+        <p class="hint">Codes rotate every 30 seconds.</p>
+        <p class="hint" style="margin-top:14px;">
+            <a href="/TwoFactorAuth/Login" style="color:#888;text-decoration:none;">← Back to sign in</a>
+        </p>
+    </div>
+
+    <script>
+        var params = new URLSearchParams(window.location.search);
+        var challengeToken = params.get('token');
+        // Same-origin check — without this, an attacker could craft
+        // /TwoFactorAuth/Challenge?token=...&return=https://evil/ and phish
+        // users post-verify, or smuggle a javascript: URL via location.href.
+        var returnUrl = (function () {
+            var raw = params.get('return') || '/web/index.html';
+            try {
+                var u = new URL(raw, window.location.origin);
+                if (u.origin !== window.location.origin) return '/web/index.html';
+                if (/^(javascript|data|vbscript|file):/i.test(u.protocol)) return '/web/index.html';
+                return u.pathname + u.search + u.hash;
+            } catch (e) {
+                return '/web/index.html';
+            }
+        })();
+        var currentMethod = 'totp';
+        var availableMethods = ['totp'];
+
+        if (!challengeToken) {
+            showError('No challenge token. Return to login.');
+            document.getElementById('btnVerify').disabled = true;
+        }
+
+        function showError(msg) {
+            var el = document.getElementById('errorMsg');
+            el.textContent = msg;
+            el.classList.add('show');
+        }
+        function clearError() { document.getElementById('errorMsg').classList.remove('show'); }
+
+        function setMethod(method) {
+            currentMethod = method;
+            document.querySelectorAll('.method-tab').forEach(function(t) {
+                t.classList.toggle('active', t.dataset.method === method);
+            });
+            document.getElementById('btnSendEmail').style.display = method === 'email' ? 'block' : 'none';
+            document.getElementById('codeLabel').textContent = method === 'email' ? 'Enter the 6-digit code sent to your email' : 'Enter the 6-digit code from your authenticator app';
+        }
+
+        document.querySelectorAll('.method-tab').forEach(function(tab) {
+            tab.addEventListener('click', function() { setMethod(tab.dataset.method); });
+        });
+
+        document.getElementById('codeInput').addEventListener('input', function(e) {
+            e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+            clearError();
+        });
+        document.getElementById('codeInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') document.getElementById('btnVerify').click();
+        });
+
+        document.getElementById('btnSendEmail').addEventListener('click', function() {
+            var btn = document.getElementById('btnSendEmail');
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+            fetch('/TwoFactorAuth/Email/Send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ challengeToken: challengeToken })
+            }).then(function(r) {
+                if (r.ok) {
+                    btn.textContent = 'Code sent — check your email';
+                    setTimeout(function() { btn.disabled = false; btn.textContent = 'Resend email code'; }, 30000);
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = 'Send code by email';
+                    showError('Failed to send email code. Too many requests?');
+                }
+            }).catch(function() {
+                btn.disabled = false;
+                btn.textContent = 'Send code by email';
+                showError('Network error.');
+            });
+        });
+
+        document.getElementById('btnVerify').addEventListener('click', function() {
+            var code = document.getElementById('codeInput').value.trim();
+            if (!/^\d{6}$/.test(code)) {
+                showError('Enter the 6-digit code.');
+                return;
+            }
+            clearError();
+            var btn = document.getElementById('btnVerify');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Verifying...';
+
+            fetch('/TwoFactorAuth/Verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    challengeToken: challengeToken,
+                    code: code,
+                    method: currentMethod,
+                    trustDevice: document.getElementById('trustDevice').checked
+                })
+            }).then(function(r) {
+                if (!r.ok) {
+                    btn.disabled = false;
+                    btn.textContent = 'Verify';
+                    if (r.status === 429) showError('Too many attempts. Please wait and try again.');
+                    else showError('Invalid code. Try again.');
+                    return null;
+                }
+                var deviceToken = r.headers.get('X-TwoFactor-Device-Token');
+                if (deviceToken) {
+                    try { localStorage.setItem('twofactor_device_token', deviceToken); } catch (e) {}
+                }
+                return r.json();
+            }).then(function(authData) {
+                if (!authData) return;
+                storeCredentials(authData).then(function() {
+                    window.location.href = returnUrl;
+                });
+            }).catch(function() {
+                btn.disabled = false;
+                btn.textContent = 'Verify';
+                showError('Network error. Try again.');
+            });
+        });
+
+        // ============ v1.4: Passkey verification path ============
+        function b64uToBytes(s) { s = s.replace(/-/g,'+').replace(/_/g,'/'); while (s.length % 4) s += '='; var b = atob(s); var a = new Uint8Array(b.length); for (var i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a.buffer; }
+        function bytesToB64u(buf) { var b = new Uint8Array(buf); var s=''; for (var i=0;i<b.length;i++) s += String.fromCharCode(b[i]); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+
+        // Show the passkey button only when WebAuthn is exposed AND we're in
+        // a secure context — mobile browsers hide PublicKeyCredential entirely
+        // on plain HTTP, so checking both surfaces the right diagnostic.
+        if (window.isSecureContext && window.PublicKeyCredential) {
+            document.getElementById('btnPasskey').style.display = 'block';
+        }
+        document.getElementById('btnPasskey').addEventListener('click', async function() {
+            clearError();
+            var btn = document.getElementById('btnPasskey');
+            btn.disabled = true; btn.textContent = 'Waiting for authenticator…';
+            try {
+                var begin = await fetch('/TwoFactorAuth/Verify/Passkey/Begin', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ challengeToken: challengeToken })
+                }).then(function(r){ if (!r.ok) throw new Error('Begin failed'); return r.json(); });
+                var opts = begin.options;
+                opts.challenge = b64uToBytes(opts.challenge);
+                if (opts.allowCredentials) opts.allowCredentials.forEach(function(c){ c.id = b64uToBytes(c.id); });
+                var assertion = await navigator.credentials.get({ publicKey: opts });
+                var resp = {
+                    id: assertion.id,
+                    rawId: bytesToB64u(assertion.rawId),
+                    type: assertion.type,
+                    response: {
+                        authenticatorData: bytesToB64u(assertion.response.authenticatorData),
+                        clientDataJSON: bytesToB64u(assertion.response.clientDataJSON),
+                        signature: bytesToB64u(assertion.response.signature),
+                        userHandle: assertion.response.userHandle ? bytesToB64u(assertion.response.userHandle) : null,
+                    },
+                };
+                var finishR = await fetch('/TwoFactorAuth/Verify/Passkey/Finish', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ challengeToken: challengeToken, nonce: begin.nonce, response: JSON.stringify(resp) })
+                });
+                if (!finishR.ok) { btn.disabled = false; btn.textContent = '🔑 Use a passkey instead'; showError('Passkey verification failed.'); return; }
+                var authData = await finishR.json();
+                if (!authData || !authData.AccessToken) { showError('Verified, but no auth response — sign in again.'); return; }
+                storeCredentials(authData).then(function() { window.location.href = returnUrl; });
+            } catch (e) {
+                btn.disabled = false; btn.textContent = '🔑 Use a passkey instead';
+                showError('Passkey error: ' + (e.message || e));
+            }
+        });
+
+        function storeCredentials(authData) {
+            // authData is the full Jellyfin AuthenticateByName response:
+            // { AccessToken, SessionInfo, User, ServerId }
+            return fetch('/System/Info/Public').then(function(r) { return r.ok ? r.json() : null; }).then(function(info) {
+                var serverId = authData.ServerId || (info && info.Id) || '';
+                var serverName = (info && info.ServerName) || 'Jellyfin';
+                var serverAddress = window.location.origin;
+
+                var creds;
+                try { creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}'); } catch (e) { creds = {}; }
+                if (!creds.Servers) creds.Servers = [];
+
+                var existing = creds.Servers.find(function(s) { return s.Id === serverId; });
+                var now = Date.now();
+                if (existing) {
+                    existing.AccessToken = authData.AccessToken;
+                    existing.UserId = authData.User && authData.User.Id;
+                    existing.DateLastAccessed = now;
+                    if (!existing.ManualAddress) existing.ManualAddress = serverAddress;
+                    if (!existing.Name) existing.Name = serverName;
+                } else {
+                    creds.Servers.unshift({
+                        Id: serverId,
+                        Name: serverName,
+                        AccessToken: authData.AccessToken,
+                        UserId: authData.User && authData.User.Id,
+                        ManualAddress: serverAddress,
+                        DateLastAccessed: now,
+                        LastConnectionMode: 1
+                    });
+                }
+                localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+            }).catch(function() {
+                // If /System/Info/Public fails, still set minimal credentials
+                var creds;
+                try { creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}'); } catch (e) { creds = {}; }
+                if (!creds.Servers) creds.Servers = [];
+                if (creds.Servers[0]) {
+                    creds.Servers[0].AccessToken = authData.AccessToken;
+                    creds.Servers[0].UserId = authData.User && authData.User.Id;
+                    creds.Servers[0].DateLastAccessed = Date.now();
+                }
+                localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+            });
+        }
+    </script>
+</body>
+</html>
