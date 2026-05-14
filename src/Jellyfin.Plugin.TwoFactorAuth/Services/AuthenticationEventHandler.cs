@@ -265,12 +265,14 @@ public class AuthenticationEventHandler : IHostedService
             info.Client ?? string.Empty,
             info.RemoteEndPoint ?? string.Empty);
 
-        // We DO NOT block/revoke the access token. The middleware's response
-        // intercept replaces the auth body with a challenge JSON BEFORE it
-        // reaches the client. The client never sees the token unless they
-        // complete 2FA via Verify (which replays the stashed body). Blocking
-        // or logging out the token produced edge cases where Verify then
-        // handed back a dead token, causing the infamous login loop.
+        // Fail closed if the response-intercept middleware misses this auth
+        // response. The Verify endpoint unblocks the stashed token after a
+        // successful 2FA challenge, so blocking here protects leaked tokens
+        // without revoking the session out from under the normal challenge flow.
+        if (!string.IsNullOrEmpty(approvedToken))
+        {
+            _challengeStore.BlockToken(approvedToken);
+        }
 
         await _store.AddAuditEntryAsync(new AuditEntry
         {

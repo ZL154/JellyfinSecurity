@@ -33,6 +33,8 @@ public class TwoFactorEnforcementMiddleware
     private readonly AppPasswordService _appPasswordService;
     private readonly PendingPairingService _pendingPairings;
     private readonly RateLimiter _rateLimiter;
+    private readonly IpBanService _ipBans;
+    private readonly IpAllowlistService _allowlist;
     private readonly ILogger<TwoFactorEnforcementMiddleware> _logger;
 
     public TwoFactorEnforcementMiddleware(
@@ -43,6 +45,8 @@ public class TwoFactorEnforcementMiddleware
         AppPasswordService appPasswordService,
         PendingPairingService pendingPairings,
         RateLimiter rateLimiter,
+        IpBanService ipBans,
+        IpAllowlistService allowlist,
         ILogger<TwoFactorEnforcementMiddleware> logger)
     {
         _next = next;
@@ -52,6 +56,8 @@ public class TwoFactorEnforcementMiddleware
         _appPasswordService = appPasswordService;
         _pendingPairings = pendingPairings;
         _rateLimiter = rateLimiter;
+        _ipBans = ipBans;
+        _allowlist = allowlist;
         _logger = logger;
     }
 
@@ -184,15 +190,44 @@ public class TwoFactorEnforcementMiddleware
             _logger.LogDebug("[2FA] User {Name} (id={Id}) TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
                 authResult.User.Name, userGuid, userData.TotpEnabled, userData.TotpVerified, config.RequireForAllUsers);
 
+            var remoteIp = BypassEvaluator.ResolveClientIp(context) ?? context.Connection.RemoteIpAddress?.ToString();
+            var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(remoteIp) && _ipBans.CheckBanned(remoteIp) is { } ban)
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.ContentType = "application/json";
+                var bannedJson = JsonSerializer.SerializeToUtf8Bytes(new
+                {
+                    message = "This IP address is temporarily blocked.",
+                    expiresAt = ban.ExpiresAt,
+                }, ResponseJsonOptions);
+                context.Response.ContentLength = bannedJson.Length;
+                await originalBody.WriteAsync(bannedJson).ConfigureAwait(false);
+                return;
+            }
+
+            if (!await _allowlist.IsAllowedAsync(userGuid, remoteIp).ConfigureAwait(false))
+            {
+                _ipBans.RecordFailure(remoteIp ?? string.Empty);
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.ContentType = "application/json";
+                var refusedJson = JsonSerializer.SerializeToUtf8Bytes(new
+                {
+                    message = "Sign-in is not allowed from this network.",
+                }, ResponseJsonOptions);
+                context.Response.ContentLength = refusedJson.Length;
+                await originalBody.WriteAsync(refusedJson).ConfigureAwait(false);
+                return;
+            }
+
             if (!userData.TotpEnabled && !config.RequireForAllUsers)
             {
                 _logger.LogDebug("[2FA] User has no 2FA and RequireForAllUsers=false — passing through");
+                _ipBans.RecordSuccess(remoteIp ?? string.Empty);
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
                 return;
             }
 
-            var remoteIp = context.Connection.RemoteIpAddress?.ToString();
-            var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
             var twoFactorToken = context.Request.Headers["X-TwoFactor-Token"].FirstOrDefault();
             // Jellyfin web/Tizen clients don't always send X-Emby-Device-Id
             // as a dedicated header — they pack it inside X-Emby-Authorization
@@ -257,6 +292,7 @@ public class TwoFactorEnforcementMiddleware
             {
                 _logger.LogDebug("[2FA] Token pre-approved by event handler — passing auth response through for {Name}",
                     authResult.User.Name);
+                _ipBans.RecordSuccess(remoteIp ?? string.Empty);
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
                 return;
             }
@@ -287,6 +323,7 @@ public class TwoFactorEnforcementMiddleware
                     Result = AuditResult.Bypassed,
                     Method = bypass.Reason ?? "bypass",
                 }).ConfigureAwait(false);
+                _ipBans.RecordSuccess(remoteIp ?? string.Empty);
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
                 return;
             }
@@ -328,6 +365,7 @@ public class TwoFactorEnforcementMiddleware
                     }).ConfigureAwait(false);
                     _logger.LogInformation("[2FA] Paired device match for {Name} (device={Device}) — bypassing 2FA",
                         authResult.User.Name, paired.DeviceName);
+                    _ipBans.RecordSuccess(remoteIp ?? string.Empty);
                     await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
                     return;
                 }
@@ -373,6 +411,7 @@ public class TwoFactorEnforcementMiddleware
                     }).ConfigureAwait(false);
                     _logger.LogInformation("[2FA] App password '{Label}' matched for {Name} — bypassing 2FA",
                         matchedAp.Label, authResult.User.Name);
+                    _ipBans.RecordSuccess(remoteIp ?? string.Empty);
                     await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
                     return;
                 }
@@ -390,6 +429,9 @@ public class TwoFactorEnforcementMiddleware
 
             _logger.LogInformation("[2FA] Issuing challenge for {Name} from {Ip}", authResult.User.Name, remoteIp);
 
+            var enrollmentRequired = config.RequireForAllUsers
+                && !userData.TotpVerified
+                && userData.Passkeys.Count == 0;
             var methods = new List<string>();
             // v1.4: emergency lockout sets ForceRecoveryOnNextLogin to true.
             // Strip TOTP and passkey from the available methods until the user
@@ -397,7 +439,11 @@ public class TwoFactorEnforcementMiddleware
             // the user-facing button promises ("recovery code required to sign
             // in"). The flag is cleared in the controller's Verify path on
             // successful recovery.
-            if (userData.ForceRecoveryOnNextLogin)
+            if (enrollmentRequired)
+            {
+                methods.Add("enroll");
+            }
+            else if (userData.ForceRecoveryOnNextLogin)
             {
                 methods.Add("recovery");
                 if (config.EmailOtpEnabled) methods.Add("email");
@@ -416,9 +462,11 @@ public class TwoFactorEnforcementMiddleware
                 methods,
                 deviceId,
                 deviceName,
-                remoteIp);
+                remoteIp,
+                enrollmentRequired);
 
             challenge.PendingAuthResponse = bodyText;
+            _challengeStore.BlockToken(authResult.AccessToken);
 
             await _store.AddAuditEntryAsync(new AuditEntry
             {
@@ -437,7 +485,9 @@ public class TwoFactorEnforcementMiddleware
                 TwoFactorRequired = true,
                 ChallengeToken = challenge.Token,
                 Methods = methods,
+                EnrollmentRequired = enrollmentRequired,
                 ChallengePageUrl = $"/TwoFactorAuth/Challenge?token={Uri.EscapeDataString(challenge.Token)}",
+                EnrollmentPageUrl = $"/TwoFactorAuth/Challenge?token={Uri.EscapeDataString(challenge.Token)}",
             };
 
             context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
@@ -470,7 +520,7 @@ public class TwoFactorEnforcementMiddleware
         // would trigger challenge injection on an unrelated response).
         return System.Text.RegularExpressions.Regex.IsMatch(
             path,
-            @"^/Users/(AuthenticateByName|AuthenticateWithQuickConnect|[0-9a-fA-F-]{32,36}/Authenticate)(\?|/|$)",
+            @"(?:^|/+)Users/(AuthenticateByName|AuthenticateWithQuickConnect|[0-9a-fA-F-]{32,36}/Authenticate)(\?|/|$)",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 
@@ -478,8 +528,7 @@ public class TwoFactorEnforcementMiddleware
     {
         if (string.IsNullOrEmpty(body) || body.Length > 1_000_000) return false;
         return body.Contains("\"AccessToken\"", StringComparison.Ordinal)
-            && body.Contains("\"User\"", StringComparison.Ordinal)
-            && body.Contains("\"SessionInfo\"", StringComparison.Ordinal);
+            && body.Contains("\"User\"", StringComparison.Ordinal);
     }
 
     private static string? ParseClientFromAuthHeader(string? header)

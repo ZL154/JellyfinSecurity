@@ -83,6 +83,8 @@
             text-decoration: none;
         }
         .toggle-link:hover { text-decoration: underline; }
+        .trust-row { display: flex; align-items: center; gap: 8px; color: #888; font-size: 12px; text-transform: none; letter-spacing: 0; margin: -2px 0 16px; }
+        .trust-row input { width: auto; margin: 0; }
         .hint { color: #666; font-size: 12px; text-align: center; margin-top: 20px; line-height: 1.6; }
         .hint a { color: #00a4dc; text-decoration: none; }
         .hint a:hover { text-decoration: underline; }
@@ -107,6 +109,11 @@
         <input type="text" id="code" class="code-input" maxlength="6" inputmode="numeric" placeholder="000000" autocomplete="one-time-code" />
 
         <a class="toggle-link" id="toggleRecovery">Use a recovery code instead</a>
+
+        <label class="trust-row">
+            <input type="checkbox" id="trustDevice" />
+            <span>Trust this device</span>
+        </label>
 
         <button id="btnLogin">Sign In</button>
 
@@ -238,10 +245,20 @@
                     'X-Emby-Device-Id': deviceId,
                     'X-Emby-Device-Name': deviceName
                 },
-                body: JSON.stringify({ username: username, password: password, code: code })
+                body: JSON.stringify({
+                    username: username,
+                    password: password,
+                    code: code,
+                    trustDevice: document.getElementById('trustDevice').checked
+                })
             }).then(function(r) {
                 if (r.ok) return r.json();
                 return r.json().catch(function() { return { message: 'Sign in failed (' + r.status + ').' }; }).then(function(body) {
+                    if (body && (body.TwoFactorRequired || body.twoFactorRequired)) {
+                        var challengeToken = body.ChallengeToken || body.challengeToken || '';
+                        window.location.href = '/TwoFactorAuth/Challenge?token=' + encodeURIComponent(challengeToken);
+                        return null;
+                    }
                     btn.disabled = false;
                     btn.textContent = 'Sign In';
                     if (r.status === 429 && body.lockoutRemainingSeconds) {

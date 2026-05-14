@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/badge/Version-2.2.3-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-2.3.0-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -566,6 +566,17 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.3.0 — Security maintenance and forced enrollment
+
+**Security**
+- Fixed some security issues and tightened the sign-in flow. Details are intentionally kept high-level in public release notes.
+- Strengthened passkey verification requirements and OIDC sign-in handling.
+
+**Fixes**
+- `Require 2FA for all users` now has a proper forced-enrollment flow for users who do not have 2FA set up yet.
+- Standard Jellyfin login, plugin login, passkey verification, and Google/OIDC sign-in were tested together so each path keeps the intended 2FA behavior.
+- Fixed a Settings-page layout overlap in the NAT hairpin warning row.
 
 ### 2.2.3 — PDF font fix
 

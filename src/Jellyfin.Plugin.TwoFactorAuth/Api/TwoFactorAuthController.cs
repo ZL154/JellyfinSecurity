@@ -47,6 +47,8 @@ public class TwoFactorAuthController : ControllerBase
     private readonly StatsService _stats;
     private readonly UserExportService _userExport;
     private readonly RecoveryCodePdfService _recoveryPdf;
+    private readonly IpBanService _ipBans;
+    private readonly IpAllowlistService _allowlist;
     private readonly ILogger<TwoFactorAuthController> _logger;
 
     public TwoFactorAuthController(
@@ -72,6 +74,8 @@ public class TwoFactorAuthController : ControllerBase
         StatsService stats,
         UserExportService userExport,
         RecoveryCodePdfService recoveryPdf,
+        IpBanService ipBans,
+        IpAllowlistService allowlist,
         ILogger<TwoFactorAuthController> logger)
     {
         _store = store;
@@ -96,6 +100,8 @@ public class TwoFactorAuthController : ControllerBase
         _stats = stats;
         _userExport = userExport;
         _recoveryPdf = recoveryPdf;
+        _ipBans = ipBans;
+        _allowlist = allowlist;
         _logger = logger;
     }
 
@@ -124,6 +130,227 @@ public class TwoFactorAuthController : ControllerBase
     public IActionResult GetChallengePage()
     {
         return ServeEmbeddedPage("challenge.html");
+    }
+
+    [HttpGet("Challenge/Info")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(ChallengeInfoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult<ChallengeInfoResponse> GetChallengeInfo([FromQuery] string token)
+    {
+        var challenge = _challengeStore.GetChallenge(token);
+        if (challenge is null)
+        {
+            return BadRequest(new { message = "Invalid or expired challenge." });
+        }
+
+        return Ok(new ChallengeInfoResponse
+        {
+            Username = challenge.Username,
+            Methods = challenge.AvailableMethods,
+            EnrollmentRequired = challenge.EnrollmentRequired,
+            ExpiresAt = challenge.ExpiresAt,
+        });
+    }
+
+    [HttpPost("Enroll/Totp/Begin")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(TotpSetupResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<TotpSetupResponse>> BeginForcedTotpEnrollment([FromBody, Required] ChallengeTokenRequest request)
+    {
+        var ip = RateLimiter.ClientKey(HttpContext);
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_ipBans.CheckBanned(clientIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This IP address is temporarily blocked.",
+                expiresAt = ban.ExpiresAt,
+            });
+        }
+
+        var challenge = _challengeStore.GetChallenge(request.ChallengeToken);
+        if (challenge is null || !challenge.EnrollmentRequired)
+        {
+            return BadRequest(new { message = "Invalid or expired enrollment challenge." });
+        }
+
+        if (!await _allowlist.IsAllowedAsync(challenge.UserId, clientIp).ConfigureAwait(false))
+        {
+            _ipBans.RecordFailure(clientIp);
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Sign-in is not allowed from this network.",
+            });
+        }
+
+        var rl = _rateLimiter.CheckAndRecord("enroll_begin:" + request.ChallengeToken, 5, TimeSpan.FromMinutes(5));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many setup attempts. Try again in {rl.retryAfterSeconds} seconds.",
+            });
+        }
+
+        var userData = await _store.GetUserDataAsync(challenge.UserId).ConfigureAwait(false);
+        if (userData.TotpVerified || userData.Passkeys.Count > 0)
+        {
+            return BadRequest(new { message = "This account already has a second factor." });
+        }
+
+        var (secret, qrCodeBase64, manualEntryKey) = _totpService.GenerateSecret(challenge.Username);
+        userData.TotpEnabled = true;
+        userData.TotpVerified = false;
+        userData.EncryptedTotpSecret = _totpService.EncryptSecret(secret, challenge.UserId);
+        userData.LastUsedTotpStep = 0;
+        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+        _totpService.ResetReplayCache(challenge.UserId.ToString());
+
+        return Ok(new TotpSetupResponse
+        {
+            SecretKey = secret,
+            QrCodeBase64 = qrCodeBase64,
+            ManualEntryKey = manualEntryKey,
+        });
+    }
+
+    [HttpPost("Enroll/Totp/Confirm")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ConfirmForcedTotpEnrollment([FromBody, Required] ForcedEnrollmentConfirmRequest request)
+    {
+        var ip = RateLimiter.ClientKey(HttpContext);
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_ipBans.CheckBanned(clientIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This IP address is temporarily blocked.",
+                expiresAt = ban.ExpiresAt,
+            });
+        }
+
+        var challenge = _challengeStore.GetChallenge(request.ChallengeToken);
+        if (challenge is null || !challenge.EnrollmentRequired)
+        {
+            return BadRequest(new { message = "Invalid or expired enrollment challenge." });
+        }
+
+        if (challenge.AttemptCount >= 5)
+        {
+            _challengeStore.ConsumeChallenge(request.ChallengeToken);
+            _ipBans.RecordFailure(clientIp);
+            return Unauthorized(new { message = "Too many failed attempts on this challenge. Restart sign-in." });
+        }
+
+        if (!await _allowlist.IsAllowedAsync(challenge.UserId, clientIp).ConfigureAwait(false))
+        {
+            _ipBans.RecordFailure(clientIp);
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Sign-in is not allowed from this network.",
+            });
+        }
+
+        var rl = _rateLimiter.CheckAndRecord("enroll_confirm:" + clientIp, 10, TimeSpan.FromMinutes(1));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many attempts. Try again in {rl.retryAfterSeconds} seconds.",
+            });
+        }
+
+        var userData = await _store.GetUserDataAsync(challenge.UserId).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(userData.EncryptedTotpSecret))
+        {
+            return BadRequest(new { message = "TOTP setup has not been started." });
+        }
+
+        string secret;
+        try
+        {
+            secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret, challenge.UserId);
+        }
+        catch
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "TOTP secret is corrupted. Restart setup." });
+        }
+
+        var valid = _totpService.ValidateCode(
+            secret,
+            request.Code,
+            challenge.UserId.ToString(),
+            persistedFloor: 0,
+            out var acceptedStep);
+        if (!valid)
+        {
+            challenge.AttemptCount++;
+            await _store.RecordFailedAttemptAsync(challenge.UserId).ConfigureAwait(false);
+            _ipBans.RecordFailure(clientIp);
+            return Unauthorized(new { message = "Invalid authenticator code." });
+        }
+
+        userData.TotpEnabled = true;
+        userData.TotpVerified = true;
+        userData.LastUsedTotpStep = acceptedStep;
+        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+
+        _challengeStore.ConsumeChallenge(request.ChallengeToken);
+        await _store.ResetFailedAttemptsAsync(challenge.UserId).ConfigureAwait(false);
+        _rateLimiter.Reset("enroll_confirm:" + clientIp);
+        _ipBans.RecordSuccess(clientIp);
+
+        if (!string.IsNullOrEmpty(challenge.DeviceId))
+        {
+            _challengeStore.MarkDevicePreVerified(challenge.UserId, challenge.DeviceId);
+            _pendingPairings.Remove(challenge.UserId, challenge.DeviceId);
+        }
+
+        string? deviceToken = null;
+        if (request.TrustDevice && !string.IsNullOrEmpty(challenge.DeviceId))
+        {
+            var (rawToken, trustedDevice) = _deviceTokenService.CreateDeviceToken(
+                challenge.DeviceId,
+                challenge.DeviceName ?? challenge.DeviceId);
+            userData.TrustedDevices.Add(trustedDevice);
+            EnforceTrustedDeviceCap(userData);
+            await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+            deviceToken = rawToken;
+        }
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = challenge.UserId,
+            Username = challenge.Username,
+            RemoteIp = challenge.RemoteIp ?? clientIp,
+            DeviceId = challenge.DeviceId ?? string.Empty,
+            DeviceName = challenge.DeviceName ?? string.Empty,
+            Result = AuditResult.Success,
+            Method = "forced_enroll_totp",
+        }).ConfigureAwait(false);
+
+        if (string.IsNullOrEmpty(challenge.PendingAuthResponse))
+        {
+            return Ok(new { message = "Two-factor setup complete. Sign in again to continue." });
+        }
+
+        UnblockAccessTokenFromPendingAuthResponse(challenge.PendingAuthResponse, challenge.Username);
+        if (deviceToken is not null)
+        {
+            Response.Headers.Append("X-TwoFactor-Device-Token", deviceToken);
+        }
+
+        return Content(challenge.PendingAuthResponse, "application/json");
     }
 
     // -------------------------------------------------------------------------
@@ -163,7 +390,17 @@ public class TwoFactorAuthController : ControllerBase
             // Per-IP rate limit: 10 attempts per minute. Prevents online brute-force on
             // the OTP code space and on the username/password combo.
             var ip = RateLimiter.ClientKey(HttpContext);
-            var rl = _rateLimiter.CheckAndRecord("auth:" + ip, 10, TimeSpan.FromMinutes(1));
+            var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+            if (_ipBans.CheckBanned(clientIp) is { } ban)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    message = "This IP address is temporarily blocked.",
+                    expiresAt = ban.ExpiresAt,
+                });
+            }
+
+            var rl = _rateLimiter.CheckAndRecord("auth:" + clientIp, 10, TimeSpan.FromMinutes(1));
             if (!rl.allowed)
             {
                 Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
@@ -197,10 +434,19 @@ public class TwoFactorAuthController : ControllerBase
             var user = _userManager.GetUserByName(req.Username);
             if (user is null)
             {
+                _ipBans.RecordFailure(clientIp);
                 return Unauthorized(new { message = "Invalid username or password." });
             }
 
             var userData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
+            if (!await _allowlist.IsAllowedAsync(user.Id, clientIp).ConfigureAwait(false))
+            {
+                _ipBans.RecordFailure(clientIp);
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    message = "Sign-in is not allowed from this network.",
+                });
+            }
 
             if (await _store.IsLockedOutAsync(user.Id).ConfigureAwait(false))
             {
@@ -215,6 +461,9 @@ public class TwoFactorAuthController : ControllerBase
             }
 
             var totpEnabled = userData.TotpEnabled && userData.TotpVerified;
+            var config = Plugin.Instance?.Configuration;
+            var requiresPostPasswordChallenge = !totpEnabled && config?.RequireForAllUsers == true;
+
             var codeConsumedRecoveryIndex = -1;
 
             // --- Step 1: If user has 2FA, verify TOTP/recovery code FIRST ---
@@ -226,6 +475,7 @@ public class TwoFactorAuthController : ControllerBase
                 if (string.IsNullOrEmpty(req.Code))
                 {
                     await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
+                    _ipBans.RecordFailure(clientIp);
                     return Unauthorized(new { message = "Invalid username, password, or verification code." });
                 }
 
@@ -259,6 +509,7 @@ public class TwoFactorAuthController : ControllerBase
                 {
                     if (string.IsNullOrEmpty(userData.EncryptedTotpSecret))
                     {
+                        _ipBans.RecordFailure(clientIp);
                         return Unauthorized(new { message = "TOTP is enabled but no secret is configured. Please re-enroll." });
                     }
 
@@ -306,12 +557,13 @@ public class TwoFactorAuthController : ControllerBase
                 if (!codeValid)
                 {
                     await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
+                    _ipBans.RecordFailure(clientIp);
                     await _store.AddAuditEntryAsync(new AuditEntry
                     {
                         Timestamp = DateTime.UtcNow,
                         UserId = user.Id,
                         Username = user.Username ?? string.Empty,
-                        RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+                        RemoteIp = clientIp,
                         Result = AuditResult.Failed,
                         Method = "totp",
                     }).ConfigureAwait(false);
@@ -336,13 +588,16 @@ public class TwoFactorAuthController : ControllerBase
                 AppVersion = "1.0.0",
                 DeviceId = deviceId,
                 DeviceName = deviceName,
-                RemoteEndPoint = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+                RemoteEndPoint = clientIp,
             };
 
             // Pre-verify must be set BEFORE AuthenticateNewSession because SessionStarted
             // fires during that call. Scoped to (user, device) so sibling devices can't
             // piggy-back on the 2-minute window and bypass 2FA silently.
-            _challengeStore.MarkDevicePreVerified(user.Id, deviceId);
+            if (!requiresPostPasswordChallenge)
+            {
+                _challengeStore.MarkDevicePreVerified(user.Id, deviceId);
+            }
 
             MediaBrowser.Controller.Authentication.AuthenticationResult result;
             var authSucceeded = false;
@@ -355,25 +610,83 @@ public class TwoFactorAuthController : ControllerBase
                 }
                 catch (MediaBrowser.Controller.Authentication.AuthenticationException)
                 {
+                    _ipBans.RecordFailure(clientIp);
                     return Unauthorized(new { message = "Invalid username or password." });
                 }
             }
             finally
             {
-                if (!authSucceeded)
+                if (!authSucceeded && !requiresPostPasswordChallenge)
                 {
                     _challengeStore.ConsumeDevicePreVerified(user.Id, deviceId);
                 }
             }
 
+            if (requiresPostPasswordChallenge)
+            {
+                var enrollmentRequired = userData.Passkeys.Count == 0;
+                var methods = new List<string>();
+                if (enrollmentRequired)
+                {
+                    methods.Add("enroll");
+                }
+                else
+                {
+                    if (userData.Passkeys.Count > 0) methods.Add("passkey");
+                    if (config?.EmailOtpEnabled == true) methods.Add("email");
+                    if (methods.Count == 0)
+                    {
+                        methods.Add("enroll");
+                        enrollmentRequired = true;
+                    }
+                }
+
+                var challenge = _challengeStore.CreateChallenge(
+                    user.Id,
+                    user.Username ?? req.Username,
+                    methods,
+                    deviceId,
+                    deviceName,
+                    clientIp,
+                    enrollmentRequired);
+                challenge.PendingAuthResponse = System.Text.Json.JsonSerializer.Serialize(result);
+                if (!string.IsNullOrEmpty(result.AccessToken))
+                {
+                    _challengeStore.BlockToken(result.AccessToken);
+                }
+
+                await _store.AddAuditEntryAsync(new AuditEntry
+                {
+                    Timestamp = DateTime.UtcNow,
+                    UserId = user.Id,
+                    Username = user.Username ?? req.Username,
+                    RemoteIp = clientIp,
+                    DeviceId = deviceId ?? string.Empty,
+                    DeviceName = deviceName,
+                    Result = AuditResult.ChallengeIssued,
+                    Method = string.Join(",", methods),
+                }).ConfigureAwait(false);
+
+                return Unauthorized(new TwoFactorRequiredResponse
+                {
+                    TwoFactorRequired = true,
+                    ChallengeToken = challenge.Token,
+                    Methods = methods,
+                    EnrollmentRequired = enrollmentRequired,
+                    ChallengePageUrl = $"/TwoFactorAuth/Challenge?token={Uri.EscapeDataString(challenge.Token)}",
+                    EnrollmentPageUrl = $"/TwoFactorAuth/Challenge?token={Uri.EscapeDataString(challenge.Token)}",
+                });
+            }
+
             // --- Step 3: Auth succeeded. Now do the state mutations (trust record, audit, etc.) ---
             _challengeStore.UnblockAllForUser(user.Id);
             await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
-            _rateLimiter.Reset("auth:" + ip);
+            _rateLimiter.Reset("auth:" + clientIp);
+            _ipBans.RecordSuccess(clientIp);
 
             // Only create a trust cookie/record if the user actually completed 2FA.
             // Users without 2FA don't need a trust cookie — there's nothing to trust.
-            if (totpEnabled)
+            if (totpEnabled && req.TrustDevice)
             {
                 var (_, trustRecord) = _deviceTokenService.CreateDeviceToken(deviceId, deviceName);
                 // Reload userData since we may have saved earlier (recovery code used) before SessionStarted ran
@@ -420,8 +733,8 @@ public class TwoFactorAuthController : ControllerBase
                 Timestamp = DateTime.UtcNow,
                 UserId = user.Id,
                 Username = user.Username ?? string.Empty,
-                RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
-                DeviceId = deviceId,
+                RemoteIp = clientIp,
+                DeviceId = deviceId ?? string.Empty,
                 DeviceName = deviceName,
                 Result = AuditResult.Success,
                 Method = totpEnabled ? (codeConsumedRecoveryIndex >= 0 ? "recovery" : "totp") : "password_only",
@@ -520,7 +833,17 @@ public class TwoFactorAuthController : ControllerBase
     {
         // Per-IP rate limit on Verify (prevents brute force across multiple challenges)
         var ip = RateLimiter.ClientKey(HttpContext);
-        var rl = _rateLimiter.CheckAndRecord("verify:" + ip, 10, TimeSpan.FromMinutes(1));
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_ipBans.CheckBanned(clientIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This IP address is temporarily blocked.",
+                expiresAt = ban.ExpiresAt,
+            });
+        }
+
+        var rl = _rateLimiter.CheckAndRecord("verify:" + clientIp, 10, TimeSpan.FromMinutes(1));
         if (!rl.allowed)
         {
             Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
@@ -535,6 +858,15 @@ public class TwoFactorAuthController : ControllerBase
         if (challenge is null)
         {
             return BadRequest(new { message = "Invalid or expired challenge." });
+        }
+
+        if (!await _allowlist.IsAllowedAsync(challenge.UserId, clientIp).ConfigureAwait(false))
+        {
+            _ipBans.RecordFailure(clientIp);
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Sign-in is not allowed from this network.",
+            });
         }
 
         // Per-user rate limit on Verify — defense in depth against an attacker
@@ -556,6 +888,7 @@ public class TwoFactorAuthController : ControllerBase
         if (challenge.AttemptCount >= 5)
         {
             _challengeStore.ConsumeChallenge(request.ChallengeToken);
+            _ipBans.RecordFailure(clientIp);
             return Unauthorized(new { message = "Too many failed attempts on this challenge. Restart sign-in." });
         }
 
@@ -599,6 +932,7 @@ public class TwoFactorAuthController : ControllerBase
             {
                 challenge.AttemptCount++;
                 await _store.RecordFailedAttemptAsync(challenge.UserId).ConfigureAwait(false);
+                _ipBans.RecordFailure(clientIp);
                 return Unauthorized(new { message = "No TOTP secret configured." });
             }
 
@@ -652,6 +986,7 @@ public class TwoFactorAuthController : ControllerBase
         {
             challenge.AttemptCount++;
             await _store.RecordFailedAttemptAsync(challenge.UserId).ConfigureAwait(false);
+            _ipBans.RecordFailure(clientIp);
             await _store.AddAuditEntryAsync(new AuditEntry
             {
                 Timestamp = DateTime.UtcNow,
@@ -670,7 +1005,8 @@ public class TwoFactorAuthController : ControllerBase
         _challengeStore.ConsumeChallenge(request.ChallengeToken);
         await _store.ResetFailedAttemptsAsync(challenge.UserId).ConfigureAwait(false);
         _rateLimiter.Reset("verify_user:" + challenge.UserId.ToString("N"));
-        _rateLimiter.Reset("verify:" + ip);
+        _rateLimiter.Reset("verify:" + clientIp);
+        _ipBans.RecordSuccess(clientIp);
 
         // Mark this (user, device) pre-verified so the WebSocket / follow-up
         // SessionStarted events that Jellyfin fires seconds after this don't
@@ -726,24 +1062,7 @@ public class TwoFactorAuthController : ControllerBase
             // Unblock the access token inside the stashed response — it was
             // blocked at middleware level when the challenge was issued, and
             // now that 2FA is complete the client is authorized to use it.
-            try
-            {
-                using var doc = System.Text.Json.JsonDocument.Parse(challenge.PendingAuthResponse);
-                if (doc.RootElement.TryGetProperty("AccessToken", out var tokEl)
-                    && tokEl.ValueKind == System.Text.Json.JsonValueKind.String)
-                {
-                    var tok = tokEl.GetString();
-                    if (!string.IsNullOrEmpty(tok))
-                    {
-                        _challengeStore.UnblockToken(tok);
-                        _logger.LogInformation("[2FA] Unblocked access token for {User} after successful 2FA", challenge.Username);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[2FA] Could not parse stashed auth response to unblock token");
-            }
+            UnblockAccessTokenFromPendingAuthResponse(challenge.PendingAuthResponse, challenge.Username);
 
             Response.ContentType = "application/json";
             if (deviceToken is not null)
@@ -760,6 +1079,33 @@ public class TwoFactorAuthController : ControllerBase
             AccessToken = string.Empty,
             DeviceToken = deviceToken,
         });
+    }
+
+    private void UnblockAccessTokenFromPendingAuthResponse(string pendingAuthResponse, string username)
+    {
+        if (string.IsNullOrEmpty(pendingAuthResponse))
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(pendingAuthResponse);
+            if (doc.RootElement.TryGetProperty("AccessToken", out var tokenElement)
+                && tokenElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var token = tokenElement.GetString();
+                if (!string.IsNullOrEmpty(token))
+                {
+                    _challengeStore.UnblockToken(token);
+                    _logger.LogInformation("[2FA] Unblocked access token for {User} after successful 2FA", username);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Could not parse stashed auth response to unblock token");
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -1597,7 +1943,17 @@ public class TwoFactorAuthController : ControllerBase
     {
         // Per-IP rate limit: 5 sends per 5 minutes
         var ip = RateLimiter.ClientKey(HttpContext);
-        var rl = _rateLimiter.CheckAndRecord("email:" + ip, 5, TimeSpan.FromMinutes(5));
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_ipBans.CheckBanned(clientIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This IP address is temporarily blocked.",
+                expiresAt = ban.ExpiresAt,
+            });
+        }
+
+        var rl = _rateLimiter.CheckAndRecord("email:" + clientIp, 5, TimeSpan.FromMinutes(5));
         if (!rl.allowed)
         {
             Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
@@ -1611,6 +1967,15 @@ public class TwoFactorAuthController : ControllerBase
         if (challenge is null)
         {
             return BadRequest(new { message = "Invalid or expired challenge." });
+        }
+
+        if (!await _allowlist.IsAllowedAsync(challenge.UserId, clientIp).ConfigureAwait(false))
+        {
+            _ipBans.RecordFailure(clientIp);
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Sign-in is not allowed from this network.",
+            });
         }
 
         if (await _store.IsLockedOutAsync(challenge.UserId).ConfigureAwait(false))
@@ -2323,8 +2688,28 @@ public class TwoFactorAuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> PasskeyAssertBegin([FromBody, Required] PasskeyAssertBeginRequest req)
     {
+        var ip = RateLimiter.ClientKey(HttpContext);
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_ipBans.CheckBanned(clientIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This IP address is temporarily blocked.",
+                expiresAt = ban.ExpiresAt,
+            });
+        }
+
         var challenge = _challengeStore.GetChallenge(req.ChallengeToken);
         if (challenge is null) return BadRequest(new { message = "Invalid or expired challenge" });
+        if (!await _allowlist.IsAllowedAsync(challenge.UserId, clientIp).ConfigureAwait(false))
+        {
+            _ipBans.RecordFailure(clientIp);
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Sign-in is not allowed from this network.",
+            });
+        }
+
         var data = await _store.GetUserDataAsync(challenge.UserId).ConfigureAwait(false);
         if (data.Passkeys.Count == 0) return BadRequest(new { message = "No passkeys registered for this user" });
 
@@ -2340,11 +2725,34 @@ public class TwoFactorAuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> PasskeyAssertFinish([FromBody, Required] PasskeyAssertFinishRequest req)
     {
+        var requestIp = RateLimiter.ClientKey(HttpContext);
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? requestIp;
+        if (_ipBans.CheckBanned(clientIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This IP address is temporarily blocked.",
+                expiresAt = ban.ExpiresAt,
+            });
+        }
+
         var challenge = _challengeStore.GetChallenge(req.ChallengeToken);
         if (challenge is null) return BadRequest(new { message = "Invalid or expired challenge" });
+        if (!await _allowlist.IsAllowedAsync(challenge.UserId, clientIp).ConfigureAwait(false))
+        {
+            _ipBans.RecordFailure(clientIp);
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Sign-in is not allowed from this network.",
+            });
+        }
+
         var (optionsJson, userId) = _passkeyChallenges.Consume(req.Nonce);
         if (optionsJson is null || userId != challenge.UserId)
+        {
+            _ipBans.RecordFailure(clientIp);
             return BadRequest(new { message = "Assertion challenge expired or invalid" });
+        }
 
         var ok = false;
         try
@@ -2359,6 +2767,7 @@ public class TwoFactorAuthController : ControllerBase
         if (!ok)
         {
             await _store.RecordFailedAttemptAsync(challenge.UserId).ConfigureAwait(false);
+            _ipBans.RecordFailure(clientIp);
             return Unauthorized(new { message = "Passkey verification failed" });
         }
 
@@ -2372,7 +2781,8 @@ public class TwoFactorAuthController : ControllerBase
         _challengeStore.MarkDevicePreVerified(challenge.UserId, challenge.DeviceId);
         _pendingPairings.Remove(challenge.UserId, challenge.DeviceId ?? string.Empty);
 
-        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+        var ip = clientIp;
+        _ipBans.RecordSuccess(clientIp);
         await _store.AddAuditEntryAsync(new AuditEntry
         {
             Timestamp = DateTime.UtcNow,
@@ -2392,6 +2802,7 @@ public class TwoFactorAuthController : ControllerBase
         {
             return Ok(new { message = "Verified, but no stashed auth response — sign in again from the start" });
         }
+        UnblockAccessTokenFromPendingAuthResponse(stashed, challenge.Username);
         return Content(stashed, "application/json");
     }
 

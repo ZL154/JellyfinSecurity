@@ -33,6 +33,20 @@ public class SendEmailOtpRequest
     public string ChallengeToken { get; set; } = string.Empty;
 }
 
+public class ChallengeTokenRequest
+{
+    public string ChallengeToken { get; set; } = string.Empty;
+}
+
+public class ForcedEnrollmentConfirmRequest
+{
+    public string ChallengeToken { get; set; } = string.Empty;
+
+    public string Code { get; set; } = string.Empty;
+
+    public bool TrustDevice { get; set; }
+}
+
 public class ToggleUserRequest
 {
     public bool Enabled { get; set; }
@@ -45,6 +59,8 @@ public class LoginWithCodeRequest
     public string Password { get; set; } = string.Empty;
 
     public string Code { get; set; } = string.Empty;
+
+    public bool TrustDevice { get; set; }
 }
 
 public class TestSmtpRequest

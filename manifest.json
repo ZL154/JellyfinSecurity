@@ -8,6 +8,13 @@
     "category": "General",
     "versions": [
       {
+        "version": "2.3.0.0",
+        "changelog": "v2.3.0 — Security maintenance and forced enrollment. Fixed some security issues, strengthened sign-in handling, added a proper forced-enrollment flow when Require 2FA for all users is enabled, improved OIDC/SSO reliability, and fixed a Settings-page layout overlap. Public notes are intentionally high-level.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.3.0/Jellyfin.Plugin.TwoFactorAuthv2.3.0.zip",
+        "checksum": "7109E4F12650EAF54695D84C3F0610FD"
+      },
+      {
         "version": "2.2.3.0",
         "changelog": "v2.2.3 — PDF font fix. Recovery-code PDF now actually renders the text. v2.2.2 swapped the font from Fonts.SegoeUI to 'Lato' thinking QuestPDF auto-loaded Lato — it doesn't, the constant is just a name. Skia's fallback found nothing usable inside the Jellyfin Docker container (no system fonts) and rendered every glyph as an empty box. Lato-Regular and Lato-Bold are now embedded as resources in the plugin DLL and registered with QuestPDF's FontManager in the RecoveryCodePdfService static constructor. Works on any container regardless of installed system fonts. No breaking changes; in-place upgrade.",
         "targetAbi": "10.11.0.0",

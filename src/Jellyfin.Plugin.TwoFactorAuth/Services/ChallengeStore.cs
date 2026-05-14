@@ -330,7 +330,8 @@ public class ChallengeStore : IDisposable
         List<string> methods,
         string? deviceId,
         string? deviceName,
-        string? remoteIp)
+        string? remoteIp,
+        bool enrollmentRequired = false)
     {
         var tokenBytes = RandomNumberGenerator.GetBytes(32); // 256 bits
         var token = Base64UrlEncode(tokenBytes);
@@ -346,6 +347,7 @@ public class ChallengeStore : IDisposable
             CreatedAt = now,
             ExpiresAt = now.AddSeconds(ttlSeconds),
             AvailableMethods = methods,
+            EnrollmentRequired = enrollmentRequired,
             DeviceId = deviceId,
             DeviceName = deviceName,
             RemoteIp = remoteIp,

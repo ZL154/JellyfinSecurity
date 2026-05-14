@@ -107,6 +107,14 @@
         .error { color: #f44336; font-size: 13px; margin-bottom: 12px; text-align: center; display: none; padding: 8px; background: rgba(244,67,54,0.1); border-radius: 4px; }
         .error.show { display: block; }
         .hint { color: #666; font-size: 12px; text-align: center; margin-top: 16px; }
+        .enroll-panel { display: none; }
+        .enroll-panel.show { display: block; }
+        .enroll-copy { color: #aaa; font-size: 13px; line-height: 1.5; text-align: center; margin-bottom: 16px; }
+        .qr-wrap { display: none; text-align: center; margin: 14px 0; }
+        .qr-wrap.show { display: block; }
+        .qr-wrap img { background: #fff; padding: 12px; border-radius: 8px; width: 210px; height: 210px; }
+        .secret-key { display: none; background: #0a0a0a; border: 1px solid #333; border-radius: 6px; padding: 10px; color: #ddd; font-family: monospace; font-size: 12px; word-break: break-all; margin-bottom: 12px; }
+        .secret-key.show { display: block; }
         .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: -2px; }
         @keyframes spin { to { transform: rotate(360deg); } }
     </style>
@@ -124,10 +132,24 @@
 
         <div class="error" id="errorMsg"></div>
 
+        <div class="enroll-panel" id="enrollPanel">
+            <p class="enroll-copy">Your server requires two-factor authentication before this account can continue. Set up an authenticator app now.</p>
+            <button class="btn-primary" id="btnBeginEnroll">Begin setup</button>
+            <div class="qr-wrap" id="enrollQrWrap"><img id="enrollQrImg" alt="Authenticator QR code" /></div>
+            <div class="secret-key" id="enrollSecret"></div>
+            <label id="enrollCodeLabel" style="display:none;">Enter the 6-digit code from your app</label>
+            <input type="text" id="enrollCodeInput" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code" style="display:none;" />
+            <label class="trust-row" id="enrollTrustRow" style="display:none;">
+                <input type="checkbox" id="enrollTrustDevice" />
+                <span>Trust this device (skip 2FA for future logins)</span>
+            </label>
+            <button class="btn-primary" id="btnConfirmEnroll" style="display:none;">Confirm &amp; continue</button>
+        </div>
+
         <label id="codeLabel">Enter the 6-digit code</label>
         <input type="text" id="codeInput" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code" autofocus />
 
-        <label class="trust-row">
+        <label class="trust-row" id="trustRow">
             <input type="checkbox" id="trustDevice" />
             <span>Trust this device (skip 2FA for future logins)</span>
         </label>
@@ -165,6 +187,8 @@
         if (!challengeToken) {
             showError('No challenge token. Return to login.');
             document.getElementById('btnVerify').disabled = true;
+        } else {
+            loadChallengeInfo();
         }
 
         function showError(msg) {
@@ -173,6 +197,74 @@
             el.classList.add('show');
         }
         function clearError() { document.getElementById('errorMsg').classList.remove('show'); }
+
+        function loadChallengeInfo() {
+            fetch('/TwoFactorAuth/Challenge/Info?token=' + encodeURIComponent(challengeToken))
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(info) {
+                    if (!info) return;
+                    var methods = (info.Methods || info.methods || []).map(function(m) {
+                        return String(m || '').toLowerCase();
+                    });
+                    if (info.EnrollmentRequired || info.enrollmentRequired || methods.indexOf('enroll') >= 0) {
+                        showEnrollmentRequired(info.Username || info.username || '');
+                    } else {
+                        renderAvailableMethods(methods);
+                    }
+                })
+                .catch(function() {
+                    renderAvailableMethods(availableMethods);
+                });
+        }
+
+        function renderAvailableMethods(methods) {
+            availableMethods = (methods || []).filter(function(m) { return m && m !== 'enroll'; });
+            if (!availableMethods.length) availableMethods = ['totp'];
+            var codeMethods = availableMethods.filter(function(m) {
+                return m === 'totp' || m === 'recovery' || m === 'email';
+            });
+            document.querySelectorAll('.method-tab').forEach(function(tab) {
+                tab.style.display = codeMethods.indexOf(tab.dataset.method) >= 0 ? 'block' : 'none';
+            });
+            if (codeMethods.length) {
+                document.getElementById('methodTabs').style.display = codeMethods.length > 1 ? 'flex' : 'none';
+                document.getElementById('codeLabel').style.display = 'block';
+                document.getElementById('codeInput').style.display = 'block';
+                document.getElementById('trustRow').style.display = 'flex';
+                document.getElementById('btnVerify').style.display = 'block';
+                setMethod(codeMethods[0]);
+            } else {
+                document.getElementById('methodTabs').style.display = 'none';
+                document.getElementById('codeLabel').style.display = 'none';
+                document.getElementById('codeInput').style.display = 'none';
+                document.getElementById('trustRow').style.display = 'none';
+                document.getElementById('btnVerify').style.display = 'none';
+                document.getElementById('bottomHint').textContent = 'Use your registered passkey to continue.';
+            }
+            refreshPasskeyButton();
+        }
+
+        function showEnrollmentRequired(username) {
+            availableMethods = ['enroll'];
+            document.querySelector('h1').textContent = 'Setup Required' + (username ? ' for ' + username : '');
+            document.getElementById('methodTabs').style.display = 'none';
+            document.getElementById('codeLabel').style.display = 'none';
+            document.getElementById('codeInput').style.display = 'none';
+            document.getElementById('trustRow').style.display = 'none';
+            document.getElementById('btnVerify').style.display = 'none';
+            document.getElementById('btnSendEmail').style.display = 'none';
+            document.getElementById('btnPasskey').style.display = 'none';
+            document.getElementById('bottomHint').textContent = 'The account will continue into Jellyfin after the first code is confirmed.';
+            document.getElementById('enrollPanel').classList.add('show');
+        }
+
+        function refreshPasskeyButton() {
+            var btn = document.getElementById('btnPasskey');
+            if (!btn) return;
+            btn.style.display = (availableMethods.indexOf('passkey') >= 0 && window.isSecureContext && window.PublicKeyCredential)
+                ? 'block'
+                : 'none';
+        }
 
         function setMethod(method) {
             currentMethod = method;
@@ -250,6 +342,93 @@
             });
         });
 
+        document.getElementById('btnBeginEnroll').addEventListener('click', function() {
+            clearError();
+            var btn = document.getElementById('btnBeginEnroll');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Preparing...';
+            fetch('/TwoFactorAuth/Enroll/Totp/Begin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ challengeToken: challengeToken })
+            }).then(function(r) {
+                if (!r.ok) {
+                    return r.json().catch(function() { return {}; }).then(function(j) {
+                        throw new Error(j.message || 'Setup failed.');
+                    });
+                }
+                return r.json();
+            }).then(function(result) {
+                document.getElementById('enrollQrImg').src = 'data:image/png;base64,' + (result.QrCodeBase64 || result.qrCodeBase64 || '');
+                document.getElementById('enrollQrWrap').classList.add('show');
+                var secret = result.ManualEntryKey || result.manualEntryKey || result.SecretKey || result.secretKey || '';
+                document.getElementById('enrollSecret').textContent = secret;
+                document.getElementById('enrollSecret').classList.add('show');
+                document.getElementById('enrollCodeLabel').style.display = 'block';
+                document.getElementById('enrollCodeInput').style.display = 'block';
+                document.getElementById('enrollTrustRow').style.display = 'flex';
+                document.getElementById('btnConfirmEnroll').style.display = 'block';
+                btn.style.display = 'none';
+                document.getElementById('enrollCodeInput').focus();
+            }).catch(function(e) {
+                btn.disabled = false;
+                btn.textContent = 'Begin setup';
+                showError(e.message || 'Failed to start setup.');
+            });
+        });
+
+        document.getElementById('enrollCodeInput').addEventListener('input', function(e) {
+            e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+            clearError();
+        });
+        document.getElementById('enrollCodeInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') document.getElementById('btnConfirmEnroll').click();
+        });
+
+        document.getElementById('btnConfirmEnroll').addEventListener('click', function() {
+            var code = document.getElementById('enrollCodeInput').value.trim();
+            if (!/^\d{6}$/.test(code)) {
+                showError('Enter the 6-digit code.');
+                return;
+            }
+            clearError();
+            var btn = document.getElementById('btnConfirmEnroll');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Confirming...';
+            fetch('/TwoFactorAuth/Enroll/Totp/Confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    challengeToken: challengeToken,
+                    code: code,
+                    trustDevice: document.getElementById('enrollTrustDevice').checked
+                })
+            }).then(function(r) {
+                if (!r.ok) {
+                    return r.json().catch(function() { return {}; }).then(function(j) {
+                        throw new Error(j.message || 'Invalid code.');
+                    });
+                }
+                var deviceToken = r.headers.get('X-TwoFactor-Device-Token');
+                if (deviceToken) {
+                    try { localStorage.setItem('twofactor_device_token', deviceToken); } catch (e) {}
+                }
+                return r.json();
+            }).then(function(authData) {
+                if (authData && authData.AccessToken) {
+                    storeCredentials(authData).then(function() {
+                        window.location.href = returnUrl;
+                    });
+                } else {
+                    window.location.href = '/web/index.html';
+                }
+            }).catch(function(e) {
+                btn.disabled = false;
+                btn.textContent = 'Confirm & continue';
+                showError(e.message || 'Failed to confirm setup.');
+            });
+        });
+
         document.getElementById('btnVerify').addEventListener('click', function() {
             var code = document.getElementById('codeInput').value.trim();
             if (currentMethod === 'recovery') {
@@ -312,9 +491,7 @@
         // Show the passkey button only when WebAuthn is exposed AND we're in
         // a secure context — mobile browsers hide PublicKeyCredential entirely
         // on plain HTTP, so checking both surfaces the right diagnostic.
-        if (window.isSecureContext && window.PublicKeyCredential) {
-            document.getElementById('btnPasskey').style.display = 'block';
-        }
+        refreshPasskeyButton();
         document.getElementById('btnPasskey').addEventListener('click', async function() {
             clearError();
             var btn = document.getElementById('btnPasskey');

@@ -11,7 +11,11 @@ public class TwoFactorRequiredResponse
 
     public List<string> Methods { get; set; } = new();
 
+    public bool EnrollmentRequired { get; set; }
+
     public string ChallengePageUrl { get; set; } = string.Empty;
+
+    public string EnrollmentPageUrl { get; set; } = string.Empty;
 }
 
 public class VerifyResponse
@@ -28,6 +32,17 @@ public class TotpSetupResponse
     public string QrCodeBase64 { get; set; } = string.Empty;
 
     public string ManualEntryKey { get; set; } = string.Empty;
+}
+
+public class ChallengeInfoResponse
+{
+    public string Username { get; set; } = string.Empty;
+
+    public List<string> Methods { get; set; } = new();
+
+    public bool EnrollmentRequired { get; set; }
+
+    public DateTime ExpiresAt { get; set; }
 }
 
 public class TrustedDeviceResponse

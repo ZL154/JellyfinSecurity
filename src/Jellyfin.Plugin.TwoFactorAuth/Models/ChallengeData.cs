@@ -17,6 +17,8 @@ public class ChallengeData
 
     public List<string> AvailableMethods { get; set; } = new();
 
+    public bool EnrollmentRequired { get; set; }
+
     public string? DeviceId { get; set; }
 
     public string? DeviceName { get; set; }

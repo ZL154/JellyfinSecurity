@@ -237,6 +237,16 @@ public class SecurityController : ControllerBase
     public async Task<IActionResult> Login([FromRoute] string providerId, [FromQuery] string? returnUrl = null)
     {
         var ip = RateLimiter.ClientKey(HttpContext);
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_bans.CheckBanned(clientIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This IP address is temporarily blocked.",
+                expiresAt = ban.ExpiresAt,
+            });
+        }
+
         var rl = _oidcRateLimiter.CheckAndRecord("oidc_login:" + ip, 20, TimeSpan.FromMinutes(5));
         if (!rl.allowed)
         {
@@ -290,6 +300,17 @@ public class SecurityController : ControllerBase
         [FromQuery] string? state,
         [FromQuery] string? error)
     {
+        var callbackIp = BypassEvaluator.ResolveClientIp(HttpContext)
+            ?? RateLimiter.ClientKey(HttpContext);
+        if (_bans.CheckBanned(callbackIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This IP address is temporarily blocked.",
+                expiresAt = ban.ExpiresAt,
+            });
+        }
+
         _logger.LogInformation("[2FA] OIDC Callback hit: provider={Pid} codeLen={CL} stateLen={SL} error={Err}",
             providerId, code?.Length ?? 0, state?.Length ?? 0, error ?? "(none)");
         if (!string.IsNullOrEmpty(error))
@@ -322,8 +343,23 @@ public class SecurityController : ControllerBase
         _logger.LogInformation("[2FA] OIDC success for user {User} ({UserId}) via {Pid}",
             result.Username, result.UserId, providerId);
 
+        if (!await _allowlist.IsAllowedAsync(result.UserId.Value, callbackIp).ConfigureAwait(false))
+        {
+            _logger.LogWarning("[2FA] OIDC sign-in refused for {User}: IP {Ip} not in allowlist",
+                result.Username, callbackIp);
+            _bans.RecordFailure(callbackIp);
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Sign-in is not allowed from this network.",
+            });
+        }
+
         // Mint a one-shot bridge token.
-        var token = _oidcBridge.Mint(result.UserId.Value, result.Username, providerId);
+        var token = _oidcBridge.Mint(
+            result.UserId.Value,
+            result.Username,
+            providerId,
+            bypassPluginTwoFa: provider.BypassPluginTwoFa);
 
         // Return a self-contained bridge page that POSTs to Jellyfin's auth
         // endpoint server-side (from the browser, with a real X-Emby-Authorization
@@ -559,6 +595,16 @@ public class SecurityController : ControllerBase
         // Returning identical shape regardless of username validity would be
         // better but Fido2NetLib's allowCredentials list is user-specific.
         var ip = RateLimiter.ClientKey(HttpContext);
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_bans.CheckBanned(clientIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This IP address is temporarily blocked.",
+                expiresAt = ban.ExpiresAt,
+            });
+        }
+
         var rl = _rateLimiter.CheckAndRecord("passkey_login:" + ip, 20, TimeSpan.FromMinutes(5));
         if (!rl.allowed)
         {
@@ -579,6 +625,13 @@ public class SecurityController : ControllerBase
         {
             return NotFound(new { message = "No passkey registered for this user." });
         }
+        if (!await _allowlist.IsAllowedAsync(user.Id, clientIp).ConfigureAwait(false))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Sign-in is not allowed from this network.",
+            });
+        }
 
         var optionsJson = _passkeys.BuildAssertionOptions(HttpContext, data.Passkeys);
         var nonce = _passkeyChallenges.Begin(optionsJson, user.Id);
@@ -593,17 +646,39 @@ public class SecurityController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> PasskeyLoginComplete([FromBody, Required] PasskeyLoginCompleteRequest req)
     {
+        var ip = RateLimiter.ClientKey(HttpContext);
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_bans.CheckBanned(clientIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This IP address is temporarily blocked.",
+                expiresAt = ban.ExpiresAt,
+            });
+        }
+
         var user = _userManager.GetUserByName(req.Username);
         if (user is null)
         {
             _logger.LogWarning("[2FA] Passkey login: unknown username {User}", req.Username);
+            _bans.RecordFailure(clientIp);
             return Unauthorized(new { message = "Passkey verification failed." });
+        }
+
+        if (!await _allowlist.IsAllowedAsync(user.Id, clientIp).ConfigureAwait(false))
+        {
+            _bans.RecordFailure(clientIp);
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Sign-in is not allowed from this network.",
+            });
         }
 
         var (optionsJson, storedUserId) = _passkeyChallenges.Consume(req.Nonce);
         if (optionsJson is null || storedUserId != user.Id)
         {
             _logger.LogWarning("[2FA] Passkey login: nonce mismatch for {User}", req.Username);
+            _bans.RecordFailure(clientIp);
             return Unauthorized(new { message = "Passkey verification failed." });
         }
 
@@ -615,12 +690,16 @@ public class SecurityController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[2FA] Passkey assertion verify threw");
+            _bans.RecordFailure(clientIp);
             return Unauthorized(new { message = "Passkey verification failed." });
         }
         if (!ok)
         {
+            _bans.RecordFailure(clientIp);
             return Unauthorized(new { message = "Passkey verification failed." });
         }
+
+        _bans.RecordSuccess(clientIp);
 
         // Reuse the OIDC bridge-token mechanism — mint a 60-second one-shot
         // token, the caller submits it as the password to /Users/AuthenticateByName,

@@ -65,7 +65,8 @@ public class RequestBlockerMiddleware
         }
 
         // Only care about requests carrying Jellyfin auth — skip unauthenticated ones
-        if (!HasAuthCredentials(context))
+        var token = GetAccessToken(context);
+        if (string.IsNullOrEmpty(token))
         {
             await _next(context).ConfigureAwait(false);
             return;
@@ -93,13 +94,6 @@ public class RequestBlockerMiddleware
             return;
         }
 
-        // Identify the session by access token (present on every authenticated
-        // request) rather than device-id header (absent on most Jellyfin Web
-        // requests). Diagnostic run confirmed headerDeviceId=null on every
-        // subsequent request after login.
-        var token = context.Request.Headers["X-Emby-Token"].FirstOrDefault()
-            ?? context.Request.Query["api_key"].FirstOrDefault();
-
         if (userId != Guid.Empty && !string.IsNullOrEmpty(token) && _challengeStore.IsTokenBlocked(token))
         {
             _logger.LogInformation("[2FA] BLOCKED {Path} user={UserId} (token-scoped) — 2FA not completed",
@@ -124,26 +118,32 @@ public class RequestBlockerMiddleware
         await _next(context).ConfigureAwait(false);
     }
 
-    private static bool HasAuthCredentials(HttpContext ctx)
+    private static string? GetAccessToken(HttpContext ctx)
     {
         var token = ctx.Request.Headers["X-Emby-Token"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(token)) return true;
+        if (!string.IsNullOrEmpty(token)) return token;
 
         var apiKeyQ = ctx.Request.Query["api_key"].FirstOrDefault()
             ?? ctx.Request.Query["ApiKey"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(apiKeyQ)) return true;
+        if (!string.IsNullOrEmpty(apiKeyQ)) return apiKeyQ;
 
         // X-Emby-Authorization is a metadata header carrying Client=, Device=,
-        // DeviceId=, Version= even on UNAUTHENTICATED login attempts. Only
-        // count it if it actually contains a token=... segment.
+        // DeviceId=, Version= even on UNAUTHENTICATED login attempts. Only use
+        // it if it actually contains a token=... segment.
         var embyAuth = ctx.Request.Headers["X-Emby-Authorization"].FirstOrDefault()
             ?? ctx.Request.Headers["Authorization"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(embyAuth)
-            && embyAuth.IndexOf("Token=", StringComparison.OrdinalIgnoreCase) >= 0)
+        var headerToken = TwoFactorEnforcementMiddleware.ParseEmbyAuth(embyAuth, "Token");
+        if (!string.IsNullOrEmpty(headerToken))
         {
-            return true;
+            return headerToken;
         }
 
-        return false;
+        if (!string.IsNullOrWhiteSpace(embyAuth)
+            && embyAuth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            return embyAuth.Substring("Bearer ".Length).Trim();
+        }
+
+        return null;
     }
 }

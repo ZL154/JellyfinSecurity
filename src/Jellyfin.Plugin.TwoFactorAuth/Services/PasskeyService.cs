@@ -216,13 +216,15 @@ public class PasskeyService
     /// <summary>Begin an assertion ceremony for an authenticated user (the
     /// challenge step happens AFTER username+password, so userId is known).
     /// Returns the JSON for navigator.credentials.get().</summary>
-    public string BuildAssertionOptions(HttpContext context, IReadOnlyList<PasskeyCredential> userCreds)
+    public string BuildAssertionOptions(
+        HttpContext context,
+        IReadOnlyList<PasskeyCredential> userCreds)
     {
         var fido2 = BuildFido2(context);
         var allow = userCreds.Select(c => new PublicKeyCredentialDescriptor(Base64UrlDecode(c.CredentialId))).ToList();
         var options = fido2.GetAssertionOptions(
             allow,
-            UserVerificationRequirement.Preferred,
+            UserVerificationRequirement.Required,
             new AuthenticationExtensionsClientInputs());
         return options.ToJson();
     }
@@ -245,18 +247,18 @@ public class PasskeyService
         var stored = data.Passkeys.FirstOrDefault(c => string.Equals(c.CredentialId, idB64, StringComparison.Ordinal));
         if (stored is null) return false;
 
-        async Task<bool> IsUserHandleOwnerOfCredentialId(IsUserHandleOwnerOfCredentialIdParams p, CancellationToken _)
+        Task<bool> IsUserHandleOwnerOfCredentialId(IsUserHandleOwnerOfCredentialIdParams p, CancellationToken _)
         {
             // The user handle is the userId.ToByteArray() we registered; check
             // it back against the requesting user.
             try
             {
                 var handleGuid = new Guid(p.UserHandle);
-                return handleGuid == userId;
+                return Task.FromResult(handleGuid == userId);
             }
             catch
             {
-                return false;
+                return Task.FromResult(false);
             }
         }
 

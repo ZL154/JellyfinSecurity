@@ -31,6 +31,8 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     private readonly PendingPairingService _pendingPairings;
     private readonly RateLimiter _rateLimiter;
     private readonly OidcLoginTokenStore _oidcBridge;
+    private readonly IpBanService _ipBans;
+    private readonly IpAllowlistService _allowlist;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<TwoFactorAuthProvider> _logger;
 
@@ -51,6 +53,8 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         PendingPairingService pendingPairings,
         RateLimiter rateLimiter,
         OidcLoginTokenStore oidcBridge,
+        IpBanService ipBans,
+        IpAllowlistService allowlist,
         IHttpContextAccessor httpContextAccessor,
         ILogger<TwoFactorAuthProvider> logger)
     {
@@ -63,6 +67,8 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         _pendingPairings = pendingPairings;
         _rateLimiter = rateLimiter;
         _oidcBridge = oidcBridge;
+        _ipBans = ipBans;
+        _allowlist = allowlist;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
     }
@@ -77,6 +83,13 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     public async Task<ProviderAuthenticationResult> Authenticate(string username, string password)
     {
         var config = Plugin.Instance?.Configuration;
+        var authIp = GetRemoteIp();
+        if (!string.IsNullOrEmpty(authIp) && _ipBans.CheckBanned(authIp) is { } ban)
+        {
+            _logger.LogWarning("[2FA] Authentication refused for {User}: IP {Ip} is banned until {ExpiresAt}",
+                username, authIp, ban.ExpiresAt);
+            throw new AuthenticationException("This IP address is temporarily blocked.");
+        }
 
         // ------------------------------------------------------------------
         // -1. OIDC BRIDGE TOKEN FAST PATH — when the password starts with the
@@ -94,19 +107,30 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             if (consumed is null)
             {
                 _logger.LogWarning("[2FA] OIDC bridge token rejected for user {User}", username);
+                _ipBans.RecordFailure(authIp ?? string.Empty);
                 throw new AuthenticationException("Invalid or expired sign-in token.");
             }
             var bridgeUser = UserManager.GetUserById(consumed.Value.UserId);
             if (bridgeUser is null)
             {
+                _ipBans.RecordFailure(authIp ?? string.Empty);
                 throw new AuthenticationException("Linked Jellyfin account no longer exists.");
+            }
+
+            if (!await _allowlist.IsAllowedAsync(bridgeUser.Id, authIp).ConfigureAwait(false))
+            {
+                _ipBans.RecordFailure(authIp ?? string.Empty);
+                throw new AuthenticationException("Sign-in is not allowed from this network.");
             }
 
             // Pre-verify so SessionStarted → AuthenticationEventHandler doesn't
             // issue a 2FA challenge on top of the already-authenticated OIDC
             // session. Same shape as the LAN-bypass path below.
             var oidcDeviceId = GetDeviceHeader("X-Emby-Device-Id", "DeviceId");
-            _challengeStore.MarkDevicePreVerified(bridgeUser.Id, oidcDeviceId);
+            if (consumed.Value.BypassPluginTwoFa)
+            {
+                _challengeStore.MarkDevicePreVerified(bridgeUser.Id, oidcDeviceId);
+            }
 
             await _store.AddAuditEntryAsync(new AuditEntry
             {
@@ -116,12 +140,13 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 RemoteIp = GetRemoteIp() ?? string.Empty,
                 DeviceId = oidcDeviceId ?? string.Empty,
                 DeviceName = GetDeviceHeader("X-Emby-Device-Name", "Device") ?? string.Empty,
-                Result = AuditResult.Bypassed,
-                Method = "oidc:" + consumed.Value.ProviderId,
+                Result = consumed.Value.BypassPluginTwoFa ? AuditResult.Bypassed : AuditResult.Success,
+                Method = (consumed.Value.BypassPluginTwoFa ? "oidc:" : "oidc_primary:") + consumed.Value.ProviderId,
             }).ConfigureAwait(false);
+            _ipBans.RecordSuccess(authIp ?? string.Empty);
             _logger.LogInformation("[2FA] OIDC sign-in for {User} via {Provider}",
                 bridgeUser.Username, consumed.Value.ProviderId);
-            return new ProviderAuthenticationResult { Username = bridgeUser.Username };
+            return new ProviderAuthenticationResult { Username = bridgeUser.Username ?? username };
         }
 
         // ------------------------------------------------------------------
@@ -155,6 +180,12 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 throw new AuthenticationException("Too many attempts. Try again later.");
             }
 
+            if (!await _allowlist.IsAllowedAsync(earlyUser.Id, authIp).ConfigureAwait(false))
+            {
+                _ipBans.RecordFailure(authIp ?? string.Empty);
+                throw new AuthenticationException("Sign-in is not allowed from this network.");
+            }
+
             var earlyData = await _store.GetUserDataAsync(earlyUser.Id).ConfigureAwait(false);
             var matched = _appPasswordService.FindMatch(password, earlyData.AppPasswords);
             if (matched is not null)
@@ -180,6 +211,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 {
                     _logger.LogWarning("[2FA] App password '{Label}' was revoked mid-auth for {User}",
                         matched.Label, username);
+                    _ipBans.RecordFailure(authIp ?? string.Empty);
                     throw new AuthenticationException("Invalid credentials");
                 }
 
@@ -206,6 +238,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 _logger.LogInformation("[2FA] App password '{Label}' matched for {User} — skipping default provider",
                     matched.Label, username);
 
+                _ipBans.RecordSuccess(authIp ?? string.Empty);
                 return new ProviderAuthenticationResult
                 {
                     Username = earlyUser.Username,
@@ -237,17 +270,25 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         }
 
         ProviderAuthenticationResult baseResult;
-        if (defaultProvider is MediaBrowser.Controller.Authentication.IRequiresResolvedUser resolvedProvider && jellyfinUser is not null)
+        try
         {
-            baseResult = await resolvedProvider
-                .Authenticate(username, password, jellyfinUser)
-                .ConfigureAwait(false);
+            if (defaultProvider is MediaBrowser.Controller.Authentication.IRequiresResolvedUser resolvedProvider && jellyfinUser is not null)
+            {
+                baseResult = await resolvedProvider
+                    .Authenticate(username, password, jellyfinUser)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                baseResult = await defaultProvider
+                    .Authenticate(username, password)
+                    .ConfigureAwait(false);
+            }
         }
-        else
+        catch (AuthenticationException)
         {
-            baseResult = await defaultProvider
-                .Authenticate(username, password)
-                .ConfigureAwait(false);
+            _ipBans.RecordFailure(authIp ?? string.Empty);
+            throw;
         }
 
         // ------------------------------------------------------------------
@@ -255,6 +296,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // ------------------------------------------------------------------
         if (config is null || !config.Enabled)
         {
+            _ipBans.RecordSuccess(authIp ?? string.Empty);
             return baseResult;
         }
 
@@ -265,6 +307,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         {
             // User authenticated but not found in manager — pass through.
             _logger.LogWarning("User '{Username}' authenticated but not found in IUserManager", username);
+            _ipBans.RecordSuccess(authIp ?? string.Empty);
             return baseResult;
         }
 
@@ -274,11 +317,17 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // 4. Load the user's 2FA configuration.
         // ------------------------------------------------------------------
         var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (!await _allowlist.IsAllowedAsync(userId, authIp).ConfigureAwait(false))
+        {
+            _ipBans.RecordFailure(authIp ?? string.Empty);
+            throw new AuthenticationException("Sign-in is not allowed from this network.");
+        }
 
         bool userNeeds2Fa = userData.TotpEnabled || config.RequireForAllUsers;
 
         if (!userNeeds2Fa)
         {
+            _ipBans.RecordSuccess(authIp ?? string.Empty);
             return baseResult;
         }
 
@@ -308,7 +357,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // ------------------------------------------------------------------
         // 6. Extract request context (IP, headers, device info).
         // ------------------------------------------------------------------
-        var remoteIp = GetRemoteIp();
+        var remoteIp = authIp;
         var forwardedFor = GetHeader("X-Forwarded-For");
         var twoFactorToken = GetHeader("X-TwoFactor-Token");
         var embyToken = GetHeader("X-Emby-Token") ?? GetHeader("X-MediaBrowser-Token");
@@ -356,6 +405,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
 
             // Mark device pre-verified so SessionStarted accepts it without challenge.
             _challengeStore.MarkDevicePreVerified(userId, deviceId);
+            _ipBans.RecordSuccess(authIp ?? string.Empty);
             return baseResult;
         }
 
@@ -388,6 +438,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                     Method = "paired_device",
                 }).ConfigureAwait(false);
                 _challengeStore.MarkDevicePreVerified(userId, deviceId);
+                _ipBans.RecordSuccess(authIp ?? string.Empty);
                 return baseResult;
             }
         }
@@ -406,14 +457,21 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // 8. 2FA is required and no bypass applies — build the available
         //    methods list and issue a challenge token.
         // ------------------------------------------------------------------
+        var enrollmentRequired = config.RequireForAllUsers
+            && !userData.TotpVerified
+            && userData.Passkeys.Count == 0;
         var methods = new List<string>();
 
-        if (userData.TotpEnabled && userData.TotpVerified)
+        if (enrollmentRequired)
+        {
+            methods.Add("enroll");
+        }
+        else if (userData.TotpEnabled && userData.TotpVerified)
         {
             methods.Add("totp");
         }
 
-        if (config.EmailOtpEnabled)
+        if (!enrollmentRequired && config.EmailOtpEnabled)
         {
             methods.Add("email");
         }
@@ -431,12 +489,12 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             methods,
             deviceId,
             deviceName,
-            remoteIp);
+            remoteIp,
+            enrollmentRequired);
 
         _logger.LogInformation(
-            "2FA challenge issued for '{Username}' — token: {Token}, methods: {Methods}",
+            "2FA challenge issued for '{Username}' — methods: {Methods}",
             username,
-            challenge.Token,
             string.Join(", ", methods));
 
         await _store.AddAuditEntryAsync(new AuditEntry
@@ -449,7 +507,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             DeviceName = deviceName,
             Result = AuditResult.ChallengeIssued,
             Method = string.Join(",", methods),
-            Details = $"Challenge token: {challenge.Token}"
+            Details = "Challenge issued"
         }).ConfigureAwait(false);
 
         _ = SafeNotifyAsync(() =>
@@ -514,7 +572,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             return null;
         }
 
-        return ctx.Connection.RemoteIpAddress?.ToString();
+        return BypassEvaluator.ResolveClientIp(ctx);
     }
 
     private string? GetHeader(string name)

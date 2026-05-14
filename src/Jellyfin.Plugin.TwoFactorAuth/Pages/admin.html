@@ -13,6 +13,12 @@
             #TwoFactorAuth .tfa-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); gap: 12px; }
             #TwoFactorAuth .tfa-row:last-child { border-bottom: none; }
             #TwoFactorAuth .tfa-row label { flex: 1; font-size: 14px; }
+            #TwoFactorAuth .tfa-row-stack { align-items: flex-start; justify-content: flex-start; flex-direction: column; gap: 6px; }
+            #TwoFactorAuth .tfa-check-label { display: flex; align-items: flex-start; gap: 10px; line-height: 1.35; min-width: 0; }
+            #TwoFactorAuth .tfa-check-label input { flex: 0 0 auto; margin-top: 2px; }
+            #TwoFactorAuth .tfa-help { margin: 0 0 0 40px; font-size: 12px; line-height: 1.45; color: #aa8; max-width: 760px; }
+            #TwoFactorAuth .tfa-row:has(#cfgHairpin) { align-items: flex-start; justify-content: flex-start; flex-direction: column; gap: 6px; }
+            #TwoFactorAuth .tfa-row:has(#cfgHairpin) p { margin: 0 0 0 40px !important; font-size: 12px; line-height: 1.45; max-width: 760px; }
             #TwoFactorAuth .tfa-input { background: #1a1a1a; border: 1px solid #444; color: #e0e0e0; padding: 7px 10px; border-radius: 4px; font-size: 14px; font-family: inherit; }
             #TwoFactorAuth .tfa-input:focus { border-color: #00a4dc; outline: none; }
             #TwoFactorAuth textarea.tfa-input { width: 100%; min-height: 70px; resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
@@ -534,6 +540,23 @@
                 function apiDelete(path) {
                     return fetch(ApiClient.serverAddress() + '/' + path, { method: 'DELETE', headers: getHeaders() }).then(function(r) { return r.ok ? r.json().catch(function(){return{};}) : Promise.reject(r); });
                 }
+                function downloadGet(path, fallbackName) {
+                    return fetch(ApiClient.serverAddress() + '/' + path, { headers: getHeaders() }).then(function(r) {
+                        if (!r.ok) return Promise.reject(r);
+                        var cd = r.headers.get('Content-Disposition') || '';
+                        var m = /filename="?([^";]+)"?/i.exec(cd);
+                        var filename = m ? m[1] : fallbackName;
+                        return r.blob().then(function(blob) {
+                            var url = URL.createObjectURL(blob);
+                            var a = document.createElement('a');
+                            a.href = url;
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            setTimeout(function() { URL.revokeObjectURL(url); a.remove(); }, 1000);
+                        });
+                    });
+                }
                 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
 
                 page.querySelectorAll('.tfa-tab').forEach(function(tab) {
@@ -694,7 +717,7 @@
                     });
                     body.querySelectorAll('.tfa-export-user').forEach(function(b) {
                         b.addEventListener('click', function() {
-                            window.open(ApiClient.serverAddress() + '/TwoFactorAuth/Users/' + b.dataset.id + '/Export?api_key=' + encodeURIComponent(ApiClient.accessToken()), '_blank');
+                            downloadGet('TwoFactorAuth/Users/' + encodeURIComponent(b.dataset.id) + '/Export', '2fa-export-' + b.dataset.id + '.json');
                         });
                     });
                     wireUsersRowExtras();

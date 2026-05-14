@@ -20,7 +20,7 @@ public class OidcLoginTokenStore
 {
     public const string TokenPrefix = "oidcbr_";
 
-    private record Entry(Guid UserId, string Username, string ProviderId, DateTime ExpiresAt);
+    private record Entry(Guid UserId, string Username, string ProviderId, bool BypassPluginTwoFa, DateTime ExpiresAt);
 
     private readonly ConcurrentDictionary<string, Entry> _tokens = new();
     private readonly Timer _sweep;
@@ -30,11 +30,11 @@ public class OidcLoginTokenStore
         _sweep = new Timer(_ => Sweep(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
     }
 
-    public string Mint(Guid userId, string username, string providerId, TimeSpan? ttl = null)
+    public string Mint(Guid userId, string username, string providerId, TimeSpan? ttl = null, bool bypassPluginTwoFa = true)
     {
         var token = TokenPrefix + Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        _tokens[token] = new Entry(userId, username, providerId,
+        _tokens[token] = new Entry(userId, username, providerId, bypassPluginTwoFa,
             DateTime.UtcNow.Add(ttl ?? TimeSpan.FromSeconds(60)));
         return token;
     }
@@ -42,13 +42,13 @@ public class OidcLoginTokenStore
     /// <summary>Look up + atomically consume. Returns null if missing/expired.
     /// Username check guards against the rare case where the login form
     /// submits a different username than the one the IdP authenticated.</summary>
-    public (Guid UserId, string ProviderId)? Consume(string token, string username)
+    public (Guid UserId, string ProviderId, bool BypassPluginTwoFa)? Consume(string token, string username)
     {
         if (!token.StartsWith(TokenPrefix, StringComparison.Ordinal)) return null;
         if (!_tokens.TryRemove(token, out var entry)) return null;
         if (entry.ExpiresAt <= DateTime.UtcNow) return null;
         if (!string.Equals(entry.Username, username, StringComparison.OrdinalIgnoreCase)) return null;
-        return (entry.UserId, entry.ProviderId);
+        return (entry.UserId, entry.ProviderId, entry.BypassPluginTwoFa);
     }
 
     public static bool LooksLikeBridgeToken(string? value)
