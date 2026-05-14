@@ -567,7 +567,7 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 
 ## 📝 Changelog
 
-### 2.2.3 — PDF font fix (real this time)
+### 2.2.3 — PDF font fix
 
 **Fixes**
 - Recovery-code PDF now actually renders the text. v2.2.2 swapped the font from `Fonts.SegoeUI` to `"Lato"` thinking QuestPDF auto-loaded Lato — it doesn't, the constant is just a name. Skia's fallback found nothing usable inside the Jellyfin Docker container (no system fonts) and rendered every glyph as an empty box.
