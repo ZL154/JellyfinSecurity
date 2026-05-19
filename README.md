@@ -27,8 +27,7 @@
   <a href="https://github.com/ZL154/JellyfinSecurity/releases"><img src="https://img.shields.io/github/downloads/ZL154/JellyfinSecurity/total?style=for-the-badge&labelColor=000000&label=Downloads&color=00a4dc&logo=github&logoColor=white" alt="Downloads" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/stargazers"><img src="https://img.shields.io/github/stars/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Stars&color=2b2b2b&logo=github&logoColor=white" alt="Stars" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/commits/main"><img src="https://img.shields.io/github/last-commit/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Last%20commit&color=00a4dc&logo=github&logoColor=white" alt="Last commit" /></a>
-  <a href="https://github.com/ZL154/JellyfinSecurity/pulse"><img src="https://img.shields.io/github/commit-activity/m/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Commits%2Fmo&color=2b2b2b&logo=github&logoColor=white" alt="Commit activity" /></a>
-  <a href="https://github.com/ZL154/JellyfinSecurity/security/advisories"><img src="https://img.shields.io/github/issues-search/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Open%20advisories&query=is%3Aopen%20label%3Asecurity&color=00a4dc&logo=github&logoColor=white" alt="Open security advisories" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/security/advisories"><img src="https://img.shields.io/github/issues-search/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Open%20advisories&query=is%3Aopen%20label%3Asecurity&color=2b2b2b&logo=github&logoColor=white" alt="Open security advisories" /></a>
 </p>
 
 # 🔐 Jellyfin Security

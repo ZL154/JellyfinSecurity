@@ -137,17 +137,19 @@ public class OidcService
 
         var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
 
-        // Exchange code for tokens.
-        var tokenResp = await _http.PostAsync(disc.TokenEndpoint,
-            new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["grant_type"] = "authorization_code",
-                ["code"] = code,
-                ["redirect_uri"] = redirectUri,
-                ["client_id"] = provider.ClientId,
-                ["client_secret"] = provider.ClientSecret,
-                ["code_verifier"] = pending.CodeVerifier,
-            })).ConfigureAwait(false);
+        // Exchange code for tokens. FormUrlEncodedContent is IDisposable —
+        // wrap in `using` so the request body is released deterministically
+        // after the HttpClient call instead of waiting on the finalizer.
+        using var tokenForm = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "authorization_code",
+            ["code"] = code,
+            ["redirect_uri"] = redirectUri,
+            ["client_id"] = provider.ClientId,
+            ["client_secret"] = provider.ClientSecret,
+            ["code_verifier"] = pending.CodeVerifier,
+        });
+        var tokenResp = await _http.PostAsync(disc.TokenEndpoint, tokenForm).ConfigureAwait(false);
 
         if (!tokenResp.IsSuccessStatusCode)
         {

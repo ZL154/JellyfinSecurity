@@ -136,7 +136,9 @@ public class EmailOtpService
             msg.To.Add(email);
 
             await smtp.SendMailAsync(msg).ConfigureAwait(false);
-            _logger.LogInformation("Email OTP sent to {Email} for {User}", email, username);
+            // Mask the local-part of the email before logging — full addresses
+            // in log files are PII (GDPR / general data minimisation).
+            _logger.LogInformation("Email OTP sent to {Email} for {User}", MaskEmail(email), username);
             return true;
         }
         catch (Exception ex)
@@ -144,6 +146,22 @@ public class EmailOtpService
             _logger.LogError(ex, "Email OTP SMTP send failed for {User}", username);
             return false;
         }
+    }
+
+    /// <summary>Mask an email address so log files don't contain the full
+    /// PII string. "alice@example.com" -> "a***@example.com". Domain is
+    /// preserved because it's typically the IdP host (gmail/outlook/...) and
+    /// useful for debugging delivery issues.</summary>
+    private static string MaskEmail(string? email)
+    {
+        if (string.IsNullOrEmpty(email)) return "(empty)";
+        var at = email.IndexOf('@');
+        if (at <= 0) return "***";
+        var local = email.AsSpan(0, at);
+        var domain = email.AsSpan(at);
+        return local.Length == 1
+            ? string.Concat(local, "***", domain)
+            : string.Concat(local[..1], "***", domain);
     }
 
     /// <summary>
