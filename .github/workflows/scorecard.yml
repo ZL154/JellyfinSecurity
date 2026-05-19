@@ -31,6 +31,12 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
+          # repo_token grants the scorecard-action enough scope to read
+          # branch-protection rules (default GITHUB_TOKEN can't, which made
+          # the Branch-Protection check error out with "Resource not
+          # accessible by integration"). PAT is fine-grained, repo-scoped,
+          # Administration: Read-only.
+          repo_token: ${{ secrets.SCORECARD_TOKEN }}
           # publish_results=true publishes the score to the public
           # api.securityscorecards.dev API so the README badge can render it.
           publish_results: true
