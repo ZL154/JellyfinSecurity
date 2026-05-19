@@ -24,11 +24,7 @@ Use one of the following private channels:
 
 ### What to expect
 
-- Initial acknowledgement within **72 hours**
-- Confirmation or "not a vuln" verdict within **7 days**
-- Coordinated disclosure window: typically **30 days** between fix and
-  public disclosure, longer for severe issues if a coordinated patch
-  cycle is required
+- Initial acknowledgement
 - CVE assignment for confirmed vulnerabilities (via GitHub Security
   Advisories)
 - Credit in the release notes and advisory unless you ask to remain
@@ -47,20 +43,6 @@ plugin:
   PoC
 - Reports against unsupported plugin versions (see table below)
 - Findings from automated scanners with no exploitable PoC
-
-## Supported versions
-
-Only the latest minor release receives security updates. Older releases
-may receive a backport on a case-by-case basis if the severity warrants
-it.
-
-| Version  | Status                          |
-| -------- | ------------------------------- |
-| 2.3.x    | :white_check_mark: Supported    |
-| 2.2.x    | :warning: Security fixes only   |
-| 2.1.x    | :x: Unsupported — please upgrade |
-| 2.0.x    | :x: Unsupported — please upgrade |
-| < 2.0    | :x: Unsupported — please upgrade |
 
 ## Threat model — what this plugin defends against
 
