@@ -15,15 +15,10 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
-permissions: read-all
-
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      # contents: write -- required to create/update the GitHub Release.
-      # id-token: write -- required by cosign keyless signing to mint a
-      # short-lived Sigstore certificate via GitHub OIDC.
       contents: write
       id-token: write
     steps:
@@ -32,8 +27,6 @@ jobs:
 
       - name: Build fat package in Docker
         run: |
-          # mcr.microsoft.com/dotnet/sdk:9.0 pinned to multi-arch digest so
-          # the build is reproducible across runs (OSSF PinnedDependencies).
           docker run --rm \
             -u "$(id -u):$(id -g)" \
             -v "$PWD:/src" \
@@ -52,24 +45,17 @@ jobs:
           sha256sum "Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip" > "Jellyfin.Plugin.TwoFactorAuthv${VERSION}.sha256"
 
       - name: Install cosign
-        # Keyless signing via Sigstore: GitHub OIDC token is exchanged for a
-        # short-lived signing certificate bound to this workflow + ref. No
-        # private key to manage, and verifiers can confirm via the public
-        # Rekor transparency log that the signature came from this repo.
         uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
 
-      - name: Sign release artifacts (Sigstore keyless)
+      - name: Sign release zip
         if: ${{ github.event.inputs.publish_release == 'true' }}
         run: |
           VERSION="$(grep -oPm1 '(?<=<Version>)[^<]+' src/Jellyfin.Plugin.TwoFactorAuth/Jellyfin.Plugin.TwoFactorAuth.csproj)"
           ZIP="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip"
-          cosign sign-blob --yes \
-            --output-signature  "${ZIP}.sig" \
-            --output-certificate "${ZIP}.pem" \
-            "$ZIP"
+          cosign sign-blob --yes --output-signature "${ZIP}.sig" --output-certificate "${ZIP}.pem" "$ZIP"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: jellyfin-security-fat-package
           path: |
@@ -79,7 +65,7 @@ jobs:
             dist/Jellyfin.Plugin.TwoFactorAuthv*.sig
             dist/Jellyfin.Plugin.TwoFactorAuthv*.pem
 
-      - name: Create/Update release and upload assets
+      - name: Create or update release
         if: ${{ github.event.inputs.publish_release == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -91,23 +77,5 @@ jobs:
           SHA256="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.sha256"
           SIG="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip.sig"
           PEM="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip.pem"
-
-          gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" \
-              --title "$TAG" \
-              --notes "Automated workflow release for Jellyfin Security ${VERSION}.
-
-## Verifying the release
-This zip is signed with [Sigstore](https://www.sigstore.dev/) keyless signing
-via GitHub OIDC. To verify:
-
-\`\`\`bash
-cosign verify-blob \\
-  --certificate Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip.pem \\
-  --signature   Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip.sig \\
-  --certificate-identity-regexp '^https://github\\.com/ZL154/JellyfinSecurity/' \\
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
-  Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip
-\`\`\`"
-
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "Automated release for Jellyfin Security ${VERSION}. Sigstore-signed zip - verify with cosign verify-blob."
           gh release upload "$TAG" "$ZIP" "$MD5" "$SHA256" "$SIG" "$PEM" --clobber
