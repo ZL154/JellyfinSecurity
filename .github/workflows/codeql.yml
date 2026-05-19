@@ -36,7 +36,7 @@ jobs:
 
       - name: Build
         run: |
-          dotnet restore JellyfinSecurity.sln
+          dotnet restore JellyfinSecurity.sln --locked-mode
           dotnet build JellyfinSecurity.sln --configuration Release --no-restore
 
       - name: Perform CodeQL Analysis

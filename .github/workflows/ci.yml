@@ -38,7 +38,7 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Restore
-        run: dotnet restore JellyfinSecurity.sln
+        run: dotnet restore JellyfinSecurity.sln --locked-mode
 
       - name: Build
         run: dotnet build JellyfinSecurity.sln --configuration Release --no-restore
@@ -65,7 +65,7 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Restore
-        run: dotnet restore JellyfinSecurity.sln
+        run: dotnet restore JellyfinSecurity.sln --locked-mode
 
       - name: Test with coverage
         run: |

@@ -13,6 +13,13 @@
     <AnalysisMode>Recommended</AnalysisMode>
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <!-- OSSF Pinned-Dependencies: lock every transitive NuGet by hash so
+         dotnet restore is reproducible across machines and CI runs. CI uses
+         locked mode (the cli flag) so any drift between the lock file and
+         csproj fails fast. The Jellyfin.Controller and Jellyfin.Model
+         wildcards stay in the csproj but the lock file records the exact
+         version resolved at lock time. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <ItemGroup>
