@@ -118,6 +118,8 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 
 ## ⚙️ Installation
 
+> **Requires Jellyfin 10.11+.** The plugin depends on the auth-provider APIs introduced in 10.11. If your server is on 10.10.x or older, the plugin will **not appear in the Catalogue** after adding the repository — Jellyfin silently filters out plugins whose `targetAbi` is newer than the server. Check your version under **Dashboard → About**; upgrade to 10.11+ if needed.
+
 1. Open Jellyfin → **Dashboard → Plugins → Repositories**
 2. Click **+** and add this URL:
 
@@ -126,7 +128,7 @@ https://raw.githubusercontent.com/ZL154/JellyfinSecurity/main/manifest.json
 ```
 
 3. Save and refresh plugins
-4. Go to the **Catalogue** tab → install **Two-Factor Authentication**
+4. Go to the **Catalogue** tab → install **Jellyfin Security**
 5. Restart Jellyfin
 
 ### Build from source
