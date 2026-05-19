@@ -16,12 +16,19 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/ci.yml?branch=main&label=CI&logo=github" alt="CI" /></a>
-  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/codeql.yml?branch=main&label=CodeQL&logo=github" alt="CodeQL" /></a>
-  <a href="https://codecov.io/gh/ZL154/JellyfinSecurity"><img src="https://img.shields.io/codecov/c/github/ZL154/JellyfinSecurity?logo=codecov&label=coverage" alt="Coverage" /></a>
-  <a href="https://github.com/ZL154/JellyfinSecurity/releases"><img src="https://img.shields.io/github/downloads/ZL154/JellyfinSecurity/total?logo=github&label=downloads" alt="Downloads" /></a>
-  <a href="https://github.com/ZL154/JellyfinSecurity/stargazers"><img src="https://img.shields.io/github/stars/ZL154/JellyfinSecurity?logo=github&label=stars" alt="Stars" /></a>
-  <a href="https://github.com/ZL154/JellyfinSecurity/blob/main/SECURITY.md"><img src="https://img.shields.io/badge/security-policy-blue?logo=gitbook&logoColor=white" alt="Security policy" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/ci.yml?branch=main&style=for-the-badge&labelColor=000000&label=CI&logo=github&logoColor=white" alt="CI" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/codeql.yml?branch=main&style=for-the-badge&labelColor=000000&label=CodeQL&logo=github&logoColor=white" alt="CodeQL" /></a>
+  <a href="https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity"><img src="https://img.shields.io/ossf-scorecard/github.com/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=OSSF%20Score&color=00a4dc" alt="OpenSSF Scorecard" /></a>
+  <a href="https://codecov.io/gh/ZL154/JellyfinSecurity"><img src="https://img.shields.io/codecov/c/github/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Coverage&logo=codecov&logoColor=white" alt="Coverage" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/blob/main/SECURITY.md"><img src="https://img.shields.io/badge/Security-Policy-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=gitbook&logoColor=white" alt="Security policy" /></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ZL154/JellyfinSecurity/releases"><img src="https://img.shields.io/github/downloads/ZL154/JellyfinSecurity/total?style=for-the-badge&labelColor=000000&label=Downloads&color=00a4dc&logo=github&logoColor=white" alt="Downloads" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/stargazers"><img src="https://img.shields.io/github/stars/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Stars&color=2b2b2b&logo=github&logoColor=white" alt="Stars" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/commits/main"><img src="https://img.shields.io/github/last-commit/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Last%20commit&color=00a4dc&logo=github&logoColor=white" alt="Last commit" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/pulse"><img src="https://img.shields.io/github/commit-activity/m/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Commits%2Fmo&color=2b2b2b&logo=github&logoColor=white" alt="Commit activity" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/security/advisories"><img src="https://img.shields.io/github/issues-search/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Open%20advisories&query=is%3Aopen%20label%3Asecurity&color=00a4dc&logo=github&logoColor=white" alt="Open security advisories" /></a>
 </p>
 
 # 🔐 Jellyfin Security
@@ -29,6 +36,27 @@
 Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email OTP, **OIDC/SSO sign-in**, brute-force IP banning, impossible-travel detection, per-user IP allowlist, device pairing, trusted-browser cookies, and a full audit log — all from one plugin.
 
 > **Why this exists:** for self-hosters who want a complete auth + hardening layer **without standing up a separate identity stack**. Full IdPs like Authentik (with OIDC or LDAP outposts) and Authelia work great with Jellyfin and offer features this plugin doesn't — they're often the right call for serious deployments. This plugin is for the case where you'd rather get TOTP, passkeys, OIDC sign-in, brute-force protection, impossible-travel detection, IP allowlist, audit logging, and a proper admin UI **as a single Jellyfin plugin** — no extra containers, no LDAP outpost, no proxy-auth header juggling, native Jellyfin user model end-to-end.
+
+---
+
+## 🛡️ Security posture — what to check before you trust this with your server
+
+You don't have to take my word for it. Every signal below is automated and
+visible to anyone, including you:
+
+- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (125 tests covering crypto, parsers, and middleware). Green = tests pass.
+- **[CodeQL badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml)** — GitHub's static security scanner runs the `security-extended` + `security-and-quality` C# query packs on every push, PR, and weekly. Green = no security findings.
+- **[OpenSSF Scorecard](https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity)** — the Linux Foundation's automated security-posture rating (0–10). Scores branch protection, CodeQL, dependency updates, pinned actions, signed releases, security policy, token permissions, and more. Click the badge to see the per-check breakdown.
+- **[Codecov](https://codecov.io/gh/ZL154/JellyfinSecurity)** — line coverage by the test suite. Refreshes on every CI run.
+- **[Open security advisories](https://github.com/ZL154/JellyfinSecurity/security/advisories)** — historical vulnerabilities filed via [SECURITY.md](SECURITY.md), with patch versions, severity, and CVE references.
+- **[Dependabot PRs](https://github.com/ZL154/JellyfinSecurity/pulls?q=is%3Apr+author%3Aapp%2Fdependabot)** — security and version updates for every NuGet dependency. Frequent merges = vulnerabilities don't sit unpatched.
+- **[Last commit + commits/mo badges](https://github.com/ZL154/JellyfinSecurity/pulse)** — proof of an active maintainer. A security plugin that hasn't been touched in 18 months is a liability, not an asset.
+- **[Pull request review history](https://github.com/ZL154/JellyfinSecurity/pulls?q=is%3Apr+is%3Aclosed)** — non-trivial changes go through review even when the maintainer is solo, and the diff is public.
+- **[Release SHA-256 checksums](https://github.com/ZL154/JellyfinSecurity/releases)** — every release ships with `.md5` and `.sha256` files alongside the `.zip` so you can verify the artifact wasn't tampered with after upload.
+- **[Threat model in SECURITY.md](SECURITY.md#threat-model--what-this-plugin-defends-against)** — explicit list of what the plugin defends against and what it intentionally does not. No hand-waving "secure by design" claims.
+
+If any of these go red, file an issue or DM `@zack154` on Discord — fixing
+visible trust signals is treated as a high-priority bug.
 
 ---
 
