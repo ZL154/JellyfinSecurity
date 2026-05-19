@@ -19,8 +19,12 @@ public class NotificationService
     // which happens AFTER .NET's socket layer does its own DNS lookup — so a
     // DNS-rebinding attacker who flips the record between IsSafeWebhookUrl's
     // resolution and the connect is rejected at the boundary.
-    [ThreadStatic]
-    private static System.Net.IPAddress[]? _pinnedAllowedAddresses;
+    // SEC-M2: must flow across awaits — the HttpClient ConnectCallback runs on
+    // a thread-pool thread that's NOT guaranteed to be the same thread that
+    // called SendAsync, so [ThreadStatic] silently dropped the pinned set after
+    // the first continuation. AsyncLocal flows the value through the async
+    // execution context so the SSRF guard sees the right set on every connect.
+    private static readonly System.Threading.AsyncLocal<System.Net.IPAddress[]?> _pinnedAllowedAddresses = new();
 
     private static readonly HttpClient _webhookHttpClient = BuildPinnedHttpClient();
 
@@ -32,7 +36,7 @@ public class NotificationService
             PooledConnectionLifetime = TimeSpan.FromMinutes(2),
             ConnectCallback = async (ctx, ct) =>
             {
-                var allowed = _pinnedAllowedAddresses;
+                var allowed = _pinnedAllowedAddresses.Value;
                 if (allowed is null || allowed.Length == 0)
                 {
                     throw new System.Net.Sockets.SocketException(
@@ -339,14 +343,14 @@ public class NotificationService
                 // SEC-M2: pin the validated allowed-IP set into a thread-local
                 // for the dispatch HttpClient's ConnectCallback to read. Cleared
                 // in `finally` so a leaked pin doesn't authorize a later send.
-                _pinnedAllowedAddresses = pinnedAddresses;
+                _pinnedAllowedAddresses.Value = pinnedAddresses;
                 try
                 {
                     using var response = await _webhookHttpClient.SendAsync(request).ConfigureAwait(false);
                 }
                 finally
                 {
-                    _pinnedAllowedAddresses = null;
+                    _pinnedAllowedAddresses.Value = null;
                 }
             }
             catch (Exception ex)

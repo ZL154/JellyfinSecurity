@@ -28,7 +28,7 @@ jobs:
           dotnet-version: "9.0.x"
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@78ed0c7291d93e40c51b085850dc669a4c3ab73b # v3
+        uses: github/codeql-action/init@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3
         with:
           languages: csharp
           queries: security-extended,security-and-quality

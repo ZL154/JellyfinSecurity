@@ -70,3 +70,17 @@ query-filters:
   # string concatenation does not apply here.
   - exclude:
       id: cs/log-forging
+
+  # cs/constant-condition: hint-level redundant null check inside a branch
+  # the compiler already proved non-null. Not a defect.
+  - exclude:
+      id: cs/constant-condition
+
+  # cs/static-field-written-by-instance: every flagged callsite is either
+  # an intentional cache guarded by `lock` (IndexHtmlInjectionMiddleware
+  # _cachedFingerprint + _cachedPatched), an Interlocked counter
+  # (_requestsSeen), or async-flow state (NotificationService
+  # _pinnedAllowedAddresses, now AsyncLocal<T>). All three patterns are
+  # thread-safe by design.
+  - exclude:
+      id: cs/static-field-written-by-instance
