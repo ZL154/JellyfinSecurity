@@ -8,6 +8,13 @@
     "category": "General",
     "versions": [
       {
+        "version": "2.3.1.0",
+        "changelog": "v2.3.1 — Security hardening + supply chain. Real fixes: SSRF allowlist for webhook delivery is now correctly visible to the HttpClient ConnectCallback across awaits (was silently broken due to ThreadStatic vs AsyncLocal); OIDC token-exchange request body is now disposed deterministically; full email addresses are no longer written to plaintext logs (masked to a***@example.com). Supply chain: every GitHub Action SHA-pinned, Docker SDK image pinned by digest, release zip is now Sigstore-signed (verify with cosign verify-blob), CodeQL + OpenSSF Scorecard scanning every push, branch protection on main, dependabot active. Underlying NuGet deps refreshed via merged dependabot PRs. No breaking changes; in-place upgrade.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.3.1/Jellyfin.Plugin.TwoFactorAuthv2.3.1.0.zip",
+        "checksum": "1C7E55F856A1236506E79C2341C4059B"
+      },
+      {
         "version": "2.3.0.0",
         "changelog": "v2.3.0 — Security maintenance and forced enrollment. Fixed some security issues, strengthened sign-in handling, added a proper forced-enrollment flow when Require 2FA for all users is enabled, improved OIDC/SSO reliability, and fixed a Settings-page layout overlap. Public notes are intentionally high-level.",
         "targetAbi": "10.11.0.0",
