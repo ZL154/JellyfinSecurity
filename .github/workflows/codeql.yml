@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: "23 7 * * 1"
 
+# OSSF Token-Permissions: read-all at top level so any future job that omits
+# its own permissions: block defaults to least privilege.
+permissions: read-all
+
 jobs:
   analyze:
     name: Analyze (csharp)

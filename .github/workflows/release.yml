@@ -15,6 +15,10 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
+# OSSF Token-Permissions: read-all top-level; the build job opts into the
+# narrower contents: write + id-token: write that it actually needs.
+permissions: read-all
+
 jobs:
   build:
     runs-on: ubuntu-latest
