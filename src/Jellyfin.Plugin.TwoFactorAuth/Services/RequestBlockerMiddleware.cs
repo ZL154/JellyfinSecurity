@@ -47,10 +47,15 @@ public class RequestBlockerMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         var path = context.Request.Path.Value ?? string.Empty;
+        // SEC v2.4 L3: tolerate trailing-slash variants. Some clients / reverse
+        // proxies (especially Caddy on directory rewrites) append a trailing
+        // slash to GETs — without this, `/TwoFactorAuth/Login/` wouldn't match
+        // the `/TwoFactorAuth/Login` exempt entry and would 401 the user mid-2FA.
+        var normalizedPath = path.Length > 1 ? path.TrimEnd('/') : path;
 
         foreach (var allowed in AlwaysAllowedPaths)
         {
-            if (path.Equals(allowed, StringComparison.OrdinalIgnoreCase))
+            if (normalizedPath.Equals(allowed, StringComparison.OrdinalIgnoreCase))
             {
                 await _next(context).ConfigureAwait(false);
                 return;

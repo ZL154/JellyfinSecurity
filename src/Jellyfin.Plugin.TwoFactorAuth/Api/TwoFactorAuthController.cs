@@ -1983,6 +1983,23 @@ public class TwoFactorAuthController : ControllerBase
             return StatusCode(StatusCodes.Status429TooManyRequests, new { message = "Account is locked out." });
         }
 
+        // SEC v2.4 M2: per-user email rate limit on top of per-IP. Without
+        // this, an attacker holding a valid challenge token (i.e. they just
+        // triggered an auth attempt for the target user) can rotate IPs and
+        // spam the target's inbox with OTP emails. The challenge token is
+        // bound to a single user so per-IP limits don't help here.
+        var userEmailRl = _rateLimiter.CheckAndRecord(
+            "email:user:" + challenge.UserId.ToString("N"),
+            3,
+            TimeSpan.FromMinutes(15));
+        if (!userEmailRl.allowed)
+        {
+            // Return the same generic success as the happy path. Don't reveal
+            // a per-user cap was hit — that itself leaks which tokens map to
+            // spammable accounts.
+            return Ok(new { message = "If an email is configured for this user, a code has been sent." });
+        }
+
         // Per-user email address from plugin config (admin sets these)
         var email = Plugin.Instance?.Configuration.GetUserEmail(challenge.UserId.ToString("N"));
 
@@ -1992,17 +2009,18 @@ public class TwoFactorAuthController : ControllerBase
             email,
             request.ChallengeToken).ConfigureAwait(false);
 
-        if (!sent)
+        // SEC v2.4 H1: generic response regardless of whether email was
+        // configured or SMTP send failed. Previously the message text told
+        // an attacker holding a valid challenge token whether the target
+        // user had email OTP set up. SMTP failures are still logged server
+        // side via _emailOtpService so admins can triage.
+        if (!sent && email is null)
         {
-            return StatusCode(StatusCodes.Status429TooManyRequests, new
-            {
-                message = email is null
-                    ? "Email address not configured for this user. Ask the admin to set it in plugin settings."
-                    : "Failed to send email — check SMTP configuration in plugin settings.",
-            });
+            _logger.LogDebug(
+                "[2FA] Email OTP requested for user with no configured address (userId={UserId})",
+                challenge.UserId);
         }
-
-        return Ok(new { message = "Code sent." });
+        return Ok(new { message = "If an email is configured for this user, a code has been sent." });
     }
 
     // -------------------------------------------------------------------------
@@ -2699,6 +2717,20 @@ public class TwoFactorAuthController : ControllerBase
             });
         }
 
+        // SEC v2.4: rate-limit passkey assertion. ECDSA-verify cost on the
+        // Finish path is small but non-zero; without a cap an attacker can
+        // grind login latency for legitimate users via a flood of crafted
+        // assertions. Matches the pattern used on /Authenticate + /Verify.
+        var pkRl = _rateLimiter.CheckAndRecord("pk_assert:" + clientIp, 20, TimeSpan.FromMinutes(1));
+        if (!pkRl.allowed)
+        {
+            Response.Headers.Append("Retry-After", pkRl.retryAfterSeconds.ToString());
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many passkey requests. Try again in {pkRl.retryAfterSeconds} seconds.",
+            });
+        }
+
         var challenge = _challengeStore.GetChallenge(req.ChallengeToken);
         if (challenge is null) return BadRequest(new { message = "Invalid or expired challenge" });
         if (!await _allowlist.IsAllowedAsync(challenge.UserId, clientIp).ConfigureAwait(false))
@@ -2733,6 +2765,19 @@ public class TwoFactorAuthController : ControllerBase
             {
                 message = "This IP address is temporarily blocked.",
                 expiresAt = ban.ExpiresAt,
+            });
+        }
+
+        // SEC v2.4: defense-in-depth on the ECDSA-verify hot path. Shares the
+        // same per-IP bucket as Begin so a flood is capped across both halves
+        // of the assertion ceremony.
+        var pkRl = _rateLimiter.CheckAndRecord("pk_assert:" + clientIp, 20, TimeSpan.FromMinutes(1));
+        if (!pkRl.allowed)
+        {
+            Response.Headers.Append("Retry-After", pkRl.retryAfterSeconds.ToString());
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many passkey requests. Try again in {pkRl.retryAfterSeconds} seconds.",
             });
         }
 

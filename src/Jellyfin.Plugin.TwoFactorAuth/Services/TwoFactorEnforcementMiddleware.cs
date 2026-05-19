@@ -85,6 +85,18 @@ public class TwoFactorEnforcementMiddleware
             return;
         }
 
+        // SEC v2.4 M3: gate the 64KB request body allocation on path match
+        // BEFORE doing it. Previously this allocation happened on every JSON
+        // POST regardless of path, which meant any plugin admin endpoint or
+        // Library/Scan-style call paid the cost AND was a memory-amplification
+        // DoS vector. IsAuthPath was already authoritative downstream; just
+        // hoisting it up.
+        if (!IsAuthPath(path))
+        {
+            await _next(context).ConfigureAwait(false);
+            return;
+        }
+
         // Buffer the REQUEST body so we can re-read the submitted password later
         // (only matters for AuthenticateByName-style endpoints; harmless elsewhere).
         // EnableBuffering lets ASP.NET re-read the body downstream after we peek.
@@ -163,10 +175,11 @@ public class TwoFactorEnforcementMiddleware
         var bodyBytes = buffer.ToArray();
         var bodyText = Encoding.UTF8.GetString(bodyBytes);
 
-        // Restrict activation to actual Jellyfin auth endpoints AND to responses
-        // that structurally look like auth results. Prevents false positives on
-        // admin APIs that return lists of users/sessions.
-        if (!IsAuthPath(path) || !LooksLikeAuthResponse(bodyText))
+        // Path is already pre-validated at the top (SEC v2.4 M3). Only check
+        // response shape here — prevents false positives on third-party admin
+        // APIs that happen to return JSON bodies containing the literal
+        // substrings.
+        if (!LooksLikeAuthResponse(bodyText))
         {
             await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
             return;
@@ -407,7 +420,12 @@ public class TwoFactorEnforcementMiddleware
                         DeviceId = deviceId ?? string.Empty,
                         DeviceName = deviceName,
                         Result = AuditResult.Bypassed,
-                        Method = "app_password:" + matchedAp.Label,
+                        // SEC v2.4 L5: sanitize the user-supplied label so it
+                        // can't poison the audit log Method field (e.g. a
+                        // malicious admin labeling a password "paired_device"
+                        // to disguise an app-password bypass as a paired
+                        // device match).
+                        Method = "app_password:" + SanitizeLabel(matchedAp.Label),
                     }).ConfigureAwait(false);
                     _logger.LogInformation("[2FA] App password '{Label}' matched for {Name} — bypassing 2FA",
                         matchedAp.Label, authResult.User.Name);
@@ -524,11 +542,33 @@ public class TwoFactorEnforcementMiddleware
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 
+    /// <summary>SEC v2.4 L5: sanitize a user-supplied label before it's
+    /// concatenated into the audit log Method field. Strips colons (the
+    /// Method-delimiter), strips ASCII control chars, caps length so a
+    /// malicious admin can't pad the field with bogus content.</summary>
+    private static string SanitizeLabel(string? label)
+    {
+        if (string.IsNullOrEmpty(label)) return string.Empty;
+        var sb = new System.Text.StringBuilder(Math.Min(label.Length, 32));
+        foreach (var c in label)
+        {
+            if (sb.Length >= 32) break;
+            if (c < 0x20 || c == 0x7F) continue; // control chars
+            if (c == ':') continue;              // method delimiter
+            sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
     private static bool LooksLikeAuthResponse(string body)
     {
         if (string.IsNullOrEmpty(body) || body.Length > 1_000_000) return false;
+        // SEC v2.4 L6: require all three Jellyfin auth-response substrings so
+        // third-party plugin admin responses that happen to mention AccessToken
+        // and User in a different shape don't get pulled into the 2FA flow.
         return body.Contains("\"AccessToken\"", StringComparison.Ordinal)
-            && body.Contains("\"User\"", StringComparison.Ordinal);
+            && body.Contains("\"User\"", StringComparison.Ordinal)
+            && body.Contains("\"SessionInfo\"", StringComparison.Ordinal);
     }
 
     private static string? ParseClientFromAuthHeader(string? header)
