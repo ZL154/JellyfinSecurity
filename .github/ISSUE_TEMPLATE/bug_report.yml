@@ -1,0 +1,162 @@
+name: Bug report
+description: Something in the plugin isn't working as expected.
+title: "[bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report! Please fill in everything below — the more
+        detail you provide upfront, the faster this can get fixed.
+
+        **Security bugs**: do NOT file them here. Use the channels in
+        [SECURITY.md](https://github.com/ZL154/JellyfinSecurity/blob/main/SECURITY.md) instead.
+
+  - type: checkboxes
+    id: pre-flight
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I've searched existing issues (open and closed) and this isn't a duplicate.
+          required: true
+        - label: I'm running the **latest** plugin version, or have a reason I can't be (described below).
+          required: true
+        - label: My Jellyfin server is on **10.11.0 or newer** (the plugin does not support 10.10.x).
+          required: true
+        - label: This is NOT a security vulnerability (those go through SECURITY.md).
+          required: true
+
+  - type: input
+    id: jellyfin-version
+    attributes:
+      label: Jellyfin server version
+      description: Find it under **Dashboard → About**. Include the full build (e.g. `10.11.8`).
+      placeholder: "e.g. 10.11.8"
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Find it under **Dashboard → Plugins → Jellyfin Security**.
+      placeholder: "e.g. 2.3.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How did you install Jellyfin?
+      options:
+        - Docker (linuxserver.io)
+        - Docker (jellyfin/jellyfin official)
+        - Docker (other / custom)
+        - Bare metal Linux (apt/rpm)
+        - Bare metal Windows
+        - Bare metal macOS
+        - NAS appliance (Synology, QNAP, Unraid, etc.)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Server CPU architecture
+      options:
+        - linux-x64 (amd64)
+        - linux-arm64
+        - linux-musl-x64 (Alpine)
+        - windows-x64
+        - macOS arm64 (Apple silicon)
+        - macOS x64 (Intel)
+        - Unsure / other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: reverse-proxy
+    attributes:
+      label: Is Jellyfin behind a reverse proxy?
+      options:
+        - "No — direct"
+        - Cloudflare (proxied / orange-cloud)
+        - Cloudflare Tunnel
+        - Caddy
+        - nginx
+        - Traefik
+        - HAProxy
+        - Authelia / Authentik / other auth proxy
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: Affected client(s)
+      multiple: true
+      options:
+        - Jellyfin Web (browser)
+        - Jellyfin Android
+        - Jellyfin Android TV
+        - Jellyfin iOS
+        - Jellyfin macOS / Roku
+        - Samsung Tizen / LG webOS Smart TV
+        - Swiftfin
+        - Findroid / Streamyfin
+        - Sonarr / Radarr / Lidarr (service integration)
+        - Other / unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the actual behaviour you observed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps so anyone can reproduce on their server.
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Jellyfin logs
+      description: |
+        Logs from `Dashboard → Logs`. Include lines tagged `[2FA]`, `Jellyfin.Plugin.TwoFactorAuth`,
+        or stack traces around the time of the issue. Redact tokens / IPs you don't want public.
+      render: text
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant plugin settings (optional)
+      description: |
+        e.g. "LAN bypass enabled, TrustForwardedFor on, OIDC configured with Authentik". DO NOT
+        paste secrets (client_secret, HMAC keys, recovery codes).
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, audit-log slices, browser console errors, anything that helps.

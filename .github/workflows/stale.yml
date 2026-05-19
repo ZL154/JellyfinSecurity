@@ -1,0 +1,47 @@
+name: Stale issues + PRs
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    name: Mark stale
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stale
+        uses: actions/stale@v9
+        with:
+          days-before-issue-stale: 45
+          days-before-issue-close: 14
+          stale-issue-label: "stale"
+          stale-issue-message: >
+            This issue has had no activity for 45 days. It will be closed in 14 days if there's
+            still no update. If it's still relevant, comment to keep it open, ideally with: which
+            plugin version you're now on, whether the issue still reproduces, and any new logs.
+          close-issue-message: >
+            Closing due to inactivity. If this is still a problem on a newer plugin / Jellyfin
+            version, please open a fresh issue with up-to-date details rather than re-opening this
+            one.
+
+          days-before-pr-stale: 60
+          days-before-pr-close: 21
+          stale-pr-label: "stale"
+          stale-pr-message: >
+            This PR has had no activity for 60 days. It will be closed in 21 days if there's no
+            further movement. Push a new commit, comment, or rebase to keep it open.
+          close-pr-message: >
+            Closing due to inactivity. The branch is still here — re-open or push a fresh PR when
+            you have time to pick it back up.
+
+          exempt-issue-labels: "pinned,security,help wanted,good first issue,roadmap"
+          exempt-pr-labels: "pinned,security,wip,blocked"
+
+          operations-per-run: 100
+          remove-stale-when-updated: true
+          ascending: true

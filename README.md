@@ -11,8 +11,17 @@
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/badge/Version-2.3.0-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/github/v/release/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&color=00a4dc&label=Version" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/ci.yml?branch=main&label=CI&logo=github" alt="CI" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/codeql.yml?branch=main&label=CodeQL&logo=github" alt="CodeQL" /></a>
+  <a href="https://codecov.io/gh/ZL154/JellyfinSecurity"><img src="https://img.shields.io/codecov/c/github/ZL154/JellyfinSecurity?logo=codecov&label=coverage" alt="Coverage" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/releases"><img src="https://img.shields.io/github/downloads/ZL154/JellyfinSecurity/total?logo=github&label=downloads" alt="Downloads" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/stargazers"><img src="https://img.shields.io/github/stars/ZL154/JellyfinSecurity?logo=github&label=stars" alt="Stars" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/blob/main/SECURITY.md"><img src="https://img.shields.io/badge/security-policy-blue?logo=gitbook&logoColor=white" alt="Security policy" /></a>
 </p>
 
 # 🔐 Jellyfin Security

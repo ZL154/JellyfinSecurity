@@ -1,0 +1,75 @@
+name: Feature request
+description: Suggest an idea or enhancement for the plugin.
+title: "[feat] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to suggest an improvement! The more context you give about the
+        *problem*, the more likely a good *solution* will land.
+
+  - type: checkboxes
+    id: pre-flight
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I've searched existing issues (open and closed) and this isn't a duplicate.
+          required: true
+        - label: This feature would be useful to Jellyfin users beyond just my deployment.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: |
+        Describe the use case in terms of "today I have to X, which is painful because Y" rather
+        than the solution. Concrete examples > abstract requirements.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you'd like the plugin to do. UI sketches / mock interactions welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches (workarounds, other plugins, separate tools) and why they fall short.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which area of the plugin does this touch?
+      multiple: true
+      options:
+        - TOTP / authenticator apps
+        - Email OTP
+        - Passkeys / WebAuthn
+        - OIDC / SSO
+        - Brute-force IP banning
+        - Impossible-travel detection
+        - Per-user IP allowlist
+        - App passwords
+        - Device pairing
+        - Trusted browser cookies
+        - Audit log
+        - Admin UI
+        - User Setup UI
+        - Notifications / webhooks
+        - API / integrations
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ZL154/JellyfinSecurity/security/advisories/new
+    about: Report security issues privately via GitHub Security Advisories (NOT a public issue).
+  - name: Question / help
+    url: https://github.com/ZL154/JellyfinSecurity/discussions
+    about: Ask a question or get setup help. Bug reports go through the bug template instead.
+  - name: Jellyfin server / general issue
+    url: https://github.com/jellyfin/jellyfin/issues
+    about: If the issue is with Jellyfin itself (not this plugin), file it upstream.

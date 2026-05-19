@@ -1,0 +1,53 @@
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/src/Jellyfin.Plugin.TwoFactorAuth"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "nuget"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      microsoft-identitymodel:
+        patterns:
+          - "Microsoft.IdentityModel.*"
+          - "System.IdentityModel.*"
+          - "IdentityModel.*"
+      fido2:
+        patterns:
+          - "Fido2*"
+    ignore:
+      # Floating wildcards on the Jellyfin SDK are intentional — pin/upgrade via csproj.
+      - dependency-name: "Jellyfin.Controller"
+      - dependency-name: "Jellyfin.Model"
+
+  - package-ecosystem: "nuget"
+    directory: "/tests/Jellyfin.Plugin.TwoFactorAuth.Tests"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "tests"
+    commit-message:
+      prefix: "deps(tests)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
