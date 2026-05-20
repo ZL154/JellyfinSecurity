@@ -74,6 +74,13 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public bool EmailOtpEnabled { get; set; } = true;
 
+    /// <summary>v2.4: opt-in Have I Been Pwned password check on successful
+    /// sign-in. Uses the public api.pwnedpasswords.com k-anonymity range API
+    /// — only the first 5 hex chars of SHA-1(password) leave the server.
+    /// On a breach hit, logs a warning + writes an audit entry. Default off
+    /// to keep existing installs unchanged; admins opt in.</summary>
+    public bool HibpEnabled { get; set; } = false;
+
     public int EmailOtpTtlSeconds { get; set; } = 300;
 
     public int ChallengeTokenTtlSeconds { get; set; } = 300;

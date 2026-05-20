@@ -35,6 +35,7 @@ public class TwoFactorEnforcementMiddleware
     private readonly RateLimiter _rateLimiter;
     private readonly IpBanService _ipBans;
     private readonly IpAllowlistService _allowlist;
+    private readonly HibpService _hibp;
     private readonly ILogger<TwoFactorEnforcementMiddleware> _logger;
 
     public TwoFactorEnforcementMiddleware(
@@ -47,6 +48,7 @@ public class TwoFactorEnforcementMiddleware
         RateLimiter rateLimiter,
         IpBanService ipBans,
         IpAllowlistService allowlist,
+        HibpService hibp,
         ILogger<TwoFactorEnforcementMiddleware> logger)
     {
         _next = next;
@@ -58,6 +60,7 @@ public class TwoFactorEnforcementMiddleware
         _rateLimiter = rateLimiter;
         _ipBans = ipBans;
         _allowlist = allowlist;
+        _hibp = hibp;
         _logger = logger;
     }
 
@@ -202,6 +205,54 @@ public class TwoFactorEnforcementMiddleware
             var userData = await _store.GetUserDataAsync(userGuid).ConfigureAwait(false);
             _logger.LogDebug("[2FA] User {Name} (id={Id}) TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
                 authResult.User.Name, userGuid, userData.TotpEnabled, userData.TotpVerified, config.RequireForAllUsers);
+
+            // v2.4: HIBP password-breach check. Opt-in (config.HibpEnabled).
+            // Fire-and-forget so we don't block the auth response on an
+            // external API call. The check is advisory only — on a hit we
+            // log + write an audit entry so the admin can act on it. We
+            // never block the user's login on HIBP because the password
+            // was already validated by Jellyfin core; preventing sign-in
+            // here would be a worse UX than telling them to rotate.
+            if (config.HibpEnabled && !string.IsNullOrEmpty(submittedPassword))
+            {
+                var pwForHibp = submittedPassword;
+                var hibpUsername = authResult.User.Name ?? string.Empty;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var count = await _hibp.CheckPasswordAsync(pwForHibp).ConfigureAwait(false);
+                        if (count > 0)
+                        {
+                            _logger.LogWarning(
+                                "[HIBP] User {Name} signed in with a password seen in {Count} known breaches",
+                                hibpUsername, count);
+                            try
+                            {
+                                await _store.AddAuditEntryAsync(new AuditEntry
+                                {
+                                    Timestamp = DateTime.UtcNow,
+                                    UserId = userGuid,
+                                    Username = hibpUsername,
+                                    RemoteIp = string.Empty,
+                                    DeviceId = string.Empty,
+                                    DeviceName = string.Empty,
+                                    Result = AuditResult.ConfigChanged,
+                                    Method = "hibp_breach:" + count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                                }).ConfigureAwait(false);
+                            }
+                            catch (Exception auditEx)
+                            {
+                                _logger.LogDebug(auditEx, "[HIBP] failed to write audit entry");
+                            }
+                        }
+                    }
+                    catch (Exception hibpEx)
+                    {
+                        _logger.LogDebug(hibpEx, "[HIBP] background check failed (fail open)");
+                    }
+                });
+            }
 
             var remoteIp = BypassEvaluator.ResolveClientIp(context) ?? context.Connection.RemoteIpAddress?.ToString();
             var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
