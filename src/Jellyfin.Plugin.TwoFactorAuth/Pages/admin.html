@@ -299,7 +299,13 @@
                                 <label><input type="checkbox" id="cfgEnabled" is="emby-checkbox" /> <span>Plugin Enabled</span></label>
                             </div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="cfgRequireAll" is="emby-checkbox" /> <span>Require 2FA for all users (forces enrollment)</span></label>
+                                <label for="cfgEnforceScope" style="display:block;margin-bottom:4px;">2FA enforcement scope</label>
+                                <select id="cfgEnforceScope" is="emby-select" style="width:100%;max-width:420px;">
+                                    <option value="Optional">Optional — users opt in from Setup page</option>
+                                    <option value="Admins">Admins only — only Jellyfin admins must have 2FA</option>
+                                    <option value="All">All users — everyone must enroll</option>
+                                </select>
+                                <div style="margin-top:4px;color:#888;font-size:13px;">v2.4: per-role policy. Admins-only is the standard pattern for shared media servers.</div>
                             </div>
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="cfgEmailOtp" is="emby-checkbox" /> <span>Allow email OTP as fallback</span></label>
@@ -996,7 +1002,10 @@
                 function loadSettings() {
                     ApiClient.getPluginConfiguration(pluginId).then(function(c) {
                         page.querySelector('#cfgEnabled').checked = !!c.Enabled;
-                        page.querySelector('#cfgRequireAll').checked = !!c.RequireForAllUsers;
+                        // v2.4: EnforcementScope dropdown. Legacy RequireForAllUsers=true
+                        // upgrades to scope=All. Default Optional for new configs.
+                        var scope = c.EnforcementScope || (c.RequireForAllUsers ? 'All' : 'Optional');
+                        page.querySelector('#cfgEnforceScope').value = scope;
                         page.querySelector('#cfgEmailOtp').checked = !!c.EmailOtpEnabled;
                         page.querySelector('#cfgLanBypass').checked = !!c.LanBypassEnabled;
                         page.querySelector('#cfgLanCidrs').value = (c.LanBypassCidrs || []).join('\n');
@@ -1057,7 +1066,11 @@
                 page.querySelector('#btnSaveSettings').addEventListener('click', function() {
                     ApiClient.getPluginConfiguration(pluginId).then(function(c) {
                         c.Enabled = page.querySelector('#cfgEnabled').checked;
-                        c.RequireForAllUsers = page.querySelector('#cfgRequireAll').checked;
+                        // v2.4: write EnforcementScope + keep legacy RequireForAllUsers
+                        // synced so a downgrade to v2.3 still honors the "All" intent.
+                        var scopeVal = page.querySelector('#cfgEnforceScope').value || 'Optional';
+                        c.EnforcementScope = scopeVal;
+                        c.RequireForAllUsers = (scopeVal === 'All');
                         c.EmailOtpEnabled = page.querySelector('#cfgEmailOtp').checked;
                         c.LanBypassEnabled = page.querySelector('#cfgLanBypass').checked;
                         c.LanBypassCidrs = page.querySelector('#cfgLanCidrs').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);

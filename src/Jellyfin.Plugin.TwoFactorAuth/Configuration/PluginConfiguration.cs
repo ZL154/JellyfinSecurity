@@ -12,11 +12,52 @@ public class UserEmailEntry
     public string Email { get; set; } = string.Empty;
 }
 
+/// <summary>v2.4: scope of 2FA enforcement. Replaces the all-or-nothing
+/// RequireForAllUsers flag with a 3-state policy. RequireForAllUsers is
+/// kept as a backwards-compat shim — setting it to true still works the
+/// same as EnforcementScope=All.</summary>
+public enum EnforcementScope
+{
+    /// <summary>Default. Each user opts in to 2FA from the Setup page.
+    /// Users without 2FA enabled sign in normally.</summary>
+    Optional = 0,
+
+    /// <summary>2FA is required for Jellyfin administrators. Regular users
+    /// remain Optional. Standard enterprise pattern: protect privileged
+    /// accounts hard, leave casual viewers alone.</summary>
+    Admins = 1,
+
+    /// <summary>2FA is required for every user. Equivalent to
+    /// RequireForAllUsers=true.</summary>
+    All = 2,
+}
+
 public class PluginConfiguration : BasePluginConfiguration
 {
     public bool Enabled { get; set; } = true;
 
+    /// <summary>Legacy v2.3-style global flag. Kept for backwards compat: if
+    /// true, behaves identically to EnforcementScope=All. Set the v2.4
+    /// EnforcementScope to opt into the per-role policy.</summary>
     public bool RequireForAllUsers { get; set; } = false;
+
+    /// <summary>v2.4: granular 2FA enforcement scope. Optional (per-user
+    /// opt-in), Admins (only admins must have 2FA), or All (everyone).</summary>
+    public EnforcementScope EnforcementScope { get; set; } = EnforcementScope.Optional;
+
+    /// <summary>Returns true iff this user must have 2FA enabled given the
+    /// current policy. Honors both the new EnforcementScope and the legacy
+    /// RequireForAllUsers flag so existing v2.3 configs upgrade cleanly.</summary>
+    public bool ShouldEnforceFor(bool isAdmin)
+    {
+        if (RequireForAllUsers) return true;
+        return EnforcementScope switch
+        {
+            EnforcementScope.All => true,
+            EnforcementScope.Admins => isAdmin,
+            _ => false,
+        };
+    }
 
     public bool LanBypassEnabled { get; set; } = true;
 

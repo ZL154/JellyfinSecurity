@@ -233,9 +233,17 @@ public class TwoFactorEnforcementMiddleware
                 return;
             }
 
-            if (!userData.TotpEnabled && !config.RequireForAllUsers)
+            // v2.4: honor EnforcementScope (Optional / Admins / All) instead
+            // of the all-or-nothing RequireForAllUsers flag. ShouldEnforceFor
+            // returns true when the policy says this specific user must have
+            // 2FA enabled. The legacy RequireForAllUsers flag is honored
+            // inside ShouldEnforceFor for backwards compat.
+            var isAdmin = authResult.User.Policy?.IsAdministrator ?? false;
+            if (!userData.TotpEnabled && !config.ShouldEnforceFor(isAdmin))
             {
-                _logger.LogDebug("[2FA] User has no 2FA and RequireForAllUsers=false — passing through");
+                _logger.LogDebug(
+                    "[2FA] User {Name} has no 2FA and policy scope ({Scope}) does not require it — passing through",
+                    authResult.User.Name, config.EnforcementScope);
                 _ipBans.RecordSuccess(remoteIp ?? string.Empty);
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
                 return;
@@ -447,7 +455,10 @@ public class TwoFactorEnforcementMiddleware
 
             _logger.LogInformation("[2FA] Issuing challenge for {Name} from {Ip}", authResult.User.Name, remoteIp);
 
-            var enrollmentRequired = config.RequireForAllUsers
+            // v2.4: ShouldEnforceFor honors both the new EnforcementScope
+            // (Optional / Admins / All) and the legacy RequireForAllUsers
+            // flag. isAdmin was extracted from authResult.User.Policy above.
+            var enrollmentRequired = config.ShouldEnforceFor(isAdmin)
                 && !userData.TotpVerified
                 && userData.Passkeys.Count == 0;
             var methods = new List<string>();
@@ -616,8 +627,18 @@ public class TwoFactorEnforcementMiddleware
 
         public string? Name { get; set; }
 
+        // v2.4: parsed so the middleware can honor EnforcementScope.Admins
+        // without a separate UserManager round-trip. Jellyfin's auth response
+        // body includes the full Policy object.
+        public AuthUserPolicy? Policy { get; set; }
+
         public Guid IdGuid => Guid.TryParseExact(Id, "N", out var g)
             ? g
             : (Guid.TryParse(Id, out var d) ? d : Guid.Empty);
+    }
+
+    private sealed class AuthUserPolicy
+    {
+        public bool IsAdministrator { get; set; }
     }
 }
