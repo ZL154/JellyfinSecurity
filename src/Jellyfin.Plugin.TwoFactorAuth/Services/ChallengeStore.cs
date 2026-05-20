@@ -54,18 +54,22 @@ public class ChallengeStore : IDisposable
     private readonly Timer _cleanupTimer;
     private bool _disposed;
 
+    // SEC v2.4 L7: IsNullOrWhiteSpace instead of IsNullOrEmpty so a deviceId
+    // of " " (single space) or "\t" can't sneak past the deviceless guard and
+    // grant a user-wide pre-verify bypass.
     private static string DeviceKey(Guid userId, string? deviceId)
-        => string.IsNullOrEmpty(deviceId) ? $"user:{userId:N}" : $"{userId:N}|{deviceId}";
+        => string.IsNullOrWhiteSpace(deviceId) ? $"user:{userId:N}" : $"{userId:N}|{deviceId}";
 
     /// <summary>
     /// Mark a specific (user, device) pair as pre-verified — the next session
     /// created for this combo within 2 minutes is allowed. Scoping to deviceId
     /// prevents other devices of the same user from silently bypassing 2FA.
-    /// Deviceless calls are IGNORED to avoid granting a user-wide bypass.
+    /// Deviceless / whitespace-only calls are IGNORED to avoid granting a
+    /// user-wide bypass.
     /// </summary>
     public void MarkDevicePreVerified(Guid userId, string? deviceId)
     {
-        if (string.IsNullOrEmpty(deviceId))
+        if (string.IsNullOrWhiteSpace(deviceId))
         {
             // Refuse to set a deviceless pre-verified mark — it would grant
             // a free-pass window to every other device of this user.
@@ -79,7 +83,7 @@ public class ChallengeStore : IDisposable
 
     public bool IsDevicePreVerified(Guid userId, string? deviceId)
     {
-        if (string.IsNullOrEmpty(deviceId)) return false;
+        if (string.IsNullOrWhiteSpace(deviceId)) return false;
         return _preVerifiedDevices.TryGetValue(DeviceKey(userId, deviceId), out var exp)
             && exp > DateTime.UtcNow;
     }
@@ -380,13 +384,15 @@ public class ChallengeStore : IDisposable
             return false;
         }
 
-        if (challenge.IsConsumed || challenge.ExpiresAt <= DateTime.UtcNow)
+        if (challenge.ExpiresAt <= DateTime.UtcNow)
         {
             return false;
         }
 
-        challenge.IsConsumed = true;
-        return true;
+        // SEC v2.4 L2: atomic claim. Previously this was check-then-set which
+        // allowed two concurrent /Verify requests against the same challenge
+        // token to both succeed and mint two sessions from one OTP code.
+        return challenge.TryConsume();
     }
 
     public void RemoveChallenge(string token)

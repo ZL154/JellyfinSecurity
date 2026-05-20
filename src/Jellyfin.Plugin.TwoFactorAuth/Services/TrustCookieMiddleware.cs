@@ -146,6 +146,35 @@ public class TrustCookieMiddleware
                 _logger.LogInformation("[2FA] Legacy trust cookie for {UserId} — ignored, user will re-verify to upgrade", userId);
                 // Strip the stale cookie so the browser doesn't keep sending it.
                 context.Response.Cookies.Delete("__2fa_trust");
+
+                // SEC v2.4 M4: surface this as an audit-log event so admins
+                // reviewing for compromise see it. A v1 cookie surviving past
+                // a v2 upgrade is benign for typical users (they just hadn't
+                // signed in for a while) but it's also the signature of a
+                // restored backup or a copied cookie — admins should be able
+                // to spot the pattern.
+                var remoteIp = BypassEvaluator.ResolveClientIp(context)
+                    ?? context.Connection.RemoteIpAddress?.ToString()
+                    ?? string.Empty;
+                try
+                {
+                    await _store.AddAuditEntryAsync(new Models.AuditEntry
+                    {
+                        Timestamp = DateTime.UtcNow,
+                        UserId = userId,
+                        Username = string.Empty,
+                        RemoteIp = remoteIp,
+                        DeviceId = string.Empty,
+                        DeviceName = string.Empty,
+                        Result = Models.AuditResult.ConfigChanged,
+                        Method = "trust_cookie_v1_stripped",
+                    }).ConfigureAwait(false);
+                }
+                catch (Exception auditEx)
+                {
+                    _logger.LogDebug(auditEx, "[2FA] Failed to write audit entry for trust cookie v1 strip");
+                }
+
                 await _next(context).ConfigureAwait(false);
                 return;
             }

@@ -35,6 +35,7 @@ public class TwoFactorEnforcementMiddleware
     private readonly RateLimiter _rateLimiter;
     private readonly IpBanService _ipBans;
     private readonly IpAllowlistService _allowlist;
+    private readonly HibpService _hibp;
     private readonly ILogger<TwoFactorEnforcementMiddleware> _logger;
 
     public TwoFactorEnforcementMiddleware(
@@ -47,6 +48,7 @@ public class TwoFactorEnforcementMiddleware
         RateLimiter rateLimiter,
         IpBanService ipBans,
         IpAllowlistService allowlist,
+        HibpService hibp,
         ILogger<TwoFactorEnforcementMiddleware> logger)
     {
         _next = next;
@@ -58,6 +60,7 @@ public class TwoFactorEnforcementMiddleware
         _rateLimiter = rateLimiter;
         _ipBans = ipBans;
         _allowlist = allowlist;
+        _hibp = hibp;
         _logger = logger;
     }
 
@@ -80,6 +83,18 @@ public class TwoFactorEnforcementMiddleware
 
         var config = Plugin.Instance?.Configuration;
         if (config is null || !config.Enabled)
+        {
+            await _next(context).ConfigureAwait(false);
+            return;
+        }
+
+        // SEC v2.4 M3: gate the 64KB request body allocation on path match
+        // BEFORE doing it. Previously this allocation happened on every JSON
+        // POST regardless of path, which meant any plugin admin endpoint or
+        // Library/Scan-style call paid the cost AND was a memory-amplification
+        // DoS vector. IsAuthPath was already authoritative downstream; just
+        // hoisting it up.
+        if (!IsAuthPath(path))
         {
             await _next(context).ConfigureAwait(false);
             return;
@@ -163,10 +178,11 @@ public class TwoFactorEnforcementMiddleware
         var bodyBytes = buffer.ToArray();
         var bodyText = Encoding.UTF8.GetString(bodyBytes);
 
-        // Restrict activation to actual Jellyfin auth endpoints AND to responses
-        // that structurally look like auth results. Prevents false positives on
-        // admin APIs that return lists of users/sessions.
-        if (!IsAuthPath(path) || !LooksLikeAuthResponse(bodyText))
+        // Path is already pre-validated at the top (SEC v2.4 M3). Only check
+        // response shape here — prevents false positives on third-party admin
+        // APIs that happen to return JSON bodies containing the literal
+        // substrings.
+        if (!LooksLikeAuthResponse(bodyText))
         {
             await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
             return;
@@ -189,6 +205,54 @@ public class TwoFactorEnforcementMiddleware
             var userData = await _store.GetUserDataAsync(userGuid).ConfigureAwait(false);
             _logger.LogDebug("[2FA] User {Name} (id={Id}) TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
                 authResult.User.Name, userGuid, userData.TotpEnabled, userData.TotpVerified, config.RequireForAllUsers);
+
+            // v2.4: HIBP password-breach check. Opt-in (config.HibpEnabled).
+            // Fire-and-forget so we don't block the auth response on an
+            // external API call. The check is advisory only — on a hit we
+            // log + write an audit entry so the admin can act on it. We
+            // never block the user's login on HIBP because the password
+            // was already validated by Jellyfin core; preventing sign-in
+            // here would be a worse UX than telling them to rotate.
+            if (config.HibpEnabled && !string.IsNullOrEmpty(submittedPassword))
+            {
+                var pwForHibp = submittedPassword;
+                var hibpUsername = authResult.User.Name ?? string.Empty;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var count = await _hibp.CheckPasswordAsync(pwForHibp).ConfigureAwait(false);
+                        if (count > 0)
+                        {
+                            _logger.LogWarning(
+                                "[HIBP] User {Name} signed in with a password seen in {Count} known breaches",
+                                hibpUsername, count);
+                            try
+                            {
+                                await _store.AddAuditEntryAsync(new AuditEntry
+                                {
+                                    Timestamp = DateTime.UtcNow,
+                                    UserId = userGuid,
+                                    Username = hibpUsername,
+                                    RemoteIp = string.Empty,
+                                    DeviceId = string.Empty,
+                                    DeviceName = string.Empty,
+                                    Result = AuditResult.ConfigChanged,
+                                    Method = "hibp_breach:" + count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                                }).ConfigureAwait(false);
+                            }
+                            catch (Exception auditEx)
+                            {
+                                _logger.LogDebug(auditEx, "[HIBP] failed to write audit entry");
+                            }
+                        }
+                    }
+                    catch (Exception hibpEx)
+                    {
+                        _logger.LogDebug(hibpEx, "[HIBP] background check failed (fail open)");
+                    }
+                });
+            }
 
             var remoteIp = BypassEvaluator.ResolveClientIp(context) ?? context.Connection.RemoteIpAddress?.ToString();
             var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
@@ -220,9 +284,17 @@ public class TwoFactorEnforcementMiddleware
                 return;
             }
 
-            if (!userData.TotpEnabled && !config.RequireForAllUsers)
+            // v2.4: honor EnforcementScope (Optional / Admins / All) instead
+            // of the all-or-nothing RequireForAllUsers flag. ShouldEnforceFor
+            // returns true when the policy says this specific user must have
+            // 2FA enabled. The legacy RequireForAllUsers flag is honored
+            // inside ShouldEnforceFor for backwards compat.
+            var isAdmin = authResult.User.Policy?.IsAdministrator ?? false;
+            if (!userData.TotpEnabled && !config.ShouldEnforceFor(isAdmin))
             {
-                _logger.LogDebug("[2FA] User has no 2FA and RequireForAllUsers=false — passing through");
+                _logger.LogDebug(
+                    "[2FA] User {Name} has no 2FA and policy scope ({Scope}) does not require it — passing through",
+                    authResult.User.Name, config.EnforcementScope);
                 _ipBans.RecordSuccess(remoteIp ?? string.Empty);
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
                 return;
@@ -407,7 +479,12 @@ public class TwoFactorEnforcementMiddleware
                         DeviceId = deviceId ?? string.Empty,
                         DeviceName = deviceName,
                         Result = AuditResult.Bypassed,
-                        Method = "app_password:" + matchedAp.Label,
+                        // SEC v2.4 L5: sanitize the user-supplied label so it
+                        // can't poison the audit log Method field (e.g. a
+                        // malicious admin labeling a password "paired_device"
+                        // to disguise an app-password bypass as a paired
+                        // device match).
+                        Method = "app_password:" + SanitizeLabel(matchedAp.Label),
                     }).ConfigureAwait(false);
                     _logger.LogInformation("[2FA] App password '{Label}' matched for {Name} — bypassing 2FA",
                         matchedAp.Label, authResult.User.Name);
@@ -429,7 +506,10 @@ public class TwoFactorEnforcementMiddleware
 
             _logger.LogInformation("[2FA] Issuing challenge for {Name} from {Ip}", authResult.User.Name, remoteIp);
 
-            var enrollmentRequired = config.RequireForAllUsers
+            // v2.4: ShouldEnforceFor honors both the new EnforcementScope
+            // (Optional / Admins / All) and the legacy RequireForAllUsers
+            // flag. isAdmin was extracted from authResult.User.Policy above.
+            var enrollmentRequired = config.ShouldEnforceFor(isAdmin)
                 && !userData.TotpVerified
                 && userData.Passkeys.Count == 0;
             var methods = new List<string>();
@@ -524,11 +604,33 @@ public class TwoFactorEnforcementMiddleware
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 
+    /// <summary>SEC v2.4 L5: sanitize a user-supplied label before it's
+    /// concatenated into the audit log Method field. Strips colons (the
+    /// Method-delimiter), strips ASCII control chars, caps length so a
+    /// malicious admin can't pad the field with bogus content.</summary>
+    private static string SanitizeLabel(string? label)
+    {
+        if (string.IsNullOrEmpty(label)) return string.Empty;
+        var sb = new System.Text.StringBuilder(Math.Min(label.Length, 32));
+        foreach (var c in label)
+        {
+            if (sb.Length >= 32) break;
+            if (c < 0x20 || c == 0x7F) continue; // control chars
+            if (c == ':') continue;              // method delimiter
+            sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
     private static bool LooksLikeAuthResponse(string body)
     {
         if (string.IsNullOrEmpty(body) || body.Length > 1_000_000) return false;
+        // SEC v2.4 L6: require all three Jellyfin auth-response substrings so
+        // third-party plugin admin responses that happen to mention AccessToken
+        // and User in a different shape don't get pulled into the 2FA flow.
         return body.Contains("\"AccessToken\"", StringComparison.Ordinal)
-            && body.Contains("\"User\"", StringComparison.Ordinal);
+            && body.Contains("\"User\"", StringComparison.Ordinal)
+            && body.Contains("\"SessionInfo\"", StringComparison.Ordinal);
     }
 
     private static string? ParseClientFromAuthHeader(string? header)
@@ -576,8 +678,18 @@ public class TwoFactorEnforcementMiddleware
 
         public string? Name { get; set; }
 
+        // v2.4: parsed so the middleware can honor EnforcementScope.Admins
+        // without a separate UserManager round-trip. Jellyfin's auth response
+        // body includes the full Policy object.
+        public AuthUserPolicy? Policy { get; set; }
+
         public Guid IdGuid => Guid.TryParseExact(Id, "N", out var g)
             ? g
             : (Guid.TryParse(Id, out var d) ? d : Guid.Empty);
+    }
+
+    private sealed class AuthUserPolicy
+    {
+        public bool IsAdministrator { get; set; }
     }
 }

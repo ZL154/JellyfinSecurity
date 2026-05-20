@@ -43,6 +43,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<ImpossibleTravelDetector>();
         services.AddSingleton<IpAllowlistService>();
         services.AddSingleton<OidcLoginTokenStore>();
+        // v2.4: HIBP password-breach check. Typed HttpClient gets its own
+        // configured client so the 3-second timeout in HibpService doesn't
+        // bleed into other Jellyfin HTTP calls.
+        services.AddHttpClient<HibpService>();
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddSingleton<IStartupFilter, TwoFactorStartupFilter>();
         services.AddHostedService<AuthenticationEventHandler>();
