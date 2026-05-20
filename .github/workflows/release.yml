@@ -81,5 +81,20 @@ jobs:
           SHA256="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.sha256"
           SIG="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip.sig"
           PEM="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip.pem"
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "Automated release for Jellyfin Security ${VERSION}. Sigstore-signed zip - verify with cosign verify-blob."
+          # Release body: prefer docs/release-notes/v<VERSION>.md, then docs/release-notes/<TAG>.md,
+          # then fall back to the generic blurb. Lets each release ship a real
+          # changelog without editing the workflow file.
+          NOTES_FILE=""
+          if [ -f "docs/release-notes/v${VERSION}.md" ]; then
+            NOTES_FILE="docs/release-notes/v${VERSION}.md"
+          elif [ -f "docs/release-notes/${TAG}.md" ]; then
+            NOTES_FILE="docs/release-notes/${TAG}.md"
+          fi
+          if [ -z "$NOTES_FILE" ]; then
+            echo "Automated release for Jellyfin Security ${VERSION}. Sigstore-signed zip - verify with cosign verify-blob." > "$RUNNER_TEMP/notes.md"
+            NOTES_FILE="$RUNNER_TEMP/notes.md"
+          fi
+          gh release view "$TAG" >/dev/null 2>&1 \
+            && gh release edit "$TAG" --notes-file "$NOTES_FILE" \
+            || gh release create "$TAG" --title "$TAG" --notes-file "$NOTES_FILE"
           gh release upload "$TAG" "$ZIP" "$MD5" "$SHA256" "$SIG" "$PEM" --clobber
