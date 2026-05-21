@@ -38,6 +38,7 @@ for file in \
     Fido2.Models.dll \
     NSec.Cryptography.dll \
     System.Formats.Cbor.dll \
+    Microsoft.Bcl.Memory.dll \
     MaxMind.Db.dll \
     QuestPDF.dll \
     IdentityModel.OidcClient.dll \

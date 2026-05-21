@@ -136,12 +136,15 @@ public class PasskeyService
 
         var excludeCreds = existing.Select(c => new PublicKeyCredentialDescriptor(Base64UrlDecode(c.CredentialId))).ToList();
 
-        var options = fido2.RequestNewCredential(
-            fidoUser,
-            excludeCreds,
-            AuthenticatorSelection.Default,
-            AttestationConveyancePreference.None,
-            new AuthenticationExtensionsClientInputs());
+        // Fido2 4.0: arguments moved to a single params object.
+        var options = fido2.RequestNewCredential(new RequestNewCredentialParams
+        {
+            User = fidoUser,
+            ExcludeCredentials = excludeCreds,
+            AuthenticatorSelection = AuthenticatorSelection.Default,
+            AttestationPreference = AttestationConveyancePreference.None,
+            Extensions = new AuthenticationExtensionsClientInputs(),
+        });
 
         return options.ToJson();
     }
@@ -187,19 +190,34 @@ public class PasskeyService
             return true;
         }
 
-        var success = await fido2.MakeNewCredentialAsync(raw, options, IsCredentialIdUnique).ConfigureAwait(false);
-        if (success.Result is null)
+        // Fido2 4.0: MakeNewCredentialAsync takes a params object and returns
+        // RegisteredPublicKeyCredential directly (no .Result wrapper).
+        // Verification failure is signalled by Fido2VerificationException
+        // instead of a null .Result + ErrorMessage string.
+        RegisteredPublicKeyCredential result;
+        try
         {
-            throw new InvalidOperationException("Attestation failed: " + (success.ErrorMessage ?? "unknown"));
+            result = await fido2.MakeNewCredentialAsync(new MakeNewCredentialParams
+            {
+                AttestationResponse = raw,
+                OriginalOptions = options,
+                IsCredentialIdUniqueToUserCallback = IsCredentialIdUnique,
+            }).ConfigureAwait(false);
+        }
+        catch (Fido2VerificationException ex)
+        {
+            throw new InvalidOperationException("Attestation failed: " + ex.Message, ex);
         }
 
+        // Property renames in 4.0: CredentialId→Id, Counter→SignCount,
+        // Aaguid→AaGuid. The on-disk PasskeyCredential shape is unchanged.
         var credential = new PasskeyCredential
         {
             Id = Guid.NewGuid().ToString("N"),
-            CredentialId = Base64UrlEncode(success.Result.CredentialId),
-            PublicKeyCose = Convert.ToBase64String(success.Result.PublicKey),
-            SignatureCounter = success.Result.Counter,
-            Aaguid = success.Result.Aaguid.ToString(),
+            CredentialId = Base64UrlEncode(result.Id),
+            PublicKeyCose = Convert.ToBase64String(result.PublicKey),
+            SignatureCounter = result.SignCount,
+            Aaguid = result.AaGuid.ToString(),
             Label = string.IsNullOrWhiteSpace(label) ? "Passkey" : label.Trim(),
             Transports = string.Empty,
             CreatedAt = DateTime.UtcNow,
@@ -222,10 +240,13 @@ public class PasskeyService
     {
         var fido2 = BuildFido2(context);
         var allow = userCreds.Select(c => new PublicKeyCredentialDescriptor(Base64UrlDecode(c.CredentialId))).ToList();
-        var options = fido2.GetAssertionOptions(
-            allow,
-            UserVerificationRequirement.Required,
-            new AuthenticationExtensionsClientInputs());
+        // Fido2 4.0: arguments moved to a single params object.
+        var options = fido2.GetAssertionOptions(new GetAssertionOptionsParams
+        {
+            AllowedCredentials = allow,
+            UserVerification = UserVerificationRequirement.Required,
+            Extensions = new AuthenticationExtensionsClientInputs(),
+        });
         return options.ToJson();
     }
 
@@ -263,11 +284,28 @@ public class PasskeyService
         }
 
         var publicKey = Convert.FromBase64String(stored.PublicKeyCose);
-        var result = await fido2.MakeAssertionAsync(
-            raw, options, publicKey, stored.SignatureCounter, IsUserHandleOwnerOfCredentialId)
-            .ConfigureAwait(false);
-
-        if (result.Status != "ok") return false;
+        // Fido2 4.0: MakeAssertionAsync uses a params object and signals
+        // verification failure via Fido2VerificationException instead of
+        // result.Status == "ok". The counter property was renamed to
+        // SignCount on VerifyAssertionResult (the upstream README still
+        // documents it as Counter; only SignCount actually exists in 4.0).
+        VerifyAssertionResult result;
+        try
+        {
+            result = await fido2.MakeAssertionAsync(new MakeAssertionParams
+            {
+                AssertionResponse = raw,
+                OriginalOptions = options,
+                StoredPublicKey = publicKey,
+                StoredSignatureCounter = stored.SignatureCounter,
+                IsUserHandleOwnerOfCredentialIdCallback = IsUserHandleOwnerOfCredentialId,
+            }).ConfigureAwait(false);
+        }
+        catch (Fido2VerificationException ex)
+        {
+            _logger.LogDebug(ex, "[Passkey] Assertion verification failed");
+            return false;
+        }
 
         // Persist counter + LastUsedAt so a future replay/clone with the old
         // counter is rejected.
@@ -276,7 +314,7 @@ public class PasskeyService
             var p = ud.Passkeys.FirstOrDefault(c => string.Equals(c.CredentialId, idB64, StringComparison.Ordinal));
             if (p is not null)
             {
-                p.SignatureCounter = result.Counter;
+                p.SignatureCounter = result.SignCount;
                 p.LastUsedAt = DateTime.UtcNow;
             }
         }).ConfigureAwait(false);

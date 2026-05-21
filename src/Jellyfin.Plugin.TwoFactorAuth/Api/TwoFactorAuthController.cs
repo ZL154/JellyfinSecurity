@@ -203,7 +203,12 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         var (secret, qrCodeBase64, manualEntryKey) = _totpService.GenerateSecret(challenge.Username);
-        userData.TotpEnabled = true;
+        // v2.4.1: only stash the secret here. TotpEnabled stays false until
+        // Confirm verifies a code. Without this, a user who clicks Begin
+        // Setup then navigates away gets stranded: TotpEnabled=true makes
+        // the middleware treat them as enrolled, but TotpVerified=false
+        // means "totp" isn't offered as a method — so on next sign-in they
+        // get an email-only challenge with no way to actually use it.
         userData.TotpVerified = false;
         userData.EncryptedTotpSecret = _totpService.EncryptSecret(secret, challenge.UserId);
         userData.LastUsedTotpStep = 0;
@@ -1127,7 +1132,11 @@ public class TwoFactorAuthController : ControllerBase
         var encryptedSecret = _totpService.EncryptSecret(secret, userId);
 
         var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
-        userData.TotpEnabled = true;
+        // v2.4.1: stash the secret only. TotpEnabled flips to true on Confirm
+        // (see ConfirmTotp). Otherwise a user who backs out of setup leaves
+        // the account half-enrolled — TotpEnabled=true tricks the auth gate
+        // into demanding 2FA, but TotpVerified=false means no TOTP method
+        // is offered, so they're locked out via an email-only challenge.
         userData.TotpVerified = false;
         userData.EncryptedTotpSecret = encryptedSecret;
         // SEC-M4: reset replay floor on new secret — future codes start fresh.
@@ -1176,6 +1185,10 @@ public class TwoFactorAuthController : ControllerBase
             return BadRequest("Invalid TOTP code");
         }
 
+        // v2.4.1: flip both flags here. SetupTotp stopped pre-setting
+        // TotpEnabled to avoid the half-enrollment lockout, so Confirm is
+        // the one place where TOTP is genuinely turned on.
+        userData.TotpEnabled = true;
         userData.TotpVerified = true;
         userData.LastUsedTotpStep = acceptedStep;
         await _store.SaveUserDataAsync(userData).ConfigureAwait(false);

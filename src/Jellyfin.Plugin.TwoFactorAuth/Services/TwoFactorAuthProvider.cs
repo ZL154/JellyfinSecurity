@@ -4,7 +4,9 @@ using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using MediaBrowser.Common;
@@ -323,7 +325,21 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             throw new AuthenticationException("Sign-in is not allowed from this network.");
         }
 
-        bool userNeeds2Fa = userData.TotpEnabled || config.RequireForAllUsers;
+        // v2.4.1: gate on a fully-enrolled second factor (verified TOTP or
+        // a passkey) and on the per-user enforcement scope, not on the bare
+        // TotpEnabled flag. SetupTotp no longer pre-sets TotpEnabled, but
+        // any half-enrolled rows left over from v2.4.0 (TotpEnabled=true,
+        // TotpVerified=false) are rescued here too — they read as "no 2FA"
+        // and pass straight through when policy doesn't require enrollment.
+        // Re-fetch via GetUserById to get the same User shape the controller
+        // uses (where HasPermission resolves). GetUserByName here may hand
+        // back the legacy IRequiresResolvedUser shape that lacks it.
+        var providerUserEntity = UserManager.GetUserById(jellyfinUser.Id);
+        var providerIsAdmin = providerUserEntity is not null
+            && providerUserEntity.HasPermission(PermissionKind.IsAdministrator);
+        bool hasRealTwoFactor = (userData.TotpEnabled && userData.TotpVerified)
+            || userData.Passkeys.Count > 0;
+        bool userNeeds2Fa = hasRealTwoFactor || config.ShouldEnforceFor(providerIsAdmin);
 
         if (!userNeeds2Fa)
         {
@@ -457,7 +473,9 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // 8. 2FA is required and no bypass applies — build the available
         //    methods list and issue a challenge token.
         // ------------------------------------------------------------------
-        var enrollmentRequired = config.RequireForAllUsers
+        // v2.4.1: use ShouldEnforceFor so per-role policy (Admins-only) is
+        // honored in this provider too, not just in the middleware.
+        var enrollmentRequired = config.ShouldEnforceFor(providerIsAdmin)
             && !userData.TotpVerified
             && userData.Passkeys.Count == 0;
         var methods = new List<string>();

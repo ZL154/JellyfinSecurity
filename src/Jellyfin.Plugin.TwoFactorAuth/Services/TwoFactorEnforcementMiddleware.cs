@@ -289,8 +289,19 @@ public class TwoFactorEnforcementMiddleware
             // returns true when the policy says this specific user must have
             // 2FA enabled. The legacy RequireForAllUsers flag is honored
             // inside ShouldEnforceFor for backwards compat.
+            //
+            // v2.4.1: gate on TotpEnabled && TotpVerified, not TotpEnabled
+            // alone. A user who clicked Begin Setup and navigated away has
+            // TotpEnabled=true with no verified secret — treating that as
+            // "has 2FA" lets the next sign-in fall through into a method
+            // list that omits "totp" (TotpVerified is false), leaving the
+            // user with an email-only challenge they may have no way to
+            // satisfy. Rescues any pre-existing half-enrolled rows from
+            // v2.4.0 too: they now pass through to no-2FA if policy allows.
             var isAdmin = authResult.User.Policy?.IsAdministrator ?? false;
-            if (!userData.TotpEnabled && !config.ShouldEnforceFor(isAdmin))
+            var hasRealTwoFactor = (userData.TotpEnabled && userData.TotpVerified)
+                || userData.Passkeys.Count > 0;
+            if (!hasRealTwoFactor && !config.ShouldEnforceFor(isAdmin))
             {
                 _logger.LogDebug(
                     "[2FA] User {Name} has no 2FA and policy scope ({Scope}) does not require it — passing through",
