@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "2.4.3.0",
+        "changelog": "v2.4.3 — Supply-chain + fuzz-testing release. No behavior changes (passkey, TOTP, OIDC, lockout, sessions, audit log all unchanged). SLSA build provenance: release zips now ship a signed in-toto attestation linking each artifact to its commit SHA + GitHub Actions workflow run. Verifiable via `gh attestation verify --owner ZL154 <zip>`. Brings the OpenSSF Scorecard Signed-Releases check to full credit. Fuzz testing: new tests/Jellyfin.Plugin.TwoFactorAuth.Fuzz/ project + SharpFuzz + ClusterFuzzLite scaffolding drives libFuzzer against BypassEvaluator.PickRealClientIp (the X-Forwarded-For parser that handles attacker-controlled HTTP headers). cflite_pr.yml runs a 5-minute fuzz on every PR touching src/ or the fuzz harness; crashes surface as SARIF in the Security tab. Internal: csproj pinned Jellyfin.Controller/Model to exact 10.11.8 (was 10.11.* wildcard) so a new 10.11.x patch can't silently break the release build. In-place upgrade.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.4.3/Jellyfin.Plugin.TwoFactorAuthv2.4.3.0.zip",
+        "checksum": "9E37AFF2BFCE073FDB74C23476237A02",
+        "timestamp": "2026-05-21T01:55:56Z"
+      },
+      {
         "version": "2.4.2.0",
         "changelog": "v2.4.2 — Code quality release. No behavior changes (passkey, TOTP, OIDC, lockout, sessions, audit log all unchanged). Cleared every analyzer warning the build was emitting: silenced 7 pure perf-only Roslyn rules (CA1848/1822/1805/1845/1865/1859/1869) in .editorconfig with documented justifications, fixed 13 correctness/clarity warnings in source (CA1001 IDisposable on OidcLoginTokenStore + OidcService so cleanup timers release cleanly, CA1305 culture-invariant ToString on Retry-After + OTP code, CA2249 IndexOf -> Contains, CA1835 Memory<byte> ReadAsync overload, CA2012 await ValueTask in admin RevokeSession, CA1806 explicit discard, CA1725 interface param names, CA1711 documented SuppressMessage, CA5350 SHA-1 annotated per-symbol with HIBP k-anonymity rationale). Enabled <TreatWarningsAsErrors>true</TreatWarningsAsErrors> so future regressions can't ship silently. Added coverage baseline via coverlet.collector (current: 7.8% lines / 6.6% branches). In-place upgrade.",
         "targetAbi": "10.11.0.0",
