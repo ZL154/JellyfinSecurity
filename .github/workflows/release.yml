@@ -51,6 +51,14 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # Pin cosign binary to v2.4.0 — newer v3+ cosign defaults to
+          # --new-bundle-format which silently ignores our --output-signature
+          # and --output-certificate flags, breaking the .sig/.pem assets
+          # Scorecard's Signed-Releases check looks for. v2.4.0 keeps the
+          # legacy flag behavior. Revisit when we're ready to migrate to
+          # cosign bundles + update the gh release upload list.
+          cosign-release: 'v2.4.0'
 
       - name: Sign release zip
         if: ${{ github.event.inputs.publish_release == 'true' }}
