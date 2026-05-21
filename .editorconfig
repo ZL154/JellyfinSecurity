@@ -28,6 +28,14 @@ indent_size = 2
 # when one of these log paths shows up as a profiling hotspot.
 dotnet_diagnostic.CA1848.severity = none
 
+# CA1873 (avoid potentially expensive logging): same family as CA1848.
+# A handful of log call sites compute a short string interpolation as the
+# message arg (e.g. counts, formatted timestamps). These run at most a
+# few times per minute on auth paths and the allocation is negligible.
+# Forcing every call through LoggerMessage delegates is the only fix
+# this rule accepts, and the cost/benefit matches CA1848.
+dotnet_diagnostic.CA1873.severity = none
+
 # CA1822 (mark members as static): the plugin treats services as singletons
 # registered via DI. Forcing every helper that happens not to touch instance
 # fields into a static method would churn every call site (e.g.
