@@ -7,12 +7,18 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.4.1.0</Version>
-    <AssemblyVersion>2.4.1.0</AssemblyVersion>
-    <FileVersion>2.4.1.0</FileVersion>
+    <Version>2.4.2.0</Version>
+    <AssemblyVersion>2.4.2.0</AssemblyVersion>
+    <FileVersion>2.4.2.0</FileVersion>
     <AnalysisMode>Recommended</AnalysisMode>
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <!-- v2.4.2: treat warnings as errors so future regressions can't ship
+         silently. The .editorconfig at repo root silences pure perf-only
+         rules (CA1848/1822/1805/1845/1865/1859/1869) with documented
+         justifications; everything else is either fixed or suppressed at
+         the symbol level. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- OSSF Pinned-Dependencies: lock every transitive NuGet by hash so
          dotnet restore is reproducible across machines and CI runs. CI uses
          locked mode (the cli flag) so any drift between the lock file and

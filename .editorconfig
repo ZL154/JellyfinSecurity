@@ -1,0 +1,72 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,csproj,props,targets}]
+indent_size = 4
+
+[*.{json,yml,yaml,html,js}]
+indent_size = 2
+
+# Roslyn analyzer overrides for this project. The rest of CA-series rules
+# follow the package default (Microsoft.CodeAnalysis.NetAnalyzers with
+# <AnalysisMode>Recommended</AnalysisMode>).
+
+[*.cs]
+
+# CA1848 (LoggerMessage delegates): the plugin has ~160 log call sites,
+# most of them in cold paths (config writes, audit-log entries, auth
+# challenge issuance). Migrating every call to source-generated
+# LoggerMessage partial methods would add ~500 lines of boilerplate
+# without measurable runtime impact at this scale. Microsoft's own .NET
+# runtime repo silences this rule for the same reason. Revisit if and
+# when one of these log paths shows up as a profiling hotspot.
+dotnet_diagnostic.CA1848.severity = none
+
+# CA1822 (mark members as static): the plugin treats services as singletons
+# registered via DI. Forcing every helper that happens not to touch instance
+# fields into a static method would churn every call site (e.g.
+# `_svc.Method()` -> `Svc.Method()`) without changing runtime behavior;
+# the rule is a micro-perf hint that isn't worth the API surface churn.
+dotnet_diagnostic.CA1822.severity = none
+
+# CA1805 (do not initialize unnecessarily): the configuration model
+# initializes fields with their type defaults to make the schema visible
+# to readers of the source. The rule's micro-allocation argument doesn't
+# apply because the configuration object is created once per server.
+dotnet_diagnostic.CA1805.severity = none
+
+# CA1845 (span-based string.Concat / AsSpan): perf hint for substring
+# concatenation. The handful of call sites in this plugin are not
+# performance-critical (audit-log formatting, OIDC scope joining); the
+# Spanic rewrites would obscure intent.
+dotnet_diagnostic.CA1845.severity = none
+
+# CA1865 (StartsWith/EndsWith char overload): perf hint. Call sites
+# parse small strings (HTTP-header `Authorization` keys, path prefixes);
+# the gain is unmeasurable at our scale.
+dotnet_diagnostic.CA1865.severity = none
+
+# CA1859 (use concrete types when possible to improve performance):
+# applies to a single internal helper in PasskeyService whose
+# `IFido2`-typed return value is intentional so the caller can be
+# substituted in unit tests.
+dotnet_diagnostic.CA1859.severity = none
+
+# CA1869 (cache JsonSerializerOptions): three call sites instantiate
+# JsonSerializerOptions per call. The allocation cost is irrelevant on
+# auth-and-config paths that run at most a few times per minute.
+# Revisit if the auth response interceptor ever becomes a hot path.
+dotnet_diagnostic.CA1869.severity = none
+
+# CA5350 (do not use weak cryptographic algorithms): TOTP uses
+# HMAC-SHA-1 by mandate of RFC 6238; HIBP k-anonymity uses SHA-1 by
+# mandate of the api.pwnedpasswords.com protocol. Neither use is a
+# security boundary. The call sites that intentionally use SHA-1 are
+# annotated with [SuppressMessage] at the symbol level so this global
+# severity stays at the default; do not set it to "none" here.

@@ -319,7 +319,7 @@ public class BypassEvaluator
                 var close = hop.IndexOf(']');
                 if (close > 0) hop = hop.Substring(1, close - 1);
             }
-            else if (hop.Count(c => c == ':') == 1 && hop.IndexOf('.') >= 0) {
+            else if (hop.Count(c => c == ':') == 1 && hop.Contains('.', StringComparison.Ordinal)) {
                 // IPv4 with port; IPv6 has many colons so this only triggers on v4.
                 hop = hop.Substring(0, hop.IndexOf(':'));
             }

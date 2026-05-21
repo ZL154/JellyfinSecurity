@@ -12,50 +12,50 @@ namespace Jellyfin.Plugin.TwoFactorAuth;
 
 public class PluginServiceRegistrator : IPluginServiceRegistrator
 {
-    public void RegisterServices(IServiceCollection services, IServerApplicationHost appHost)
+    public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
-        services.AddSingleton<UserTwoFactorStore>();
-        services.AddSingleton<ChallengeStore>();
-        services.AddSingleton<TotpService>();
-        services.AddSingleton<EmailOtpService>();
-        services.AddSingleton<DeviceTokenService>();
-        services.AddSingleton<DevicePairingService>();
-        services.AddSingleton<BypassEvaluator>();
-        services.AddSingleton<NotificationService>();
-        services.AddSingleton<CookieSigner>();
-        services.AddSingleton<RateLimiter>();
-        services.AddSingleton<RecoveryCodeService>();
-        services.AddSingleton<AppPasswordService>();
-        services.AddSingleton<PendingPairingService>();
-        services.AddSingleton<SessionTerminationService>();
-        services.AddSingleton<PasskeyChallengeStore>();
-        services.AddSingleton<PasskeyService>();
-        services.AddSingleton<GeoIpService>();
-        services.AddSingleton<SuspiciousLoginDetector>();
-        services.AddSingleton<DiagnosticsService>();
-        services.AddSingleton<StatsService>();
-        services.AddSingleton<UserExportService>();
-        services.AddSingleton<RecoveryCodePdfService>();
-        services.AddHostedService<SelfIpDetector>();
+        serviceCollection.AddSingleton<UserTwoFactorStore>();
+        serviceCollection.AddSingleton<ChallengeStore>();
+        serviceCollection.AddSingleton<TotpService>();
+        serviceCollection.AddSingleton<EmailOtpService>();
+        serviceCollection.AddSingleton<DeviceTokenService>();
+        serviceCollection.AddSingleton<DevicePairingService>();
+        serviceCollection.AddSingleton<BypassEvaluator>();
+        serviceCollection.AddSingleton<NotificationService>();
+        serviceCollection.AddSingleton<CookieSigner>();
+        serviceCollection.AddSingleton<RateLimiter>();
+        serviceCollection.AddSingleton<RecoveryCodeService>();
+        serviceCollection.AddSingleton<AppPasswordService>();
+        serviceCollection.AddSingleton<PendingPairingService>();
+        serviceCollection.AddSingleton<SessionTerminationService>();
+        serviceCollection.AddSingleton<PasskeyChallengeStore>();
+        serviceCollection.AddSingleton<PasskeyService>();
+        serviceCollection.AddSingleton<GeoIpService>();
+        serviceCollection.AddSingleton<SuspiciousLoginDetector>();
+        serviceCollection.AddSingleton<DiagnosticsService>();
+        serviceCollection.AddSingleton<StatsService>();
+        serviceCollection.AddSingleton<UserExportService>();
+        serviceCollection.AddSingleton<RecoveryCodePdfService>();
+        serviceCollection.AddHostedService<SelfIpDetector>();
         // v2.0
-        services.AddSingleton<OidcService>();
-        services.AddSingleton<IpBanService>();
-        services.AddSingleton<ImpossibleTravelDetector>();
-        services.AddSingleton<IpAllowlistService>();
-        services.AddSingleton<OidcLoginTokenStore>();
+        serviceCollection.AddSingleton<OidcService>();
+        serviceCollection.AddSingleton<IpBanService>();
+        serviceCollection.AddSingleton<ImpossibleTravelDetector>();
+        serviceCollection.AddSingleton<IpAllowlistService>();
+        serviceCollection.AddSingleton<OidcLoginTokenStore>();
         // v2.4: HIBP password-breach check. Typed HttpClient gets its own
         // configured client so the 3-second timeout in HibpService doesn't
         // bleed into other Jellyfin HTTP calls.
-        services.AddHttpClient<HibpService>();
-        services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
-        services.AddSingleton<IStartupFilter, TwoFactorStartupFilter>();
-        services.AddHostedService<AuthenticationEventHandler>();
+        serviceCollection.AddHttpClient<HibpService>();
+        serviceCollection.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+        serviceCollection.AddSingleton<IStartupFilter, TwoFactorStartupFilter>();
+        serviceCollection.AddHostedService<AuthenticationEventHandler>();
 
         // CRITICAL: Jellyfin discovers auth providers through DI, not MEF.
         // Without this line the provider class is never invoked — which is
         // why app passwords and the 2FA gate were completely inert in every
         // release prior to this one. The LDAP plugin does it the same way:
         // https://github.com/jellyfin/jellyfin-plugin-ldapauth/blob/master/LDAP-Auth/ServiceRegistrator.cs
-        services.AddSingleton<IAuthenticationProvider, TwoFactorAuthProvider>();
+        serviceCollection.AddSingleton<IAuthenticationProvider, TwoFactorAuthProvider>();
     }
 }

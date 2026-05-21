@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using System.Linq;
 using System.Net.Mime;
 using System.Security.Cryptography;
@@ -189,7 +190,7 @@ public class TwoFactorAuthController : ControllerBase
         var rl = _rateLimiter.CheckAndRecord("enroll_begin:" + request.ChallengeToken, 5, TimeSpan.FromMinutes(5));
         if (!rl.allowed)
         {
-            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(StatusCodes.Status429TooManyRequests, new
             {
                 message = $"Too many setup attempts. Try again in {rl.retryAfterSeconds} seconds.",
@@ -267,7 +268,7 @@ public class TwoFactorAuthController : ControllerBase
         var rl = _rateLimiter.CheckAndRecord("enroll_confirm:" + clientIp, 10, TimeSpan.FromMinutes(1));
         if (!rl.allowed)
         {
-            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(StatusCodes.Status429TooManyRequests, new
             {
                 message = $"Too many attempts. Try again in {rl.retryAfterSeconds} seconds.",
@@ -408,7 +409,7 @@ public class TwoFactorAuthController : ControllerBase
             var rl = _rateLimiter.CheckAndRecord("auth:" + clientIp, 10, TimeSpan.FromMinutes(1));
             if (!rl.allowed)
             {
-                Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+                Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
                 return StatusCode(StatusCodes.Status429TooManyRequests, new
                 {
                     message = $"Too many attempts. Try again in {rl.retryAfterSeconds} seconds.",
@@ -851,7 +852,7 @@ public class TwoFactorAuthController : ControllerBase
         var rl = _rateLimiter.CheckAndRecord("verify:" + clientIp, 10, TimeSpan.FromMinutes(1));
         if (!rl.allowed)
         {
-            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(StatusCodes.Status429TooManyRequests, new
             {
                 message = $"Too many attempts. Try again in {rl.retryAfterSeconds} seconds.",
@@ -881,7 +882,7 @@ public class TwoFactorAuthController : ControllerBase
         var userRl = _rateLimiter.CheckAndRecord("verify_user:" + challenge.UserId.ToString("N"), 15, TimeSpan.FromMinutes(15));
         if (!userRl.allowed)
         {
-            Response.Headers.Append("Retry-After", userRl.retryAfterSeconds.ToString());
+            Response.Headers.Append("Retry-After", userRl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(StatusCodes.Status429TooManyRequests, new
             {
                 message = $"Too many attempts for this account. Try again in {userRl.retryAfterSeconds} seconds.",
@@ -1442,7 +1443,7 @@ public class TwoFactorAuthController : ControllerBase
         var rl = _rateLimiter.CheckAndRecord("pair:" + ip, 5, TimeSpan.FromMinutes(5));
         if (!rl.allowed)
         {
-            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(StatusCodes.Status429TooManyRequests, new
             {
                 message = $"Too many pairing requests. Try again in {rl.retryAfterSeconds} seconds.",
@@ -1505,7 +1506,7 @@ public class TwoFactorAuthController : ControllerBase
         var pollRl = _rateLimiter.CheckAndRecord("pair_poll:" + pollIp, 60, TimeSpan.FromMinutes(1));
         if (!pollRl.allowed)
         {
-            Response.Headers.Append("Retry-After", pollRl.retryAfterSeconds.ToString());
+            Response.Headers.Append("Retry-After", pollRl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(StatusCodes.Status429TooManyRequests, new
             {
                 message = $"Too many poll requests. Try again in {pollRl.retryAfterSeconds} seconds.",
@@ -1969,7 +1970,7 @@ public class TwoFactorAuthController : ControllerBase
         var rl = _rateLimiter.CheckAndRecord("email:" + clientIp, 5, TimeSpan.FromMinutes(5));
         if (!rl.allowed)
         {
-            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(StatusCodes.Status429TooManyRequests, new
             {
                 message = $"Too many email requests. Try again in {rl.retryAfterSeconds} seconds.",
@@ -2044,7 +2045,7 @@ public class TwoFactorAuthController : ControllerBase
     [Authorize(Policy = "RequiresElevation")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult RevokeSession([FromRoute] string id)
+    public async Task<ActionResult> RevokeSession([FromRoute] string id)
     {
         var sessions = _sessionManager.Sessions;
         var session = sessions.FirstOrDefault(s => s.Id == id);
@@ -2054,7 +2055,7 @@ public class TwoFactorAuthController : ControllerBase
             return NotFound("Session not found");
         }
 
-        _sessionManager.ReportSessionEnded(id);
+        await _sessionManager.ReportSessionEnded(id).ConfigureAwait(false);
 
         return Ok();
     }
@@ -2532,7 +2533,7 @@ public class TwoFactorAuthController : ControllerBase
     {
         var userId = GetCurrentUserId();
         var result = _deviceManager.GetDevices(new DeviceQuery { UserId = userId });
-        var device = result.Items.FirstOrDefault(d => d.Id.ToString() == id);
+        var device = result.Items.FirstOrDefault(d => d.Id.ToString(CultureInfo.InvariantCulture) == id);
         if (device is null) return NotFound();
 
         // Calling ISessionManager.Logout(accessToken) revokes the token server-side
@@ -2737,7 +2738,7 @@ public class TwoFactorAuthController : ControllerBase
         var pkRl = _rateLimiter.CheckAndRecord("pk_assert:" + clientIp, 20, TimeSpan.FromMinutes(1));
         if (!pkRl.allowed)
         {
-            Response.Headers.Append("Retry-After", pkRl.retryAfterSeconds.ToString());
+            Response.Headers.Append("Retry-After", pkRl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(StatusCodes.Status429TooManyRequests, new
             {
                 message = $"Too many passkey requests. Try again in {pkRl.retryAfterSeconds} seconds.",
@@ -2787,7 +2788,7 @@ public class TwoFactorAuthController : ControllerBase
         var pkRl = _rateLimiter.CheckAndRecord("pk_assert:" + clientIp, 20, TimeSpan.FromMinutes(1));
         if (!pkRl.allowed)
         {
-            Response.Headers.Append("Retry-After", pkRl.retryAfterSeconds.ToString());
+            Response.Headers.Append("Retry-After", pkRl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(StatusCodes.Status429TooManyRequests, new
             {
                 message = $"Too many passkey requests. Try again in {pkRl.retryAfterSeconds} seconds.",
@@ -3269,7 +3270,7 @@ public class TwoFactorAuthController : ControllerBase
         var rl = _rateLimiter.CheckAndRecord("webhook_test", 5, TimeSpan.FromMinutes(1));
         if (!rl.allowed)
         {
-            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(429, new { message = $"Too many test requests. Retry in {rl.retryAfterSeconds}s." });
         }
         await _notificationService.NotifyLoginAttemptAsync("__test_user__", "127.0.0.1", "Webhook test", true).ConfigureAwait(false);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using System.Linq;
 using System.Net.Mime;
 using System.Threading.Tasks;
@@ -250,7 +251,7 @@ public class SecurityController : ControllerBase
         var rl = _oidcRateLimiter.CheckAndRecord("oidc_login:" + ip, 20, TimeSpan.FromMinutes(5));
         if (!rl.allowed)
         {
-            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(StatusCodes.Status429TooManyRequests, new
             {
                 message = $"Too many sign-in attempts. Try again in {rl.retryAfterSeconds} seconds.",
@@ -608,7 +609,7 @@ public class SecurityController : ControllerBase
         var rl = _rateLimiter.CheckAndRecord("passkey_login:" + ip, 20, TimeSpan.FromMinutes(5));
         if (!rl.allowed)
         {
-            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString());
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(StatusCodes.Status429TooManyRequests, new
             {
                 message = $"Too many attempts. Try again in {rl.retryAfterSeconds}s.",

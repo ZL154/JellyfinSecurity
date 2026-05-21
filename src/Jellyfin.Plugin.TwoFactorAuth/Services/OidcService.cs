@@ -26,7 +26,7 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 ///
 /// Discovery + JWKs are cached for 1h. PKCE verifier + state are stored in
 /// short-lived (10min) memory entries keyed by the random state nonce.</summary>
-public class OidcService
+public class OidcService : IDisposable
 {
     private record Discovery(
         string AuthorizationEndpoint,
@@ -61,6 +61,7 @@ public class OidcService
     private readonly ConcurrentDictionary<string, JwksCacheEntry> _jwksCache = new();
     private readonly ConcurrentDictionary<string, PendingFlow> _pendingFlows = new();
     private readonly Timer _cleanupTimer;
+    private bool _disposed;
 
     public OidcService(UserTwoFactorStore store, IUserManager userManager, ILogger<OidcService> logger)
     {
@@ -68,6 +69,19 @@ public class OidcService
         _userManager = userManager;
         _logger = logger;
         _cleanupTimer = new Timer(_ => SweepPending(), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+        if (disposing) _cleanupTimer.Dispose();
+        _disposed = true;
     }
 
     /// <summary>Build the full /authorize redirect URL the user's browser is
