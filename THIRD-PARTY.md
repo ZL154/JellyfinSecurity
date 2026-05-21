@@ -24,7 +24,7 @@ licenses:
 | NSec.Cryptography | MIT | <https://github.com/ektrah/nsec> |
 | SharpFuzz | MIT | <https://github.com/Metalnem/sharpfuzz> |
 
-# Plain-English summary of the MIT license that covers this plugin
+# MIT license that covers this plugin
 
 You CAN:
 
