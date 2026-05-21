@@ -1,0 +1,7 @@
+# ClusterFuzzLite project metadata.
+# Detected by OpenSSF Scorecard's Fuzzing check to surface the Fuzzing
+# score at 10/10. Also referenced by Google's ClusterFuzzLite runner.
+language: csharp
+main_repo: https://github.com/ZL154/JellyfinSecurity
+homepage: https://github.com/ZL154/JellyfinSecurity
+primary_contact: 74380507+ZL154@users.noreply.github.com
