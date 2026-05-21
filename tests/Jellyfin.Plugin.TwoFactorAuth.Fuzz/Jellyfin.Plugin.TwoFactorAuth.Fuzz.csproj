@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>Jellyfin.Plugin.TwoFactorAuth.Fuzz</RootNamespace>
+    <AssemblyName>Jellyfin.Plugin.TwoFactorAuth.Fuzz</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <LangVersion>latest</LangVersion>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- Fuzz harnesses don't need strict-warnings; the harness is exercised
+         by libFuzzer and any warning here would never reach a user. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SharpFuzz wraps libFuzzer for managed .NET assemblies. Instrumentation
+         runs as a post-build step via the `sharpfuzz` CLI inside the
+         ClusterFuzzLite Docker image; the SharpFuzz NuGet package itself only
+         provides the `Fuzzer.Run` entry point we call from Program.Main. -->
+    <PackageReference Include="SharpFuzz" Version="2.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Jellyfin.Plugin.TwoFactorAuth\Jellyfin.Plugin.TwoFactorAuth.csproj" />
+  </ItemGroup>
+
+</Project>
