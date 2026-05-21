@@ -27,7 +27,7 @@
       },
       "Jellyfin.Controller": {
         "type": "Direct",
-        "requested": "[10.11.*, )",
+        "requested": "[10.11.8, )",
         "resolved": "10.11.8",
         "contentHash": "xqyvm3gGmcw5+DywZMnIEIWEjQrOghE886LiFetvJasKNsm072ywLwo3sY5ewpKAQwoupKgvXC9GbWroc7m/7w==",
         "dependencies": {
@@ -43,7 +43,7 @@
       },
       "Jellyfin.Model": {
         "type": "Direct",
-        "requested": "[10.11.*, )",
+        "requested": "[10.11.8, )",
         "resolved": "10.11.8",
         "contentHash": "IDMW4pyr3JyQ/2DJDQixNyWQhoJCkCdHTKbSaeivcL0/7NJ7eZoEoUIE376qVhENq4+i7eeuel185752xAoDlA==",
         "dependencies": {

@@ -49,8 +49,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.*" />
-    <PackageReference Include="Jellyfin.Model" Version="10.11.*" />
+    <!-- Pinned to 10.11.8 deliberately. The wildcard form (10.11.*) silently
+         pulled 10.11.9 during a v2.4.3 release rebuild, and 10.11.9 changed
+         IUserManager.Users in a way that broke the build. Bumping these to a
+         newer 10.11.x is a deliberate change that requires verifying the
+         plugin still compiles and behaves correctly against the new ABI. -->
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.8" />
+    <PackageReference Include="Jellyfin.Model" Version="10.11.8" />
   </ItemGroup>
 
   <ItemGroup>
