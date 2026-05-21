@@ -42,6 +42,31 @@ updates:
     commit-message:
       prefix: "deps(tests)"
 
+  - package-ecosystem: "nuget"
+    directory: "/tests/Jellyfin.Plugin.TwoFactorAuth.Fuzz"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "fuzz"
+    commit-message:
+      prefix: "deps(fuzz)"
+
+  - package-ecosystem: "docker"
+    directory: "/.clusterfuzzlite"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "fuzz"
+    commit-message:
+      prefix: "deps(fuzz-docker)"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
