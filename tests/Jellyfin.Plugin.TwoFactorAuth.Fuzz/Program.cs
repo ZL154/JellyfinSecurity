@@ -22,6 +22,8 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Fuzz;
 /// ClusterFuzzLite handles all of that automatically inside the
 /// `.clusterfuzzlite/Dockerfile` build.
 /// </summary>
+// Marker change to verify cflite_pr.yml fires on PRs touching this file.
+// Safe to remove after the first successful ClusterFuzzLite PR run.
 internal static class Program
 {
     public static void Main(string[] args)
