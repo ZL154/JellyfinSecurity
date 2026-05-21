@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "2.4.1.0",
+        "changelog": "v2.4.1 — Bugfix + Fido2NetLib 4.0 migration. Bugfix: clicking Begin Setup then navigating away no longer leaves an account half-enrolled and locked out when EnforcementScope=All; TotpEnabled is now flipped only on ConfirmTotp success, and the auth-time gate (middleware + provider) checks (TotpEnabled && TotpVerified) instead of TotpEnabled alone, so any v2.4.0 rows already stuck in that state are auto-rescued on next sign-in. TwoFactorAuthProvider also now honours EnforcementScope (Optional/Admins-only/All) instead of the legacy RequireForAllUsers flag. Library: Fido2NetLib 3.0.1 to 4.0.1 — params-object API, exception-based failure, WebAuthn Level 3 fields (backup-eligibility, attestation format, transports) exposed for future policy work. Ships three new transitive deps (NSec.Cryptography, System.Formats.Cbor, Microsoft.Bcl.Memory) in the fat package. UI: EnforcementScope dropdown is now styled like the rest of the settings page. In-place upgrade; no migration.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.4.1/Jellyfin.Plugin.TwoFactorAuthv2.4.1.0.zip",
+        "checksum": "F9C216C357F3E2E638A412A7A98D9F86",
+        "timestamp": "2026-05-21T00:03:16Z"
+      },
+      {
         "version": "2.4.0.0",
         "changelog": "v2.4.0 \u2014 Security hardening, per-role policy, breach-password check, and 'Where am I signed in?'. Security: 10 fixes from internal review (email enumeration on 2FA endpoints rate-limited, atomic challenge consumption to close a passkey replay window, auth-path check hoisted before body buffering, audit-log label sanitization, passkey assertion rate limit, plus L-tier hardening). Policy: new EnforcementScope setting (Optional / Admins only / All users) replaces the old all-or-nothing toggle \u2014 Admins-only is the recommended pattern for shared media servers. HIBP (opt-in): on sign-in, the first 5 hex chars of SHA-1(password) are sent to api.pwnedpasswords.com (k-anonymity); a breach hit writes an audit entry and warning log but never blocks sign-in; fails open on outage. Sessions: Setup page now shows a 'Where am I signed in?' panel of your active devices and lets you self-revoke any of them. In-place upgrade.",
         "targetAbi": "10.11.0.0",
