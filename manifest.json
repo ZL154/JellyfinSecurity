@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "2.4.5.0",
+        "changelog": "v2.4.5 — Dependency-refresh + README polish. No plugin behavior changes (DLL functionally identical to v2.4.4). GitHub Actions deps refreshed via Dependabot: actions/checkout 5 to 6, actions/setup-dotnet 4.3 to 5.2, actions/attest-build-provenance 2.4 to 4.1, sigstore/cosign-installer 3.9 to 4.1 (with cosign binary pinned to v2.4.0 to preserve --output-signature/--output-certificate flags that Scorecard's Signed-Releases check needs), github/codeql-action 3.x to 4.35.5 (coordinated bump across init/analyze/upload-sarif after Dependabot's grouped PR shipped an inconsistent diff). Test deps: Microsoft.NET.Test.Sdk 17.12 to 18.5.1. Held back deliberately: Jellyfin.Controller/Model 10.11.8 to 10.11.9 (10.11.9 changed IUserManager.Users in a breaking way; pinned to 10.11.8 until planned SDK upgrade). README: test-count badge 125 to 150, expanded repo topics to include passkey/webauthn/oidc/sso/fido2. In-place upgrade.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.4.5/Jellyfin.Plugin.TwoFactorAuthv2.4.5.0.zip",
+        "checksum": "75288074EECBA087E08BE637A9AB873F",
+        "timestamp": "2026-05-21T03:34:32Z"
+      },
+      {
         "version": "2.4.4.0",
         "changelog": "v2.4.4 — OpenSSF Scorecard hygiene release. No behavior changes (plugin DLL byte-identical to v2.4.3). LICENSE rewritten to canonical MIT so GitHub's classifier recognizes it (the previous file had appended Third-party + Summary sections that broke detection); commentary moved to a new THIRD-PARTY.md. .clusterfuzzlite/Dockerfile no longer references the non-existent gcr.io/oss-fuzz-base/base-builder-csharp image (the upstream CFLite csharp docs cite an image that was never published) — swapped to the real base-builder pinned by SHA256. release.yml now uploads the SLSA provenance attestation as a *.intoto.jsonl release asset so Scorecard's Signed-Releases check sees provenance directly (previously it only lived in GitHub's attestation registry). In-place upgrade.",
         "targetAbi": "10.11.0.0",
