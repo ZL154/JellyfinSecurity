@@ -25,10 +25,14 @@ rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
 # Build managed assemblies once without RID (architecture-agnostic).
+# -p:RestoreLockedMode=true honors packages.lock.json so a newly-published
+# Jellyfin.Controller 10.11.x patch can't silently roll the wildcard
+# forward between release runs (this bit us going from 10.11.8 -> 10.11.9
+# during v2.4.3 — IUserManager.Users moved and the build broke).
 BASE_PUBLISH_DIR="$SCRIPT_DIR/dist/publish-base"
 rm -rf "$BASE_PUBLISH_DIR"
 echo "Building managed plugin (Release, no RID)..."
-dotnet publish "$PROJECT_DIR" -c Release --self-contained false -o "$BASE_PUBLISH_DIR" --nologo
+dotnet publish "$PROJECT_DIR" -c Release --self-contained false -o "$BASE_PUBLISH_DIR" --nologo -p:RestoreLockedMode=true
 
 for file in \
     Jellyfin.Plugin.TwoFactorAuth.dll \
@@ -58,7 +62,7 @@ for RID in "${RIDS[@]}"; do
     PUBLISH_DIR="$SCRIPT_DIR/dist/publish-$RID"
     rm -rf "$PUBLISH_DIR"
     echo "Building plugin (Release, RID=$RID)..."
-    dotnet publish "$PROJECT_DIR" -c Release -r "$RID" --self-contained false -o "$PUBLISH_DIR" --nologo
+    dotnet publish "$PROJECT_DIR" -c Release -r "$RID" --self-contained false -o "$PUBLISH_DIR" --nologo -p:RestoreLockedMode=true
 
     NATIVE_DIR="$PUBLISH_DIR/runtimes/$RID/native"
     TARGET_NATIVE_DIR="$OUTPUT_DIR/runtimes/$RID/native"
