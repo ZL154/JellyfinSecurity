@@ -117,7 +117,7 @@ public class TwoFactorEnforcementMiddleware
                 var totalRead = 0;
                 int read;
                 while (totalRead < buf.Length
-                    && (read = await context.Request.Body.ReadAsync(buf, totalRead, buf.Length - totalRead).ConfigureAwait(false)) > 0)
+                    && (read = await context.Request.Body.ReadAsync(buf.AsMemory(totalRead, buf.Length - totalRead)).ConfigureAwait(false)) > 0)
                 {
                     totalRead += read;
                 }

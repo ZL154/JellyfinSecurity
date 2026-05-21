@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Net;
 using System.Net.Mail;
 using System.Security.Cryptography;
@@ -39,7 +40,7 @@ public class EmailOtpService
             return (string.Empty, false);
         }
 
-        var code = RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
+        var code = RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6", CultureInfo.InvariantCulture);
         var ttlSeconds = Plugin.Instance?.Configuration.EmailOtpTtlSeconds ?? 300;
         var now = DateTime.UtcNow;
 

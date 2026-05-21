@@ -88,7 +88,7 @@ public class RequestBlockerMiddleware
                     ?? authResult.Principal.FindFirst(ClaimTypes.NameIdentifier);
                 if (claim is not null)
                 {
-                    Guid.TryParse(claim.Value, out userId);
+                    _ = Guid.TryParse(claim.Value, out userId);
                 }
             }
         }

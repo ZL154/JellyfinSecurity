@@ -258,9 +258,9 @@ public class NotificationService
                 // so users can paste a Discord webhook URL and have it work.
                 // Slack uses a different shape too — detect it and emit a
                 // simple text payload that Slack accepts.
-                var isDiscord = config.WebhookUrl.IndexOf("discord.com/api/webhooks", StringComparison.OrdinalIgnoreCase) >= 0
-                    || config.WebhookUrl.IndexOf("discordapp.com/api/webhooks", StringComparison.OrdinalIgnoreCase) >= 0;
-                var isSlack = config.WebhookUrl.IndexOf("hooks.slack.com", StringComparison.OrdinalIgnoreCase) >= 0;
+                var isDiscord = config.WebhookUrl.Contains("discord.com/api/webhooks", StringComparison.OrdinalIgnoreCase)
+                    || config.WebhookUrl.Contains("discordapp.com/api/webhooks", StringComparison.OrdinalIgnoreCase);
+                var isSlack = config.WebhookUrl.Contains("hooks.slack.com", StringComparison.OrdinalIgnoreCase);
                 string body;
                 if (isDiscord)
                 {

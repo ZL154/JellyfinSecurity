@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
@@ -112,6 +113,8 @@ public class HibpService
         }
     }
 
+    [SuppressMessage("Security", "CA5350:Do Not Use Weak Cryptographic Algorithms",
+        Justification = "SHA-1 is mandated by the HIBP k-anonymity API protocol (https://haveibeenpwned.com/API/v3#PwnedPasswords). Only the first 5 hex characters of the digest leave the server; the full hash is never transmitted. This is not a security boundary — the algorithm is required for interop with a public API.")]
     internal static string ComputeSha1Hex(string s)
     {
         var bytes = SHA1.HashData(Encoding.UTF8.GetBytes(s));

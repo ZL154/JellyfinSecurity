@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using Jellyfin.Data.Queries;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
@@ -8,6 +9,8 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
+[SuppressMessage("Naming", "CA1711:Identifiers should not have incorrect suffix",
+    Justification = "EventHandler suffix is reserved for delegate types but this class subscribes to ISessionManager events at startup; the suffix accurately describes its role. Renaming would churn callers without improving clarity.")]
 public class AuthenticationEventHandler : IHostedService
 {
     private readonly ISessionManager _sessionManager;

@@ -16,7 +16,7 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 ///
 /// Tokens are single-use (consumed on first match) and expire fast — replay
 /// is impossible after either trigger.</summary>
-public class OidcLoginTokenStore
+public class OidcLoginTokenStore : IDisposable
 {
     public const string TokenPrefix = "oidcbr_";
 
@@ -24,10 +24,24 @@ public class OidcLoginTokenStore
 
     private readonly ConcurrentDictionary<string, Entry> _tokens = new();
     private readonly Timer _sweep;
+    private bool _disposed;
 
     public OidcLoginTokenStore()
     {
         _sweep = new Timer(_ => Sweep(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+        if (disposing) _sweep.Dispose();
+        _disposed = true;
     }
 
     public string Mint(Guid userId, string username, string providerId, TimeSpan? ttl = null, bool bypassPluginTwoFa = true)
