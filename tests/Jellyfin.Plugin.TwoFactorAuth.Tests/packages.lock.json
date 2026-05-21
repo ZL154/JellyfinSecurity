@@ -610,8 +610,8 @@
         "dependencies": {
           "Fido2": "[4.0.1, )",
           "IdentityModel.OidcClient": "[6.0.0, )",
-          "Jellyfin.Controller": "[10.11.*, )",
-          "Jellyfin.Model": "[10.11.*, )",
+          "Jellyfin.Controller": "[10.11.8, )",
+          "Jellyfin.Model": "[10.11.8, )",
           "MaxMind.Db": "[5.0.0, )",
           "Microsoft.IdentityModel.Tokens": "[8.18.0, )",
           "Otp.NET": "[1.4.1, )",
