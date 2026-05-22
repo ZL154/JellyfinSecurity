@@ -36,6 +36,17 @@ public class ChallengeStore : IDisposable
     // these are one-shot per /Authenticate response intercept.
     private readonly ConcurrentDictionary<string, DateTime> _approvedTokens = new();
 
+    // Tokens that have completed 2FA at least once in this process lifetime.
+    // SessionStarted fires not only on initial login but also on websocket
+    // reconnects, new tabs, idle-resume, and reverse-proxy WS drops. Without
+    // tracking this set, AuthenticationEventHandler's failsafe BlockToken
+    // re-blocks an already-verified token whenever SessionStarted fires
+    // outside the 2-minute pre-verify window, causing RequestBlockerMiddleware
+    // to 401 every subsequent request — the "logged out every couple minutes"
+    // loop reported in issue #27. 30-day TTL covers typical session lifetimes;
+    // on process restart users re-prompt once per device which is acceptable.
+    private readonly ConcurrentDictionary<string, DateTime> _verifiedTokens = new();
+
     // PERF-P2: TCS waiters keyed by (userId, deviceId, token). The middleware
     // races SessionStarted (which runs in parallel during Jellyfin auth);
     // before this fix, the middleware polled _approvedTokens every 50ms up to
@@ -186,6 +197,30 @@ public class ChallengeStore : IDisposable
         {
             if (exp > DateTime.UtcNow) return true;
             _blockedTokens.TryRemove(token, out _);
+        }
+        return false;
+    }
+
+    /// <summary>Mark an access token as having completed 2FA. Called from the
+    /// /Authenticate success path and from the /Verify completion path.
+    /// AuthenticationEventHandler checks this before its failsafe BlockToken
+    /// so it doesn't re-block a token that has already been verified — without
+    /// which SessionStarted reconnects 3+ minutes after login cause a logout
+    /// loop (issue #27).</summary>
+    public void MarkTokenVerified(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return;
+        _verifiedTokens[token] = DateTime.UtcNow.AddDays(30);
+        EnforceCap(_verifiedTokens);
+    }
+
+    public bool IsTokenVerified(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return false;
+        if (_verifiedTokens.TryGetValue(token, out var exp))
+        {
+            if (exp > DateTime.UtcNow) return true;
+            _verifiedTokens.TryRemove(token, out _);
         }
         return false;
     }
@@ -429,6 +464,10 @@ public class ChallengeStore : IDisposable
         foreach (var kv in _approvedTokens)
         {
             if (kv.Value <= now) _approvedTokens.TryRemove(kv.Key, out _);
+        }
+        foreach (var kv in _verifiedTokens)
+        {
+            if (kv.Value <= now) _verifiedTokens.TryRemove(kv.Key, out _);
         }
         foreach (var kv in _seenPairTokens)
         {

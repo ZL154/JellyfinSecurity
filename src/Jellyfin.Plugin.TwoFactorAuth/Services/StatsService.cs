@@ -1,7 +1,9 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using MediaBrowser.Controller.Library;
 
@@ -34,7 +36,12 @@ public class StatsService
 
     public async Task<AdoptionStats> ComputeAsync()
     {
-        var jfUsers = _userManager.Users.ToList();
+        // Reflection-based enumeration to dodge a Jellyfin 10.11.9 ABI break.
+        // 10.11.9 changed IUserManager.Users's return type, so an IL-bound
+        // call site compiled against 10.11.8 throws MissingMethodException
+        // on a 10.11.9 host. Reflection re-binds at runtime and works
+        // against both ABIs.
+        var jfUsers = EnumerateUsers().ToList();
         var totalUsers = jfUsers.Count;
         var data = await _store.GetAllUsersAsync().ConfigureAwait(false);
 
@@ -79,5 +86,27 @@ public class StatsService
 
         return new AdoptionStats(totalUsers, enrolled, pct, recent7,
             failedVerifies24, lockouts24, success24, behind);
+    }
+
+    // See ComputeAsync — reflection avoids the 10.11.9 ABI break on
+    // IUserManager.Users. Empty enumeration on any failure so the admin
+    // stats page degrades gracefully instead of 500-ing.
+    private IEnumerable<User> EnumerateUsers()
+    {
+        IEnumerable? raw;
+        try
+        {
+            var prop = typeof(IUserManager).GetProperty(nameof(IUserManager.Users));
+            raw = prop?.GetValue(_userManager) as IEnumerable;
+        }
+        catch (Exception)
+        {
+            yield break;
+        }
+        if (raw is null) yield break;
+        foreach (var item in raw)
+        {
+            if (item is User u) yield return u;
+        }
     }
 }

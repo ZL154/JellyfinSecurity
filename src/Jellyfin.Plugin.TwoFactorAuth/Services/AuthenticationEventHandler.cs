@@ -253,6 +253,33 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
+        // Issue #27 fix: SessionStarted fires not only on initial login but
+        // also on websocket reconnects, new tabs, and idle-resume — all of
+        // which happen outside the 2-minute pre-verify window. If this token
+        // has already completed 2FA at least once, we are NOT looking at a
+        // fresh login; re-blocking it would 401 every subsequent request and
+        // log the user out every few minutes. Treat verified-token
+        // SessionStarted events as a reconnect: allow the session through.
+        if (!string.IsNullOrEmpty(approvedToken)
+            && _challengeStore.IsTokenVerified(approvedToken))
+        {
+            _logger.LogDebug("[2FA] {Name} SessionStarted on previously-verified token — reconnect, session allowed",
+                info.UserName);
+            _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = info.UserId,
+                Username = info.UserName ?? string.Empty,
+                RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                DeviceId = info.DeviceId ?? string.Empty,
+                DeviceName = info.DeviceName ?? string.Empty,
+                Result = AuditResult.Success,
+                Method = "reconnect",
+            }).ConfigureAwait(false);
+            return;
+        }
+
         _logger.LogInformation("[2FA] 2FA required for {Name} — middleware will replace response with challenge",
             info.UserName);
 
@@ -272,6 +299,9 @@ public class AuthenticationEventHandler : IHostedService
         // response. The Verify endpoint unblocks the stashed token after a
         // successful 2FA challenge, so blocking here protects leaked tokens
         // without revoking the session out from under the normal challenge flow.
+        // Note: the IsTokenVerified check above already returned for tokens
+        // that have completed 2FA, so reaching here means this is genuinely
+        // a fresh / unverified token.
         if (!string.IsNullOrEmpty(approvedToken))
         {
             _challengeStore.BlockToken(approvedToken);

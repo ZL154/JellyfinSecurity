@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
@@ -8,6 +9,7 @@ using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Data.Queries;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -686,6 +688,13 @@ public class TwoFactorAuthController : ControllerBase
 
             // --- Step 3: Auth succeeded. Now do the state mutations (trust record, audit, etc.) ---
             _challengeStore.UnblockAllForUser(user.Id);
+            // Mark the newly-minted access token as verified so the
+            // SessionStarted handler's failsafe BlockToken doesn't re-block
+            // it on reconnects 3+ minutes later (issue #27).
+            if (!string.IsNullOrEmpty(result.AccessToken))
+            {
+                _challengeStore.MarkTokenVerified(result.AccessToken);
+            }
             await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
             _rateLimiter.Reset("auth:" + clientIp);
             _ipBans.RecordSuccess(clientIp);
@@ -1087,6 +1096,30 @@ public class TwoFactorAuthController : ControllerBase
         });
     }
 
+    // Reflection-based enumeration to dodge Jellyfin 10.11.9's
+    // IUserManager.Users return-type ABI break. See issue #27 — the IL
+    // call site compiled against 10.11.8 throws MissingMethodException on
+    // a 10.11.9 host; reflection re-binds at runtime against either ABI.
+    // Empty enumeration on any failure so admin endpoints degrade gracefully.
+    private IEnumerable<User> EnumerateAllUsers()
+    {
+        IEnumerable? raw;
+        try
+        {
+            var prop = typeof(IUserManager).GetProperty(nameof(IUserManager.Users));
+            raw = prop?.GetValue(_userManager) as IEnumerable;
+        }
+        catch (Exception)
+        {
+            yield break;
+        }
+        if (raw is null) yield break;
+        foreach (var item in raw)
+        {
+            if (item is User u) yield return u;
+        }
+    }
+
     private void UnblockAccessTokenFromPendingAuthResponse(string pendingAuthResponse, string username)
     {
         if (string.IsNullOrEmpty(pendingAuthResponse))
@@ -1104,6 +1137,11 @@ public class TwoFactorAuthController : ControllerBase
                 if (!string.IsNullOrEmpty(token))
                 {
                     _challengeStore.UnblockToken(token);
+                    // Mark verified so AuthenticationEventHandler's failsafe
+                    // BlockToken doesn't re-block this token on subsequent
+                    // SessionStarted events (websocket reconnects, new tabs).
+                    // See ChallengeStore._verifiedTokens / issue #27.
+                    _challengeStore.MarkTokenVerified(token);
                     _logger.LogInformation("[2FA] Unblocked access token for {User} after successful 2FA", username);
                 }
             }
@@ -2925,7 +2963,11 @@ public class TwoFactorAuthController : ControllerBase
         {
             if (target.HasPermission(PermissionKind.IsAdministrator))
             {
-                var adminCount = _userManager.Users.Count(u =>
+                // Reflection-based enumeration — Jellyfin 10.11.9 changed
+                // IUserManager.Users's return type, breaking the IL-bound
+                // call site compiled against 10.11.8. Reflection works on
+                // both ABIs. See issue #27 / StatsService.EnumerateUsers.
+                var adminCount = EnumerateAllUsers().Count(u =>
                     u.HasPermission(PermissionKind.IsAdministrator));
                 if (adminCount <= 1)
                 {
