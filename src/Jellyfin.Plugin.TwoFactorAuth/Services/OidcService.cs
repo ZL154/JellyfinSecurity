@@ -178,6 +178,13 @@ public class OidcService : IDisposable
             return new CallbackResult(false, "IdP returned no id_token", null, null, null, null);
         }
         var idToken = idTokenEl.GetString()!;
+        // Issue #29: access_token is needed to fetch /userinfo for IdPs that
+        // emit `groups` only there (Authelia default, Keycloak realms, etc.).
+        string? accessToken = null;
+        if (tokenJson.TryGetProperty("access_token", out var atEl) && atEl.ValueKind == JsonValueKind.String)
+        {
+            accessToken = atEl.GetString();
+        }
 
         // Verify id_token signature against the IdP's JWKs + check nonce/issuer.
         ClaimsBundle claims;
@@ -189,6 +196,55 @@ public class OidcService : IDisposable
         {
             _logger.LogWarning(ex, "[2FA] OIDC id_token verification failed");
             return new CallbackResult(false, "Token verification failed: " + ex.Message, null, null, null, null);
+        }
+
+        // Issue #29: many IdPs (Authelia default, Keycloak default realms,
+        // Authentik) emit `groups`/`roles` ONLY in the /userinfo response, not
+        // in the id_token JWT. Without this, the AllowedGroups allowlist would
+        // reject every user regardless of what scopes were requested. Fetch
+        // userinfo and merge any group claims so the allowlist works against
+        // the full set.
+        if (!string.IsNullOrWhiteSpace(disc.UserInfoEndpoint) && !string.IsNullOrEmpty(accessToken))
+        {
+            try
+            {
+                var extra = await FetchUserInfoClaimsAsync(disc.UserInfoEndpoint, accessToken).ConfigureAwait(false);
+                if (extra.Groups.Length > 0)
+                {
+                    var merged = claims.Groups
+                        .Concat(extra.Groups)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+                    claims = claims with { Groups = merged };
+                    _logger.LogDebug("[2FA] OIDC merged {N} group(s) from /userinfo", extra.Groups.Length);
+                }
+                // Issue #29 follow-up: many IdPs (Authelia 4.39 default) also
+                // emit email/email_verified ONLY at /userinfo. Without merging
+                // them here, the ResolveUserAsync email-match path can never
+                // find an existing Jellyfin user, and the flow falls through to
+                // auto-create which collides with same-named existing users.
+                if (string.IsNullOrEmpty(claims.Email) && !string.IsNullOrEmpty(extra.Email))
+                {
+                    claims = claims with { Email = extra.Email, EmailVerified = extra.EmailVerified };
+                    _logger.LogDebug("[2FA] OIDC merged email from /userinfo (verified={V})", extra.EmailVerified);
+                }
+                // Username from userinfo when id_token didn't provide one
+                // under the configured UsernameClaim. Authelia's
+                // preferred_username is also typically userinfo-only.
+                if (string.IsNullOrEmpty(claims.Username) && !string.IsNullOrEmpty(extra.Username))
+                {
+                    claims = claims with { Username = extra.Username };
+                    _logger.LogDebug("[2FA] OIDC merged username from /userinfo");
+                }
+            }
+            catch (Exception ex)
+            {
+                // Userinfo is a best-effort supplement. id_token claims already
+                // verified the identity; failure here just means we don't
+                // augment claims. Log at Debug so it doesn't spam logs for
+                // IdPs that don't expose /userinfo at all.
+                _logger.LogDebug(ex, "[2FA] OIDC /userinfo fetch failed — continuing with id_token claims only");
+            }
         }
 
         // Optional: enforce IdP MFA via amr claim.
@@ -388,6 +444,102 @@ public class OidcService : IDisposable
 
         return new ClaimsBundle(sub, email, emailVerified, username, groups, amr);
     }
+
+    // Issue #29: fetch /userinfo and extract groups/email/username claims.
+    // Called from CompleteAsync to supplement id_token claims for IdPs that
+    // (by default) emit some or all of these only at /userinfo — Authelia,
+    // Keycloak, Authentik. Returns an empty bundle on any failure; userinfo
+    // is best-effort and must never block sign-in for a verified id_token.
+    private async Task<UserInfoExtract> FetchUserInfoClaimsAsync(string endpoint, string accessToken)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+        using var resp = await _http.SendAsync(req).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
+        {
+            _logger.LogDebug("[2FA] OIDC /userinfo returned {Status}", resp.StatusCode);
+            return UserInfoExtract.Empty;
+        }
+        var json = await resp.Content.ReadFromJsonAsync<JsonElement>().ConfigureAwait(false);
+        return ExtractClaimsFromUserInfo(json);
+    }
+
+    internal record UserInfoExtract(string[] Groups, string Email, bool EmailVerified, string Username)
+    {
+        public static UserInfoExtract Empty { get; } = new(Array.Empty<string>(), string.Empty, false, string.Empty);
+    }
+
+    /// <summary>Extract groups+roles+email+username claims from a userinfo
+    /// JSON document. Handles both JSON-array and comma-separated-string
+    /// representations for groups. Internal for direct testing via
+    /// InternalsVisibleTo.</summary>
+    internal static UserInfoExtract ExtractClaimsFromUserInfo(JsonElement json)
+    {
+        if (json.ValueKind != JsonValueKind.Object) return UserInfoExtract.Empty;
+
+        var groups = new List<string>();
+        foreach (var key in new[] { "groups", "roles" })
+        {
+            if (!json.TryGetProperty(key, out var prop)) continue;
+            switch (prop.ValueKind)
+            {
+                case JsonValueKind.Array:
+                    foreach (var item in prop.EnumerateArray())
+                    {
+                        if (item.ValueKind == JsonValueKind.String)
+                        {
+                            var v = item.GetString();
+                            if (!string.IsNullOrWhiteSpace(v)) groups.Add(v.Trim());
+                        }
+                    }
+                    break;
+                case JsonValueKind.String:
+                    var raw = prop.GetString();
+                    if (!string.IsNullOrWhiteSpace(raw))
+                    {
+                        foreach (var v in raw.Split(','))
+                        {
+                            var t = v.Trim();
+                            if (t.Length > 0) groups.Add(t);
+                        }
+                    }
+                    break;
+            }
+        }
+
+        var email = json.TryGetProperty("email", out var em) && em.ValueKind == JsonValueKind.String
+            ? em.GetString() ?? string.Empty
+            : string.Empty;
+
+        // email_verified can be bool true, bool false, or the strings "true"/"false".
+        var emailVerified = false;
+        if (json.TryGetProperty("email_verified", out var ev))
+        {
+            emailVerified = ev.ValueKind == JsonValueKind.True
+                || (ev.ValueKind == JsonValueKind.String
+                    && string.Equals(ev.GetString(), "true", StringComparison.OrdinalIgnoreCase));
+        }
+
+        // preferred_username is the standard OIDC claim; fall back to "name"
+        // if absent. The provider's UsernameClaim setting (handled in
+        // VerifyIdTokenAsync) wins for the id_token; here we just need ANY
+        // sensible username so auto-create has a label if it fires.
+        var username = string.Empty;
+        if (json.TryGetProperty("preferred_username", out var pu) && pu.ValueKind == JsonValueKind.String)
+        {
+            username = pu.GetString() ?? string.Empty;
+        }
+        else if (json.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String)
+        {
+            username = n.GetString() ?? string.Empty;
+        }
+
+        return new UserInfoExtract(groups.ToArray(), email, emailVerified, username);
+    }
+
+    // Back-compat shim — earlier test files call ExtractGroupsFromJson.
+    // Keeps the test interface stable while widening internals.
+    internal static string[] ExtractGroupsFromJson(JsonElement json) => ExtractClaimsFromUserInfo(json).Groups;
 
     private async Task<Discovery> GetDiscoveryAsync(OidcProvider provider)
     {

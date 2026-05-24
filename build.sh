@@ -51,6 +51,9 @@ for file in \
     Microsoft.IdentityModel.Logging.dll \
     Microsoft.IdentityModel.Tokens.dll \
     System.IdentityModel.Tokens.Jwt.dll \
+    MailKit.dll \
+    MimeKit.dll \
+    BouncyCastle.Cryptography.dll \
 ; do
     if [ -f "$BASE_PUBLISH_DIR/$file" ]; then
         cp "$BASE_PUBLISH_DIR/$file" "$OUTPUT_DIR/"

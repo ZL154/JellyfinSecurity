@@ -2,11 +2,13 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Net;
-using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
+using MailKit.Net.Smtp;
+using MailKit.Security;
+using MimeKit;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -71,26 +73,14 @@ public class EmailOtpService
             throw new InvalidOperationException("SMTP host and from address must be set in plugin settings.");
         }
 
-        using var smtp = new SmtpClient(config.SmtpHost, config.SmtpPort)
-        {
-            EnableSsl = config.SmtpUseSsl,
-            Timeout = 10000,
-        };
-        if (!string.IsNullOrEmpty(config.SmtpUsername))
-        {
-            smtp.Credentials = new NetworkCredential(config.SmtpUsername, config.SmtpPassword);
-        }
+        var msg = BuildMimeMessage(
+            config.SmtpFromAddress,
+            string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName,
+            toAddress,
+            "Jellyfin 2FA — SMTP test",
+            "If you received this, your SMTP configuration is working. Sent at " + DateTime.UtcNow.ToString("u") + " UTC.");
 
-        using var msg = new MailMessage
-        {
-            From = new MailAddress(config.SmtpFromAddress, string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName),
-            Subject = "Jellyfin 2FA — SMTP test",
-            Body = "If you received this, your SMTP configuration is working. Sent at " + DateTime.UtcNow.ToString("u") + " UTC.",
-            IsBodyHtml = false,
-        };
-        msg.To.Add(toAddress);
-
-        await smtp.SendMailAsync(msg).ConfigureAwait(false);
+        await SendMimeMessageAsync(config, msg).ConfigureAwait(false);
     }
 
     private async Task<bool> TrySendEmailAsync(string? email, string username, string code, int ttlSeconds)
@@ -116,27 +106,15 @@ public class EmailOtpService
 
         try
         {
-            using var smtp = new SmtpClient(config.SmtpHost, config.SmtpPort)
-            {
-                EnableSsl = config.SmtpUseSsl,
-                Timeout = 10000,
-            };
+            var msg = BuildMimeMessage(
+                config.SmtpFromAddress,
+                string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName,
+                email,
+                "Jellyfin sign-in code",
+                $"Hi {username},\n\nYour Jellyfin sign-in code is:\n\n  {code}\n\nThis code expires in {ttlSeconds / 60} minutes. If you did not request this code, change your password and revoke active sessions immediately.\n\n— Jellyfin 2FA");
 
-            if (!string.IsNullOrEmpty(config.SmtpUsername))
-            {
-                smtp.Credentials = new NetworkCredential(config.SmtpUsername, config.SmtpPassword);
-            }
+            await SendMimeMessageAsync(config, msg).ConfigureAwait(false);
 
-            using var msg = new MailMessage
-            {
-                From = new MailAddress(config.SmtpFromAddress, string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName),
-                Subject = "Jellyfin sign-in code",
-                Body = $"Hi {username},\n\nYour Jellyfin sign-in code is:\n\n  {code}\n\nThis code expires in {ttlSeconds / 60} minutes. If you did not request this code, change your password and revoke active sessions immediately.\n\n— Jellyfin 2FA",
-                IsBodyHtml = false,
-            };
-            msg.To.Add(email);
-
-            await smtp.SendMailAsync(msg).ConfigureAwait(false);
             // Mask the local-part of the email before logging — full addresses
             // in log files are PII (GDPR / general data minimisation).
             _logger.LogInformation("Email OTP sent to {Email} for {User}", MaskEmail(email), username);
@@ -146,6 +124,69 @@ public class EmailOtpService
         {
             _logger.LogError(ex, "Email OTP SMTP send failed for {User}", username);
             return false;
+        }
+    }
+
+    private static MimeMessage BuildMimeMessage(string fromAddress, string fromName, string toAddress, string subject, string body)
+    {
+        var msg = new MimeMessage();
+        msg.From.Add(new MailboxAddress(fromName, fromAddress));
+        msg.To.Add(MailboxAddress.Parse(toAddress));
+        msg.Subject = subject;
+        msg.Body = new TextPart("plain") { Text = body };
+        return msg;
+    }
+
+    /// <summary>
+    /// Send a MimeMessage via MailKit, honouring the plugin's SMTP config.
+    /// Issue #29: replaces System.Net.Mail.SmtpClient which only does STARTTLS
+    /// and silently fails on port 465 (Implicit TLS). MailKit picks the
+    /// right transport per port:
+    ///   - Port 465 → SslOnConnect (Implicit TLS / SMTPS)
+    ///   - Port 587 → StartTls
+    ///   - Other ports + UseSsl=true → StartTlsWhenAvailable
+    ///   - UseSsl=false → None (plaintext, opt-in for local testing)
+    /// </summary>
+    internal static SecureSocketOptions PickSocketOptions(int port, bool useSsl)
+    {
+        if (!useSsl) return SecureSocketOptions.None;
+        // Port 465 is Implicit TLS by spec — the client MUST initiate an SSL
+        // handshake before sending any SMTP commands. STARTTLS on 465 is
+        // wrong and the silent-failure root cause of issue #29.
+        if (port == 465) return SecureSocketOptions.SslOnConnect;
+        // Port 587 is the standard submission port using STARTTLS.
+        if (port == 587) return SecureSocketOptions.StartTls;
+        // Anything else: try STARTTLS if the server advertises it, otherwise
+        // proceed plaintext. Better than refusing to connect.
+        return SecureSocketOptions.StartTlsWhenAvailable;
+    }
+
+    private async Task SendMimeMessageAsync(Configuration.PluginConfiguration config, MimeMessage msg)
+    {
+        using var smtp = new SmtpClient
+        {
+            // 10s connect/handshake budget — same as the old SmtpClient.Timeout.
+            Timeout = 10_000,
+        };
+
+        var options = PickSocketOptions(config.SmtpPort, config.SmtpUseSsl);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try
+        {
+            await smtp.ConnectAsync(config.SmtpHost, config.SmtpPort, options, cts.Token).ConfigureAwait(false);
+            if (!string.IsNullOrEmpty(config.SmtpUsername))
+            {
+                await smtp.AuthenticateAsync(config.SmtpUsername, config.SmtpPassword, cts.Token).ConfigureAwait(false);
+            }
+            await smtp.SendAsync(msg, cts.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (smtp.IsConnected)
+            {
+                try { await smtp.DisconnectAsync(quit: true, cts.Token).ConfigureAwait(false); }
+                catch { /* best-effort QUIT */ }
+            }
         }
     }
 

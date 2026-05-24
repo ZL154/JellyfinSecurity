@@ -7,9 +7,9 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.4.7.0</Version>
-    <AssemblyVersion>2.4.7.0</AssemblyVersion>
-    <FileVersion>2.4.7.0</FileVersion>
+    <Version>2.4.8.0</Version>
+    <AssemblyVersion>2.4.8.0</AssemblyVersion>
+    <FileVersion>2.4.8.0</FileVersion>
     <AnalysisMode>Recommended</AnalysisMode>
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
@@ -36,6 +36,12 @@
   <ItemGroup>
     <PackageReference Include="Otp.NET" Version="1.4.1" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
+    <!-- Issue #29: MailKit replaces System.Net.Mail.SmtpClient for SMTP. The
+         BCL client only supports STARTTLS (port 587) — it silently fails on
+         port 465 (Implicit TLS / SMTPS) because EnableSsl=true sends EHLO in
+         plaintext to a server expecting an SSL ClientHello. Microsoft has
+         officially deprecated SmtpClient for SMTPS and recommends MailKit. -->
+    <PackageReference Include="MailKit" Version="4.16.0" />
     <PackageReference Include="Fido2" Version="4.0.1" />
     <PackageReference Include="MaxMind.Db" Version="5.0.0" />
     <PackageReference Include="QuestPDF" Version="2026.5.0" />

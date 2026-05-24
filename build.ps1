@@ -16,15 +16,35 @@ Write-Host "Building plugin ($Configuration)..." -ForegroundColor Cyan
 dotnet publish $ProjectDir -c $Configuration -o "$PSScriptRoot\dist\publish" --nologo
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
-# Copy only the required files
+# Copy only the required files (matches build.sh fat-package list)
 $RequiredFiles = @(
     "Jellyfin.Plugin.TwoFactorAuth.dll",
     "Otp.NET.dll",
-    "QRCoder.dll"
+    "QRCoder.dll",
+    "Fido2.dll",
+    "Fido2.Models.dll",
+    "NSec.Cryptography.dll",
+    "System.Formats.Cbor.dll",
+    "Microsoft.Bcl.Memory.dll",
+    "MaxMind.Db.dll",
+    "QuestPDF.dll",
+    "IdentityModel.OidcClient.dll",
+    "IdentityModel.dll",
+    "Microsoft.IdentityModel.Abstractions.dll",
+    "Microsoft.IdentityModel.JsonWebTokens.dll",
+    "Microsoft.IdentityModel.Logging.dll",
+    "Microsoft.IdentityModel.Tokens.dll",
+    "System.IdentityModel.Tokens.Jwt.dll",
+    "MailKit.dll",
+    "MimeKit.dll",
+    "BouncyCastle.Cryptography.dll"
 )
 
 foreach ($file in $RequiredFiles) {
-    Copy-Item "$PSScriptRoot\dist\publish\$file" $OutputDir
+    $src = "$PSScriptRoot\dist\publish\$file"
+    if (Test-Path $src) {
+        Copy-Item $src $OutputDir
+    }
 }
 
 # Copy meta.json
