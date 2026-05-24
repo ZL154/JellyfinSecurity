@@ -427,23 +427,16 @@ public class SecurityController : ControllerBase
         // attacker poison the flow. Fall back to Request.Host when unverified.
         var cfg = Plugin.Instance?.Configuration;
         var peer = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
-        var proxyTrusted = cfg is not null && cfg.TrustedProxyCidrs.Any(c => BypassEvaluator.IsIpInCidr(peer, c));
+        var trustedCidrs = (IReadOnlyList<string>?)cfg?.TrustedProxyCidrs ?? Array.Empty<string>();
 
-        string scheme;
-        string host;
-        if (proxyTrusted
-            && Request.Headers.TryGetValue("X-Forwarded-Proto", out var p) && !string.IsNullOrEmpty(p)
-            && Request.Headers.TryGetValue("X-Forwarded-Host", out var h) && !string.IsNullOrEmpty(h))
-        {
-            scheme = p.ToString().Split(',')[0].Trim();
-            host = h.ToString().Split(',')[0].Trim();
-        }
-        else
-        {
-            scheme = Request.Scheme;
-            host = Request.Host.ToString();
-        }
-        return $"{scheme}://{host}/TwoFactorAuth/Oidc/Callback/{providerId}";
+        return OidcRedirectUriBuilder.Build(
+            directScheme: Request.Scheme,
+            directHost: Request.Host.ToString(),
+            forwardedProto: Request.Headers.TryGetValue("X-Forwarded-Proto", out var p) ? p.ToString() : null,
+            forwardedHost: Request.Headers.TryGetValue("X-Forwarded-Host", out var h) ? h.ToString() : null,
+            peer: peer,
+            trustedCidrs: trustedCidrs,
+            providerId: providerId);
     }
 
     // =========================================================================
