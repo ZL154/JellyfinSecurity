@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "2.4.8.0",
+        "changelog": "v2.4.8 — Bug-fix release. Two real defects reported in issue #29 (Authelia + Gmail SMTP setup). (1) SMTP test email over port 465 silently failed because System.Net.Mail.SmtpClient.EnableSsl=true triggers STARTTLS rather than Implicit TLS — port 465 expects a TLS handshake BEFORE any SMTP commands. Fix: migrated to MailKit. New PickSocketOptions helper maps port 465 → SslOnConnect, port 587 → StartTls, other ports + UseSsl=true → StartTlsWhenAvailable. (2) OIDC sign-in via Authelia rejected users as 'not part of allowed groups' even when scopes included groups. Root cause: the plugin only read claims from the id_token JWT, but Authelia (default config), Keycloak (most realms), and Authentik emit groups/email/email_verified only at the /userinfo endpoint. Fix: after id_token verification, the plugin now fetches /userinfo with the access_token and merges any groups, roles, email, email_verified, and username claims before the AllowedGroups check and ResolveUserAsync. Validated end-to-end on a real Authelia 4.39 instance (same IdP family as the reporter) plus a real Gmail smtp.gmail.com:465 send. Ships MailKit + MimeKit + BouncyCastle.Cryptography in the fat package (~7.2MB total). 166/166 tests pass (5 new SMTP socket-option tests, 6 new userinfo extraction tests). In-place upgrade.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.4.8/Jellyfin.Plugin.TwoFactorAuthv2.4.8.0.zip",
+        "checksum": "6CA970A7D5E23D0141CD7A8F2C587AE9",
+        "timestamp": "2026-05-24T21:30:00Z"
+      },
+      {
         "version": "2.4.7.0",
         "changelog": "v2.4.7 — Bug-fix release. Fixes the OIDC redirect_uri http:// bug reported in issue #28 (Kanidm + cloudflared). Root cause: BuildRedirectUri's proxy-header check required BOTH X-Forwarded-Proto AND X-Forwarded-Host to be present before honoring either. Reverse-proxy setups that only emit X-Forwarded-Proto (cloudflared, many nginx configs, some Caddy setups) fell through to Request.Scheme which is 'http' when TLS terminates upstream; the IdP correctly rejected per the OAuth spec exact-match comparison. Fix: each forwarded header is now evaluated independently — X-Forwarded-Proto honored regardless of X-Forwarded-Host's presence, and vice versa. The proxyTrusted gate (peer must be in TrustedProxyCidrs) is unchanged for BOTH header checks, so attackers connecting directly still cannot inject either header. The URL-construction logic was extracted to a pure static helper OidcRedirectUriBuilder so it's testable without HttpContext mocking, and 5 regression tests were added covering happy path, the issue #28 fix, and two security-boundary regressions (untrusted-peer Proto + Host spoofing must remain ignored). 155/155 tests pass. In-place upgrade.",
         "targetAbi": "10.11.0.0",
