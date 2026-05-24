@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "2.4.7.0",
+        "changelog": "v2.4.7 — Bug-fix release. Fixes the OIDC redirect_uri http:// bug reported in issue #28 (Kanidm + cloudflared). Root cause: BuildRedirectUri's proxy-header check required BOTH X-Forwarded-Proto AND X-Forwarded-Host to be present before honoring either. Reverse-proxy setups that only emit X-Forwarded-Proto (cloudflared, many nginx configs, some Caddy setups) fell through to Request.Scheme which is 'http' when TLS terminates upstream; the IdP correctly rejected per the OAuth spec exact-match comparison. Fix: each forwarded header is now evaluated independently — X-Forwarded-Proto honored regardless of X-Forwarded-Host's presence, and vice versa. The proxyTrusted gate (peer must be in TrustedProxyCidrs) is unchanged for BOTH header checks, so attackers connecting directly still cannot inject either header. The URL-construction logic was extracted to a pure static helper OidcRedirectUriBuilder so it's testable without HttpContext mocking, and 5 regression tests were added covering happy path, the issue #28 fix, and two security-boundary regressions (untrusted-peer Proto + Host spoofing must remain ignored). 155/155 tests pass. In-place upgrade.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.4.7/Jellyfin.Plugin.TwoFactorAuthv2.4.7.0.zip",
+        "checksum": "BD55EE8B86355F9F5623086E6316347E",
+        "timestamp": "2026-05-24T14:30:00Z"
+      },
+      {
         "version": "2.4.6.0",
         "changelog": "v2.4.6 — Bug-fix release. Fixes the 'logged out every couple of minutes' loop reported in issue #27. Root cause: AuthenticationEventHandler subscribes to ISessionManager.SessionStarted, which fires not only on initial login but also on websocket reconnects, new tabs, idle-resume, and reverse-proxy WS drops (Traefik, Caddy, nginx). Once the 2-minute pre-verify window expired, the handler's failsafe BlockToken re-blocked the user's active access token; RequestBlockerMiddleware then 401'd every subsequent request, the client retried, a new SessionStarted fired, repeat. Fix: ChallengeStore now tracks tokens that have completed 2FA at least once in this process lifetime (30-day TTL, capped + swept). AuthenticationEventHandler skips the failsafe block and the session-end for verified tokens, treating those SessionStarted events as reconnects (audit log Method='reconnect'). The failsafe still fires for genuinely unverified tokens. Secondary fix: Jellyfin 10.11.9 changed IUserManager.Users's return type in a non-ABI-compatible way; StatsService.ComputeAsync and the AdminForceLogout 'last admin' guard now use reflection-based enumeration so they no longer throw MissingMethodException on 10.11.9 hosts. In-place upgrade.",
         "targetAbi": "10.11.0.0",
