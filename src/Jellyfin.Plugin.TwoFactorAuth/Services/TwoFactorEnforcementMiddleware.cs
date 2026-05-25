@@ -171,6 +171,13 @@ public class TwoFactorEnforcementMiddleware
             || buffer.Length == 0
             || !(context.Response.ContentType?.Contains("application/json", StringComparison.OrdinalIgnoreCase) ?? false))
         {
+            // Issue #35 diagnostic: surface the skip reason so bug reports
+            // immediately show why the intercept didn't fire on an auth path.
+            // Debug level — happens on legitimate non-200 auth failures too
+            // (wrong password) and we don't want to spam Info logs.
+            _logger.LogDebug(
+                "[2FA] Auth path {Path} but skipping response intercept (status={Status} bodyLen={Len} contentType={CT})",
+                path, context.Response.StatusCode, buffer.Length, context.Response.ContentType);
             await buffer.CopyToAsync(originalBody).ConfigureAwait(false);
             return;
         }
@@ -184,6 +191,21 @@ public class TwoFactorEnforcementMiddleware
         // substrings.
         if (!LooksLikeAuthResponse(bodyText))
         {
+            // Issue #35 diagnostic: this is the gate most likely to silently
+            // miss when Jellyfin's auth response shape varies (other plugins
+            // mutating it, chunked transfer caught mid-stream, schema drift).
+            // Log at Information so it surfaces without needing Debug — but
+            // only the substring-presence flags, NEVER the body itself (the
+            // body contains AccessToken + user PII).
+            _logger.LogInformation(
+                "[2FA] Auth path {Path} matched but response body didn't look like a Jellyfin auth response — pass-through. " +
+                "Body length: {Len}. Has \"AccessToken\": {HasAT}. Has \"User\": {HasU}. Has \"SessionInfo\": {HasSI}. " +
+                "If a 2FA-enabled user is stuck on login, see issue #35.",
+                path,
+                bodyText.Length,
+                bodyText.Contains("\"AccessToken\"", StringComparison.Ordinal),
+                bodyText.Contains("\"User\"", StringComparison.Ordinal),
+                bodyText.Contains("\"SessionInfo\"", StringComparison.Ordinal));
             await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
             return;
         }
