@@ -66,9 +66,9 @@
       },
       "MaxMind.Db": {
         "type": "Direct",
-        "requested": "[5.0.0, )",
-        "resolved": "5.0.0",
-        "contentHash": "7xRBQRdKy30oF+fQf6L/UIUF6IzPxUJe5yyjJ6U/qHmgPEZG9xlG1Q29wVPCoEhWGqwbgg6ZrBKraN9dBkQc+A=="
+        "requested": "[5.1.0, )",
+        "resolved": "5.1.0",
+        "contentHash": "u4fynkxX0bNLYaz90N9m9FiaOX22WmEFKlHnvlqw8sswngH54oYvgynhT4GXZvqTy8l7D96/+E9OVzuu34ex9w=="
       },
       "Microsoft.CodeAnalysis.NetAnalyzers": {
         "type": "Direct",
