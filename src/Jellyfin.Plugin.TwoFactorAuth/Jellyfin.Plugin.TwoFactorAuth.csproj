@@ -7,9 +7,9 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.4.9.0</Version>
-    <AssemblyVersion>2.4.9.0</AssemblyVersion>
-    <FileVersion>2.4.9.0</FileVersion>
+    <Version>2.4.10.0</Version>
+    <AssemblyVersion>2.4.10.0</AssemblyVersion>
+    <FileVersion>2.4.10.0</FileVersion>
     <AnalysisMode>Recommended</AnalysisMode>
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>

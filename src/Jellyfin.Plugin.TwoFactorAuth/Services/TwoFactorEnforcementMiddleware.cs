@@ -655,15 +655,30 @@ public class TwoFactorEnforcementMiddleware
         return sb.ToString();
     }
 
-    private static bool LooksLikeAuthResponse(string body)
+    /// <summary>
+    /// Quick substring-based sniff to decide whether a response body looks
+    /// like a Jellyfin auth result. Returns true if all three signature keys
+    /// (AccessToken, User, SessionInfo) appear, case-insensitively.
+    ///
+    /// SEC v2.4 L6: require all three substrings so third-party plugin admin
+    /// responses that happen to mention AccessToken and User in a different
+    /// shape don't get pulled into the 2FA flow.
+    ///
+    /// v2.4.10 (issue #35): comparison is OrdinalIgnoreCase to match
+    /// downstream JsonSerializer.Deserialize which uses
+    /// PropertyNameCaseInsensitive=true. The PascalCase-only check missed
+    /// camelCase responses (a reverse-proxy or response-wrapping middleware
+    /// in some users' pipelines rewrites the Jellyfin auth result with
+    /// camelCase keys). Case-insensitive matching covers both stock Jellyfin
+    /// PascalCase and the wrapped/rewritten camelCase variant without
+    /// loosening the three-key requirement.
+    /// </summary>
+    internal static bool LooksLikeAuthResponse(string body)
     {
         if (string.IsNullOrEmpty(body) || body.Length > 1_000_000) return false;
-        // SEC v2.4 L6: require all three Jellyfin auth-response substrings so
-        // third-party plugin admin responses that happen to mention AccessToken
-        // and User in a different shape don't get pulled into the 2FA flow.
-        return body.Contains("\"AccessToken\"", StringComparison.Ordinal)
-            && body.Contains("\"User\"", StringComparison.Ordinal)
-            && body.Contains("\"SessionInfo\"", StringComparison.Ordinal);
+        return body.Contains("\"AccessToken\"", StringComparison.OrdinalIgnoreCase)
+            && body.Contains("\"User\"", StringComparison.OrdinalIgnoreCase)
+            && body.Contains("\"SessionInfo\"", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? ParseClientFromAuthHeader(string? header)
