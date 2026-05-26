@@ -141,6 +141,95 @@ public class BypassEvaluatorTests
         Assert.Equal("1.2.3.4", result);
     }
 
+    // ---- Refuse-LAN-bypass guard (v2.4.12 SEC-H3) --------------------------
+
+    [Fact]
+    public void ShouldRefuseLanBypass_when_xff_missing_and_peer_is_trusted_proxy()
+    {
+        // Regression for issue #35 follow-up reported by @FsxShader2012.
+        // SessionStarted fires from a websocket reconnect with no live
+        // HttpContext.Request, so AuthenticationEventHandler's synchronous
+        // XFF capture is null. The peer is the nginx box (10.150.0.203) which
+        // sits inside the admin's LAN-bypass CIDR. Without this guard the
+        // bypass evaluator would treat the proxy itself as a LAN client and
+        // silently ApproveToken without 2FA.
+        Assert.True(BypassEvaluator.ShouldRefuseLanBypassWhenXffMissing(
+            forwardedFor: null,
+            remoteIp: "10.150.0.203",
+            trustedProxyCidrs: new[] { "10.150.0.0/24" }));
+    }
+
+    [Fact]
+    public void ShouldRefuseLanBypass_returns_false_when_xff_is_present()
+    {
+        // The standard SEC-H2 right-to-left walk handles this case via
+        // PickRealClientIp — the guard must defer to it, not block.
+        Assert.False(BypassEvaluator.ShouldRefuseLanBypassWhenXffMissing(
+            forwardedFor: "203.0.113.5, 10.150.0.203",
+            remoteIp: "10.150.0.203",
+            trustedProxyCidrs: new[] { "10.150.0.0/24" }));
+    }
+
+    [Fact]
+    public void ShouldRefuseLanBypass_returns_false_for_direct_lan_client()
+    {
+        // Direct LAN client (peer in 192.168.1.0/24, NOT in any trusted-proxy
+        // CIDR) with no XFF — should fall through to the normal LAN-CIDR
+        // check, not be refused. This is the everyday LAN-bypass case and
+        // must keep working.
+        Assert.False(BypassEvaluator.ShouldRefuseLanBypassWhenXffMissing(
+            forwardedFor: null,
+            remoteIp: "192.168.1.50",
+            trustedProxyCidrs: new[] { "10.150.0.0/24" }));
+    }
+
+    [Fact]
+    public void ShouldRefuseLanBypass_returns_false_when_no_trusted_proxies_configured()
+    {
+        // Admin hasn't configured a trusted-proxy list at all — we have no
+        // way to know if the peer is supposed to be a proxy, so we don't
+        // intervene. The standard LAN-CIDR check handles it downstream.
+        Assert.False(BypassEvaluator.ShouldRefuseLanBypassWhenXffMissing(
+            forwardedFor: null,
+            remoteIp: "10.150.0.203",
+            trustedProxyCidrs: System.Array.Empty<string>()));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ShouldRefuseLanBypass_returns_false_when_remote_ip_missing(string? remoteIp)
+    {
+        // Can't classify a peer we don't have — defer to default behaviour.
+        Assert.False(BypassEvaluator.ShouldRefuseLanBypassWhenXffMissing(
+            forwardedFor: null,
+            remoteIp: remoteIp,
+            trustedProxyCidrs: new[] { "10.150.0.0/24" }));
+    }
+
+    [Fact]
+    public void ShouldRefuseLanBypass_handles_multi_cidr_proxy_list()
+    {
+        // Admin lists multiple trusted-proxy ranges (e.g. nginx LAN IP +
+        // Cloudflare edge). Peer matching ANY of them must trigger the guard.
+        Assert.True(BypassEvaluator.ShouldRefuseLanBypassWhenXffMissing(
+            forwardedFor: null,
+            remoteIp: "172.65.0.42",
+            trustedProxyCidrs: new[] { "10.150.0.0/24", "172.65.0.0/16" }));
+    }
+
+    [Fact]
+    public void ShouldRefuseLanBypass_treats_whitespace_only_xff_as_missing()
+    {
+        // A header that's just spaces is semantically the same as absent.
+        // Guard must still fire if peer is a trusted proxy.
+        Assert.True(BypassEvaluator.ShouldRefuseLanBypassWhenXffMissing(
+            forwardedFor: "   ",
+            remoteIp: "10.150.0.203",
+            trustedProxyCidrs: new[] { "10.150.0.0/24" }));
+    }
+
     // ---- Device ID normalisation ------------------------------------------
 
     [Fact]

@@ -66,6 +66,7 @@ public class BypassEvaluator
         if (config is { LanBypassEnabled: true })
         {
             string? ipToCheck = remoteIp;
+            var refuseLanBypass = false;
 
             if (config.TrustForwardedFor && !string.IsNullOrWhiteSpace(forwardedFor))
             {
@@ -95,8 +96,16 @@ public class BypassEvaluator
                     ipToCheck = PickRealClientIp(forwardedFor, config.TrustedProxyCidrs) ?? ipToCheck;
                 }
             }
+            else if (config.TrustForwardedFor
+                     && ShouldRefuseLanBypassWhenXffMissing(forwardedFor, remoteIp, config.TrustedProxyCidrs))
+            {
+                refuseLanBypass = true;
+                _logger.LogDebug(
+                    "Refusing LAN bypass: peer {Ip} is a trusted proxy but no X-Forwarded-For was visible — cannot safely resolve real client IP",
+                    remoteIp);
+            }
 
-            if (!string.IsNullOrWhiteSpace(ipToCheck))
+            if (!refuseLanBypass && !string.IsNullOrWhiteSpace(ipToCheck))
             {
                 foreach (var cidr in config.LanBypassCidrs)
                 {
@@ -293,6 +302,43 @@ public class BypassEvaluator
         }
 
         return true;
+    }
+
+    /// <summary>v2.4.12 SEC-H3: returns true when we KNOW the request reached us
+    /// through the configured trusted proxy chain but cannot recover the real
+    /// upstream client IP because no X-Forwarded-For header was observed. Fires
+    /// when forwardedFor is null/empty AND the direct peer IP falls inside one
+    /// of the trusted proxy CIDRs. In that state the bypass evaluator must
+    /// refuse LAN bypass rather than treat the proxy itself as a LAN client.
+    ///
+    /// Trigger case (issue #35 follow-up, FsxShader2012): SessionStarted events
+    /// that fire from websocket reconnects or internal Jellyfin jobs run
+    /// without a live HttpContext.Request, so AuthenticationEventHandler's
+    /// synchronous XFF capture sees null even though the original session was
+    /// established through nginx. Without this guard the bypass evaluator
+    /// falls back to the peer IP (the proxy), matches the admin's LAN bypass
+    /// CIDR (which typically covers the LAN range the proxy sits in), and
+    /// silently approves an unverified token via ApproveToken.
+    ///
+    /// Returns false (so LAN bypass proceeds normally) when:
+    ///   - forwardedFor is present (the existing XFF walk handles it),
+    ///   - trustedProxyCidrs is empty (no proxy chain configured — direct
+    ///     LAN traffic),
+    ///   - peer is not in any trusted-proxy CIDR (direct LAN client, OK to
+    ///     check against LAN CIDRs).</summary>
+    internal static bool ShouldRefuseLanBypassWhenXffMissing(
+        string? forwardedFor,
+        string? remoteIp,
+        string[] trustedProxyCidrs)
+    {
+        if (!string.IsNullOrWhiteSpace(forwardedFor)) return false;
+        if (trustedProxyCidrs is null || trustedProxyCidrs.Length == 0) return false;
+        if (string.IsNullOrWhiteSpace(remoteIp)) return false;
+        foreach (var proxyCidr in trustedProxyCidrs)
+        {
+            if (IsIpInCidr(remoteIp, proxyCidr)) return true;
+        }
+        return false;
     }
 
     /// <summary>SEC-H2: walk a comma-separated X-Forwarded-For value right-to-left

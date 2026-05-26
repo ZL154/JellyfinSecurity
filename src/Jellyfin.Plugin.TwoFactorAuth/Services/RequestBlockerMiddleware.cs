@@ -7,7 +7,14 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
 /// <summary>
 /// Blocks authenticated requests from users who logged in without completing 2FA.
-/// Returns 401 so Jellyfin clients fall back to re-authentication.
+/// v2.4.12: returns 403 (was 401 pre-v2.4.12). 403 is more semantically correct
+/// — we DO know who the caller is, they just lack permission until 2FA completes
+/// — and crucially SWAG's default nginx-unauthorized fail2ban jail (and similar
+/// nginx-only-watches-401 setups) does not count 403s, so a single legitimate
+/// 2FA login no longer trips a brute-force ban on the reverse proxy. The injected
+/// inject.js still recognises the response shape (twoFactorRequired:true) and
+/// short-circuits subsequent in-flight API calls so the browser stops hammering
+/// the server while the user completes the challenge. Issue #36 (Wibbles42).
 /// Our own /TwoFactorAuth/* paths are always allowed through so users can reach /Login.
 ///
 /// Since we run before Jellyfin's auth middleware in the pipeline, we invoke
@@ -103,10 +110,20 @@ public class RequestBlockerMiddleware
         {
             _logger.LogInformation("[2FA] BLOCKED {Path} user={UserId} (token-scoped) — 2FA not completed",
                 path, userId);
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            // v2.4.12 issue #36: 403 instead of 401. fail2ban's nginx-unauthorized
+            // jail (SWAG default) matches the literal status 401 in the access log
+            // and trips after 5 occurrences. A legitimate 2FA login generates
+            // ~15 blocked-token responses (every post-login API call from the
+            // browser is gated until the user verifies), so every clean login
+            // tripped the jail and banned the reverse proxy / Cloudflare / Docker
+            // gateway, breaking all services behind it. 403 communicates the
+            // same "not allowed" outcome without the brute-force semantics.
+            // The "twoFactorRequired" marker in the body is what inject.js's
+            // client-side short-circuit looks for to set its tfaPending flag.
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync(
-                "{\"message\":\"Two-factor authentication required. Visit /TwoFactorAuth/Login to complete sign in.\"}"
+                "{\"message\":\"Two-factor authentication required. Visit /TwoFactorAuth/Login to complete sign in.\",\"twoFactorRequired\":true}"
             ).ConfigureAwait(false);
             return;
         }

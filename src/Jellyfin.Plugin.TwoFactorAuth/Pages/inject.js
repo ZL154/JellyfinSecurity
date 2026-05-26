@@ -2,7 +2,88 @@
     if (window.__twofactor_injected) return;
     window.__twofactor_injected = true;
 
-    console.log('[2FA] inject.js v1.3.0 loaded');
+    console.log('[2FA] inject.js v1.4.0 loaded');
+
+    // ============================================================
+    // 1a. v2.4.12 — TFA-pending sessionStorage flag + client-side
+    //     short-circuit. Issue #36 (Wibbles42 / SWAG fail2ban):
+    //     once the server has signalled "two-factor authentication
+    //     required" for this tab, suppress subsequent non-allowlisted
+    //     API calls so the browser stops hammering the server with
+    //     blocked-token requests while the user completes the
+    //     challenge. Without this, Jellyfin Web fires ~15 parallel
+    //     API calls post-login (Sessions/Capabilities/Full,
+    //     DisplayPreferences, socket, System/Endpoint, …) and each
+    //     trips fail2ban's nginx-unauthorized jail. The server-side
+    //     401->403 change (RequestBlockerMiddleware) covers the few
+    //     calls that race ahead of this short-circuit so fail2ban's
+    //     status-401-only failregex never matches.
+    // ============================================================
+    var TFA_PENDING_KEY = '__tfa_pending';
+    var TFA_PENDING_TTL_MS = 5 * 60 * 1000;
+    // Mirror RequestBlockerMiddleware.AlwaysAllowedPaths[] verbatim —
+    // any divergence soft-locks users mid-2FA. Lowercase + trailing-
+    // slash-normalised match.
+    var TFA_ALWAYS_ALLOWED = [
+        '/twofactorauth/login',
+        '/twofactorauth/setup',
+        '/twofactorauth/authenticate',
+        '/twofactorauth/verify',
+        '/twofactorauth/email/send',
+        '/twofactorauth/challenge',
+        '/twofactorauth/inject.js',
+        '/twofactorauth/pairconfirm'
+    ];
+    function isTfaPending() {
+        try {
+            var v = sessionStorage.getItem(TFA_PENDING_KEY);
+            if (!v) return false;
+            var ts = parseInt(v, 10);
+            if (!ts || isNaN(ts)) return false;
+            if (Date.now() - ts > TFA_PENDING_TTL_MS) {
+                sessionStorage.removeItem(TFA_PENDING_KEY);
+                return false;
+            }
+            return true;
+        } catch (e) { return false; }
+    }
+    function setTfaPending() {
+        try { sessionStorage.setItem(TFA_PENDING_KEY, String(Date.now())); } catch (e) {}
+    }
+    function clearTfaPending() {
+        try { sessionStorage.removeItem(TFA_PENDING_KEY); } catch (e) {}
+    }
+    function isAlwaysAllowedPath(url) {
+        if (!url) return true;
+        try {
+            var pathname = new URL(String(url), window.location.origin).pathname.toLowerCase();
+            if (pathname.length > 1 && pathname.charAt(pathname.length - 1) === '/') {
+                pathname = pathname.substring(0, pathname.length - 1);
+            }
+            for (var i = 0; i < TFA_ALWAYS_ALLOWED.length; i++) {
+                if (pathname === TFA_ALWAYS_ALLOWED[i]) return true;
+            }
+            return false;
+        } catch (e) { return false; }
+    }
+    // Build a Response that mirrors what RequestBlockerMiddleware would
+    // have returned — same status (403), same body shape, plus a
+    // _tfaShortCircuit:true marker for devtools visibility. Calling
+    // code that inspects body.twoFactorRequired sees the same value.
+    function syntheticTfaBlockedResponse() {
+        var body = '{"message":"Two-factor authentication required. Visit /TwoFactorAuth/Login to complete sign in.","twoFactorRequired":true,"_tfaShortCircuit":true}';
+        return new Response(body, {
+            status: 403,
+            statusText: 'Forbidden',
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+    function isTfaCompletionPath(url) {
+        if (!url) return false;
+        var u = String(url).toLowerCase();
+        return u.indexOf('/twofactorauth/verify') >= 0
+            || u.indexOf('/twofactorauth/authenticate') >= 0;
+    }
 
     var BUTTON_ID = '__twofactor_login_btn';
     var STYLE_ID = '__twofactor_styles';
@@ -83,17 +164,44 @@
     if (origFetch) {
         window.fetch = function (input, init) {
             var url = (typeof input === 'string') ? input : (input && input.url) || '';
+
+            // v2.4.12: short-circuit when 2FA is pending. Always allow the
+            // auth paths through (so the user can re-authenticate) and the
+            // /TwoFactorAuth/* paths that complete the challenge.
+            if (isTfaPending() && !isAlwaysAllowedPath(url) && !isAuthPath(url)) {
+                return Promise.resolve(syntheticTfaBlockedResponse());
+            }
+
             if (isAuthPath(url)) {
                 init = init || {};
                 init.headers = injectDeviceId(init.headers || new Headers());
             }
             var p = origFetch(input, init);
-            if (!isAuthPath(url)) return p;
             return p.then(function (resp) {
-                if (resp.status !== 401) return resp;
+                // v2.4.12: clear the pending flag once the user has successfully
+                // completed 2FA — the Verify/Authenticate endpoints respond 200
+                // on success, and that's our signal that the rest of the app's
+                // API calls can flow again.
+                if (resp.ok && isTfaCompletionPath(url)) {
+                    clearTfaPending();
+                    return resp;
+                }
+                // v2.4.12: also handle 403 (RequestBlockerMiddleware now returns
+                // 403 instead of 401 for blocked-token-2FA-pending). Auth paths
+                // still get 401 with the TwoFactorRequired marker.
+                if (resp.status !== 401 && resp.status !== 403) return resp;
                 var clone = resp.clone();
                 return clone.json().then(function (body) {
-                    if (handleTwoFactorBody(body)) return new Promise(function () {});
+                    // Any 2FA-required marker (from any endpoint) sets the flag
+                    // so subsequent calls short-circuit. Without this, the
+                    // first batch of post-login API calls all leak through
+                    // before the redirect happens.
+                    if (body && (body.twoFactorRequired || body.TwoFactorRequired)) {
+                        setTfaPending();
+                    }
+                    if (isAuthPath(url) && handleTwoFactorBody(body)) {
+                        return new Promise(function () {});
+                    }
                     return resp;
                 }).catch(function () { return resp; });
             });
@@ -131,8 +239,38 @@
             } catch (e) {}
             xhr.addEventListener('readystatechange', function () {
                 if (xhr.readyState !== 4) return;
-                if (xhr.status !== 401) return;
-                try { handleTwoFactorBody(JSON.parse(xhr.responseText || '{}')); } catch (e) {}
+                // v2.4.12: also recognise 403 (RequestBlockerMiddleware) in
+                // addition to 401 (auth-path challenge response).
+                if (xhr.status !== 401 && xhr.status !== 403) return;
+                try {
+                    var body = JSON.parse(xhr.responseText || '{}');
+                    if (body && (body.twoFactorRequired || body.TwoFactorRequired)) {
+                        setTfaPending();
+                    }
+                    handleTwoFactorBody(body);
+                } catch (e) {}
+            });
+        } else {
+            // v2.4.12: non-auth XHR — we don't short-circuit (faking XHR
+            // completion events is too brittle and risks confusing
+            // jellyfin-apiclient consumers), but if the response carries
+            // the 2FA-pending marker, set the flag so subsequent fetch()
+            // calls short-circuit cleanly. The server-side 401->403 change
+            // means even these uninterceptable XHRs don't get counted by
+            // fail2ban's status-401-only failregex.
+            xhr.addEventListener('readystatechange', function () {
+                if (xhr.readyState !== 4) return;
+                if (xhr.status !== 401 && xhr.status !== 403) return;
+                try {
+                    var body = JSON.parse(xhr.responseText || '{}');
+                    if (body && (body.twoFactorRequired || body.TwoFactorRequired)) {
+                        setTfaPending();
+                    }
+                    // Clear flag on a successful 2FA completion observed via XHR.
+                    if (xhr.status >= 200 && xhr.status < 300 && isTfaCompletionPath(xhr.__tfa_url)) {
+                        clearTfaPending();
+                    }
+                } catch (e) {}
             });
         }
         return origSend.apply(this, arguments);
