@@ -100,6 +100,22 @@ public class TwoFactorEnforcementMiddleware
             return;
         }
 
+        // Issue #35 phase-3 (v2.4.10.1): override Accept-Encoding to "identity"
+        // for auth-path requests so any downstream response-compression
+        // middleware (Jellyfin's own gzip, ASP.NET's ResponseCompression,
+        // etc.) skips this response. Our middleware reads the response body
+        // via a buffered MemoryStream after _next() returns; if that body
+        // arrives gzip-encoded, all substring checks and JSON deserialization
+        // fail silently (binary noise contains no "AccessToken" /
+        // "accessToken" / "access_token", and Deserialize<AuthResult> throws).
+        // FsxShader2012's v2.4.10 logs showed all three substring flags
+        // False even with OrdinalIgnoreCase matching — gzip is the leading
+        // hypothesis. Forcing identity encoding for the request makes the
+        // response uncompressed regardless of upstream client preference.
+        // Cost: auth response goes ~600 bytes gzipped → ~2000 bytes plain.
+        // Negligible. Scoped to auth paths only.
+        context.Request.Headers["Accept-Encoding"] = "identity";
+
         // Buffer the REQUEST body so we can re-read the submitted password later
         // (only matters for AuthenticateByName-style endpoints; harmless elsewhere).
         // EnableBuffering lets ASP.NET re-read the body downstream after we peek.
@@ -197,15 +213,48 @@ public class TwoFactorEnforcementMiddleware
             // Log at Information so it surfaces without needing Debug — but
             // only the substring-presence flags, NEVER the body itself (the
             // body contains AccessToken + user PII).
+            // v2.4.10.1: expanded diagnostic for issue #35 — v2.4.10's
+            // case-insensitive substring match didn't resolve FsxShader2012's
+            // case (all three flags still False even with OrdinalIgnoreCase).
+            // We now also log:
+            //   * first 8 bytes as hex — identifies gzip (1f 8b), zlib (78 9c),
+            //     brotli, HTML (3c 21 = "<!"), plain JSON (7b = "{"), or any
+            //     binary marker the substring scan can't see through
+            //   * Content-Encoding response header — direct evidence of
+            //     gzip / br / deflate compression
+            //   * First 100 chars of body as plain text — for a Jellyfin
+            //     auth response, AccessToken is typically further into the
+            //     JSON than the first 100 chars, so this reveals shape
+            //     ({"User":{... vs {"data":{... vs <html>...) without
+            //     leaking credentials. If the body is binary (gzipped),
+            //     the chars render as control-character noise which is
+            //     itself the diagnostic signal.
+            // Also switched the substring checks to OrdinalIgnoreCase
+            // (matching LooksLikeAuthResponse) so the log accurately
+            // reports what the gate ACTUALLY checked — previously the log
+            // used strict Ordinal which made "Has AccessToken: False"
+            // ambiguous (could have been a casing mismatch).
+            var firstBytes = bodyBytes.Length >= 8 ? bodyBytes[..8] : bodyBytes;
+            var firstBytesHex = Convert.ToHexString(firstBytes);
+            var previewLen = Math.Min(bodyText.Length, 100);
+            var preview = bodyText[..previewLen]
+                .Replace('\n', ' ')
+                .Replace('\r', ' ');
+            var contentEncoding = context.Response.Headers["Content-Encoding"].ToString();
             _logger.LogInformation(
                 "[2FA] Auth path {Path} matched but response body didn't look like a Jellyfin auth response — pass-through. " +
-                "Body length: {Len}. Has \"AccessToken\": {HasAT}. Has \"User\": {HasU}. Has \"SessionInfo\": {HasSI}. " +
+                "Body length: {Len}. Has \"AccessToken\" (case-insensitive): {HasAT}. Has \"User\": {HasU}. Has \"SessionInfo\": {HasSI}. " +
+                "Content-Encoding: '{Enc}'. Content-Type: '{CT}'. First 8 bytes (hex): {Hex}. First 100 chars: '{Preview}'. " +
                 "If a 2FA-enabled user is stuck on login, see issue #35.",
                 path,
                 bodyText.Length,
-                bodyText.Contains("\"AccessToken\"", StringComparison.Ordinal),
-                bodyText.Contains("\"User\"", StringComparison.Ordinal),
-                bodyText.Contains("\"SessionInfo\"", StringComparison.Ordinal));
+                bodyText.Contains("\"AccessToken\"", StringComparison.OrdinalIgnoreCase),
+                bodyText.Contains("\"User\"", StringComparison.OrdinalIgnoreCase),
+                bodyText.Contains("\"SessionInfo\"", StringComparison.OrdinalIgnoreCase),
+                string.IsNullOrEmpty(contentEncoding) ? "(none)" : contentEncoding,
+                context.Response.ContentType ?? "(none)",
+                firstBytesHex,
+                preview);
             await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
             return;
         }
