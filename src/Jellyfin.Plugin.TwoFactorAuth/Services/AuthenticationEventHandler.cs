@@ -4,6 +4,7 @@ using Jellyfin.Data.Queries;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Session;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -20,6 +21,7 @@ public class AuthenticationEventHandler : IHostedService
     private readonly NotificationService _notificationService;
     private readonly PendingPairingService _pendingPairings;
     private readonly IDeviceManager _deviceManager;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<AuthenticationEventHandler> _logger;
 
     public AuthenticationEventHandler(
@@ -30,6 +32,7 @@ public class AuthenticationEventHandler : IHostedService
         NotificationService notificationService,
         PendingPairingService pendingPairings,
         IDeviceManager deviceManager,
+        IHttpContextAccessor httpContextAccessor,
         ILogger<AuthenticationEventHandler> logger)
     {
         _sessionManager = sessionManager;
@@ -39,6 +42,7 @@ public class AuthenticationEventHandler : IHostedService
         _notificationService = notificationService;
         _pendingPairings = pendingPairings;
         _deviceManager = deviceManager;
+        _httpContextAccessor = httpContextAccessor;
         _logger = logger;
     }
 
@@ -63,11 +67,34 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
+        // Issue #35 follow-up (v2.4.11): capture the inbound request's
+        // X-Forwarded-For header NOW, while HttpContext is still alive.
+        // SessionStarted fires synchronously during request processing, but
+        // the Task.Run below outlives the request — reading the header
+        // inside HandleSessionAsync would race with request completion and
+        // see HttpContext=null. Without this snapshot the bypass evaluator's
+        // LAN-bypass path was called with forwardedFor=null on every
+        // authentication event, so Trust X-Forwarded-For + Trusted Proxy
+        // CIDRs had no effect on the session-start bypass decision — every
+        // reverse-proxy request whose peer IP fell inside a LAN-bypass CIDR
+        // was treated as a LAN client regardless of the real upstream
+        // client IP, silently skipping 2FA for users behind a proxy.
+        string? forwardedFor = null;
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext is not null)
+        {
+            var xff = httpContext.Request.Headers["X-Forwarded-For"].ToString();
+            if (!string.IsNullOrWhiteSpace(xff))
+            {
+                forwardedFor = xff;
+            }
+        }
+
         _ = Task.Run(async () =>
         {
             try
             {
-                await HandleSessionAsync(info).ConfigureAwait(false);
+                await HandleSessionAsync(info, forwardedFor).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -76,7 +103,7 @@ public class AuthenticationEventHandler : IHostedService
         });
     }
 
-    private async Task HandleSessionAsync(SessionInfo info)
+    private async Task HandleSessionAsync(SessionInfo info, string? forwardedFor)
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null || !config.Enabled)
@@ -198,9 +225,12 @@ public class AuthenticationEventHandler : IHostedService
         }
 
         var apiKeys = await _store.GetApiKeysAsync().ConfigureAwait(false);
+        // forwardedFor was captured synchronously in OnSessionStarted (see
+        // there) so BypassEvaluator can walk X-Forwarded-For right-to-left
+        // and resolve the real client IP behind a trusted reverse proxy.
         var bypass = _bypassEvaluator.Evaluate(
             info.RemoteEndPoint,
-            null,
+            forwardedFor,
             null,
             info.DeviceId,
             null,
