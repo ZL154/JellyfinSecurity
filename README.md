@@ -71,6 +71,7 @@ visible trust signals is treated as a high-priority bug.
 - [Per-user IP allowlist (v2.0)](#-per-user-ip-allowlist-v20)
 - [SMTP setup (email OTP)](#-smtp-setup-email-otp)
 - [Recovery — locked out](#-recovery--locked-out)
+- [Troubleshooting](#%EF%B8%8F-troubleshooting)
 - [Architecture](#-architecture)
 - [API endpoints](#-api-endpoints)
 - [Security model](#-security-model)
@@ -497,6 +498,10 @@ SSH into the Jellyfin server and edit the user data file:
 
 Restart Jellyfin. The user can now log in normally and re-enroll.
 
+---
+
+## 🛠️ Troubleshooting
+
 ### Plugin breaking your server
 Disable the plugin without uninstalling:
 
@@ -509,6 +514,57 @@ Disable the plugin without uninstalling:
 ```
 
 Restart Jellyfin. All 2FA enforcement turns off; users can log in normally.
+
+### Behind SWAG / fail2ban: other services on the same proxy go offline after a 2FA login
+
+If you run Jellyfin behind [SWAG](https://github.com/linuxserver/docker-swag) (linuxserver.io's all-in-one nginx + fail2ban + Let's Encrypt container) or any other stack with a fail2ban jail watching for HTTP 401s, you may see this symptom:
+
+- Jellyfin works fine on the LAN
+- External access via the reverse proxy fails with `ERR_CONNECTION_REFUSED`
+- **Other applications behind the same proxy also become unreachable**
+- Brief recovery every ~10–15 minutes, then it fails again
+
+**Why this happens.** When 2FA enforcement is on and a user logs in, the plugin's `RequestBlockerMiddleware` 401s every post-login API call from the browser (`/Sessions/Capabilities/Full`, `/DisplayPreferences/usersettings`, `/socket`, `/System/Endpoint`, etc.) until the user completes 2FA — that's roughly **15 401s in a few seconds** per legitimate login.
+
+SWAG's default `nginx-unauthorized` fail2ban jail watches the nginx access log for any 401 response code (regardless of which backend produced it) and bans the source IP after 5 in 10 minutes. A single 2FA login trips it. The ~15-minute recovery cycle matches the jail's default `bantime = 600`.
+
+The "everything else breaks" symptom depends on what IP fail2ban actually bans:
+
+- If SWAG sees Cloudflare's edge IP (you're behind Cloudflare) → it bans Cloudflare → all external traffic to all services fails
+- If SWAG sees the Docker bridge gateway IP (misconfigured forwarded headers) → inter-container traffic dies → SWAG can't reach any backend
+- If SWAG sees the user's real client IP → only they get locked out
+
+**Fix.** Drop this into `/config/fail2ban/jail.d/jellyfin.local`:
+
+```ini
+[nginx-unauthorized]
+maxretry = 30
+findtime = 600
+```
+
+That changes "ban after 5 401s in 10 min" → "ban after 30 401s in 10 min." A normal 2FA login generates ~15 401s, so 30 gives ~2× headroom while still catching real brute-force (hundreds of 401s per minute).
+
+**Scale by user count** — fail2ban counts per source IP, and if you're behind Cloudflare or a similar CDN, ALL your users share the same source IP from fail2ban's view. Simultaneous logins compound:
+
+| Users on the server | Recommended `maxretry` |
+|---|---|
+| 1 (solo) | `30` |
+| 2–3 (small household) | `50` |
+| 4–6 (family) | `100` |
+| 10+ (community / extended) | `150` or `enabled = false` |
+
+Restart SWAG (`docker restart swag` or your equivalent) after the change.
+
+**Alternative — disable the jail entirely.** If you'd rather not patch fail2ban:
+
+```ini
+[nginx-unauthorized]
+enabled = false
+```
+
+You lose protection against generic 401-burst attacks on **all** apps behind SWAG (not just Jellyfin), but the other default SWAG jails (`nginx-http-auth`, `nginx-badbots`, `nginx-botsearch`, `nginx-deny`) still cover the common brute-force vectors.
+
+**Why this isn't strictly a plugin bug.** The plugin behaves correctly per HTTP/OAuth (401 on unverified tokens). SWAG's fail2ban behaves correctly per brute-force-protection norms. The collision sits in the gap between the two — fail2ban can't tell a legitimate 2FA enforcement burst from an attack just by reading status codes in the access log. A future plugin release may reduce the 401 burst size at the source ([tracking issue #36](https://github.com/ZL154/JellyfinSecurity/issues/36)) but the jail-threshold fix above resolves it today.
 
 ---
 
