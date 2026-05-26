@@ -106,7 +106,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="$(grep -oPm1 '(?<=<Version>)[^<]+' src/Jellyfin.Plugin.TwoFactorAuth/Jellyfin.Plugin.TwoFactorAuth.csproj)"
-          TAG="v${VERSION%.*}"
+          # Derive the GitHub release tag from the assembly version.
+          # Standard 4-part assembly versions end in .0 (e.g. 2.4.13.0 →
+          # v2.4.13) so we strip a trailing .0 only. 4-part prereleases
+          # with a non-zero build (e.g. 2.4.10.1, 2.4.12.1) must keep the
+          # full version in the tag so the workflow uploads artifacts to
+          # the right release — without this guard, v2.4.10.1's artifacts
+          # uploaded to the v2.4.10 stable release and overwrote its body.
+          TAG="v${VERSION%.0}"
           ZIP="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.zip"
           MD5="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.md5"
           SHA256="dist/Jellyfin.Plugin.TwoFactorAuthv${VERSION}.sha256"

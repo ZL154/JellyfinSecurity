@@ -165,6 +165,19 @@
     </div>
 
     <script>
+        // v2.4.13 fix (issue #35 follow-up reported by FsxShader2012):
+        // inject.js sets sessionStorage.__tfa_pending on the previous page
+        // (the post-login redirect) so subsequent dashboard API calls
+        // short-circuit while the browser navigates here. By the time we
+        // ARE here, the flag's job is done — and crucially this page does
+        // NOT load inject.js, so the inject.js Verify-success clear never
+        // fires from this code path. If we leave the flag set, the post-
+        // verify navigation back to /web/ re-mounts inject.js with the
+        // flag still active, and every Jellyfin Web API call gets short-
+        // circuited locally with a synthetic 403 — "Server not available."
+        // Clear it now so the post-verify dashboard load is unblocked.
+        try { sessionStorage.removeItem('__tfa_pending'); } catch (e) {}
+
         var params = new URLSearchParams(window.location.search);
         var challengeToken = params.get('token');
         // Same-origin check — without this, an attacker could craft
