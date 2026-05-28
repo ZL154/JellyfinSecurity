@@ -130,25 +130,25 @@
         <h1 data-i18n-key="tfa.challenge.title">Two-Factor Authentication</h1>
 
         <div class="method-tabs" id="methodTabs">
-            <div class="method-tab active" data-method="totp">Authenticator</div>
-            <div class="method-tab" data-method="recovery">Recovery</div>
-            <div class="method-tab" data-method="email">Email</div>
+            <div class="method-tab active" data-method="totp" data-i18n-key="tfa.challenge.tab_authenticator">Authenticator</div>
+            <div class="method-tab" data-method="recovery" data-i18n-key="tfa.challenge.tab_recovery">Recovery</div>
+            <div class="method-tab" data-method="email" data-i18n-key="tfa.challenge.tab_email">Email</div>
         </div>
 
         <div class="error" id="errorMsg"></div>
 
         <div class="enroll-panel" id="enrollPanel">
-            <p class="enroll-copy">Your server requires two-factor authentication before this account can continue. Set up an authenticator app now.</p>
-            <button class="btn-primary" id="btnBeginEnroll">Begin setup</button>
+            <p class="enroll-copy" data-i18n-key="tfa.challenge.enroll_copy">Your server requires two-factor authentication before this account can continue. Set up an authenticator app now.</p>
+            <button class="btn-primary" id="btnBeginEnroll" data-i18n-key="tfa.challenge.btn_begin_setup">Begin setup</button>
             <div class="qr-wrap" id="enrollQrWrap"><img id="enrollQrImg" alt="Authenticator QR code" /></div>
             <div class="secret-key" id="enrollSecret"></div>
-            <label id="enrollCodeLabel" style="display:none;">Enter the 6-digit code from your app</label>
+            <label id="enrollCodeLabel" data-i18n-key="tfa.challenge.enroll_code_label" style="display:none;">Enter the 6-digit code from your app</label>
             <input type="text" id="enrollCodeInput" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code" style="display:none;" />
             <label class="trust-row" id="enrollTrustRow" style="display:none;">
                 <input type="checkbox" id="enrollTrustDevice" />
-                <span>Trust this device (skip 2FA for future logins)</span>
+                <span data-i18n-key="tfa.challenge.trust_device">Trust this device (skip 2FA for future logins)</span>
             </label>
-            <button class="btn-primary" id="btnConfirmEnroll" style="display:none;">Confirm &amp; continue</button>
+            <button class="btn-primary" id="btnConfirmEnroll" data-i18n-key="tfa.challenge.btn_confirm_continue" style="display:none;">Confirm &amp; continue</button>
         </div>
 
         <label id="codeLabel" data-i18n-key="tfa.challenge.code_label">Enter the 6-digit code</label>
@@ -156,16 +156,16 @@
 
         <label class="trust-row" id="trustRow">
             <input type="checkbox" id="trustDevice" />
-            <span>Trust this device (skip 2FA for future logins)</span>
+            <span data-i18n-key="tfa.challenge.trust_device">Trust this device (skip 2FA for future logins)</span>
         </label>
 
         <button class="btn-primary" id="btnVerify" data-i18n-key="tfa.challenge.btn_verify">Verify</button>
-        <button class="btn-secondary" id="btnSendEmail" style="display:none;">Send code by email</button>
-        <button class="btn-secondary" id="btnPasskey" style="display:none;">🔑 Use a passkey instead</button>
+        <button class="btn-secondary" id="btnSendEmail" data-i18n-key="tfa.challenge.btn_send_email" style="display:none;">Send code by email</button>
+        <button class="btn-secondary" id="btnPasskey" data-i18n-key="tfa.challenge.btn_passkey" style="display:none;">🔑 Use a passkey instead</button>
 
-        <p class="hint" id="bottomHint">Codes rotate every 30 seconds.</p>
+        <p class="hint" id="bottomHint" data-i18n-key="tfa.challenge.hint_rotate">Codes rotate every 30 seconds.</p>
         <p class="hint" style="margin-top:14px;">
-            <a href="/TwoFactorAuth/Login" style="color:#888;text-decoration:none;" data-i18n-key="tfa.challenge.btn_cancel">← Back to sign in</a>
+            <a href="/TwoFactorAuth/Login" style="color:#888;text-decoration:none;" data-i18n-key="tfa.challenge.back_to_sign_in">← Back to sign in</a>
         </p>
     </div>
 
@@ -283,14 +283,18 @@
                 document.getElementById('codeInput').style.display = 'none';
                 document.getElementById('trustRow').style.display = 'none';
                 document.getElementById('btnVerify').style.display = 'none';
-                document.getElementById('bottomHint').textContent = 'Use your registered passkey to continue.';
+                document.getElementById('bottomHint').textContent = _tr('tfa.challenge.hint_passkey_only', 'Use your registered passkey to continue.');
             }
             refreshPasskeyButton();
         }
 
         function showEnrollmentRequired(username) {
             availableMethods = ['enroll'];
-            document.querySelector('h1').textContent = 'Setup Required' + (username ? ' for ' + username : '');
+            var setupTitle = _tr('tfa.challenge.setup_required', 'Setup Required');
+            if (username) {
+                setupTitle = _tr('tfa.challenge.setup_required_for', 'Setup Required for {user}').replace('{user}', username);
+            }
+            document.querySelector('h1').textContent = setupTitle;
             document.getElementById('methodTabs').style.display = 'none';
             document.getElementById('codeLabel').style.display = 'none';
             document.getElementById('codeInput').style.display = 'none';
@@ -298,7 +302,7 @@
             document.getElementById('btnVerify').style.display = 'none';
             document.getElementById('btnSendEmail').style.display = 'none';
             document.getElementById('btnPasskey').style.display = 'none';
-            document.getElementById('bottomHint').textContent = 'The account will continue into Jellyfin after the first code is confirmed.';
+            document.getElementById('bottomHint').textContent = _tr('tfa.challenge.hint_enroll_continue', 'The account will continue into Jellyfin after the first code is confirmed.');
             document.getElementById('enrollPanel').classList.add('show');
         }
 
@@ -320,18 +324,18 @@
             var label = document.getElementById('codeLabel');
             var hint = document.getElementById('bottomHint');
             if (method === 'recovery') {
-                label.textContent = 'Enter a recovery code (XXXXX-XXXXX)';
+                label.textContent = _tr('tfa.challenge.recovery_input_label', 'Enter a recovery code (XXXXX-XXXXX)');
                 input.classList.add('recovery');
                 input.setAttribute('inputmode', 'text');
                 input.setAttribute('maxlength', '11'); // 5 + dash + 5
                 input.setAttribute('placeholder', 'XXXXX-XXXXX');
                 input.removeAttribute('pattern');
                 input.value = '';
-                if (hint) hint.textContent = 'Each recovery code works once. Save the others somewhere safe.';
+                if (hint) hint.textContent = _tr('tfa.challenge.hint_recovery', 'Each recovery code works once. Save the others somewhere safe.');
             } else {
                 label.textContent = method === 'email'
-                    ? 'Enter the 6-digit code sent to your email'
-                    : 'Enter the 6-digit code from your authenticator app';
+                    ? _tr('tfa.challenge.email_input_label', 'Enter the 6-digit code sent to your email')
+                    : _tr('tfa.challenge.totp_input_label', 'Enter the 6-digit code from your authenticator app');
                 input.classList.remove('recovery');
                 input.setAttribute('inputmode', 'numeric');
                 input.setAttribute('maxlength', '6');
@@ -339,8 +343,8 @@
                 input.setAttribute('pattern', '[0-9]{6}');
                 input.value = '';
                 if (hint) hint.textContent = method === 'email'
-                    ? 'Email codes expire 5 minutes after they are sent.'
-                    : 'Codes rotate every 30 seconds.';
+                    ? _tr('tfa.challenge.hint_email', 'Email codes expire 5 minutes after they are sent.')
+                    : _tr('tfa.challenge.hint_rotate', 'Codes rotate every 30 seconds.');
             }
             input.focus();
         }
@@ -365,24 +369,24 @@
         document.getElementById('btnSendEmail').addEventListener('click', function() {
             var btn = document.getElementById('btnSendEmail');
             btn.disabled = true;
-            btn.textContent = 'Sending...';
+            btn.textContent = _tr('tfa.challenge.email_sending', 'Sending...');
             fetch('/TwoFactorAuth/Email/Send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ challengeToken: challengeToken })
             }).then(function(r) {
                 if (r.ok) {
-                    btn.textContent = 'Code sent — check your email';
-                    setTimeout(function() { btn.disabled = false; btn.textContent = 'Resend email code'; }, 30000);
+                    btn.textContent = _tr('tfa.challenge.email_sent', 'Code sent — check your email');
+                    setTimeout(function() { btn.disabled = false; btn.textContent = _tr('tfa.challenge.btn_resend_email', 'Resend email code'); }, 30000);
                 } else {
                     btn.disabled = false;
-                    btn.textContent = 'Send code by email';
-                    showError('Failed to send email code. Too many requests?');
+                    btn.textContent = _tr('tfa.challenge.btn_send_email', 'Send code by email');
+                    showError(_tr('tfa.challenge.email_send_failed', 'Failed to send email code. Too many requests?'));
                 }
             }).catch(function() {
                 btn.disabled = false;
-                btn.textContent = 'Send code by email';
-                showError('Network error.');
+                btn.textContent = _tr('tfa.challenge.btn_send_email', 'Send code by email');
+                showError(_tr('tfa.challenge.network_error', 'Network error.'));
             });
         });
 
@@ -390,7 +394,7 @@
             clearError();
             var btn = document.getElementById('btnBeginEnroll');
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span>Preparing...';
+            btn.innerHTML = '<span class="spinner"></span>' + _tr('tfa.challenge.enroll_preparing', 'Preparing...');
             fetch('/TwoFactorAuth/Enroll/Totp/Begin', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -398,7 +402,7 @@
             }).then(function(r) {
                 if (!r.ok) {
                     return r.json().catch(function() { return {}; }).then(function(j) {
-                        throw new Error(j.message || 'Setup failed.');
+                        throw new Error(j.message || _tr('tfa.challenge.enroll_setup_failed', 'Setup failed.'));
                     });
                 }
                 return r.json();
@@ -416,8 +420,8 @@
                 document.getElementById('enrollCodeInput').focus();
             }).catch(function(e) {
                 btn.disabled = false;
-                btn.textContent = 'Begin setup';
-                showError(e.message || 'Failed to start setup.');
+                btn.textContent = _tr('tfa.challenge.btn_begin_setup', 'Begin setup');
+                showError(e.message || _tr('tfa.challenge.enroll_start_failed', 'Failed to start setup.'));
             });
         });
 
@@ -432,13 +436,13 @@
         document.getElementById('btnConfirmEnroll').addEventListener('click', function() {
             var code = document.getElementById('enrollCodeInput').value.trim();
             if (!/^\d{6}$/.test(code)) {
-                showError('Enter the 6-digit code.');
+                showError(_tr('tfa.challenge.validation_enter_6_digit', 'Enter the 6-digit code.'));
                 return;
             }
             clearError();
             var btn = document.getElementById('btnConfirmEnroll');
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span>Confirming...';
+            btn.innerHTML = '<span class="spinner"></span>' + _tr('tfa.challenge.confirming', 'Confirming...');
             fetch('/TwoFactorAuth/Enroll/Totp/Confirm', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -450,7 +454,7 @@
             }).then(function(r) {
                 if (!r.ok) {
                     return r.json().catch(function() { return {}; }).then(function(j) {
-                        throw new Error(j.message || 'Invalid code.');
+                        throw new Error(j.message || _tr('tfa.challenge.invalid_code', 'Invalid code.'));
                     });
                 }
                 var deviceToken = r.headers.get('X-TwoFactor-Device-Token');
@@ -468,8 +472,8 @@
                 }
             }).catch(function(e) {
                 btn.disabled = false;
-                btn.textContent = 'Confirm & continue';
-                showError(e.message || 'Failed to confirm setup.');
+                btn.textContent = _tr('tfa.challenge.btn_confirm_continue', 'Confirm & continue');
+                showError(e.message || _tr('tfa.challenge.enroll_confirm_failed', 'Failed to confirm setup.'));
             });
         });
 
@@ -480,19 +484,19 @@
                 // PBKDF2-comparing — accept either XXXXXXXXXX or XXXXX-XXXXX.
                 var normalised = code.replace(/[-\s]/g, '');
                 if (!/^[A-Z0-9]{8,12}$/.test(normalised)) {
-                    showError('Enter a recovery code (10 chars, letters + digits).');
+                    showError(_tr('tfa.challenge.validation_recovery_format', 'Enter a recovery code (10 chars, letters + digits).'));
                     return;
                 }
             } else {
                 if (!/^\d{6}$/.test(code)) {
-                    showError('Enter the 6-digit code.');
+                    showError(_tr('tfa.challenge.validation_enter_6_digit', 'Enter the 6-digit code.'));
                     return;
                 }
             }
             clearError();
             var btn = document.getElementById('btnVerify');
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span>Verifying...';
+            btn.innerHTML = '<span class="spinner"></span>' + _tr('tfa.challenge.verifying', 'Verifying...');
 
             fetch('/TwoFactorAuth/Verify', {
                 method: 'POST',
@@ -539,12 +543,12 @@
         document.getElementById('btnPasskey').addEventListener('click', async function() {
             clearError();
             var btn = document.getElementById('btnPasskey');
-            btn.disabled = true; btn.textContent = 'Waiting for authenticator…';
+            btn.disabled = true; btn.textContent = _tr('tfa.challenge.passkey_waiting', 'Waiting for authenticator…');
             try {
                 var begin = await fetch('/TwoFactorAuth/Verify/Passkey/Begin', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({ challengeToken: challengeToken })
-                }).then(function(r){ if (!r.ok) throw new Error('Begin failed'); return r.json(); });
+                }).then(function(r){ if (!r.ok) throw new Error(_tr('tfa.challenge.passkey_begin_failed', 'Begin failed')); return r.json(); });
                 var opts = begin.options;
                 opts.challenge = b64uToBytes(opts.challenge);
                 if (opts.allowCredentials) opts.allowCredentials.forEach(function(c){ c.id = b64uToBytes(c.id); });
@@ -564,13 +568,13 @@
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({ challengeToken: challengeToken, nonce: begin.nonce, response: JSON.stringify(resp) })
                 });
-                if (!finishR.ok) { btn.disabled = false; btn.textContent = '🔑 Use a passkey instead'; showError('Passkey verification failed.'); return; }
+                if (!finishR.ok) { btn.disabled = false; btn.textContent = _tr('tfa.challenge.btn_passkey', '🔑 Use a passkey instead'); showError(_tr('tfa.challenge.passkey_verify_failed', 'Passkey verification failed.')); return; }
                 var authData = await finishR.json();
-                if (!authData || !authData.AccessToken) { showError('Verified, but no auth response — sign in again.'); return; }
+                if (!authData || !authData.AccessToken) { showError(_tr('tfa.challenge.passkey_no_auth_response', 'Verified, but no auth response — sign in again.')); return; }
                 storeCredentials(authData).then(function() { window.location.href = returnUrl; });
             } catch (e) {
-                btn.disabled = false; btn.textContent = '🔑 Use a passkey instead';
-                showError('Passkey error: ' + (e.message || e));
+                btn.disabled = false; btn.textContent = _tr('tfa.challenge.btn_passkey', '🔑 Use a passkey instead');
+                showError(_tr('tfa.challenge.passkey_error_prefix', 'Passkey error: ') + (e.message || e));
             }
         });
 
