@@ -69,20 +69,27 @@
     }
 
     function resolveLanguage() {
-        // 1. Per-user pref (signed-in only).
+        // Resolution order per the helper docstring: URL ?lang= (most
+        // explicit "right now I want X") → per-user pref → localStorage →
+        // /public-config admin default → "en". URL beats the saved pref so
+        // QA/share-links can preview another language without nuking the
+        // user's stored choice.
+        var urlLang = readQueryLang();
+        if (urlLang) return Promise.resolve(urlLang);
+
         var uid = getCurrentUserId();
         var prefP = uid
             ? fetchJson(buildUrl('TwoFactorAuth/users/' + uid + '/preferences'))
             : Promise.resolve(null);
-        // 2. Public-config default (so anonymous pages still get the admin's choice).
         var pubP = fetchJson(buildUrl('TwoFactorAuth/public-config'));
         return Promise.all([prefP, pubP]).then(function (parts) {
             var pref = parts[0], pub = parts[1];
             var pubDefault = sanitizeLang(pub && pub.defaultLanguage) || 'en';
-            // If signed in AND has an explicit pref, use it.
-            if (pref && pref.language) return sanitizeLang(pref.language) || pubDefault;
-            // Otherwise check URL → localStorage → admin default.
-            return readQueryLang() || readStorageLang() || pubDefault;
+            if (pref && pref.language) {
+                var prefLang = sanitizeLang(pref.language);
+                if (prefLang) return prefLang;
+            }
+            return readStorageLang() || pubDefault;
         });
     }
 

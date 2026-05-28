@@ -1996,13 +1996,10 @@ public class TwoFactorAuthController : ControllerBase
             return BadRequest(new { message = "body required" });
         }
 
-        if (!string.IsNullOrEmpty(request.Language))
+        if (!string.IsNullOrEmpty(request.Language)
+            && Array.IndexOf(SupportedLanguages, request.Language) < 0)
         {
-            var allowed = new[] { "en", "de", "es", "fr", "it", "ja", "pt", "zh" };
-            if (Array.IndexOf(allowed, request.Language) < 0)
-            {
-                return BadRequest(new { message = "unsupported language" });
-            }
+            return BadRequest(new { message = "unsupported language" });
         }
 
         await _store.MutateAsync(userId, d =>
