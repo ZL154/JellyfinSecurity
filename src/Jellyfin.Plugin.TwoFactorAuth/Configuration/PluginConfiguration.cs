@@ -41,6 +41,18 @@ public class PluginConfiguration : BasePluginConfiguration
     /// EnforcementScope to opt into the per-role policy.</summary>
     public bool RequireForAllUsers { get; set; } = false;
 
+    /// <summary>v2.5.0: require a fresh TOTP/recovery code before a user can
+    /// disable their own 2FA. OFF by default (opt-in). Recommended.</summary>
+    public bool RequireTwoFactorToDisable { get; set; }
+
+    /// <summary>v2.5.0: how aggressively to require step-up re-auth for
+    /// sensitive admin actions. Off by default (opt-in).</summary>
+    public StepUpLevel StepUpLevel { get; set; } = StepUpLevel.Off;
+
+    /// <summary>v2.5.0: lifetime of a step-up "recently re-authenticated"
+    /// token, seconds. Clamped 60-900.</summary>
+    public int StepUpWindowSeconds { get; set; } = 300;
+
     /// <summary>v2.4: granular 2FA enforcement scope. Optional (per-user
     /// opt-in), Admins (only admins must have 2FA), or All (everyone).</summary>
     public EnforcementScope EnforcementScope { get; set; } = EnforcementScope.Optional;
