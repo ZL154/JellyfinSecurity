@@ -141,9 +141,51 @@
 
                     <!-- OVERVIEW (v1.4) -->
                     <div class="tfa-panel active" id="panel-overview">
+                        <!-- Posture banner -->
+                        <div class="tfa-posture" id="postureBanner">
+                            <div class="tfa-posture-ring">
+                                <svg width="90" height="90" viewBox="0 0 90 90">
+                                    <circle cx="45" cy="45" r="40" fill="none" stroke-width="6" class="ring-bg" />
+                                    <circle cx="45" cy="45" r="40" fill="none" stroke-width="6" class="ring-fg" id="postureRingFg" stroke-dasharray="251.3" stroke-dashoffset="251.3" stroke-linecap="round" />
+                                </svg>
+                                <div class="tfa-posture-grade" id="postureGrade">–</div>
+                            </div>
+                            <div class="tfa-posture-body">
+                                <h3>Security posture: <span class="tfa-posture-score" id="postureScore">–</span> / 100</h3>
+                                <p id="postureSummary">Computing…</p>
+                            </div>
+                        </div>
+
+                        <!-- KPI strip -->
+                        <div class="tfa-kpi-grid" id="kpiGrid">
+                            <div class="tfa-kpi"><div class="tfa-kpi-label">Enrolled</div><div class="tfa-kpi-value" id="kpiEnrolled">–</div><div class="tfa-kpi-sub" id="kpiEnrolledSub">of – users</div></div>
+                            <div class="tfa-kpi"><div class="tfa-kpi-label">Trusted devices</div><div class="tfa-kpi-value" id="kpiSessions">–</div></div>
+                            <div class="tfa-kpi"><div class="tfa-kpi-label">Banned IPs</div><div class="tfa-kpi-value" id="kpiBans">–</div></div>
+                            <div class="tfa-kpi"><div class="tfa-kpi-label">Audit entries</div><div class="tfa-kpi-value" id="kpiAudit">–</div><div class="tfa-kpi-sub" id="kpiAuditSub">chain ok</div></div>
+                        </div>
+
+                        <!-- Factor breakdown -->
                         <div class="tfa-section">
-                            <h2>2FA Adoption</h2>
-                            <div id="statsBody" class="tfa-stats-grid">Loading…</div>
+                            <h2>Score breakdown</h2>
+                            <div class="tfa-factors" id="factorsGrid">Loading…</div>
+                        </div>
+
+                        <!-- Auth activity chart -->
+                        <div class="tfa-chart-card">
+                            <h3>Auth activity (last 30 days)</h3>
+                            <svg class="tfa-chart-svg" id="authChart" viewBox="0 0 600 140" preserveAspectRatio="none"></svg>
+                        </div>
+
+                        <!-- Enrollment by role -->
+                        <div class="tfa-chart-card">
+                            <h3>Enrollment by role</h3>
+                            <div id="enrollmentBars">Loading…</div>
+                        </div>
+
+                        <!-- Recent bans inline -->
+                        <div class="tfa-section">
+                            <h2>Active IP bans</h2>
+                            <table class="tfa-table"><thead><tr><th>IP</th><th>Source</th><th>Failures</th><th>Banned at</th><th>Expires</th></tr></thead><tbody id="overviewBansBody"><tr><td colspan="5" class="tfa-empty">No active bans</td></tr></tbody></table>
                         </div>
                     </div>
 
