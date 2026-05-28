@@ -3329,8 +3329,7 @@ public class TwoFactorAuthController : ControllerBase
             {
                 enrolledUsers = stats.EnrolledCount,
                 totalUsers = stats.TotalUsers,
-                // TODO: hook up actual session count once a service exposes it.
-                activeSessions = 0,
+                activeSessions = _sessionManager.Sessions.Count(),
                 bannedIps = bans.Count,
                 auditEntries = audit.Count,
                 auditChainBroken = chainBroken

@@ -60,8 +60,15 @@ public class SecurityScoreService : IDisposable
 
         // Fire once an hour; the method itself dedupes by UTC date so the cost
         // is one read+early-return per hour after the first daily snapshot.
+        // The _disposed guard is defense-in-depth — Dispose() drains in-flight
+        // callbacks via Timer.Dispose(WaitHandle), but the early-exit makes the
+        // intent explicit for any callback already past the gate.
         _snapshotTimer = new Timer(
-            _ => _ = TakeSnapshotAsync(),
+            _ =>
+            {
+                if (_disposed) return;
+                _ = TakeSnapshotAsync();
+            },
             null,
             TimeSpan.FromMinutes(1),
             TimeSpan.FromHours(1));
@@ -312,7 +319,12 @@ public class SecurityScoreService : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _snapshotTimer.Dispose();
+        // Drain in-flight callbacks before disposing dependent resources, so a
+        // mid-flight TakeSnapshotAsync cannot try to acquire a disposed
+        // _historyLock and throw ObjectDisposedException on plugin reload.
+        using var waitHandle = new ManualResetEvent(false);
+        _snapshotTimer.Dispose(waitHandle);
+        waitHandle.WaitOne(TimeSpan.FromSeconds(5));
         _historyLock.Dispose();
         GC.SuppressFinalize(this);
     }
