@@ -183,3 +183,63 @@ public class FullExportTests
         await Assert.ThrowsAsync<ArgumentException>(() => svc.BuildFullExportAsync("short"));
     }
 }
+
+public class ImportTests
+{
+    [Fact]
+    public async Task Import_UnknownFormatVersion_Throws()
+    {
+        var svc = ConfigExportTestHarness.Build(out _);
+        var bad = System.Text.Json.JsonSerializer.Serialize(new ExportEnvelope
+        {
+            FormatVersion = 999,
+            ExportedAt = DateTime.UtcNow,
+            PluginVersion = "2.5.0",
+            Encrypted = false,
+            Payload = new ConfigExportPayload()
+        });
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => svc.ImportAsync(bad, passphrase: null));
+        Assert.Contains("format", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Import_ConfigOnly_AppliesSettings()
+    {
+        var svc = ConfigExportTestHarness.Build(out var cfg);
+        cfg.EnforcementScope = EnforcementScope.Optional;
+
+        var newCfg = new PluginConfiguration { EnforcementScope = EnforcementScope.All };
+        var envelope = System.Text.Json.JsonSerializer.Serialize(new ExportEnvelope
+        {
+            FormatVersion = 1,
+            ExportedAt = DateTime.UtcNow,
+            PluginVersion = "2.5.0",
+            Encrypted = false,
+            Payload = new ConfigExportPayload { Configuration = newCfg }
+        });
+
+        var result = await svc.ImportAsync(envelope, passphrase: null);
+        Assert.True(result.Success);
+        Assert.Equal(EnforcementScope.All, cfg.EnforcementScope);
+    }
+
+    [Fact]
+    public async Task Import_EncryptedWithWrongPassphrase_Fails()
+    {
+        var svc = ConfigExportTestHarness.Build(out _);
+        var env = await svc.BuildFullExportAsync("rightpass");
+        var json = System.Text.Json.JsonSerializer.Serialize(env);
+
+        var result = await svc.ImportAsync(json, passphrase: "wrongpass");
+        Assert.False(result.Success);
+        Assert.Contains("decrypt", result.Error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Import_MalformedJson_Fails()
+    {
+        var svc = ConfigExportTestHarness.Build(out _);
+        var result = await svc.ImportAsync("{not-json", passphrase: null);
+        Assert.False(result.Success);
+    }
+}

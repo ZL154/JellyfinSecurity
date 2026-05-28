@@ -199,4 +199,101 @@ public class ConfigExportService
             Payload = ciphertext
         };
     }
+
+    public record ImportResult(bool Success, string? Error = null, IReadOnlyList<string>? Warnings = null);
+
+    public async Task<ImportResult> ImportAsync(string envelopeJson, string? passphrase)
+    {
+        ExportEnvelope envelope;
+        try
+        {
+            envelope = System.Text.Json.JsonSerializer.Deserialize<ExportEnvelope>(envelopeJson)
+                       ?? throw new InvalidOperationException("Envelope deserialized as null");
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            return new ImportResult(false, $"Malformed envelope: {ex.Message}");
+        }
+
+        if (envelope.FormatVersion != CurrentFormatVersion)
+            throw new InvalidOperationException(
+                $"Unknown export format version {envelope.FormatVersion} (this plugin supports {CurrentFormatVersion}).");
+
+        var warnings = new List<string>();
+        var currentPluginVersion = typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "unknown";
+        if (!string.Equals(envelope.PluginVersion, currentPluginVersion, StringComparison.Ordinal))
+            warnings.Add($"Plugin version mismatch: export was made on {envelope.PluginVersion}, this is {currentPluginVersion}");
+
+        if (envelope.Encrypted)
+        {
+            if (string.IsNullOrEmpty(passphrase))
+                return new ImportResult(false, "Encrypted export requires a passphrase");
+
+            string innerJson;
+            try
+            {
+                var cipher = envelope.Payload?.ToString() ?? string.Empty;
+                innerJson = DecryptPayload(cipher, passphrase);
+            }
+            catch (CryptographicException ex)
+            {
+                return new ImportResult(false, $"Failed to decrypt: {ex.Message}");
+            }
+
+            FullExportPayload? full;
+            try { full = System.Text.Json.JsonSerializer.Deserialize<FullExportPayload>(innerJson); }
+            catch (System.Text.Json.JsonException ex) { return new ImportResult(false, $"Decrypted payload malformed: {ex.Message}"); }
+            if (full is null) return new ImportResult(false, "Decrypted payload was null");
+
+            ApplyConfiguration(full.Configuration);
+            if (full.Users.Count > 0)
+            {
+                foreach (var u in full.Users)
+                {
+                    await _store.SaveUserDataAsync(u).ConfigureAwait(false);
+                }
+                warnings.Add($"Imported {full.Users.Count} user record(s) — admin re-verification recommended");
+            }
+        }
+        else
+        {
+            ConfigExportPayload? plain;
+            try
+            {
+                // envelope.Payload arrives as JsonElement when deserialized via System.Text.Json default.
+                var payloadJson = envelope.Payload is System.Text.Json.JsonElement je
+                    ? je.GetRawText()
+                    : System.Text.Json.JsonSerializer.Serialize(envelope.Payload);
+                plain = System.Text.Json.JsonSerializer.Deserialize<ConfigExportPayload>(payloadJson);
+            }
+            catch (System.Text.Json.JsonException ex) { return new ImportResult(false, $"Payload malformed: {ex.Message}"); }
+            if (plain is null) return new ImportResult(false, "Payload was null");
+
+            ApplyConfiguration(plain.Configuration);
+            if (plain.RedactedFields.Count > 0)
+                warnings.Add($"Re-enter secrets after import: {string.Join(", ", plain.RedactedFields)}");
+        }
+
+        return new ImportResult(true, null, warnings);
+    }
+
+    private void ApplyConfiguration(PluginConfiguration imported)
+    {
+        var live = _configAccessor();
+        var json = System.Text.Json.JsonSerializer.Serialize(imported);
+        var clone = System.Text.Json.JsonSerializer.Deserialize<PluginConfiguration>(json);
+        if (clone is null) throw new InvalidOperationException("Failed to materialize imported configuration");
+
+        // Mutate the live config in place via reflection so any held reference to
+        // Plugin.Instance.Configuration sees the new values immediately.
+        foreach (var prop in typeof(PluginConfiguration).GetProperties(
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+        {
+            if (!prop.CanWrite) continue;
+            prop.SetValue(live, prop.GetValue(clone));
+        }
+
+        Plugin.Instance?.SaveConfiguration();
+        _logger.LogInformation("Plugin configuration applied from import");
+    }
 }
