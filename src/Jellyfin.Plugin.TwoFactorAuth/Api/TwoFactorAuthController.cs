@@ -1314,9 +1314,25 @@ public class TwoFactorAuthController : ControllerBase
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult> StepUpVerify([FromBody] StepUpVerifyRequest request)
     {
         var userId = GetCurrentUserId();
+
+        // Rate-limit step-up verification per user to prevent brute-forcing the
+        // 6-digit TOTP space from a compromised admin session token. Mirrors the
+        // per-user bucket used by the main Verify endpoint (15 attempts / 15 min).
+        var stepUpRl = _rateLimiter.CheckAndRecord("stepup:" + userId.ToString("N"), 15, TimeSpan.FromMinutes(15));
+        if (!stepUpRl.allowed)
+        {
+            Response.Headers.Append("Retry-After", stepUpRl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many attempts. Try again in {stepUpRl.retryAfterSeconds} seconds.",
+                retryAfterSeconds = stepUpRl.retryAfterSeconds,
+            });
+        }
+
         var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
 
         var ok = !string.IsNullOrWhiteSpace(request?.Code)
