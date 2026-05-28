@@ -70,6 +70,17 @@
             #TwoFactorAuth .tfa-pagination { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 14px; }
             #TwoFactorAuth .tfa-pagination button { padding: 6px 12px; }
             #TwoFactorAuth .tfa-pagination .page-info { color: #888; font-size: 13px; }
+
+            /* v2.5.0: step-up prompt modal */
+            #tfa-stepup-overlay { display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.72); align-items:center; justify-content:center; }
+            #tfa-stepup-overlay.active { display:flex; }
+            #tfa-stepup-modal { background:#1e1e1e; border:1px solid rgba(255,255,255,0.14); border-radius:10px; padding:28px 32px; min-width:320px; max-width:440px; width:90%; box-shadow:0 8px 40px rgba(0,0,0,0.6); }
+            #tfa-stepup-modal h3 { margin:0 0 10px; font-size:16px; color:#fff; }
+            #tfa-stepup-modal p { margin:0 0 16px; font-size:13px; color:#aaa; line-height:1.5; }
+            #tfa-stepup-code { width:100%; box-sizing:border-box; background:#111; border:1px solid #444; color:#e0e0e0; padding:9px 12px; border-radius:5px; font-size:18px; letter-spacing:3px; text-align:center; font-family:ui-monospace,monospace; margin-bottom:6px; }
+            #tfa-stepup-code:focus { border-color:#00a4dc; outline:none; }
+            #tfa-stepup-error { min-height:18px; color:#f44336; font-size:12px; margin-bottom:12px; }
+            #tfa-stepup-modal .tfa-stepup-actions { display:flex; gap:10px; justify-content:flex-end; }
         </style>
 
         <div data-role="content">
@@ -350,6 +361,28 @@
                             </div>
                         </div>
 
+                        <!-- v2.5.0: Hardening controls -->
+                        <div class="tfa-section">
+                            <h2>Hardening (v2.5.0)</h2>
+                            <div class="tfa-row tfa-row-stack">
+                                <label class="tfa-check-label">
+                                    <input type="checkbox" id="cfgRequire2faToDisable" is="emby-checkbox" />
+                                    <span>Require authenticator/recovery code before a user can turn off their own 2FA &nbsp;<span class="tfa-badge on" style="font-size:10px;vertical-align:middle;">Recommended</span></span>
+                                </label>
+                                <div class="tfa-help">When enabled, users must supply a current TOTP code or a recovery code before they can disable their own two-factor authentication. Admins are unaffected.</div>
+                            </div>
+                            <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
+                                <label for="cfgStepUpLevel" style="font-weight:500;">Step-up authentication level</label>
+                                <select id="cfgStepUpLevel" class="tfa-input" style="width:100%;max-width:420px;">
+                                    <option value="0">Off — no additional verification required</option>
+                                    <option value="1">Destructive actions — reset/disable another user's 2FA</option>
+                                    <option value="2">All config changes — any admin settings save</option>
+                                    <option value="3">Everything — incl. audit log access</option>
+                                </select>
+                                <div class="tfa-help">Controls which admin actions require a fresh 2FA code from the performing admin. "Off" restores v2.4 behaviour. Saved through the gated <code>/TwoFactorAuth/Admin/HardeningConfig</code> endpoint.</div>
+                            </div>
+                        </div>
+
                         <div class="tfa-section">
                             <h2>SMTP (for Email OTP delivery)</h2>
                             <p style="font-size:12px;color:#888;margin-bottom:12px;">Required if you enable email OTP. Test with a real provider before relying on it.</p>
@@ -532,6 +565,20 @@
             </div>
         </div>
 
+        <!-- v2.5.0: step-up authentication prompt modal -->
+        <div id="tfa-stepup-overlay" role="dialog" aria-modal="true" aria-labelledby="tfa-stepup-title">
+            <div id="tfa-stepup-modal">
+                <h3 id="tfa-stepup-title">Admin authentication required</h3>
+                <p>This action requires a fresh verification code from your authenticator app (or a recovery code).</p>
+                <input type="text" id="tfa-stepup-code" class="tfa-stepup-code" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="8" />
+                <div id="tfa-stepup-error"></div>
+                <div class="tfa-stepup-actions">
+                    <button type="button" class="tfa-btn" id="tfa-stepup-cancel">Cancel</button>
+                    <button type="button" class="tfa-btn tfa-btn-primary" id="tfa-stepup-submit">Verify</button>
+                </div>
+            </div>
+        </div>
+
         <script type="text/javascript">
             (function() {
                 var pluginId = '94879a0c-da24-4eb1-aa06-f28b4b9333b1';
@@ -568,6 +615,93 @@
                     });
                 }
                 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+
+                // ---- v2.5.0: STEP-UP PROMPT MODAL ----
+                // promptStepUpCode opens the modal and returns a Promise that
+                // resolves with the entered code string, or null on cancel.
+                var _stepUpResolve = null;
+                var stepUpOverlay = document.getElementById('tfa-stepup-overlay');
+                var stepUpCodeInput = document.getElementById('tfa-stepup-code');
+                var stepUpErrorEl = document.getElementById('tfa-stepup-error');
+
+                function promptStepUpCode() {
+                    return new Promise(function(resolve) {
+                        _stepUpResolve = resolve;
+                        stepUpErrorEl.textContent = '';
+                        stepUpCodeInput.value = '';
+                        stepUpOverlay.classList.add('active');
+                        // Focus the code input on next tick so animation completes
+                        setTimeout(function() { stepUpCodeInput.focus(); }, 50);
+                    });
+                }
+                function closeStepUpModal() {
+                    stepUpOverlay.classList.remove('active');
+                    stepUpErrorEl.textContent = '';
+                    stepUpCodeInput.value = '';
+                    if (_stepUpResolve) { _stepUpResolve(null); _stepUpResolve = null; }
+                }
+                function showStepUpError(msg) {
+                    stepUpErrorEl.textContent = msg;
+                }
+
+                document.getElementById('tfa-stepup-cancel').addEventListener('click', closeStepUpModal);
+                document.getElementById('tfa-stepup-submit').addEventListener('click', function() {
+                    var code = stepUpCodeInput.value.trim();
+                    if (!code) { showStepUpError('Enter a code.'); return; }
+                    if (_stepUpResolve) {
+                        var cb = _stepUpResolve;
+                        _stepUpResolve = null;
+                        stepUpOverlay.classList.remove('active');
+                        cb(code);
+                    }
+                });
+                stepUpCodeInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') { document.getElementById('tfa-stepup-submit').click(); }
+                    if (e.key === 'Escape') { closeStepUpModal(); }
+                });
+                stepUpOverlay.addEventListener('click', function(e) {
+                    if (e.target === stepUpOverlay) closeStepUpModal();
+                });
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape' && stepUpOverlay.classList.contains('active')) closeStepUpModal();
+                });
+
+                // v2.5.0: step-up-aware fetch wrapper. When the server returns
+                // 403 + { stepUpRequired:true } or { twoFactorRequired:true },
+                // prompt for a fresh 2FA code, POST it to StepUp/Verify, then
+                // transparently replay the original request once.
+                function stepUpFetch(input, init) {
+                    var fullInput = (typeof input === 'string' && input.indexOf('http') !== 0)
+                        ? ApiClient.serverAddress() + '/' + input
+                        : input;
+                    var fullInit = init || {};
+                    if (!fullInit.headers) fullInit.headers = getHeaders();
+                    return fetch(fullInput, fullInit).then(function(resp) {
+                        if (resp.status !== 403) return resp;
+                        return resp.clone().json().catch(function() { return null; }).then(function(body) {
+                            if (!body || (!body.stepUpRequired && !body.twoFactorRequired)) return resp;
+                            return promptStepUpCode().then(function(code) {
+                                if (!code) return resp; // user cancelled — surface original 403
+                                return fetch(ApiClient.serverAddress() + '/TwoFactorAuth/StepUp/Verify', {
+                                    method: 'POST',
+                                    headers: getHeaders(),
+                                    body: JSON.stringify({ Code: code }),
+                                }).then(function(verifyResp) {
+                                    if (!verifyResp.ok) {
+                                        showStepUpError('Invalid code.');
+                                        stepUpOverlay.classList.add('active');
+                                        // Re-expose the modal with error so user can retry
+                                        // (we return the original 403 to the caller so it knows the action failed)
+                                        return resp;
+                                    }
+                                    // Verified — close modal (already closed by submit handler)
+                                    // and replay the original request once
+                                    return fetch(fullInput, fullInit);
+                                });
+                            });
+                        });
+                    });
+                }
 
                 page.querySelectorAll('.tfa-tab').forEach(function(tab) {
                     tab.addEventListener('click', function() {
@@ -717,12 +851,22 @@
                     body.querySelectorAll('.tfa-revoke-all').forEach(function(b) {
                         b.addEventListener('click', function() {
                             if (!confirm('Revoke EVERY trusted browser, paired device, registered device id and app password for this user? They will need to re-do 2FA on every client.')) return;
-                            // Use bulk endpoint with three sequential actions for atomicity
-                            Promise.all([
-                                apiPost('TwoFactorAuth/Admin/Bulk', { action: 'revoke_paired_devices', userIds: [b.dataset.id] }),
-                                apiPost('TwoFactorAuth/Admin/Bulk', { action: 'revoke_trusted_browsers', userIds: [b.dataset.id] }),
-                                apiPost('TwoFactorAuth/Admin/Bulk', { action: 'force_logout', userIds: [b.dataset.id] })
-                            ]).then(function() { alert('Revoked.'); loadUsers(); });
+                            // v2.5.0: route through stepUpFetch so destructive bulk actions
+                            // can be gated by the server's StepUpLevel setting.
+                            // First call uses stepUpFetch; remaining two use plain apiPost
+                            // since step-up token is valid for the window after first verify.
+                            stepUpFetch('TwoFactorAuth/Admin/Bulk', {
+                                method: 'POST',
+                                headers: getHeaders(),
+                                body: JSON.stringify({ action: 'revoke_paired_devices', userIds: [b.dataset.id] }),
+                            }).then(function(r) {
+                                if (!r.ok) return Promise.reject(r);
+                                return Promise.all([
+                                    apiPost('TwoFactorAuth/Admin/Bulk', { action: 'revoke_trusted_browsers', userIds: [b.dataset.id] }),
+                                    apiPost('TwoFactorAuth/Admin/Bulk', { action: 'force_logout', userIds: [b.dataset.id] }),
+                                ]);
+                            }).then(function() { alert('Revoked.'); loadUsers(); })
+                              .catch(function() { /* step-up cancelled or server error — silently ignore */ });
                         });
                     });
                     body.querySelectorAll('.tfa-export-user').forEach(function(b) {
@@ -870,7 +1014,12 @@
                         body.querySelectorAll('.tfa-revoke-user-all').forEach(function(b) {
                             b.addEventListener('click', function() {
                                 if (!confirm('Revoke EVERY trusted browser for this user?')) return;
-                                apiPost('TwoFactorAuth/Admin/Bulk', { action: 'revoke_trusted_browsers', userIds: [b.dataset.uid] }).then(loadAllDevices);
+                                // v2.5.0: stepUpFetch so the server can enforce a step-up gate.
+                                stepUpFetch('TwoFactorAuth/Admin/Bulk', {
+                                    method: 'POST',
+                                    headers: getHeaders(),
+                                    body: JSON.stringify({ action: 'revoke_trusted_browsers', userIds: [b.dataset.uid] }),
+                                }).then(function(r) { if (r.ok) loadAllDevices(); });
                             });
                         });
                         body.querySelectorAll('.tfa-dev-expand').forEach(function(a) {
@@ -949,9 +1098,18 @@
                     var ids = Array.prototype.slice.call(page.querySelectorAll('.tfa-user-select:checked')).map(function(c){return c.dataset.uid;});
                     if (!ids.length) { alert('Select at least one user.'); return; }
                     if (!confirm('Apply "' + action + '" to ' + ids.length + ' user(s)?')) return;
-                    apiPost('TwoFactorAuth/Admin/Bulk', { action: action, userIds: ids }).then(function(r) {
-                        alert('Processed ' + (r.processed || 0) + ' user(s).');
-                        loadUsers();
+                    // v2.5.0: route through stepUpFetch so the server can enforce a
+                    // step-up gate on destructive actions (e.g. reset_2fa).
+                    stepUpFetch('TwoFactorAuth/Admin/Bulk', {
+                        method: 'POST',
+                        headers: getHeaders(),
+                        body: JSON.stringify({ action: action, userIds: ids }),
+                    }).then(function(r) {
+                        if (!r.ok) { r.json().catch(function(){return{};}).then(function(b){ alert('Action failed: ' + (b.message || r.status)); }); return; }
+                        return r.json().catch(function(){return{};}).then(function(r) {
+                            alert('Processed ' + (r.processed || 0) + ' user(s).');
+                            loadUsers();
+                        });
                     });
                 });
                 // v1.4: audit CSV export
@@ -1053,6 +1211,9 @@
                         page.querySelector('#cfgTravelEnabled').checked = c.ImpossibleTravelEnabled !== false;
                         page.querySelector('#cfgTravelKmh').value = c.ImpossibleTravelMaxKmh || 900;
                         page.querySelector('#cfgGeoCity').value = c.GeoIpCityDbPath || '';
+                        // v2.5.0 hardening fields
+                        page.querySelector('#cfgRequire2faToDisable').checked = !!c.RequireTwoFactorToDisable;
+                        page.querySelector('#cfgStepUpLevel').value = (c.StepUpLevel != null ? c.StepUpLevel : 0);
                     });
                 }
                 page.querySelector('#btnTestSmtp').addEventListener('click', function() {
@@ -1120,13 +1281,41 @@
                         c.ImpossibleTravelEnabled = page.querySelector('#cfgTravelEnabled').checked;
                         c.ImpossibleTravelMaxKmh = Math.max(100, parseInt(page.querySelector('#cfgTravelKmh').value) || 900);
                         c.GeoIpCityDbPath = page.querySelector('#cfgGeoCity').value.trim();
+                        // v2.5.0: persist hardening toggles through the gated endpoint.
+                        // Broader plugin config (other fields) still uses the built-in
+                        // updatePluginConfiguration path. Store current config ref so the
+                        // HardeningConfig POST can pass StepUpWindowSeconds through unchanged.
+                        _currentConfig = c;
                         return ApiClient.updatePluginConfiguration(pluginId, c);
                     }).then(function() {
-                        var s = page.querySelector('#saveStatus');
-                        s.textContent = '✓ Saved';
-                        setTimeout(function() { s.textContent = ''; }, 2000);
+                        // v2.5.0: also persist hardening fields via the gated endpoint.
+                        // This lets the server enforce a step-up gate on these specific fields.
+                        var hardening = {
+                            RequireTwoFactorToDisable: page.querySelector('#cfgRequire2faToDisable').checked,
+                            StepUpLevel: parseInt(page.querySelector('#cfgStepUpLevel').value, 10) || 0,
+                            StepUpWindowSeconds: (_currentConfig && _currentConfig.StepUpWindowSeconds) || 300,
+                        };
+                        return stepUpFetch('TwoFactorAuth/Admin/HardeningConfig', {
+                            method: 'POST',
+                            headers: getHeaders(),
+                            body: JSON.stringify(hardening),
+                        }).then(function(r) {
+                            var s = page.querySelector('#saveStatus');
+                            if (r.ok || r.status === 200) {
+                                s.style.color = '#4caf50';
+                                s.textContent = '✓ Saved';
+                            } else if (r.status === 403) {
+                                s.style.color = '#ff9800';
+                                s.textContent = '⚠ Other settings saved; hardening config requires step-up verification.';
+                            } else {
+                                s.style.color = '#f44336';
+                                s.textContent = '✓ Settings saved (hardening config endpoint error — check server log)';
+                            }
+                            setTimeout(function() { s.style.color = ''; s.textContent = ''; }, 3500);
+                        });
                     });
                 });
+                var _currentConfig = null;
 
                 // ---- v2.0 SSO PROVIDERS ----
                 var ssoPresets = [];
