@@ -72,4 +72,15 @@
     <EmbeddedResource Include="Fonts\**\*.ttf" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Update="Pages\translations\en.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.en.json" />
+    <EmbeddedResource Update="Pages\translations\de.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.de.json" />
+    <EmbeddedResource Update="Pages\translations\es.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.es.json" />
+    <EmbeddedResource Update="Pages\translations\fr.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.fr.json" />
+    <EmbeddedResource Update="Pages\translations\it.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.it.json" />
+    <EmbeddedResource Update="Pages\translations\ja.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.ja.json" />
+    <EmbeddedResource Update="Pages\translations\pt.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.pt.json" />
+    <EmbeddedResource Update="Pages\translations\zh.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.zh.json" />
+  </ItemGroup>
+
 </Project>

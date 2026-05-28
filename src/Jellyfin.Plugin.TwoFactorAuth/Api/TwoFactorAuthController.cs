@@ -11,6 +11,7 @@ using Jellyfin.Data;
 using Jellyfin.Data.Queries;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Plugin.TwoFactorAuth.Helpers;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using MediaBrowser.Controller.Devices;
@@ -3348,6 +3349,29 @@ public class TwoFactorAuthController : ControllerBase
             timeSeries,
             bans
         });
+    }
+
+    [HttpGet("translations/{lang}")]
+    [AllowAnonymous]
+    public ActionResult GetTranslations([FromRoute] string lang)
+    {
+        // v2.5.0: no auth required so challenge.html and setup.html can load
+        // translations before the user has signed in. Sanitize lang to prevent
+        // path traversal - only letters and dashes allowed.
+        Response.Headers["Cache-Control"] = "no-cache, must-revalidate";
+        var clean = new string((lang ?? "en").ToLowerInvariant()
+            .Where(c => (c >= 'a' && c <= 'z') || c == '-').ToArray());
+        if (string.IsNullOrEmpty(clean)) clean = "en";
+
+        var content = Helpers.ResourceReader.ReadEmbeddedText(
+            $"Jellyfin.Plugin.TwoFactorAuth.Pages.translations.{clean}.json");
+        if (content is null && clean != "en")
+        {
+            content = Helpers.ResourceReader.ReadEmbeddedText(
+                "Jellyfin.Plugin.TwoFactorAuth.Pages.translations.en.json");
+        }
+        if (content is null) return NotFound();
+        return Content(content, "application/json");
     }
 
     [HttpGet("Config/Export")]
