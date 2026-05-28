@@ -1,8 +1,26 @@
 using System;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
+
+/// <summary>Admin actions that may require step-up re-auth, grouped by the
+/// minimum StepUpLevel that gates them.</summary>
+public enum StepUpAction
+{
+    // Destructive (level >= 1)
+    DisableEnforcement,
+    ResetOtherUser2fa,
+    ExportWithSecrets,
+    UnbanAll,
+    // AllConfigChanges (level >= 2)
+    ConfigChange,
+    Unban,
+    ConfigImport,
+    // Everything (level >= 3)
+    ViewAuditLog,
+}
 
 /// <summary>v2.5.0: verifies a fresh 2FA code for step-up / disable-guard, and
 /// classifies which admin actions require step-up at the configured level.</summary>
@@ -61,5 +79,31 @@ public class StepUpService
             return true;
         }
         return false;
+    }
+
+    /// <summary>Pure classifier: does <paramref name="action"/> require step-up
+    /// at the given <paramref name="level"/>? Static + parameterized so it's
+    /// unit-testable without Plugin.Instance.</summary>
+    public static bool RequiresStepUp(StepUpLevel level, StepUpAction action)
+    {
+        if (level == StepUpLevel.Off) return false;
+        var minLevel = action switch
+        {
+            StepUpAction.DisableEnforcement or StepUpAction.ResetOtherUser2fa
+                or StepUpAction.ExportWithSecrets or StepUpAction.UnbanAll => StepUpLevel.Destructive,
+            StepUpAction.ConfigChange or StepUpAction.Unban or StepUpAction.ConfigImport => StepUpLevel.AllConfigChanges,
+            StepUpAction.ViewAuditLog => StepUpLevel.Everything,
+            _ => StepUpLevel.Destructive,
+        };
+        return (int)level >= (int)minLevel;
+    }
+
+    /// <summary>Config-reading wrapper for controllers. Returns true if the
+    /// action requires step-up AND the admin has no valid step-up token.</summary>
+    public bool NeedsStepUpToken(Guid adminUserId, StepUpAction action)
+    {
+        var level = Plugin.Instance?.Configuration?.StepUpLevel ?? StepUpLevel.Off;
+        if (!RequiresStepUp(level, action)) return false;
+        return !_challenges.IsStepUpVerified(adminUserId);
     }
 }

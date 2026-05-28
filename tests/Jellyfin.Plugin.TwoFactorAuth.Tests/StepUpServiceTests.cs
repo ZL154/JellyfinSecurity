@@ -91,3 +91,27 @@ public class StepUpServiceVerifyTests
         Assert.False(svc.VerifyUserCode(new UserTwoFactorData { UserId = Guid.NewGuid() }, ""));
     }
 }
+
+public class StepUpClassificationTests
+{
+    [Theory]
+    // Off → nothing requires step-up
+    [InlineData(StepUpLevel.Off, StepUpAction.DisableEnforcement, false)]
+    [InlineData(StepUpLevel.Off, StepUpAction.ViewAuditLog, false)]
+    // Destructive → destructive yes, config-change no, audit-view no
+    [InlineData(StepUpLevel.Destructive, StepUpAction.DisableEnforcement, true)]
+    [InlineData(StepUpLevel.Destructive, StepUpAction.ResetOtherUser2fa, true)]
+    [InlineData(StepUpLevel.Destructive, StepUpAction.ConfigChange, false)]
+    [InlineData(StepUpLevel.Destructive, StepUpAction.ViewAuditLog, false)]
+    // AllConfigChanges → destructive + config yes, audit-view no
+    [InlineData(StepUpLevel.AllConfigChanges, StepUpAction.ConfigChange, true)]
+    [InlineData(StepUpLevel.AllConfigChanges, StepUpAction.ConfigImport, true)]
+    [InlineData(StepUpLevel.AllConfigChanges, StepUpAction.ViewAuditLog, false)]
+    // Everything → all yes
+    [InlineData(StepUpLevel.Everything, StepUpAction.ViewAuditLog, true)]
+    [InlineData(StepUpLevel.Everything, StepUpAction.DisableEnforcement, true)]
+    public void RequiresStepUp_matches_level(StepUpLevel level, StepUpAction action, bool expected)
+    {
+        Assert.Equal(expected, StepUpService.RequiresStepUp(level, action));
+    }
+}
