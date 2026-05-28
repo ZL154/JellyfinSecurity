@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Two-Factor Authentication</title>
+    <script src="/TwoFactorAuth/tfa-i18n.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -117,12 +118,16 @@
         .secret-key.show { display: block; }
         .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: -2px; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .tfa-lang-picker { background: rgba(255,255,255,0.04); color: #ccc; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
+        .tfa-lang-picker:hover { background: rgba(255,255,255,0.08); }
+        .tfa-lang-host { position: absolute; top: 16px; right: 16px; }
     </style>
 </head>
 <body>
+    <div class="tfa-lang-host" id="tfaLangHost"></div>
     <div class="card">
         <div class="logo">Jellyfin</div>
-        <h1>Two-Factor Authentication</h1>
+        <h1 data-i18n-key="tfa.challenge.title">Two-Factor Authentication</h1>
 
         <div class="method-tabs" id="methodTabs">
             <div class="method-tab active" data-method="totp">Authenticator</div>
@@ -146,7 +151,7 @@
             <button class="btn-primary" id="btnConfirmEnroll" style="display:none;">Confirm &amp; continue</button>
         </div>
 
-        <label id="codeLabel">Enter the 6-digit code</label>
+        <label id="codeLabel" data-i18n-key="tfa.challenge.code_label">Enter the 6-digit code</label>
         <input type="text" id="codeInput" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code" autofocus />
 
         <label class="trust-row" id="trustRow">
@@ -154,13 +159,13 @@
             <span>Trust this device (skip 2FA for future logins)</span>
         </label>
 
-        <button class="btn-primary" id="btnVerify">Verify</button>
+        <button class="btn-primary" id="btnVerify" data-i18n-key="tfa.challenge.btn_verify">Verify</button>
         <button class="btn-secondary" id="btnSendEmail" style="display:none;">Send code by email</button>
         <button class="btn-secondary" id="btnPasskey" style="display:none;">🔑 Use a passkey instead</button>
 
         <p class="hint" id="bottomHint">Codes rotate every 30 seconds.</p>
         <p class="hint" style="margin-top:14px;">
-            <a href="/TwoFactorAuth/Login" style="color:#888;text-decoration:none;">← Back to sign in</a>
+            <a href="/TwoFactorAuth/Login" style="color:#888;text-decoration:none;" data-i18n-key="tfa.challenge.btn_cancel">← Back to sign in</a>
         </p>
     </div>
 
@@ -177,6 +182,32 @@
         // circuited locally with a synthetic 403 — "Server not available."
         // Clear it now so the post-verify dashboard load is unblocked.
         try { sessionStorage.removeItem('__tfa_pending'); } catch (e) {}
+
+        // v2.5.0: mount the shared language picker. tfa-i18n.js auto-loads
+        // translations on DOMContentLoaded; we just need to render the picker
+        // host. The setTimeout retry covers the race where the helper script
+        // hasn't finished parsing yet on first call.
+        function _initTfaLangPicker() {
+            if (window.tfaI18n && window.tfaI18n.renderLanguagePicker) {
+                var host = document.getElementById('tfaLangHost');
+                if (host && !host.firstChild) {
+                    window.tfaI18n.renderLanguagePicker(host);
+                }
+            } else {
+                setTimeout(_initTfaLangPicker, 50);
+            }
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', _initTfaLangPicker);
+        } else {
+            _initTfaLangPicker();
+        }
+
+        // v2.5.0: small helper — translate with English fallback if the i18n
+        // helper hasn't loaded yet (e.g. on slow first-paint or offline).
+        function _tr(key, fallback) {
+            return (window.tfaI18n && window.tfaI18n.tr) ? window.tfaI18n.tr(key, fallback) : fallback;
+        }
 
         var params = new URLSearchParams(window.location.search);
         var challengeToken = params.get('token');
@@ -198,7 +229,7 @@
         var availableMethods = ['totp'];
 
         if (!challengeToken) {
-            showError('No challenge token. Return to login.');
+            showError(_tr('tfa.challenge.expired', 'No challenge token. Return to login.'));
             document.getElementById('btnVerify').disabled = true;
         } else {
             loadChallengeInfo();
@@ -475,9 +506,9 @@
             }).then(function(r) {
                 if (!r.ok) {
                     btn.disabled = false;
-                    btn.textContent = 'Verify';
-                    if (r.status === 429) showError('Too many attempts. Please wait and try again.');
-                    else showError('Invalid code. Try again.');
+                    btn.textContent = _tr('tfa.challenge.btn_verify', 'Verify');
+                    if (r.status === 429) showError(_tr('tfa.challenge.locked_out', 'Too many attempts. Please wait and try again.'));
+                    else showError(_tr('tfa.challenge.wrong_code', 'Invalid code. Try again.'));
                     return null;
                 }
                 var deviceToken = r.headers.get('X-TwoFactor-Device-Token');
@@ -492,8 +523,8 @@
                 });
             }).catch(function() {
                 btn.disabled = false;
-                btn.textContent = 'Verify';
-                showError('Network error. Try again.');
+                btn.textContent = _tr('tfa.challenge.btn_verify', 'Verify');
+                showError(_tr('tfa.error.unknown', 'Network error. Try again.'));
             });
         });
 
