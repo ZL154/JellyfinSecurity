@@ -104,6 +104,22 @@ public class ChallengeStore : IDisposable
         _preVerifiedDevices.TryRemove(DeviceKey(userId, deviceId), out _);
     }
 
+    /// <summary>Mark that this admin completed a fresh 2FA challenge for a
+    /// sensitive action. Valid for StepUpWindowSeconds (clamped 60-900).</summary>
+    public void MarkStepUpVerified(Guid userId)
+    {
+        var seconds = Math.Clamp(
+            Plugin.Instance?.Configuration?.StepUpWindowSeconds ?? 300, 60, 900);
+        _stepUpVerified[$"stepup:{userId:N}"] = DateTime.UtcNow.AddSeconds(seconds);
+        EnforceCap(_stepUpVerified);
+    }
+
+    public bool IsStepUpVerified(Guid userId)
+        => _stepUpVerified.TryGetValue($"stepup:{userId:N}", out var exp) && exp > DateTime.UtcNow;
+
+    public void ClearStepUp(Guid userId)
+        => _stepUpVerified.TryRemove($"stepup:{userId:N}", out _);
+
     /// <summary>Mark a pending cross-device Quick Connect acceptance. Single consume.</summary>
     public void MarkQuickConnectPending(Guid userId)
     {
@@ -331,6 +347,10 @@ public class ChallengeStore : IDisposable
         }
     }
 
+    // v2.5.0: short-lived per-admin "recently re-authenticated for a sensitive
+    // action" markers. Reuses this class's cleanup timer + cap infrastructure.
+    private readonly ConcurrentDictionary<string, DateTime> _stepUpVerified = new();
+
     // Seen PairConfirm signatures — prevents an attacker with a captured
     // signed QR-pair link from replaying it inside the 5-minute TTL window
     // after the user unpaired/paired anew.
@@ -472,6 +492,10 @@ public class ChallengeStore : IDisposable
         foreach (var kv in _seenPairTokens)
         {
             if (kv.Value <= now) _seenPairTokens.TryRemove(kv.Key, out _);
+        }
+        foreach (var kv in _stepUpVerified)
+        {
+            if (kv.Value <= now) _stepUpVerified.TryRemove(kv.Key, out _);
         }
     }
 
