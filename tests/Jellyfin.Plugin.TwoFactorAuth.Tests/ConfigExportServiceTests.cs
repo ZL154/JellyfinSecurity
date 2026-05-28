@@ -1,6 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
+using Jellyfin.Plugin.TwoFactorAuth.Services;
+using Jellyfin.Plugin.TwoFactorAuth.Tests.Helpers;
+using MediaBrowser.Controller.Library;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
 using Xunit;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Tests;
@@ -34,5 +41,73 @@ public class ExportEnvelopeDtosTests
         };
         Assert.Contains("SmtpPassword", p.RedactedFields);
         Assert.Contains("WebhookSecret", p.RedactedFields);
+    }
+}
+
+public static class ConfigExportTestHarness
+{
+    public static ConfigExportService Build(out PluginConfiguration cfg)
+    {
+        var paths = TestApplicationPaths.Create();
+        var store = new UserTwoFactorStore(paths);
+        var stats = Substitute.For<StatsService>(store, Substitute.For<MediaBrowser.Controller.Library.IUserManager>());
+        var scoreLogger = Substitute.For<ILogger<SecurityScoreService>>();
+        var localCfg = new PluginConfiguration();
+        var score = new SecurityScoreService(store, stats, paths, scoreLogger, () => localCfg);
+        cfg = localCfg;
+        var exportLogger = Substitute.For<ILogger<ConfigExportService>>();
+        return new ConfigExportService(store, score, exportLogger, () => localCfg);
+    }
+}
+
+public class ConfigExportRedactionTests
+{
+    [Fact]
+    public async Task ConfigOnlyExport_StripsSecretFields()
+    {
+        var svc = ConfigExportTestHarness.Build(out var cfg);
+        cfg.SmtpPassword = "smtp-secret";
+        cfg.WebhookSecret = "webhook-secret";
+        cfg.WebhookEd25519PrivateKey = "ed25519-secret";
+        cfg.OidcProviders.Add(new OidcProvider { Id = "google", ClientSecret = "client-secret" });
+
+        var env = await svc.BuildConfigOnlyExportAsync();
+        var payload = (ConfigExportPayload)env.Payload;
+
+        Assert.Equal(string.Empty, payload.Configuration.SmtpPassword);
+        Assert.Equal(string.Empty, payload.Configuration.WebhookSecret);
+        Assert.Equal(string.Empty, payload.Configuration.WebhookEd25519PrivateKey);
+        Assert.Single(payload.Configuration.OidcProviders);
+        Assert.Equal(string.Empty, payload.Configuration.OidcProviders[0].ClientSecret);
+
+        Assert.Contains("SmtpPassword", payload.RedactedFields);
+        Assert.Contains("WebhookSecret", payload.RedactedFields);
+        Assert.Contains("WebhookEd25519PrivateKey", payload.RedactedFields);
+        Assert.Contains("OidcProviders[0].ClientSecret", payload.RedactedFields);
+
+        Assert.False(env.Encrypted);
+        Assert.Equal(1, env.FormatVersion);
+    }
+
+    [Fact]
+    public async Task ConfigOnlyExport_PreservesNonSecretFields()
+    {
+        var svc = ConfigExportTestHarness.Build(out var cfg);
+        cfg.EnforcementScope = EnforcementScope.All;
+        cfg.IpBanEnabled = true;
+        cfg.IpBanDurationHours = 48;
+        cfg.SmtpHost = "smtp.example.com";
+        cfg.SmtpPort = 587;
+        cfg.SmtpUsername = "admin@example.com";
+
+        var env = await svc.BuildConfigOnlyExportAsync();
+        var payload = (ConfigExportPayload)env.Payload;
+
+        Assert.Equal(EnforcementScope.All, payload.Configuration.EnforcementScope);
+        Assert.True(payload.Configuration.IpBanEnabled);
+        Assert.Equal(48, payload.Configuration.IpBanDurationHours);
+        Assert.Equal("smtp.example.com", payload.Configuration.SmtpHost);
+        Assert.Equal(587, payload.Configuration.SmtpPort);
+        Assert.Equal("admin@example.com", payload.Configuration.SmtpUsername);
     }
 }
