@@ -88,6 +88,14 @@ public class StatsService
             failedVerifies24, lockouts24, success24, behind);
     }
 
+    /// <summary>Public passthrough over the private <see cref="EnumerateUsers"/>
+    /// reflection helper so the security-score engine (and the v2.5.0 dashboard
+    /// endpoint) can iterate Jellyfin users without re-implementing the
+    /// 10.11.9 ABI workaround. Returned items are <c>User</c> entities — callers
+    /// access <c>Id</c> and <c>Policy.IsAdministrator</c> via reflection to
+    /// stay loosely coupled to the entity shape.</summary>
+    public virtual IEnumerable<object> EnumerateUsersPublic() => EnumerateUsers();
+
     // See ComputeAsync — reflection avoids the 10.11.9 ABI break on
     // IUserManager.Users. Empty enumeration on any failure so the admin
     // stats page degrades gracefully instead of 500-ing.
