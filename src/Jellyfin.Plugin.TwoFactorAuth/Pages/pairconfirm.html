@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Confirm Device Pairing</title>
+    <script src="/TwoFactorAuth/tfa-i18n.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -48,9 +49,13 @@
         .status.error { background: rgba(244,67,54,0.1); color: #ef5350; border: 1px solid rgba(244,67,54,0.2); }
         .muted { color: #666; font-size: 12px; text-align: center; margin-top: 18px; }
         a { color: #00a4dc; text-decoration: none; }
+        .tfa-lang-picker { background: rgba(255,255,255,0.04); color: #ccc; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
+        .tfa-lang-picker:hover { background: rgba(255,255,255,0.08); }
+        .tfa-lang-host { position: absolute; top: 16px; right: 16px; }
     </style>
 </head>
 <body>
+    <div class="tfa-lang-host" id="tfaLangHost"></div>
     <div class="card">
         <div class="icon">🔐</div>
         <h1>Confirm Device Pairing</h1>
@@ -64,13 +69,39 @@
         </div>
 
         <button class="btn-primary" id="btnConfirm" disabled>Trust This Device</button>
-        <button class="btn-ghost" id="btnCancel">Cancel</button>
+        <button class="btn-ghost" id="btnCancel" data-i18n-key="tfa.setup.btn_cancel">Cancel</button>
 
         <div class="status" id="statusBox"></div>
         <p class="muted">Only pair devices you recognize.</p>
     </div>
 
     <script>
+        // v2.5.0: mount the shared language picker. tfa-i18n.js auto-loads
+        // translations on DOMContentLoaded; we just need to render the picker
+        // host. The setTimeout retry covers the race where the helper script
+        // hasn't finished parsing yet on first call.
+        function _initTfaLangPicker() {
+            if (window.tfaI18n && window.tfaI18n.renderLanguagePicker) {
+                var host = document.getElementById('tfaLangHost');
+                if (host && !host.firstChild) {
+                    window.tfaI18n.renderLanguagePicker(host);
+                }
+            } else {
+                setTimeout(_initTfaLangPicker, 50);
+            }
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', _initTfaLangPicker);
+        } else {
+            _initTfaLangPicker();
+        }
+
+        // v2.5.0: small helper — translate with English fallback if the i18n
+        // helper hasn't loaded yet (e.g. on slow first-paint or offline).
+        function _tr(key, fallback) {
+            return (window.tfaI18n && window.tfaI18n.tr) ? window.tfaI18n.tr(key, fallback) : fallback;
+        }
+
         function getToken() {
             try {
                 var c = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}');
@@ -134,7 +165,7 @@
                     document.getElementById('btnConfirm').textContent = 'Trust This Device';
                 }
             }).catch(function() {
-                showStatus('Network error. Try again.', false);
+                showStatus(_tr('tfa.error.unknown', 'Network error. Try again.'), false);
                 document.getElementById('btnConfirm').disabled = false;
                 document.getElementById('btnConfirm').textContent = 'Trust This Device';
             });

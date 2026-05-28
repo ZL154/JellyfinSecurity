@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jellyfin — Sign In</title>
+    <script src="/TwoFactorAuth/tfa-i18n.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -90,9 +91,13 @@
         .hint a:hover { text-decoration: underline; }
         .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: -2px; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .tfa-lang-picker { background: rgba(255,255,255,0.04); color: #ccc; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
+        .tfa-lang-picker:hover { background: rgba(255,255,255,0.08); }
+        .tfa-lang-host { position: absolute; top: 16px; right: 16px; }
     </style>
 </head>
 <body>
+    <div class="tfa-lang-host" id="tfaLangHost"></div>
     <div class="card">
         <div class="logo">Jellyfin</div>
         <h1>Sign In</h1>
@@ -108,7 +113,7 @@
         <label id="codeLabel">6-digit Code <span style="color:#555;text-transform:none;">(leave blank if 2FA isn't set up)</span></label>
         <input type="text" id="code" class="code-input" maxlength="6" inputmode="numeric" placeholder="000000" autocomplete="one-time-code" />
 
-        <a class="toggle-link" id="toggleRecovery">Use a recovery code instead</a>
+        <a class="toggle-link" id="toggleRecovery" data-i18n-key="tfa.challenge.recovery_label">Use a recovery code instead</a>
 
         <label class="trust-row">
             <input type="checkbox" id="trustDevice" />
@@ -124,6 +129,32 @@
     </div>
 
     <script>
+        // v2.5.0: mount the shared language picker. tfa-i18n.js auto-loads
+        // translations on DOMContentLoaded; we just need to render the picker
+        // host. The setTimeout retry covers the race where the helper script
+        // hasn't finished parsing yet on first call.
+        function _initTfaLangPicker() {
+            if (window.tfaI18n && window.tfaI18n.renderLanguagePicker) {
+                var host = document.getElementById('tfaLangHost');
+                if (host && !host.firstChild) {
+                    window.tfaI18n.renderLanguagePicker(host);
+                }
+            } else {
+                setTimeout(_initTfaLangPicker, 50);
+            }
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', _initTfaLangPicker);
+        } else {
+            _initTfaLangPicker();
+        }
+
+        // v2.5.0: small helper — translate with English fallback if the i18n
+        // helper hasn't loaded yet (e.g. on slow first-paint or offline).
+        function _tr(key, fallback) {
+            return (window.tfaI18n && window.tfaI18n.tr) ? window.tfaI18n.tr(key, fallback) : fallback;
+        }
+
         var params = new URLSearchParams(window.location.search);
         var prefillUsername = params.get('username');
         var usingRecovery = false;
@@ -262,13 +293,13 @@
                     btn.disabled = false;
                     btn.textContent = 'Sign In';
                     if (r.status === 429 && body.lockoutRemainingSeconds) {
-                        showError(body.message || 'Account locked.');
+                        showError(body.message || _tr('tfa.challenge.locked_out', 'Account locked.'));
                         startLockoutCountdown(body.lockoutRemainingSeconds);
                     } else if (r.status === 429 && body.retryAfterSeconds) {
-                        showError(body.message || 'Too many attempts.');
+                        showError(body.message || _tr('tfa.challenge.locked_out', 'Too many attempts.'));
                         startLockoutCountdown(body.retryAfterSeconds);
                     } else {
-                        showError(body.message || 'Sign in failed.');
+                        showError(body.message || _tr('tfa.error.unknown', 'Sign in failed.'));
                     }
                     return null;
                 });
@@ -282,7 +313,7 @@
             }).catch(function() {
                 btn.disabled = false;
                 btn.textContent = 'Sign In';
-                showError('Network error. Check your connection and try again.');
+                showError(_tr('tfa.error.unknown', 'Network error. Check your connection and try again.'));
             });
         });
 
