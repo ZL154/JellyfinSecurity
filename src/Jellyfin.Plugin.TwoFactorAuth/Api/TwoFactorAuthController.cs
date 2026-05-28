@@ -53,6 +53,7 @@ public class TwoFactorAuthController : ControllerBase
     private readonly IpBanService _ipBans;
     private readonly IpAllowlistService _allowlist;
     private readonly StepUpService _stepUp;
+    private readonly SecurityScoreService _scoreService;
     private readonly ILogger<TwoFactorAuthController> _logger;
 
     public TwoFactorAuthController(
@@ -81,6 +82,7 @@ public class TwoFactorAuthController : ControllerBase
         IpBanService ipBans,
         IpAllowlistService allowlist,
         StepUpService stepUp,
+        SecurityScoreService scoreService,
         ILogger<TwoFactorAuthController> logger)
     {
         _store = store;
@@ -108,6 +110,7 @@ public class TwoFactorAuthController : ControllerBase
         _ipBans = ipBans;
         _allowlist = allowlist;
         _stepUp = stepUp;
+        _scoreService = scoreService;
         _logger = logger;
     }
 
@@ -3272,6 +3275,77 @@ public class TwoFactorAuthController : ControllerBase
     {
         var s = await _stats.ComputeAsync().ConfigureAwait(false);
         return Ok(s);
+    }
+
+    [HttpGet("Dashboard/Overview")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> GetDashboardOverview()
+    {
+        var score = await _scoreService.ComputeAsync().ConfigureAwait(false);
+        var history = await _scoreService.GetHistoryAsync(30).ConfigureAwait(false);
+        var stats = await _stats.ComputeAsync().ConfigureAwait(false);
+        var audit = await _store.GetAuditLogAsync(limit: null).ConfigureAwait(false);
+        var bans = _ipBans.ListActive();
+
+        // Enrollment-by-role
+        var users = await _store.GetAllUsersAsync().ConfigureAwait(false);
+        var enrolledIds = new HashSet<Guid>(users
+            .Where(d => d.TotpEnabled || d.Passkeys.Count > 0)
+            .Select(d => d.UserId));
+        int adminsTotal = 0, adminsEnrolled = 0, regularTotal = 0, regularEnrolled = 0;
+        foreach (var u in _stats.EnumerateUsersPublic())
+        {
+            var idProp = u.GetType().GetProperty("Id");
+            var policyProp = u.GetType().GetProperty("Policy");
+            if (idProp?.GetValue(u) is not Guid id) continue;
+            var policy = policyProp?.GetValue(u);
+            var isAdmin = policy?.GetType().GetProperty("IsAdministrator")?.GetValue(policy) as bool? ?? false;
+            var isEnrolled = enrolledIds.Contains(id);
+            if (isAdmin) { adminsTotal++; if (isEnrolled) adminsEnrolled++; }
+            else { regularTotal++; if (isEnrolled) regularEnrolled++; }
+        }
+
+        // Time series bucketed per UTC day for the auth-activity chart.
+        var since30 = DateTime.UtcNow.AddDays(-30);
+        var timeSeries = audit
+            .Where(e => e.Timestamp >= since30)
+            .GroupBy(e => e.Timestamp.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+            .Select(g => new
+            {
+                date = g.Key,
+                success = g.Count(e => e.Result == AuditResult.Success),
+                failed = g.Count(e => e.Result == AuditResult.Failed),
+                locked = g.Count(e => e.Result == AuditResult.Locked)
+            })
+            .OrderBy(x => x.date, StringComparer.Ordinal)
+            .ToList();
+
+        int chainBroken = DiagnosticsService.VerifyAuditChainPublic(audit);
+
+        return Ok(new
+        {
+            score,
+            kpis = new
+            {
+                enrolledUsers = stats.EnrolledCount,
+                totalUsers = stats.TotalUsers,
+                // TODO: hook up actual session count once a service exposes it.
+                activeSessions = 0,
+                bannedIps = bans.Count,
+                auditEntries = audit.Count,
+                auditChainBroken = chainBroken
+            },
+            history,
+            enrollmentByRole = new
+            {
+                adminsTotal,
+                adminsEnrolled,
+                regularTotal,
+                regularEnrolled
+            },
+            timeSeries,
+            bans
+        });
     }
 
     [HttpGet("Users/{userId:guid}/Export")]
