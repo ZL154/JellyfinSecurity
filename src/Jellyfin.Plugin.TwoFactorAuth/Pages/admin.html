@@ -127,16 +127,16 @@
                     <div class="tfa-note">Service integrations like Sonarr/Radarr use standard Jellyfin API keys, which already bypass user authentication — no plugin configuration needed.</div>
 
                     <div class="tfa-tabs">
-                        <div class="tfa-tab active" data-tab="overview">Overview</div>
-                        <div class="tfa-tab" data-tab="users">Users</div>
-                        <div class="tfa-tab" data-tab="devices">Trusted Devices</div>
-                        <div class="tfa-tab" data-tab="pairings">Pairings</div>
-                        <div class="tfa-tab" data-tab="audit">Audit Log</div>
-                        <div class="tfa-tab" data-tab="diagnostics">Diagnostics</div>
-                        <div class="tfa-tab" data-tab="trips">Rate Limits</div>
-                        <div class="tfa-tab" data-tab="sso">Sign-in Methods</div>
-                        <div class="tfa-tab" data-tab="bans">IP Bans</div>
-                        <div class="tfa-tab" data-tab="settings">Settings</div>
+                        <div class="tfa-tab active" data-tab="overview" data-i18n-key="tfa.admin.tab_overview">Overview</div>
+                        <div class="tfa-tab" data-tab="users" data-i18n-key="tfa.admin.tab_users">Users</div>
+                        <div class="tfa-tab" data-tab="devices" data-i18n-key="tfa.admin.tab_devices">Trusted Devices</div>
+                        <div class="tfa-tab" data-tab="pairings" data-i18n-key="tfa.admin.tab_pairings">Pairings</div>
+                        <div class="tfa-tab" data-tab="audit" data-i18n-key="tfa.admin.tab_audit">Audit Log</div>
+                        <div class="tfa-tab" data-tab="diagnostics" data-i18n-key="tfa.admin.tab_diagnostics">Diagnostics</div>
+                        <div class="tfa-tab" data-tab="trips" data-i18n-key="tfa.admin.tab_trips">Rate Limits</div>
+                        <div class="tfa-tab" data-tab="sso" data-i18n-key="tfa.admin.tab_sso">Sign-in Methods</div>
+                        <div class="tfa-tab" data-tab="bans" data-i18n-key="tfa.admin.tab_bans">IP Bans</div>
+                        <div class="tfa-tab" data-tab="settings" data-i18n-key="tfa.admin.tab_settings">Settings</div>
                     </div>
 
                     <!-- OVERVIEW (v1.4) -->
@@ -166,7 +166,7 @@
 
                         <!-- Factor breakdown -->
                         <div class="tfa-section">
-                            <h2>Score breakdown</h2>
+                            <h2 data-i18n-key="tfa.admin.score_breakdown_heading">Score breakdown</h2>
                             <div class="tfa-factors" id="factorsGrid">Loading…</div>
                         </div>
 
@@ -184,7 +184,7 @@
 
                         <!-- Recent bans inline -->
                         <div class="tfa-section">
-                            <h2>Active IP bans</h2>
+                            <h2 data-i18n-key="tfa.admin.active_ip_bans_heading">Active IP bans</h2>
                             <table class="tfa-table"><thead><tr><th>IP</th><th>Source</th><th>Failures</th><th>Banned at</th><th>Expires</th></tr></thead><tbody id="overviewBansBody"><tr><td colspan="5" class="tfa-empty">No active bans</td></tr></tbody></table>
                         </div>
                     </div>
@@ -642,7 +642,7 @@
                         <span id="saveStatus" style="margin-left:14px;color:#4caf50;font-size:13px;"></span>
 
                         <div class="tfa-section">
-                            <h2>Backup & Restore (v2.5.0)</h2>
+                            <h2 data-i18n-key="tfa.admin.backup_restore_heading">Backup & Restore (v2.5.0)</h2>
                             <p style="font-size:13px;color:#888;margin-bottom:12px;">Download a snapshot of your plugin configuration so you can restore it on another server or roll back after a misconfiguration.</p>
 
                             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
@@ -682,6 +682,52 @@
             (function() {
                 var pluginId = '94879a0c-da24-4eb1-aa06-f28b4b9333b1';
                 var page = document.querySelector('#TwoFactorAuth');
+
+                // v2.5.0 i18n: minimal tr(key, fallback) helper. The translation
+                // bundle is loaded lazily on DOMContentLoaded / pageshow; until
+                // then tr() returns the inline English fallback so the UI is
+                // never blank.
+                var _tfaTranslations = null;
+                function tr(key, fallback) {
+                    if (_tfaTranslations && Object.prototype.hasOwnProperty.call(_tfaTranslations, key)) {
+                        return _tfaTranslations[key];
+                    }
+                    return fallback != null ? fallback : key;
+                }
+                async function loadTfaTranslations() {
+                    try {
+                        var uid = (typeof ApiClient !== 'undefined' && ApiClient.getCurrentUserId) ? ApiClient.getCurrentUserId() : null;
+                        var pref = null;
+                        if (uid) {
+                            try {
+                                pref = await ApiClient.ajax({
+                                    type: 'GET',
+                                    url: ApiClient.getUrl('TwoFactorAuth/users/' + uid + '/preferences'),
+                                    dataType: 'json'
+                                });
+                            } catch (_) { pref = null; }
+                        }
+                        var lang = (pref && pref.effectiveLanguage) || 'en';
+                        // Sanitize on the client too so a tampered cookie / URL doesn't load garbage.
+                        lang = String(lang).toLowerCase().replace(/[^a-z-]/g, '') || 'en';
+                        var resp = await fetch(ApiClient.getUrl('TwoFactorAuth/translations/' + encodeURIComponent(lang)), { credentials: 'include' });
+                        if (!resp.ok) return;
+                        _tfaTranslations = await resp.json();
+                        applyTranslations();
+                    } catch (e) { console.warn('translation load failed', e); }
+                }
+                function applyTranslations() {
+                    document.querySelectorAll('#TwoFactorAuth [data-i18n-key]').forEach(function (el) {
+                        var key = el.getAttribute('data-i18n-key');
+                        var translated = tr(key, null);
+                        if (translated) el.textContent = translated;
+                    });
+                    document.querySelectorAll('#TwoFactorAuth [data-i18n-placeholder]').forEach(function (el) {
+                        var key = el.getAttribute('data-i18n-placeholder');
+                        var translated = tr(key, null);
+                        if (translated) el.setAttribute('placeholder', translated);
+                    });
+                }
 
                 function getHeaders() {
                     var token = ApiClient && ApiClient.accessToken ? ApiClient.accessToken() : '';
@@ -1785,7 +1831,9 @@
                 page.addEventListener('pageshow', function() {
                     renderOverview();
                     loadUsers();
+                    loadTfaTranslations();
                 });
+                document.addEventListener('DOMContentLoaded', loadTfaTranslations);
             })();
         </script>
 
