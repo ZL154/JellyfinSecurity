@@ -87,6 +87,11 @@ public class UserTwoFactorData
     /// validate). Updated on every successful TOTP validation; only ever
     /// monotonically increases.</summary>
     public long LastUsedTotpStep { get; set; }
+
+    /// <summary>v2.5.0: per-user UI language preference (e.g. "de", "ja").
+    /// Null means "use the admin DefaultLanguage". Validated against the bundled
+    /// set on read.</summary>
+    public string? Language { get; set; }
 }
 
 /// <summary>SSO/OIDC link — ties a Jellyfin user to an external IdP identity.

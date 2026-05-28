@@ -154,6 +154,11 @@ public class PluginConfiguration : BasePluginConfiguration
     // Defaults to "Jellyfin"; admins can override per server (e.g., "MyServer Jellyfin").
     public string TotpIssuerName { get; set; } = "Jellyfin";
 
+    /// <summary>v2.5.0: default UI language used when a user has no per-user
+    /// preference. Falls back to "en" if the requested language has no bundled
+    /// translation file.</summary>
+    public string DefaultLanguage { get; set; } = "en";
+
     // ---- v1.4 additions ----
 
     /// <summary>How long a successful 2FA verification pre-authorizes follow-up
