@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -17,12 +18,18 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// (Task 3 of v2.5.0 Phase 2) — snapshot/history persistence is layered on in
 /// Task 4.
 /// </summary>
-public class SecurityScoreService
+public class SecurityScoreService : IDisposable
 {
+    private const int MaxHistoryEntries = 365;
+
     private readonly UserTwoFactorStore _store;
     private readonly StatsService _stats;
     private readonly ILogger<SecurityScoreService> _logger;
     private readonly Func<PluginConfiguration> _configAccessor;
+    private readonly string _historyPath;
+    private readonly SemaphoreSlim _historyLock = new(1, 1);
+    private readonly Timer _snapshotTimer;
+    private bool _disposed;
 
     public SecurityScoreService(
         UserTwoFactorStore store,
@@ -46,7 +53,18 @@ public class SecurityScoreService
         _stats = stats;
         _logger = logger;
         _configAccessor = configAccessor;
-        _ = paths; // reserved for Task 4 history-file wiring
+
+        var dir = Path.Combine(paths.PluginConfigurationsPath, "TwoFactorAuth");
+        Directory.CreateDirectory(dir);
+        _historyPath = Path.Combine(dir, "score-history.json");
+
+        // Fire once an hour; the method itself dedupes by UTC date so the cost
+        // is one read+early-return per hour after the first daily snapshot.
+        _snapshotTimer = new Timer(
+            _ => _ = TakeSnapshotAsync(),
+            null,
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromHours(1));
     }
 
     public async Task<SecurityScore> ComputeAsync()
@@ -205,5 +223,97 @@ public class SecurityScoreService
         }
         // "No admins exist" still scores full credit (vacuous truth).
         return true;
+    }
+
+    /// <summary>
+    /// Records today's score to <c>score-history.json</c>. Idempotent per UTC day —
+    /// repeated calls within the same day are no-ops. Fired hourly by the snapshot
+    /// timer; only the first call per day pays the compute+write cost.
+    /// </summary>
+    public async Task TakeSnapshotAsync()
+    {
+        try
+        {
+            var today = DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var hist = await LoadHistoryAsync().ConfigureAwait(false);
+            if (hist.Any(h => h.Date == today)) return; // already recorded today
+            var score = await ComputeAsync().ConfigureAwait(false);
+            await _historyLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                hist = await LoadHistoryAsync().ConfigureAwait(false); // re-read under lock
+                if (hist.Any(h => h.Date == today)) return;
+                hist.Add(new ScoreSnapshot { Date = today, Score = score.Total });
+                if (hist.Count > MaxHistoryEntries)
+                {
+                    hist = hist.Skip(hist.Count - MaxHistoryEntries).ToList();
+                }
+
+                await SaveHistoryAsync(hist).ConfigureAwait(false);
+            }
+            finally { _historyLock.Release(); }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Score snapshot failed");
+        }
+    }
+
+    /// <summary>
+    /// Returns the recorded history entries with a date >= (today - <paramref name="days"/>).
+    /// Pass a non-positive value to return the full history (capped at 365 entries).
+    /// </summary>
+    public async Task<IReadOnlyList<ScoreSnapshot>> GetHistoryAsync(int days)
+    {
+        var hist = await LoadHistoryAsync().ConfigureAwait(false);
+        if (days <= 0) return hist;
+        var cutoff = DateTime.UtcNow.AddDays(-days).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        return hist.Where(h => string.CompareOrdinal(h.Date, cutoff) >= 0).ToList();
+    }
+
+    /// <summary>
+    /// Test-only direct append (bypasses score compute). Used by snapshot-capping
+    /// tests to pre-populate history without spinning real wall-clock days.
+    /// </summary>
+    internal async Task AppendForTestAsync(string date, int score)
+    {
+        var hist = await LoadHistoryAsync().ConfigureAwait(false);
+        hist.Add(new ScoreSnapshot { Date = date, Score = score });
+        if (hist.Count > MaxHistoryEntries)
+        {
+            hist = hist.Skip(hist.Count - MaxHistoryEntries).ToList();
+        }
+
+        await SaveHistoryAsync(hist).ConfigureAwait(false);
+    }
+
+    private async Task<List<ScoreSnapshot>> LoadHistoryAsync()
+    {
+        if (!File.Exists(_historyPath)) return new List<ScoreSnapshot>();
+        try
+        {
+            var json = await File.ReadAllTextAsync(_historyPath).ConfigureAwait(false);
+            return System.Text.Json.JsonSerializer.Deserialize<List<ScoreSnapshot>>(json) ?? new List<ScoreSnapshot>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load score history; starting fresh.");
+            return new List<ScoreSnapshot>();
+        }
+    }
+
+    private async Task SaveHistoryAsync(List<ScoreSnapshot> hist)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(hist);
+        await File.WriteAllTextAsync(_historyPath, json).ConfigureAwait(false);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _snapshotTimer.Dispose();
+        _historyLock.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

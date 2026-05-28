@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using Jellyfin.Plugin.TwoFactorAuth.Tests.Helpers;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
@@ -105,5 +107,70 @@ public class SecurityScoreComputeTests
     public void GradeFromTotal_MatchesThresholds(int total, string expected)
     {
         Assert.Equal(expected, SecurityScoreService.GradeFromTotal(total));
+    }
+}
+
+public class SecurityScoreSnapshotTests : IDisposable
+{
+    private readonly string _tempPath;
+    private readonly IApplicationPaths _paths;
+
+    public SecurityScoreSnapshotTests()
+    {
+        _paths = TestApplicationPaths.Create();
+        _tempPath = _paths.PluginConfigurationsPath;
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_tempPath, true); } catch { /* best-effort cleanup */ }
+        GC.SuppressFinalize(this);
+    }
+
+    [Fact]
+    public async Task TakeSnapshot_AppendsTodayEntry()
+    {
+        var svc = SecurityScoreServiceTests_TestHarness.Build(_paths, out var cfg);
+        cfg.EnforcementScope = EnforcementScope.All;
+        await svc.TakeSnapshotAsync();
+        var hist = await svc.GetHistoryAsync(30);
+        Assert.Single(hist);
+        Assert.Equal(DateTime.UtcNow.ToString("yyyy-MM-dd"), hist[0].Date);
+    }
+
+    [Fact]
+    public async Task TakeSnapshot_IsIdempotentForSameDay()
+    {
+        var svc = SecurityScoreServiceTests_TestHarness.Build(_paths, out _);
+        await svc.TakeSnapshotAsync();
+        await svc.TakeSnapshotAsync();
+        await svc.TakeSnapshotAsync();
+        var hist = await svc.GetHistoryAsync(30);
+        Assert.Single(hist); // dedupe by UTC date
+    }
+
+    [Fact]
+    public async Task History_CapsAt365Entries()
+    {
+        var svc = SecurityScoreServiceTests_TestHarness.Build(_paths, out _);
+        for (int i = 0; i < 400; i++)
+        {
+            await svc.AppendForTestAsync(DateTime.UtcNow.AddDays(-i).ToString("yyyy-MM-dd"), 50);
+        }
+        var hist = await svc.GetHistoryAsync(1000);
+        Assert.Equal(365, hist.Count);
+    }
+}
+
+internal static class SecurityScoreServiceTests_TestHarness
+{
+    public static SecurityScoreService Build(IApplicationPaths paths, out PluginConfiguration cfg)
+    {
+        var store = new UserTwoFactorStore(paths);
+        cfg = new PluginConfiguration();
+        var stats = Substitute.For<StatsService>(store, Substitute.For<IUserManager>());
+        var logger = Substitute.For<ILogger<SecurityScoreService>>();
+        var localCfg = cfg;
+        return new SecurityScoreService(store, stats, paths, logger, () => localCfg);
     }
 }
