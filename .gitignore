@@ -7,3 +7,9 @@ dist/
 *.nupkg
 publish/
 Jellyfin.Plugin.TwoFactorAuth*.zip
+
+# Brainstorm visual-companion mockups (transient)
+.superpowers/
+# Stryker mutation-testing output (regenerable) + local tool manifest
+StrykerOutput/
+.config/dotnet-tools.json
