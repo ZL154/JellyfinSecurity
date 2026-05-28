@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jellyfin — Sign In</title>
+    <title data-i18n-key="tfa.login.page_title">Jellyfin — Sign In</title>
     <script src="/TwoFactorAuth/tfa-i18n.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -100,31 +100,31 @@
     <div class="tfa-lang-host" id="tfaLangHost"></div>
     <div class="card">
         <div class="logo">Jellyfin</div>
-        <h1>Sign In</h1>
+        <h1 data-i18n-key="tfa.login.heading">Sign In</h1>
 
         <div class="alert error" id="errorMsg"></div>
 
-        <label>Username</label>
+        <label data-i18n-key="tfa.login.username_label">Username</label>
         <input type="text" id="username" autocomplete="username" />
 
-        <label>Password</label>
+        <label data-i18n-key="tfa.login.password_label">Password</label>
         <input type="password" id="password" autocomplete="current-password" />
 
-        <label id="codeLabel">6-digit Code <span style="color:#555;text-transform:none;">(leave blank if 2FA isn't set up)</span></label>
+        <label id="codeLabel"><span data-i18n-key="tfa.login.code_label_main">6-digit Code</span> <span style="color:#555;text-transform:none;" data-i18n-key="tfa.login.code_label_hint">(leave blank if 2FA isn't set up)</span></label>
         <input type="text" id="code" class="code-input" maxlength="6" inputmode="numeric" placeholder="000000" autocomplete="one-time-code" />
 
         <a class="toggle-link" id="toggleRecovery" data-i18n-key="tfa.challenge.recovery_label">Use a recovery code instead</a>
 
         <label class="trust-row">
             <input type="checkbox" id="trustDevice" />
-            <span>Trust this device</span>
+            <span data-i18n-key="tfa.login.trust_device">Trust this device</span>
         </label>
 
-        <button id="btnLogin">Sign In</button>
+        <button id="btnLogin" data-i18n-key="tfa.login.btn_signin">Sign In</button>
 
         <p class="hint">
-            Don't have 2FA yet? <a href="/TwoFactorAuth/Setup">Set it up here</a><br>
-            Or use the <a href="/web/index.html">standard login page</a>.
+            <span data-i18n-key="tfa.login.hint_no_2fa">Don't have 2FA yet?</span> <a href="/TwoFactorAuth/Setup" data-i18n-key="tfa.login.hint_setup_link">Set it up here</a><br>
+            <span data-i18n-key="tfa.login.hint_standard_prefix">Or use the</span> <a href="/web/index.html" data-i18n-key="tfa.login.hint_standard_link">standard login page</a>.
         </p>
     </div>
 
@@ -184,15 +184,15 @@
                 input.setAttribute('maxlength', '14');
                 input.setAttribute('placeholder', 'XXXXX-XXXXX');
                 input.setAttribute('autocomplete', 'off');
-                label.innerHTML = 'Recovery code <span style="color:#555;text-transform:none;">(format: XXXXX-XXXXX)</span>';
-                toggle.textContent = 'Use 6-digit code instead';
+                label.innerHTML = _tr('tfa.login.recovery_label_main', 'Recovery code') + ' <span style="color:#555;text-transform:none;">' + _tr('tfa.login.recovery_label_hint', '(format: XXXXX-XXXXX)') + '</span>';
+                toggle.textContent = _tr('tfa.login.toggle_use_code', 'Use 6-digit code instead');
             } else {
                 input.classList.remove('recovery');
                 input.setAttribute('maxlength', '6');
                 input.setAttribute('placeholder', '000000');
                 input.setAttribute('autocomplete', 'one-time-code');
-                label.innerHTML = '6-digit Code <span style="color:#555;text-transform:none;">(leave blank if 2FA isn\'t set up)</span>';
-                toggle.textContent = 'Use a recovery code instead';
+                label.innerHTML = _tr('tfa.login.code_label_main', '6-digit Code') + ' <span style="color:#555;text-transform:none;">' + _tr('tfa.login.code_label_hint', '(leave blank if 2FA isn\'t set up)') + '</span>';
+                toggle.textContent = _tr('tfa.challenge.recovery_label', 'Use a recovery code instead');
             }
             input.value = '';
             input.focus();
@@ -225,13 +225,13 @@
                 if (seconds <= 0) {
                     clearInterval(lockoutTimer);
                     btn.disabled = false;
-                    btn.textContent = 'Sign In';
+                    btn.textContent = _tr('tfa.login.btn_signin', 'Sign In');
                     clearError();
                     return;
                 }
                 var mm = Math.floor(seconds / 60);
                 var ss = seconds % 60;
-                btn.textContent = 'Locked — ' + mm + ':' + (ss < 10 ? '0' : '') + ss;
+                btn.textContent = _tr('tfa.login.btn_locked_prefix', 'Locked —') + ' ' + mm + ':' + (ss < 10 ? '0' : '') + ss;
                 seconds--;
             };
             tick();
@@ -244,14 +244,14 @@
             var code = document.getElementById('code').value.trim();
 
             if (!username || !password) {
-                showError('Enter your username and password.');
+                showError(_tr('tfa.login.error_missing_credentials', 'Enter your username and password.'));
                 return;
             }
 
             clearError();
             var btn = document.getElementById('btnLogin');
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span>Signing in...';
+            btn.innerHTML = '<span class="spinner"></span>' + _tr('tfa.login.signing_in', 'Signing in...');
 
             // Use the same deviceId that Jellyfin Web uses so the session we
             // create in AuthenticateNewSession on the server matches the
@@ -284,14 +284,14 @@
                 })
             }).then(function(r) {
                 if (r.ok) return r.json();
-                return r.json().catch(function() { return { message: 'Sign in failed (' + r.status + ').' }; }).then(function(body) {
+                return r.json().catch(function() { return { message: _tr('tfa.login.error_signin_status', 'Sign in failed') + ' (' + r.status + ').' }; }).then(function(body) {
                     if (body && (body.TwoFactorRequired || body.twoFactorRequired)) {
                         var challengeToken = body.ChallengeToken || body.challengeToken || '';
                         window.location.href = '/TwoFactorAuth/Challenge?token=' + encodeURIComponent(challengeToken);
                         return null;
                     }
                     btn.disabled = false;
-                    btn.textContent = 'Sign In';
+                    btn.textContent = _tr('tfa.login.btn_signin', 'Sign In');
                     if (r.status === 429 && body.lockoutRemainingSeconds) {
                         showError(body.message || _tr('tfa.challenge.locked_out', 'Account locked.'));
                         startLockoutCountdown(body.lockoutRemainingSeconds);
@@ -312,8 +312,8 @@
                 });
             }).catch(function() {
                 btn.disabled = false;
-                btn.textContent = 'Sign In';
-                showError(_tr('tfa.error.unknown', 'Network error. Check your connection and try again.'));
+                btn.textContent = _tr('tfa.login.btn_signin', 'Sign In');
+                showError(_tr('tfa.login.error_network', 'Network error. Check your connection and try again.'));
             });
         });
 
@@ -326,7 +326,10 @@
                     return new Promise(function(resolve) {
                         var bar = document.createElement('div');
                         bar.style.cssText = 'position:fixed;left:0;right:0;top:0;background:#ff9800;color:#000;padding:14px 18px;font-size:14px;text-align:center;z-index:9999;font-weight:500;';
-                        bar.innerHTML = '⚠ Only ' + s.remaining + ' recovery code' + (s.remaining === 1 ? '' : 's') + ' left. <a href="/TwoFactorAuth/Setup" style="color:#000;text-decoration:underline;">Generate more →</a> &nbsp; <button id="dismissBar" style="background:#000;color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer;">Continue</button>';
+                        var codeNoun = (s.remaining === 1)
+                            ? _tr('tfa.login.recovery_code_singular', 'recovery code')
+                            : _tr('tfa.login.recovery_code_plural', 'recovery codes');
+                        bar.innerHTML = '⚠ ' + _tr('tfa.login.low_codes_only', 'Only') + ' ' + s.remaining + ' ' + codeNoun + ' ' + _tr('tfa.login.low_codes_left', 'left.') + ' <a href="/TwoFactorAuth/Setup" style="color:#000;text-decoration:underline;">' + _tr('tfa.login.low_codes_generate', 'Generate more →') + '</a> &nbsp; <button id="dismissBar" style="background:#000;color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer;">' + _tr('tfa.login.low_codes_continue', 'Continue') + '</button>';
                         document.body.appendChild(bar);
                         document.getElementById('dismissBar').addEventListener('click', function() { resolve(); });
                         setTimeout(resolve, 6000);

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Confirm Device Pairing</title>
+    <title data-i18n-key="tfa.pairconfirm.page_title">Confirm Device Pairing</title>
     <script src="/TwoFactorAuth/tfa-i18n.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -58,21 +58,21 @@
     <div class="tfa-lang-host" id="tfaLangHost"></div>
     <div class="card">
         <div class="icon">🔐</div>
-        <h1>Confirm Device Pairing</h1>
-        <p class="subtitle">You're about to trust this device to skip two-factor authentication on future sign-ins.</p>
+        <h1 data-i18n-key="tfa.pairconfirm.title">Confirm Device Pairing</h1>
+        <p class="subtitle" data-i18n-key="tfa.pairconfirm.subtitle">You're about to trust this device to skip two-factor authentication on future sign-ins.</p>
 
         <div class="device-card" id="deviceCard" style="display:none;">
-            <div class="device-label">Device</div>
+            <div class="device-label" data-i18n-key="tfa.pairconfirm.device_label">Device</div>
             <div class="device-value" id="deviceName">—</div>
-            <div class="device-label">App</div>
+            <div class="device-label" data-i18n-key="tfa.pairconfirm.app_label">App</div>
             <div class="device-value" id="appName">—</div>
         </div>
 
-        <button class="btn-primary" id="btnConfirm" disabled>Trust This Device</button>
+        <button class="btn-primary" id="btnConfirm" disabled data-i18n-key="tfa.pairconfirm.btn_trust">Trust This Device</button>
         <button class="btn-ghost" id="btnCancel" data-i18n-key="tfa.setup.btn_cancel">Cancel</button>
 
         <div class="status" id="statusBox"></div>
-        <p class="muted">Only pair devices you recognize.</p>
+        <p class="muted" data-i18n-key="tfa.pairconfirm.warning">Only pair devices you recognize.</p>
     </div>
 
     <script>
@@ -117,10 +117,10 @@
         var token = params.get('token');
 
         if (!token) {
-            showStatus('Missing pairing token.', false);
+            showStatus(_tr('tfa.pairconfirm.error_missing_token', 'Missing pairing token.'), false);
         } else if (!getToken()) {
-            showStatus('You need to sign in first. ', false);
-            document.getElementById('statusBox').innerHTML += '<a href="/web/index.html">Sign in →</a>';
+            showStatus(_tr('tfa.pairconfirm.error_signin_required', 'You need to sign in first. '), false);
+            document.getElementById('statusBox').innerHTML += '<a href="/web/index.html">' + _tr('tfa.pairconfirm.signin_link', 'Sign in →') + '</a>';
         } else {
             // Decode token payload client-side (just for display — server re-verifies signature)
             try {
@@ -133,21 +133,21 @@
                 var deviceId = parts[2];
                 var exp = parseInt(parts[3], 10);
                 if (Date.now() / 1000 > exp) {
-                    showStatus('This pairing link has expired. Generate a new QR.', false);
+                    showStatus(_tr('tfa.pairconfirm.error_expired', 'This pairing link has expired. Generate a new QR.'), false);
                 } else {
                     // We don't know the device name client-side — it's stored server-side
                     // in the pending pairing record. Show deviceId as fallback.
                     document.getElementById('deviceName').textContent = deviceId;
-                    document.getElementById('appName').textContent = 'Pairing server-side';
+                    document.getElementById('appName').textContent = _tr('tfa.pairconfirm.app_pairing_server_side', 'Pairing server-side');
                     document.getElementById('deviceCard').style.display = 'block';
                     document.getElementById('btnConfirm').disabled = false;
                 }
-            } catch (e) { showStatus('Invalid token.', false); }
+            } catch (e) { showStatus(_tr('tfa.pairconfirm.error_invalid_token', 'Invalid token.'), false); }
         }
 
         document.getElementById('btnConfirm').addEventListener('click', function() {
             this.disabled = true;
-            this.textContent = 'Pairing…';
+            this.textContent = _tr('tfa.pairconfirm.btn_pairing', 'Pairing…');
             fetch('/TwoFactorAuth/PairConfirm', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-Emby-Token': getToken() },
@@ -156,18 +156,19 @@
                 return r.json().then(function(b) { return { ok: r.ok, body: b }; });
             }).then(function(r) {
                 if (r.ok) {
-                    showStatus('✓ Device paired. You can now sign in on ' + (r.body.deviceName || 'the device') + '.', true);
+                    var deviceLabel = r.body.deviceName || _tr('tfa.pairconfirm.fallback_device', 'the device');
+                    showStatus('✓ ' + _tr('tfa.pairconfirm.success_prefix', 'Device paired. You can now sign in on') + ' ' + deviceLabel + '.', true);
                     document.getElementById('btnConfirm').style.display = 'none';
-                    document.getElementById('btnCancel').textContent = 'Done';
+                    document.getElementById('btnCancel').textContent = _tr('tfa.pairconfirm.btn_done', 'Done');
                 } else {
-                    showStatus(r.body.message || 'Pairing failed.', false);
+                    showStatus(r.body.message || _tr('tfa.pairconfirm.error_failed', 'Pairing failed.'), false);
                     document.getElementById('btnConfirm').disabled = false;
-                    document.getElementById('btnConfirm').textContent = 'Trust This Device';
+                    document.getElementById('btnConfirm').textContent = _tr('tfa.pairconfirm.btn_trust', 'Trust This Device');
                 }
             }).catch(function() {
-                showStatus(_tr('tfa.error.unknown', 'Network error. Try again.'), false);
+                showStatus(_tr('tfa.pairconfirm.error_network', 'Network error. Try again.'), false);
                 document.getElementById('btnConfirm').disabled = false;
-                document.getElementById('btnConfirm').textContent = 'Trust This Device';
+                document.getElementById('btnConfirm').textContent = _tr('tfa.pairconfirm.btn_trust', 'Trust This Device');
             });
         });
 
