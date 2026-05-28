@@ -1262,12 +1262,11 @@ public class TwoFactorAuthController : ControllerBase
                      && _stepUp.VerifyUserCode(userData, request!.Code!);
             if (!ok)
             {
-                Response.StatusCode = StatusCodes.Status403Forbidden;
-                Response.ContentType = "application/json";
-                await Response.WriteAsync(
-                    "{\"message\":\"A current authenticator or recovery code is required to disable two-factor authentication.\",\"twoFactorRequired\":true}"
-                ).ConfigureAwait(false);
-                return new EmptyResult();
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    message = "A current authenticator or recovery code is required to disable two-factor authentication.",
+                    twoFactorRequired = true,
+                });
             }
         }
 
