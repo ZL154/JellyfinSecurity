@@ -640,6 +640,25 @@
 
                         <button type="button" class="tfa-btn tfa-btn-primary" id="btnSaveSettings" style="margin-top:8px;padding:11px 32px;font-size:15px;">Save Settings</button>
                         <span id="saveStatus" style="margin-left:14px;color:#4caf50;font-size:13px;"></span>
+
+                        <div class="tfa-section">
+                            <h2>Backup & Restore (v2.5.0)</h2>
+                            <p style="font-size:13px;color:#888;margin-bottom:12px;">Download a snapshot of your plugin configuration so you can restore it on another server or roll back after a misconfiguration.</p>
+
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                                <button type="button" class="tfa-btn" id="btnExportConfigOnly">Download config-only export</button>
+                                <button type="button" class="tfa-btn" id="btnExportFull">Download full export (encrypted)…</button>
+                            </div>
+
+                            <h3 style="margin-top:14px;font-size:14px;color:#ccc;">Restore</h3>
+                            <p style="font-size:12px;color:#888;margin-bottom:8px;">Paste an exported JSON envelope below. Encrypted exports prompt for the passphrase. Imports overwrite the live configuration — download a fresh export first.</p>
+                            <textarea id="importEnvelope" class="tfa-input" style="width:100%;min-height:120px;font-family:monospace;font-size:12px;" placeholder='{"formatVersion":1,...}'></textarea>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                                <input type="password" id="importPassphrase" class="tfa-input" placeholder="Passphrase (encrypted exports only)" style="flex:1;min-width:240px;" />
+                                <button type="button" class="tfa-btn tfa-btn-primary" id="btnImportConfig">Apply import</button>
+                            </div>
+                            <div id="importResult" style="margin-top:10px;font-size:13px;"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1530,6 +1549,61 @@
                     });
                 });
                 var _currentConfig = null;
+
+                // ---- v2.5.0: BACKUP & RESTORE ----
+                document.getElementById('btnExportConfigOnly')?.addEventListener('click', async () => {
+                    try {
+                        const resp = await stepUpFetch(ApiClient.getUrl('TwoFactorAuth/Config/Export?includeSecrets=false'), { method: 'GET' });
+                        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                        const blob = await resp.blob();
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = '2fa-export-config-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+                        document.body.appendChild(link); link.click(); link.remove();
+                    } catch (e) { console.error('export failed', e); alert('Export failed: ' + e.message); }
+                });
+
+                document.getElementById('btnExportFull')?.addEventListener('click', async () => {
+                    const pass = prompt('Set a passphrase (>=8 chars). You will need this exact passphrase to restore.');
+                    if (!pass || pass.length < 8) { alert('Passphrase must be at least 8 characters'); return; }
+                    try {
+                        const url = ApiClient.getUrl('TwoFactorAuth/Config/Export?includeSecrets=true&passphrase=' + encodeURIComponent(pass));
+                        const resp = await stepUpFetch(url, { method: 'GET' });
+                        if (!resp.ok) {
+                            const txt = await resp.text();
+                            throw new Error('HTTP ' + resp.status + ': ' + txt);
+                        }
+                        const blob = await resp.blob();
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = '2fa-export-full-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+                        document.body.appendChild(link); link.click(); link.remove();
+                    } catch (e) { alert('Export failed: ' + e.message); }
+                });
+
+                document.getElementById('btnImportConfig')?.addEventListener('click', async () => {
+                    const envText = document.getElementById('importEnvelope').value.trim();
+                    const passphrase = document.getElementById('importPassphrase').value;
+                    if (!envText) { alert('Paste an export envelope first'); return; }
+                    const resultEl = document.getElementById('importResult');
+                    resultEl.innerHTML = 'Importing&hellip;';
+                    try {
+                        const resp = await stepUpFetch(ApiClient.getUrl('TwoFactorAuth/Config/Import'), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ envelope: envText, passphrase: passphrase || null })
+                        });
+                        const data = await resp.json().catch(() => ({}));
+                        if (!resp.ok) {
+                            resultEl.innerHTML = '<span style="color:#d9534f">Failed: ' + escapeHtml(data.message || 'unknown error') + '</span>';
+                            return;
+                        }
+                        const warnings = data.warnings || [];
+                        resultEl.innerHTML = '<span style="color:#5cb85c">Import applied.</span>' +
+                            (warnings.length > 0 ? '<ul style="margin:6px 0;padding-left:18px;color:#f0ad4e;">' +
+                                warnings.map(w => '<li>' + escapeHtml(w) + '</li>').join('') + '</ul>' : '');
+                    } catch (e) { resultEl.innerHTML = '<span style="color:#d9534f">Network error: ' + escapeHtml(e.message) + '</span>'; }
+                });
 
                 // ---- v2.0 SSO PROVIDERS ----
                 var ssoPresets = [];
