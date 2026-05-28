@@ -81,6 +81,44 @@
             #tfa-stepup-code:focus { border-color:#00a4dc; outline:none; }
             #tfa-stepup-error { min-height:18px; color:#f44336; font-size:12px; margin-bottom:12px; }
             #tfa-stepup-modal .tfa-stepup-actions { display:flex; gap:10px; justify-content:flex-end; }
+
+            /* === v2.5.0 Dashboard === */
+            #TwoFactorAuth .tfa-posture { display: flex; gap: 18px; align-items: center; background: linear-gradient(135deg, rgba(0,164,220,0.08), rgba(0,164,220,0.02)); padding: 18px; border-radius: 10px; border: 1px solid rgba(0,164,220,0.15); margin-bottom: 16px; }
+            #TwoFactorAuth .tfa-posture-ring { width: 90px; height: 90px; flex-shrink: 0; position: relative; }
+            #TwoFactorAuth .tfa-posture-ring svg { transform: rotate(-90deg); }
+            #TwoFactorAuth .tfa-posture-ring .ring-bg { stroke: rgba(255,255,255,0.08); }
+            #TwoFactorAuth .tfa-posture-ring .ring-fg { stroke: #00a4dc; transition: stroke-dashoffset 0.6s ease; }
+            #TwoFactorAuth .tfa-posture-ring .ring-fg.warn { stroke: #f0ad4e; }
+            #TwoFactorAuth .tfa-posture-ring .ring-fg.bad { stroke: #d9534f; }
+            #TwoFactorAuth .tfa-posture-grade { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700; color: #fff; }
+            #TwoFactorAuth .tfa-posture-body h3 { margin: 0 0 4px; font-size: 18px; color: #fff; }
+            #TwoFactorAuth .tfa-posture-body p { margin: 0; font-size: 13px; color: #ccc; }
+            #TwoFactorAuth .tfa-posture-score { font-size: 22px; font-weight: 600; color: #00a4dc; }
+
+            #TwoFactorAuth .tfa-kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+            #TwoFactorAuth .tfa-kpi { background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+            #TwoFactorAuth .tfa-kpi-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+            #TwoFactorAuth .tfa-kpi-value { font-size: 22px; font-weight: 600; color: #fff; }
+            #TwoFactorAuth .tfa-kpi-sub { font-size: 11px; color: #777; margin-top: 2px; }
+
+            #TwoFactorAuth .tfa-factors { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+            @media (max-width: 700px) { #TwoFactorAuth .tfa-factors { grid-template-columns: 1fr; } }
+            #TwoFactorAuth .tfa-factor { background: rgba(255,255,255,0.03); padding: 10px 12px; border-radius: 6px; border-left: 3px solid #555; }
+            #TwoFactorAuth .tfa-factor.ok { border-left-color: #5cb85c; }
+            #TwoFactorAuth .tfa-factor.partial { border-left-color: #f0ad4e; }
+            #TwoFactorAuth .tfa-factor.fail { border-left-color: #d9534f; }
+            #TwoFactorAuth .tfa-factor-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+            #TwoFactorAuth .tfa-factor-label { font-size: 13px; color: #ddd; font-weight: 500; }
+            #TwoFactorAuth .tfa-factor-pts { font-size: 12px; color: #888; }
+            #TwoFactorAuth .tfa-factor-bar { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+            #TwoFactorAuth .tfa-factor-bar-fill { height: 100%; background: #5cb85c; transition: width 0.5s ease; }
+            #TwoFactorAuth .tfa-factor.partial .tfa-factor-bar-fill { background: #f0ad4e; }
+            #TwoFactorAuth .tfa-factor.fail .tfa-factor-bar-fill { background: #d9534f; }
+            #TwoFactorAuth .tfa-factor-action { font-size: 11px; color: #aaa; margin-top: 6px; }
+
+            #TwoFactorAuth .tfa-chart-card { background: rgba(255,255,255,0.03); padding: 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 16px; }
+            #TwoFactorAuth .tfa-chart-card h3 { margin: 0 0 10px; font-size: 14px; color: #ddd; }
+            #TwoFactorAuth .tfa-chart-svg { width: 100%; height: 140px; display: block; }
         </style>
 
         <div data-role="content">
