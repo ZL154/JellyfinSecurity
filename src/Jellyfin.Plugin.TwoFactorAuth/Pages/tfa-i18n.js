@@ -169,6 +169,17 @@
     function renderLanguagePicker(host, opts) {
         if (!host) return null;
         opts = opts || {};
+        // Wrap the <select> in a small "globe + code" affordance so the picker
+        // reads as a language switcher even when the visible text is just the
+        // two-letter code (en/de/…). Full names stay in the dropdown options.
+        var wrap = document.createElement('div');
+        wrap.className = 'tfa-lang-picker-wrap';
+        var globe = document.createElement('span');
+        globe.className = 'tfa-globe';
+        globe.setAttribute('aria-hidden', 'true');
+        globe.textContent = '🌐';
+        wrap.appendChild(globe);
+
         var select = document.createElement('select');
         select.className = opts.className || 'tfa-lang-picker';
         select.setAttribute('aria-label', tr('tfa.admin.lang.heading', 'Language'));
@@ -176,10 +187,27 @@
             var code = SUPPORTED[i];
             var opt = document.createElement('option');
             opt.value = code;
+            // Dropdown options show the full native name; the collapsed
+            // <select> face is overridden via syncCompactLabel below so the
+            // visible label stays compact (just the code).
             opt.textContent = LANG_LABELS[code] || code;
             if (code === _lang) opt.selected = true;
             select.appendChild(opt);
         }
+        function expandLabels() {
+            for (var k = 0; k < select.options.length; k++) {
+                var o = select.options[k];
+                o.textContent = LANG_LABELS[o.value] || o.value;
+            }
+        }
+        function syncCompactLabel() {
+            expandLabels();
+            var sel = select.options[select.selectedIndex];
+            if (sel) sel.textContent = sel.value;
+        }
+        select.addEventListener('mousedown', expandLabels);
+        select.addEventListener('focus', expandLabels);
+        select.addEventListener('blur', syncCompactLabel);
         select.addEventListener('change', function () {
             var lang = sanitizeLang(select.value) || 'en';
             persistLanguage(lang).then(function () {
@@ -190,10 +218,13 @@
             }).then(function (bundle) {
                 _bundle = bundle || {};
                 applyTranslations();
+                syncCompactLabel();
                 if (typeof opts.onChange === 'function') opts.onChange(_lang);
             });
         });
-        host.appendChild(select);
+        wrap.appendChild(select);
+        host.appendChild(wrap);
+        syncCompactLabel();
         return select;
     }
 
