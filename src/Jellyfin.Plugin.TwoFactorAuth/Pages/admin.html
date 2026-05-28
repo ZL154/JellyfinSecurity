@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>Jellyfin Security</title>
+    <script src="/TwoFactorAuth/tfa-i18n.js"></script>
 </head>
 <body>
     <div id="TwoFactorAuth" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-checkbox,emby-input,emby-select">
@@ -119,6 +120,8 @@
             #TwoFactorAuth .tfa-chart-card { background: rgba(255,255,255,0.03); padding: 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 16px; }
             #TwoFactorAuth .tfa-chart-card h3 { margin: 0 0 10px; font-size: 14px; color: #ddd; }
             #TwoFactorAuth .tfa-chart-svg { width: 100%; height: 140px; display: block; }
+            #TwoFactorAuth .tfa-lang-picker { background: rgba(255,255,255,0.05); color: #ddd; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 6px 10px; font-size: 13px; cursor: pointer; min-width: 180px; }
+            #TwoFactorAuth .tfa-lang-picker:hover { background: rgba(255,255,255,0.08); }
         </style>
 
         <div data-role="content">
@@ -659,6 +662,12 @@
                             </div>
                             <div id="importResult" style="margin-top:10px;font-size:13px;"></div>
                         </div>
+
+                        <div class="tfa-section">
+                            <h2>Language</h2>
+                            <p style="font-size:13px;color:#888;margin-bottom:12px;">Change the language of the plugin UI for your own account. The admin can set a server-wide default in the Hardening section.</p>
+                            <div id="adminLangPickerHost"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -683,50 +692,26 @@
                 var pluginId = '94879a0c-da24-4eb1-aa06-f28b4b9333b1';
                 var page = document.querySelector('#TwoFactorAuth');
 
-                // v2.5.0 i18n: minimal tr(key, fallback) helper. The translation
-                // bundle is loaded lazily on DOMContentLoaded / pageshow; until
-                // then tr() returns the inline English fallback so the UI is
-                // never blank.
-                var _tfaTranslations = null;
-                function tr(key, fallback) {
-                    if (_tfaTranslations && Object.prototype.hasOwnProperty.call(_tfaTranslations, key)) {
-                        return _tfaTranslations[key];
+                // v2.5.0 i18n: the shared helper at /TwoFactorAuth/tfa-i18n.js
+                // (loaded from <head>) exposes window.tfaI18n.{tr, applyTranslations,
+                // loadTranslations, renderLanguagePicker, getEffectiveLanguage} and
+                // auto-runs loadTranslations() on DOMContentLoaded, which walks all
+                // [data-i18n-key] / [data-i18n-placeholder] elements on the page.
+                // The admin tab labels and headings carry data-i18n-key attributes
+                // and are translated automatically — no per-call wiring needed.
+                //
+                // _initAdminLangPicker mounts the user-level language picker into
+                // the Settings tab. We retry on a short delay if the helper hasn't
+                // finished parsing yet (race on slow first paint).
+                function _initAdminLangPicker() {
+                    if (!(window.tfaI18n && window.tfaI18n.renderLanguagePicker)) {
+                        setTimeout(_initAdminLangPicker, 100);
+                        return;
                     }
-                    return fallback != null ? fallback : key;
-                }
-                async function loadTfaTranslations() {
-                    try {
-                        var uid = (typeof ApiClient !== 'undefined' && ApiClient.getCurrentUserId) ? ApiClient.getCurrentUserId() : null;
-                        var pref = null;
-                        if (uid) {
-                            try {
-                                pref = await ApiClient.ajax({
-                                    type: 'GET',
-                                    url: ApiClient.getUrl('TwoFactorAuth/users/' + uid + '/preferences'),
-                                    dataType: 'json'
-                                });
-                            } catch (_) { pref = null; }
-                        }
-                        var lang = (pref && pref.effectiveLanguage) || 'en';
-                        // Sanitize on the client too so a tampered cookie / URL doesn't load garbage.
-                        lang = String(lang).toLowerCase().replace(/[^a-z-]/g, '') || 'en';
-                        var resp = await fetch(ApiClient.getUrl('TwoFactorAuth/translations/' + encodeURIComponent(lang)), { credentials: 'include' });
-                        if (!resp.ok) return;
-                        _tfaTranslations = await resp.json();
-                        applyTranslations();
-                    } catch (e) { console.warn('translation load failed', e); }
-                }
-                function applyTranslations() {
-                    document.querySelectorAll('#TwoFactorAuth [data-i18n-key]').forEach(function (el) {
-                        var key = el.getAttribute('data-i18n-key');
-                        var translated = tr(key, null);
-                        if (translated) el.textContent = translated;
-                    });
-                    document.querySelectorAll('#TwoFactorAuth [data-i18n-placeholder]').forEach(function (el) {
-                        var key = el.getAttribute('data-i18n-placeholder');
-                        var translated = tr(key, null);
-                        if (translated) el.setAttribute('placeholder', translated);
-                    });
+                    var host = document.getElementById('adminLangPickerHost');
+                    if (host && !host.firstChild) {
+                        window.tfaI18n.renderLanguagePicker(host);
+                    }
                 }
 
                 function getHeaders() {
@@ -1831,9 +1816,9 @@
                 page.addEventListener('pageshow', function() {
                     renderOverview();
                     loadUsers();
-                    loadTfaTranslations();
+                    _initAdminLangPicker();
                 });
-                document.addEventListener('DOMContentLoaded', loadTfaTranslations);
+                document.addEventListener('DOMContentLoaded', _initAdminLangPicker);
             })();
         </script>
 
