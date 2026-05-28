@@ -14,10 +14,12 @@ public enum StepUpAction
     ResetOtherUser2fa,
     ExportWithSecrets,
     UnbanAll,
+    ExportFullConfig,
     // AllConfigChanges (level >= 2)
     ConfigChange,
     Unban,
     ConfigImport,
+    ImportConfig,
     // Everything (level >= 3)
     ViewAuditLog,
 }
@@ -90,8 +92,10 @@ public class StepUpService
         var minLevel = action switch
         {
             StepUpAction.DisableEnforcement or StepUpAction.ResetOtherUser2fa
-                or StepUpAction.ExportWithSecrets or StepUpAction.UnbanAll => StepUpLevel.Destructive,
-            StepUpAction.ConfigChange or StepUpAction.Unban or StepUpAction.ConfigImport => StepUpLevel.AllConfigChanges,
+                or StepUpAction.ExportWithSecrets or StepUpAction.UnbanAll
+                or StepUpAction.ExportFullConfig => StepUpLevel.Destructive,
+            StepUpAction.ConfigChange or StepUpAction.Unban or StepUpAction.ConfigImport
+                or StepUpAction.ImportConfig => StepUpLevel.AllConfigChanges,
             StepUpAction.ViewAuditLog => StepUpLevel.Everything,
             _ => StepUpLevel.Destructive,
         };

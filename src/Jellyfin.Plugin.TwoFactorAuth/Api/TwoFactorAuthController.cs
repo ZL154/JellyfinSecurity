@@ -54,6 +54,7 @@ public class TwoFactorAuthController : ControllerBase
     private readonly IpAllowlistService _allowlist;
     private readonly StepUpService _stepUp;
     private readonly SecurityScoreService _scoreService;
+    private readonly ConfigExportService _export;
     private readonly ILogger<TwoFactorAuthController> _logger;
 
     public TwoFactorAuthController(
@@ -83,6 +84,7 @@ public class TwoFactorAuthController : ControllerBase
         IpAllowlistService allowlist,
         StepUpService stepUp,
         SecurityScoreService scoreService,
+        ConfigExportService configExport,
         ILogger<TwoFactorAuthController> logger)
     {
         _store = store;
@@ -111,6 +113,7 @@ public class TwoFactorAuthController : ControllerBase
         _allowlist = allowlist;
         _stepUp = stepUp;
         _scoreService = scoreService;
+        _export = configExport;
         _logger = logger;
     }
 
@@ -3345,6 +3348,49 @@ public class TwoFactorAuthController : ControllerBase
             timeSeries,
             bans
         });
+    }
+
+    [HttpGet("Config/Export")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> ExportConfig([FromQuery] bool includeSecrets = false, [FromQuery] string? passphrase = null)
+    {
+        if (includeSecrets)
+        {
+            var guard = StepUpGuard(StepUpAction.ExportFullConfig);
+            if (guard is not null) return guard;
+            if (string.IsNullOrEmpty(passphrase))
+                return BadRequest(new { message = "passphrase required for full export" });
+            var fullEnv = await _export.BuildFullExportAsync(passphrase).ConfigureAwait(false);
+            var json = System.Text.Json.JsonSerializer.Serialize(fullEnv, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            Response.Headers["Content-Disposition"] = string.Format(CultureInfo.InvariantCulture, "attachment; filename=2fa-export-full-{0:yyyyMMdd-HHmmss}.json", DateTime.UtcNow);
+            return Content(json, "application/json");
+        }
+
+        var env = await _export.BuildConfigOnlyExportAsync().ConfigureAwait(false);
+        var plainJson = System.Text.Json.JsonSerializer.Serialize(env, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        Response.Headers["Content-Disposition"] = string.Format(CultureInfo.InvariantCulture, "attachment; filename=2fa-export-config-{0:yyyyMMdd-HHmmss}.json", DateTime.UtcNow);
+        return Content(plainJson, "application/json");
+    }
+
+    [HttpPost("Config/Import")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> ImportConfig([FromBody] ImportConfigRequest request)
+    {
+        if (request?.Envelope is null) return BadRequest(new { message = "envelope required" });
+        var guard = StepUpGuard(StepUpAction.ImportConfig);
+        if (guard is not null) return guard;
+
+        try
+        {
+            var result = await _export.ImportAsync(request.Envelope, request.Passphrase).ConfigureAwait(false);
+            if (!result.Success)
+                return BadRequest(new { message = result.Error, warnings = result.Warnings });
+            return Ok(new { ok = true, warnings = result.Warnings ?? new List<string>() });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpGet("Users/{userId:guid}/Export")]

@@ -104,3 +104,12 @@ public class HardeningConfigRequest
     public Jellyfin.Plugin.TwoFactorAuth.Configuration.StepUpLevel? StepUpLevel { get; set; }
     public int? StepUpWindowSeconds { get; set; }
 }
+
+/// <summary>v2.5.0: payload for POST /TwoFactorAuth/Config/Import. Envelope is
+/// the JSON exported by GET /Config/Export. Passphrase only required when the
+/// envelope is a "full" export with encrypted secrets.</summary>
+public class ImportConfigRequest
+{
+    public string? Envelope { get; set; }
+    public string? Passphrase { get; set; }
+}
