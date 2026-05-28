@@ -808,7 +808,7 @@
                         if (tab.dataset.tab === 'pairings') loadPairings();
                         if (tab.dataset.tab === 'audit') loadAudit();
                         if (tab.dataset.tab === 'settings') loadSettings();
-                        if (tab.dataset.tab === 'overview') loadStats();
+                        if (tab.dataset.tab === 'overview') renderOverview();
                         if (tab.dataset.tab === 'diagnostics') { /* run on click */ }
                         if (tab.dataset.tab === 'trips') loadTrips();
                         if (tab.dataset.tab === 'sso') loadSso();
@@ -835,6 +835,126 @@
                         }
                         box.innerHTML = html;
                     }).catch(function() { box.textContent = 'Failed to load stats.'; });
+                }
+
+                // ---- v2.5.0 Phase 2: DASHBOARD OVERVIEW ----
+                async function renderOverview() {
+                    try {
+                        const data = await apiGet('TwoFactorAuth/Dashboard/Overview');
+
+                        // Posture banner
+                        const score = data.score.total || 0;
+                        const possible = data.score.possible || 100;
+                        const grade = data.score.grade || 'F';
+                        document.getElementById('postureScore').textContent = score;
+                        document.getElementById('postureGrade').textContent = grade;
+                        const ring = document.getElementById('postureRingFg');
+                        const circumference = 2 * Math.PI * 40; // r=40
+                        ring.setAttribute('stroke-dasharray', circumference.toFixed(1));
+                        ring.setAttribute('stroke-dashoffset', (circumference * (1 - score / possible)).toFixed(1));
+                        ring.classList.remove('warn', 'bad');
+                        if (score < 50) ring.classList.add('bad');
+                        else if (score < 80) ring.classList.add('warn');
+
+                        // Posture summary: top "next action" or congratulations
+                        const gaps = data.score.factors.filter(f => f.nextAction);
+                        document.getElementById('postureSummary').textContent = gaps.length === 0
+                            ? 'All factors at full credit — well done.'
+                            : `Top action: ${gaps[0].nextAction} (+${gaps[0].possible - gaps[0].earned} pts)`;
+
+                        // KPI strip
+                        document.getElementById('kpiEnrolled').textContent = data.kpis.enrolledUsers ?? '–';
+                        document.getElementById('kpiEnrolledSub').textContent = `of ${data.kpis.totalUsers ?? '–'} users`;
+                        document.getElementById('kpiSessions').textContent = data.kpis.activeSessions ?? '–';
+                        document.getElementById('kpiBans').textContent = data.kpis.bannedIps ?? '–';
+                        document.getElementById('kpiAudit').textContent = data.kpis.auditEntries ?? '–';
+                        document.getElementById('kpiAuditSub').textContent = data.kpis.auditChainBroken === 0
+                            ? 'chain ok' : `${data.kpis.auditChainBroken} broken`;
+
+                        // Factor grid
+                        const factorsEl = document.getElementById('factorsGrid');
+                        factorsEl.innerHTML = (data.score.factors || []).map(f => {
+                            const pct = f.possible > 0 ? Math.round(100 * f.earned / f.possible) : 0;
+                            return `<div class="tfa-factor ${f.status}">
+                                <div class="tfa-factor-head">
+                                    <div class="tfa-factor-label">${escapeHtml(f.label)}</div>
+                                    <div class="tfa-factor-pts">${f.earned} / ${f.possible}</div>
+                                </div>
+                                <div class="tfa-factor-bar"><div class="tfa-factor-bar-fill" style="width:${pct}%"></div></div>
+                                ${f.nextAction ? `<div class="tfa-factor-action">&rarr; ${escapeHtml(f.nextAction)}</div>` : ''}
+                            </div>`;
+                        }).join('');
+
+                        // Auth-activity chart — stacked area: success (green), failed (orange), locked (red)
+                        renderAuthChart(data.timeSeries || []);
+
+                        // Enrollment by role bars
+                        const r = data.enrollmentByRole || {};
+                        const adminsPct = r.adminsTotal > 0 ? Math.round(100 * r.adminsEnrolled / r.adminsTotal) : 0;
+                        const regularPct = r.regularTotal > 0 ? Math.round(100 * r.regularEnrolled / r.regularTotal) : 0;
+                        document.getElementById('enrollmentBars').innerHTML = `
+                            <div style="margin-bottom:10px;">
+                                <div style="display:flex;justify-content:space-between;font-size:12px;color:#bbb;margin-bottom:4px;"><span>Admins</span><span>${r.adminsEnrolled || 0} / ${r.adminsTotal || 0} (${adminsPct}%)</span></div>
+                                <div class="tfa-factor-bar"><div class="tfa-factor-bar-fill" style="width:${adminsPct}%;background:${adminsPct === 100 ? '#5cb85c' : '#f0ad4e'}"></div></div>
+                            </div>
+                            <div>
+                                <div style="display:flex;justify-content:space-between;font-size:12px;color:#bbb;margin-bottom:4px;"><span>Regular users</span><span>${r.regularEnrolled || 0} / ${r.regularTotal || 0} (${regularPct}%)</span></div>
+                                <div class="tfa-factor-bar"><div class="tfa-factor-bar-fill" style="width:${regularPct}%;background:#00a4dc"></div></div>
+                            </div>`;
+
+                        // Ban table
+                        const bansBody = document.getElementById('overviewBansBody');
+                        const bans = data.bans || [];
+                        bansBody.innerHTML = bans.length === 0
+                            ? '<tr><td colspan="5" class="tfa-empty">No active bans</td></tr>'
+                            : bans.map(b => `<tr>
+                                <td>${escapeHtml(b.ip)}</td>
+                                <td>${escapeHtml(b.source)}</td>
+                                <td>${b.failureCount}</td>
+                                <td>${new Date(b.bannedAt).toLocaleString()}</td>
+                                <td>${new Date(b.expiresAt).toLocaleString()}</td>
+                            </tr>`).join('');
+                    } catch (err) {
+                        console.error('renderOverview failed', err);
+                        document.getElementById('postureSummary').textContent = 'Failed to load dashboard. Check the server log.';
+                    }
+                }
+
+                function renderAuthChart(series) {
+                    const svg = document.getElementById('authChart');
+                    svg.innerHTML = '';
+                    if (series.length === 0) {
+                        svg.innerHTML = '<text x="300" y="70" text-anchor="middle" fill="#666" font-size="12">No data in the last 30 days</text>';
+                        return;
+                    }
+                    const W = 600, H = 140, padL = 30, padR = 10, padT = 10, padB = 20;
+                    const max = Math.max(1, ...series.map(s => (s.success + s.failed + s.locked)));
+                    const xStep = (W - padL - padR) / Math.max(1, series.length - 1);
+                    const yScale = (v) => H - padB - ((H - padT - padB) * v / max);
+                    const layers = ['success', 'failed', 'locked'];
+                    const colors = { success: '#5cb85c', failed: '#f0ad4e', locked: '#d9534f' };
+                    let baseline = series.map(() => 0);
+                    let svgInner = '';
+                    for (const layer of layers) {
+                        let points = [];
+                        let bottomPoints = [];
+                        series.forEach((s, i) => {
+                            const val = s[layer] || 0;
+                            const x = padL + i * xStep;
+                            const yTop = yScale(baseline[i] + val);
+                            const yBot = yScale(baseline[i]);
+                            points.push(`${x},${yTop}`);
+                            bottomPoints.push(`${x},${yBot}`);
+                            baseline[i] += val;
+                        });
+                        const poly = points.concat(bottomPoints.reverse()).join(' ');
+                        svgInner += `<polygon points="${poly}" fill="${colors[layer]}" fill-opacity="0.55" stroke="${colors[layer]}" stroke-width="1" />`;
+                    }
+                    // Y axis baseline
+                    svgInner += `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#444" stroke-width="1" />`;
+                    svgInner += `<text x="${padL - 4}" y="${padT + 8}" text-anchor="end" fill="#888" font-size="10">${max}</text>`;
+                    svgInner += `<text x="${padL - 4}" y="${H - padB}" text-anchor="end" fill="#888" font-size="10">0</text>`;
+                    svg.innerHTML = svgInner;
                 }
 
                 // ---- v1.4: DIAGNOSTICS ----
@@ -1583,10 +1703,10 @@
                 });
 
                 // Overview is the default active tab, but the tab-click handler
-                // only loads its data on click. Kick off loadStats explicitly
-                // so the tile populates on first paint without a tab toggle.
+                // only loads its data on click. Kick off renderOverview explicitly
+                // so the dashboard populates on first paint without a tab toggle.
                 page.addEventListener('pageshow', function() {
-                    loadStats();
+                    renderOverview();
                     loadUsers();
                 });
             })();
