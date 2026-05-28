@@ -43,7 +43,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>v2.5.0: require a fresh TOTP/recovery code before a user can
     /// disable their own 2FA. OFF by default (opt-in). Recommended.</summary>
-    public bool RequireTwoFactorToDisable { get; set; }
+    public bool RequireTwoFactorToDisable { get; set; } = false;
 
     /// <summary>v2.5.0: how aggressively to require step-up re-auth for
     /// sensitive admin actions. Off by default (opt-in).</summary>
