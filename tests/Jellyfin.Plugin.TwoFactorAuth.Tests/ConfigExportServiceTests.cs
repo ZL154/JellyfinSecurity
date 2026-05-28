@@ -111,3 +111,37 @@ public class ConfigExportRedactionTests
         Assert.Equal("admin@example.com", payload.Configuration.SmtpUsername);
     }
 }
+
+public class PassphraseCryptoTests
+{
+    [Fact]
+    public void EncryptDecrypt_RoundTrips()
+    {
+        const string passphrase = "correct-horse-battery-staple";
+        const string plaintext = "{\"hello\":\"world\"}";
+
+        var ciphertext = ConfigExportService.EncryptPayloadForTest(plaintext, passphrase);
+        Assert.NotEqual(plaintext, ciphertext);
+
+        var roundTripped = ConfigExportService.DecryptPayloadForTest(ciphertext, passphrase);
+        Assert.Equal(plaintext, roundTripped);
+    }
+
+    [Fact]
+    public void Decrypt_WrongPassphrase_ThrowsCryptographicException()
+    {
+        const string passphrase = "right-pass";
+        const string plaintext = "{\"hello\":\"world\"}";
+        var ciphertext = ConfigExportService.EncryptPayloadForTest(plaintext, passphrase);
+        Assert.Throws<System.Security.Cryptography.CryptographicException>(() =>
+            ConfigExportService.DecryptPayloadForTest(ciphertext, "wrong-pass"));
+    }
+
+    [Fact]
+    public void EncryptedOutput_IsBase64()
+    {
+        var ciphertext = ConfigExportService.EncryptPayloadForTest("hello", "passpass");
+        Assert.Matches("^[A-Za-z0-9+/]+={0,2}$", ciphertext);
+        Assert.True(ciphertext.Length >= 60);
+    }
+}
