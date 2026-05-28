@@ -670,6 +670,10 @@
                 // 403 + { stepUpRequired:true } or { twoFactorRequired:true },
                 // prompt for a fresh 2FA code, POST it to StepUp/Verify, then
                 // transparently replay the original request once.
+                // Retry loop: a wrong code shows an inline error and re-prompts
+                // rather than leaving the modal stuck non-functional. A 429 from
+                // the server (rate-limit hit) shows a distinct message and stops
+                // retrying, returning the original 403 to the caller.
                 function stepUpFetch(input, init) {
                     var fullInput = (typeof input === 'string' && input.indexOf('http') !== 0)
                         ? ApiClient.serverAddress() + '/' + input
@@ -680,25 +684,35 @@
                         if (resp.status !== 403) return resp;
                         return resp.clone().json().catch(function() { return null; }).then(function(body) {
                             if (!body || (!body.stepUpRequired && !body.twoFactorRequired)) return resp;
-                            return promptStepUpCode().then(function(code) {
-                                if (!code) return resp; // user cancelled — surface original 403
-                                return fetch(ApiClient.serverAddress() + '/TwoFactorAuth/StepUp/Verify', {
-                                    method: 'POST',
-                                    headers: getHeaders(),
-                                    body: JSON.stringify({ Code: code }),
-                                }).then(function(verifyResp) {
-                                    if (!verifyResp.ok) {
+
+                            // Retry loop — keeps the modal open until the user enters a
+                            // correct code, cancels, or hits the server rate limit.
+                            function tryVerify() {
+                                return promptStepUpCode().then(function(code) {
+                                    if (!code) return resp; // user cancelled — surface original 403
+                                    return fetch(ApiClient.serverAddress() + '/TwoFactorAuth/StepUp/Verify', {
+                                        method: 'POST',
+                                        headers: getHeaders(),
+                                        body: JSON.stringify({ Code: code }),
+                                    }).then(function(verifyResp) {
+                                        if (verifyResp.ok) {
+                                            // Verified — modal already closed by submit handler;
+                                            // replay the original request once.
+                                            return fetch(fullInput, fullInit);
+                                        }
+                                        if (verifyResp.status === 429) {
+                                            // Rate limit hit — show distinct message, stop retrying.
+                                            closeStepUpModal();
+                                            showStepUpError('Too many attempts. Try again later.');
+                                            return resp;
+                                        }
+                                        // Wrong code — show error and loop back to prompt again.
                                         showStepUpError('Invalid code.');
-                                        stepUpOverlay.classList.add('active');
-                                        // Re-expose the modal with error so user can retry
-                                        // (we return the original 403 to the caller so it knows the action failed)
-                                        return resp;
-                                    }
-                                    // Verified — close modal (already closed by submit handler)
-                                    // and replay the original request once
-                                    return fetch(fullInput, fullInit);
+                                        return tryVerify();
+                                    });
                                 });
-                            });
+                            }
+                            return tryVerify();
                         });
                     });
                 }
