@@ -126,6 +126,19 @@ public class TwoFactorAuthController : ControllerBase
         throw new UnauthorizedAccessException();
     }
 
+    /// <summary>v2.5.0: returns a 403-challenge ActionResult if this admin needs
+    /// step-up for the action and hasn't got a valid token; null if allowed.</summary>
+    private ActionResult? StepUpGuard(StepUpAction action)
+    {
+        var adminId = GetCurrentUserId();
+        if (_stepUp.NeedsStepUpToken(adminId, action))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { message = "Step-up authentication required.", stepUpRequired = true });
+        }
+        return null;
+    }
+
     // -------------------------------------------------------------------------
     // GET /TwoFactorAuth/Challenge — serves the standalone challenge HTML page
     // -------------------------------------------------------------------------
@@ -3081,6 +3094,9 @@ public class TwoFactorAuthController : ControllerBase
         if (!allowed.Contains(req.Action))
             return BadRequest(new { message = "Unknown action: " + req.Action });
 
+        var guard = StepUpGuard(StepUpAction.ResetOtherUser2fa);
+        if (guard is not null) return guard;
+
         var adminId = GetCurrentUserId();
         var adminName = _userManager.GetUserById(adminId)?.Username ?? adminId.ToString();
         var actorIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
@@ -3151,6 +3167,41 @@ public class TwoFactorAuthController : ControllerBase
             }
         }
         return Ok(new { processed, action = req.Action });
+    }
+
+    // POST /TwoFactorAuth/Admin/HardeningConfig — focused save endpoint for the
+    // v2.5.0 opt-in hardening toggles. Gated by step-up so an admin can't flip
+    // these from a hijacked session. Broader plugin config still flows through
+    // Jellyfin's built-in PUT /Plugins/{guid}/Configuration which can't be
+    // intercepted to gate.
+    [HttpPost("Admin/HardeningConfig")]
+    [Authorize(Policy = "RequiresElevation")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public ActionResult SaveHardeningConfig([FromBody] HardeningConfigRequest request)
+    {
+        var guard = StepUpGuard(StepUpAction.ConfigChange);
+        if (guard is not null) return guard;
+
+        var plugin = Plugin.Instance;
+        if (plugin is null) return StatusCode(StatusCodes.Status500InternalServerError);
+
+        var config = plugin.Configuration;
+        if (request.RequireTwoFactorToDisable.HasValue)
+        {
+            config.RequireTwoFactorToDisable = request.RequireTwoFactorToDisable.Value;
+        }
+        if (request.StepUpLevel.HasValue)
+        {
+            config.StepUpLevel = request.StepUpLevel.Value;
+        }
+        if (request.StepUpWindowSeconds.HasValue)
+        {
+            // Clamp to the same range MarkStepUpVerified uses (60-900).
+            config.StepUpWindowSeconds = Math.Clamp(request.StepUpWindowSeconds.Value, 60, 900);
+        }
+        plugin.SaveConfiguration();
+        return Ok();
     }
 
     // =========================================================================

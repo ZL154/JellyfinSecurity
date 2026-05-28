@@ -93,3 +93,14 @@ public class StepUpVerifyRequest
 {
     public string? Code { get; set; }
 }
+
+/// <summary>v2.5.0: payload for the focused hardening-config save endpoint
+/// (gated by step-up). Only carries the v2.5.0 hardening fields; broader
+/// plugin config still flows through Jellyfin's built-in PUT /Plugins/...
+/// /Configuration endpoint (which the plugin can't intercept to gate).</summary>
+public class HardeningConfigRequest
+{
+    public bool? RequireTwoFactorToDisable { get; set; }
+    public Jellyfin.Plugin.TwoFactorAuth.Configuration.StepUpLevel? StepUpLevel { get; set; }
+    public int? StepUpWindowSeconds { get; set; }
+}
