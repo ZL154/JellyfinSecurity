@@ -145,3 +145,41 @@ public class PassphraseCryptoTests
         Assert.True(ciphertext.Length >= 60);
     }
 }
+
+public class FullExportTests
+{
+    [Fact]
+    public async Task FullExport_IsEncryptedEnvelope()
+    {
+        var svc = ConfigExportTestHarness.Build(out var cfg);
+        cfg.SmtpPassword = "secret-pw";
+        var env = await svc.BuildFullExportAsync("passpass");
+        Assert.True(env.Encrypted);
+        Assert.IsType<string>(env.Payload);
+        var b64 = (string)env.Payload;
+        Assert.Matches("^[A-Za-z0-9+/]+={0,2}$", b64);
+    }
+
+    [Fact]
+    public async Task FullExport_DecryptsBackToConfigAndUsers()
+    {
+        var svc = ConfigExportTestHarness.Build(out var cfg);
+        cfg.SmtpPassword = "smtp-secret";
+        cfg.OidcProviders.Add(new OidcProvider { Id = "google", ClientSecret = "client-secret" });
+
+        var env = await svc.BuildFullExportAsync("passpass");
+        var decryptedJson = ConfigExportService.DecryptPayloadForTest((string)env.Payload, "passpass");
+        var payload = System.Text.Json.JsonSerializer.Deserialize<FullExportPayload>(decryptedJson)!;
+
+        // Secrets ARE present in full export
+        Assert.Equal("smtp-secret", payload.Configuration.SmtpPassword);
+        Assert.Equal("client-secret", payload.Configuration.OidcProviders[0].ClientSecret);
+    }
+
+    [Fact]
+    public async Task FullExport_ShortPassphrase_Throws()
+    {
+        var svc = ConfigExportTestHarness.Build(out _);
+        await Assert.ThrowsAsync<ArgumentException>(() => svc.BuildFullExportAsync("short"));
+    }
+}

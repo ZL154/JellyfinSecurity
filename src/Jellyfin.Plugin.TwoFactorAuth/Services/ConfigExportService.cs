@@ -170,4 +170,33 @@ public class ConfigExportService
         }
         return System.Text.Encoding.UTF8.GetString(plaintext);
     }
+
+    public async Task<ExportEnvelope> BuildFullExportAsync(string passphrase)
+    {
+        if (string.IsNullOrEmpty(passphrase) || passphrase.Length < 8)
+            throw new ArgumentException("Passphrase must be at least 8 characters", nameof(passphrase));
+
+        var live = _configAccessor();
+        var users = await _store.GetAllUsersAsync().ConfigureAwait(false);
+        var history = await _score.GetHistoryAsync(365).ConfigureAwait(false);
+
+        var payload = new FullExportPayload
+        {
+            Configuration = DeepCloneViaJson(live), // secrets NOT redacted
+            ScoreHistory = new List<ScoreSnapshot>(history),
+            Users = new List<UserTwoFactorData>(users)
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(payload);
+        var ciphertext = EncryptPayload(json, passphrase);
+
+        return new ExportEnvelope
+        {
+            FormatVersion = CurrentFormatVersion,
+            ExportedAt = DateTime.UtcNow,
+            PluginVersion = typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "unknown",
+            Encrypted = true,
+            Payload = ciphertext
+        };
+    }
 }
