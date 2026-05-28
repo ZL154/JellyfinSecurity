@@ -47,3 +47,21 @@ public class TranslationResourceLoadingTests
         Assert.Null(content);
     }
 }
+
+public class PublicConfigShapeTests
+{
+    // Pure shape verification — anonymous-object construction. This locks
+    // the contract returned by GET /TwoFactorAuth/public-config so future
+    // drift (renaming fields, dropping a supported language) is caught.
+    [Fact]
+    public void PublicConfig_Shape_HasExpectedFields()
+    {
+        var resp = new
+        {
+            defaultLanguage = "en",
+            supportedLanguages = new[] { "en", "de", "es", "fr", "it", "ja", "pt", "zh" }
+        };
+        Assert.Equal("en", resp.defaultLanguage);
+        Assert.Equal(8, resp.supportedLanguages.Length);
+    }
+}

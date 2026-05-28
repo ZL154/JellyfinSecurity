@@ -122,6 +122,11 @@ public class TwoFactorAuthController : ControllerBase
     // Helper: get current authenticated user ID from JWT claims
     // -------------------------------------------------------------------------
 
+    // v2.5.0: canonical supported-language allowlist. Kept as a static
+    // readonly field (CA1861) so the array isn't reallocated on every
+    // /public-config or /preferences hit.
+    private static readonly string[] SupportedLanguages = { "en", "de", "es", "fr", "it", "ja", "pt", "zh" };
+
     private Guid GetCurrentUserId()
     {
         var claim = User.FindFirst("Jellyfin-UserId");
@@ -131,6 +136,45 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         throw new UnauthorizedAccessException();
+    }
+
+    /// <summary>v2.5.0: returns true if the current caller is an admin
+    /// (via PermissionKind.IsAdministrator on their Jellyfin user) OR is
+    /// the same user identified by <paramref name="userId"/>. Used by the
+    /// per-user preferences endpoints so non-admins can manage their own
+    /// language without granting them admin-only routes.</summary>
+    private bool IsAuthorizedForUser(Guid userId)
+    {
+        Guid current;
+        try
+        {
+            current = GetCurrentUserId();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        if (current == userId) return true;
+
+        // Admin check mirrors how AdminForceLogout / dashboard enumeration
+        // identify admins — the IsAdministrator permission on the Jellyfin
+        // user record. The [Authorize] policy "RequiresElevation" reads the
+        // same bit, so this stays consistent with the rest of the controller.
+        try
+        {
+            var ju = _userManager.GetUserById(current);
+            if (ju is not null && ju.HasPermission(PermissionKind.IsAdministrator))
+            {
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[2FA] IsAuthorizedForUser admin probe failed — denying");
+        }
+
+        return false;
     }
 
     /// <summary>v2.5.0: returns a 403-challenge ActionResult if this admin needs
@@ -1918,16 +1962,19 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // v2.5.0: per-user UI language preference. First cut is admin-only — the
-    // controller has no self-or-admin helper today and we'd rather ship the
-    // surface than block on building one. v2.5.1+ can relax this so a user
-    // can flip their own language without admin access.
+    // v2.5.0: per-user UI language preference. Self-or-admin: any logged-in
+    // user can read/write their OWN language preference; admins can read/write
+    // any user's. Authorization is enforced inline via IsAuthorizedForUser so
+    // the route stays a single endpoint. (Pre-2.5.0 this was admin-only as a
+    // ship-fast compromise; the helper landed alongside the i18n surface.)
     // -------------------------------------------------------------------------
 
     [HttpGet("users/{userId:guid}/preferences")]
-    [Authorize(Policy = "RequiresElevation")]
+    [Authorize]
     public async Task<IActionResult> GetUserPreferences([FromRoute] Guid userId)
     {
+        if (!IsAuthorizedForUser(userId)) return Forbid();
+
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
         var cfg = Plugin.Instance?.Configuration ?? new Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration();
         return Ok(new
@@ -1939,9 +1986,11 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     [HttpPut("users/{userId:guid}/preferences")]
-    [Authorize(Policy = "RequiresElevation")]
+    [Authorize]
     public async Task<IActionResult> UpdateUserPreferences([FromRoute] Guid userId, [FromBody] UpdatePreferencesRequest request)
     {
+        if (!IsAuthorizedForUser(userId)) return Forbid();
+
         if (request is null)
         {
             return BadRequest(new { message = "body required" });
@@ -3396,6 +3445,43 @@ public class TwoFactorAuthController : ControllerBase
             timeSeries,
             bans
         });
+    }
+
+    // v2.5.0: anonymous server-wide defaults so login.html / challenge.html
+    // can pick the right translation bundle BEFORE the user authenticates.
+    // Only exposes non-sensitive defaults (current admin DefaultLanguage and
+    // the supported-language allowlist).
+    [HttpGet("public-config")]
+    [AllowAnonymous]
+    public IActionResult GetPublicConfig()
+    {
+        var cfg = Plugin.Instance?.Configuration ?? new Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration();
+        Response.Headers["Cache-Control"] = "no-cache, must-revalidate";
+        return Ok(new
+        {
+            defaultLanguage = cfg.DefaultLanguage,
+            supportedLanguages = SupportedLanguages
+        });
+    }
+
+    // v2.5.0: shared anonymous i18n helper script. Serves an embedded JS
+    // resource so pre-login pages (login.html, challenge.html, setup.html)
+    // can share a single tr() loader. The .js file is added in a follow-up
+    // commit — until then this endpoint returns 404, which is harmless.
+    [HttpGet("tfa-i18n.js")]
+    [AllowAnonymous]
+    [Produces("application/javascript")]
+    public IActionResult GetSharedI18nScript()
+    {
+        var assembly = typeof(Plugin).Assembly;
+        var resourceName = $"{typeof(Plugin).Namespace}.Pages.tfa-i18n.js";
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null) return NotFound();
+        using var reader = new System.IO.StreamReader(stream);
+        var js = reader.ReadToEnd();
+        Response.Headers["Cache-Control"] = "no-cache, must-revalidate";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        return Content(js, "application/javascript; charset=utf-8");
     }
 
     [HttpGet("translations/{lang}")]
