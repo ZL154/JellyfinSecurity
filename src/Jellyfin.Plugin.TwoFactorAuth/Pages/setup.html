@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Two-Factor Authentication</title>
+    <script src="/TwoFactorAuth/tfa-i18n.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -115,14 +116,18 @@
             .card { padding: 18px; }
             .recovery-grid { grid-template-columns: 1fr; }
         }
+        .tfa-lang-picker { background: rgba(255,255,255,0.04); color: #ccc; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
+        .tfa-lang-picker:hover { background: rgba(255,255,255,0.08); }
+        .tfa-lang-host { position: absolute; top: 16px; right: 16px; }
     </style>
 </head>
 <body>
+    <div class="tfa-lang-host" id="tfaLangHost"></div>
     <div class="container">
         <p style="margin-bottom:18px;">
             <a href="/web/index.html" style="color:#888;font-size:13px;text-decoration:none;">← Back to Jellyfin</a>
         </p>
-        <h1>Two-Factor Authentication</h1>
+        <h1 data-i18n-key="tfa.setup.title">Two-Factor Authentication</h1>
         <p class="subtitle">Protect your Jellyfin account with TOTP, recovery codes, and device-level controls.</p>
 
         <div class="grid">
@@ -150,17 +155,17 @@
                     <button class="btn-primary" id="btnStartSetup">Begin Setup</button>
                 </div>
                 <div id="enrollStep2" style="display:none;">
-                    <p class="muted">1. Scan this QR code in your authenticator app:</p>
+                    <p class="muted" data-i18n-key="tfa.setup.scan_qr">1. Scan this QR code in your authenticator app:</p>
                     <div style="text-align:center;"><div class="qr-wrap"><img id="qrImg" alt="TOTP QR" /></div></div>
                     <p class="muted">Or enter this key manually:</p>
                     <div class="secret-key" id="secretKey"></div>
-                    <p class="muted" style="margin-top:14px;">2. Enter the 6-digit code from your app:</p>
+                    <p class="muted" style="margin-top:14px;" data-i18n-key="tfa.setup.enter_code">2. Enter the 6-digit code from your app:</p>
                     <input type="text" id="confirmCode" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" placeholder="000000" />
                     <div class="alert error" id="confirmError"></div>
                     <div class="alert success" id="confirmSuccess"></div>
                     <div class="row" style="margin-top:12px;">
-                        <button class="btn-primary" id="btnConfirm">Confirm &amp; Enable</button>
-                        <button class="btn-ghost" id="btnCancelSetup">Cancel</button>
+                        <button class="btn-primary" id="btnConfirm" data-i18n-key="tfa.setup.btn_verify">Confirm &amp; Enable</button>
+                        <button class="btn-ghost" id="btnCancelSetup" data-i18n-key="tfa.setup.btn_cancel">Cancel</button>
                     </div>
                 </div>
             </div>
@@ -380,6 +385,32 @@
     </div>
 
     <script>
+        // v2.5.0: mount the shared language picker. tfa-i18n.js auto-loads
+        // translations on DOMContentLoaded; we just need to render the picker
+        // host. The setTimeout retry covers the race where the helper script
+        // hasn't finished parsing yet on first call.
+        function _initTfaLangPicker() {
+            if (window.tfaI18n && window.tfaI18n.renderLanguagePicker) {
+                var host = document.getElementById('tfaLangHost');
+                if (host && !host.firstChild) {
+                    window.tfaI18n.renderLanguagePicker(host);
+                }
+            } else {
+                setTimeout(_initTfaLangPicker, 50);
+            }
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', _initTfaLangPicker);
+        } else {
+            _initTfaLangPicker();
+        }
+
+        // v2.5.0: small helper — translate with English fallback if the i18n
+        // helper hasn't loaded yet (e.g. on slow first-paint or offline).
+        function _tr(key, fallback) {
+            return (window.tfaI18n && window.tfaI18n.tr) ? window.tfaI18n.tr(key, fallback) : fallback;
+        }
+
         function getToken() {
             try {
                 var creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}');
@@ -835,14 +866,14 @@
             var errEl = document.getElementById('confirmError');
             var okEl = document.getElementById('confirmSuccess');
             errEl.classList.remove('show'); okEl.classList.remove('show');
-            if (!/^\d{6}$/.test(code)) { errEl.textContent = 'Enter the 6-digit code from your app.'; errEl.classList.add('show'); return; }
+            if (!/^\d{6}$/.test(code)) { errEl.textContent = _tr('tfa.setup.enter_code', 'Enter the 6-digit code from your app.'); errEl.classList.add('show'); return; }
             btn.disabled = true;
             api('POST', 'TwoFactorAuth/Setup/Totp/Confirm', { code: code }).then(function() {
-                okEl.textContent = '2FA enabled! Generate recovery codes below in case you lose your phone.';
+                okEl.textContent = _tr('tfa.setup.success', '2FA enabled! Generate recovery codes below in case you lose your phone.');
                 okEl.classList.add('show');
                 setTimeout(loadAll, 700);
             }).catch(function() {
-                errEl.textContent = 'Invalid code. Codes rotate every 30s — try the latest one.';
+                errEl.textContent = _tr('tfa.setup.invalid_code', 'Invalid code. Codes rotate every 30s — try the latest one.');
                 errEl.classList.add('show');
                 btn.disabled = false;
             });
@@ -944,7 +975,7 @@
                 ok.textContent = email ? 'Email saved.' : 'Email cleared.';
                 ok.classList.add('show');
             }).catch(function() {
-                err.textContent = 'Save failed — check the address.';
+                err.textContent = _tr('tfa.error.unknown', 'Save failed — check the address.');
                 err.classList.add('show');
             });
         });
