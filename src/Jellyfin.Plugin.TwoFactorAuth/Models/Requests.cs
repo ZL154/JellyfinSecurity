@@ -79,3 +79,10 @@ public class InitiatePairingRequest
 
     public string DeviceName { get; set; } = string.Empty;
 }
+
+/// <summary>v2.5.0: optional fresh code carried by the disable-2FA request
+/// when RequireTwoFactorToDisable is on.</summary>
+public class DisableRequest
+{
+    public string? Code { get; set; }
+}

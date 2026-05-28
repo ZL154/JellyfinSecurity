@@ -52,6 +52,7 @@ public class TwoFactorAuthController : ControllerBase
     private readonly RecoveryCodePdfService _recoveryPdf;
     private readonly IpBanService _ipBans;
     private readonly IpAllowlistService _allowlist;
+    private readonly StepUpService _stepUp;
     private readonly ILogger<TwoFactorAuthController> _logger;
 
     public TwoFactorAuthController(
@@ -79,6 +80,7 @@ public class TwoFactorAuthController : ControllerBase
         RecoveryCodePdfService recoveryPdf,
         IpBanService ipBans,
         IpAllowlistService allowlist,
+        StepUpService stepUp,
         ILogger<TwoFactorAuthController> logger)
     {
         _store = store;
@@ -105,6 +107,7 @@ public class TwoFactorAuthController : ControllerBase
         _recoveryPdf = recoveryPdf;
         _ipBans = ipBans;
         _allowlist = allowlist;
+        _stepUp = stepUp;
         _logger = logger;
     }
 
@@ -1242,9 +1245,32 @@ public class TwoFactorAuthController : ControllerBase
     [HttpPost("Setup/Disable")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult> DisableTotp()
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult> DisableTotp([FromBody] DisableRequest? request = null)
     {
         var userId = GetCurrentUserId();
+
+        // v2.5.0: optional re-auth guard. When on, require a fresh TOTP/recovery
+        // code before wiping. Verified against current user data; the wipe below
+        // clears RecoveryCodes anyway so no separate persist of the Used flag is
+        // needed on this path.
+        var config = Plugin.Instance?.Configuration;
+        if (config is { RequireTwoFactorToDisable: true })
+        {
+            var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+            var ok = !string.IsNullOrWhiteSpace(request?.Code)
+                     && _stepUp.VerifyUserCode(userData, request!.Code!);
+            if (!ok)
+            {
+                Response.StatusCode = StatusCodes.Status403Forbidden;
+                Response.ContentType = "application/json";
+                await Response.WriteAsync(
+                    "{\"message\":\"A current authenticator or recovery code is required to disable two-factor authentication.\",\"twoFactorRequired\":true}"
+                ).ConfigureAwait(false);
+                return new EmptyResult();
+            }
+        }
+
         await _store.MutateAsync(userId, ud =>
         {
             ud.TotpEnabled = false;
@@ -1258,7 +1284,6 @@ public class TwoFactorAuthController : ControllerBase
         }).ConfigureAwait(false);
         _pendingPairings.RemoveAllForUser(userId);
         _challengeStore.WipeAllForUser(userId);
-
         await _store.AddAuditEntryAsync(new AuditEntry
         {
             Timestamp = DateTime.UtcNow,
@@ -1268,7 +1293,6 @@ public class TwoFactorAuthController : ControllerBase
             Result = AuditResult.ConfigChanged,
             Method = "self_disable",
         }).ConfigureAwait(false);
-
         return Ok();
     }
 
