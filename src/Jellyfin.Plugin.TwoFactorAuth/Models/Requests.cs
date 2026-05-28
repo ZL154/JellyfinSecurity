@@ -113,3 +113,11 @@ public class ImportConfigRequest
     public string? Envelope { get; set; }
     public string? Passphrase { get; set; }
 }
+
+/// <summary>v2.5.0: payload for PUT /TwoFactorAuth/users/{userId}/preferences.
+/// Null or empty Language clears the per-user override (reverts to admin
+/// DefaultLanguage).</summary>
+public class UpdatePreferencesRequest
+{
+    public string? Language { get; set; }
+}

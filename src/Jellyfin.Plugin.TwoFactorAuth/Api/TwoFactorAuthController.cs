@@ -1918,6 +1918,53 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
+    // v2.5.0: per-user UI language preference. First cut is admin-only — the
+    // controller has no self-or-admin helper today and we'd rather ship the
+    // surface than block on building one. v2.5.1+ can relax this so a user
+    // can flip their own language without admin access.
+    // -------------------------------------------------------------------------
+
+    [HttpGet("users/{userId:guid}/preferences")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> GetUserPreferences([FromRoute] Guid userId)
+    {
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var cfg = Plugin.Instance?.Configuration ?? new Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration();
+        return Ok(new
+        {
+            language = data.Language,
+            effectiveLanguage = data.Language ?? cfg.DefaultLanguage,
+            defaultLanguage = cfg.DefaultLanguage,
+        });
+    }
+
+    [HttpPut("users/{userId:guid}/preferences")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> UpdateUserPreferences([FromRoute] Guid userId, [FromBody] UpdatePreferencesRequest request)
+    {
+        if (request is null)
+        {
+            return BadRequest(new { message = "body required" });
+        }
+
+        if (!string.IsNullOrEmpty(request.Language))
+        {
+            var allowed = new[] { "en", "de", "es", "fr", "it", "ja", "pt", "zh" };
+            if (Array.IndexOf(allowed, request.Language) < 0)
+            {
+                return BadRequest(new { message = "unsupported language" });
+            }
+        }
+
+        await _store.MutateAsync(userId, d =>
+        {
+            d.Language = string.IsNullOrEmpty(request.Language) ? null : request.Language;
+        }).ConfigureAwait(false);
+
+        return Ok(new { ok = true });
+    }
+
+    // -------------------------------------------------------------------------
     // 12. POST /TwoFactorAuth/Users/{id}/Toggle [Authorize(Policy = "RequiresElevation")]
     // -------------------------------------------------------------------------
 
