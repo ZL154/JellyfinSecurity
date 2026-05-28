@@ -30,3 +30,13 @@ public class SecurityScoreDtosTests
         Assert.Equal(92, s.Total);
     }
 }
+
+public class DiagnosticsServiceChainHelperTests
+{
+    [Fact]
+    public void VerifyAuditChainPublic_ReturnsZeroForEmpty()
+    {
+        var n = Jellyfin.Plugin.TwoFactorAuth.Services.DiagnosticsService.VerifyAuditChainPublic(System.Array.Empty<Jellyfin.Plugin.TwoFactorAuth.Models.AuditEntry>());
+        Assert.Equal(0, n);
+    }
+}

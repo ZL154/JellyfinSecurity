@@ -140,6 +140,11 @@ public class DiagnosticsService
         return results;
     }
 
+    /// <summary>Public wrapper around <see cref="VerifyAuditChain"/> so the security-score
+    /// engine can read the broken-chain count without re-implementing the hash cascade.</summary>
+    public static int VerifyAuditChainPublic(IReadOnlyList<Models.AuditEntry> entries)
+        => VerifyAuditChain(entries);
+
     /// <summary>Walks the audit log re-computing each entry's expected hash.
     /// Returns count of entries whose stored EntryHash mismatches the
     /// re-computation (0 == clean chain). Pre-v1.4 entries (empty hashes) are
