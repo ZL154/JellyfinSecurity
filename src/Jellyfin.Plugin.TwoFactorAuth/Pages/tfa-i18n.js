@@ -3,7 +3,8 @@
 // Public API on window.tfaI18n:
 //   - tr(key, fallback)                 — translate a key, falling back to literal English
 //   - loadTranslations()                — async; resolves the effective language and fetches the bundle
-//   - applyTranslations(root)           — walks [data-i18n-key] / [data-i18n-placeholder] descendants
+//   - applyTranslations(root)           — walks [data-i18n-key] / [data-i18n-placeholder] /
+//                                          [data-i18n-title] / [data-i18n-aria-label] descendants
 //   - renderLanguagePicker(host, opts)  — appends a <select> styled for the host page
 //   - getEffectiveLanguage()            — returns the resolved language code (after loadTranslations)
 //
@@ -116,6 +117,21 @@
             var pv = tr(pkey, null);
             if (pv != null) pel.setAttribute('placeholder', pv);
         }
+        // v2.5.0: title (tooltip) and aria-label attribute conventions.
+        var titles = scope.querySelectorAll('[data-i18n-title]');
+        for (var t = 0; t < titles.length; t++) {
+            var tel = titles[t];
+            var tkey = tel.getAttribute('data-i18n-title');
+            var tv = tr(tkey, null);
+            if (tv != null) tel.setAttribute('title', tv);
+        }
+        var arias = scope.querySelectorAll('[data-i18n-aria-label]');
+        for (var a = 0; a < arias.length; a++) {
+            var ael = arias[a];
+            var akey = ael.getAttribute('data-i18n-aria-label');
+            var av = tr(akey, null);
+            if (av != null) ael.setAttribute('aria-label', av);
+        }
         // Update <html lang> for assistive tech.
         try { document.documentElement.setAttribute('lang', _lang); } catch (e) { /* ignore */ }
     }
@@ -155,7 +171,7 @@
         opts = opts || {};
         var select = document.createElement('select');
         select.className = opts.className || 'tfa-lang-picker';
-        select.setAttribute('aria-label', 'Language');
+        select.setAttribute('aria-label', tr('tfa.admin.lang.heading', 'Language'));
         for (var i = 0; i < SUPPORTED.length; i++) {
             var code = SUPPORTED[i];
             var opt = document.createElement('option');

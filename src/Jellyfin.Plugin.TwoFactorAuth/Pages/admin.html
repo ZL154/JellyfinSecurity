@@ -127,7 +127,7 @@
         <div data-role="content">
             <div class="content-primary">
                 <div class="tfa-container">
-                    <div class="tfa-note">Service integrations like Sonarr/Radarr use standard Jellyfin API keys, which already bypass user authentication — no plugin configuration needed.</div>
+                    <div class="tfa-note" data-i18n-key="tfa.admin.common.api_keys_note">Service integrations like Sonarr/Radarr use standard Jellyfin API keys, which already bypass user authentication — no plugin configuration needed.</div>
 
                     <div class="tfa-tabs">
                         <div class="tfa-tab active" data-tab="overview" data-i18n-key="tfa.admin.tab_overview">Overview</div>
@@ -154,63 +154,63 @@
                                 <div class="tfa-posture-grade" id="postureGrade">–</div>
                             </div>
                             <div class="tfa-posture-body">
-                                <h3>Security posture: <span class="tfa-posture-score" id="postureScore">–</span> / 100</h3>
-                                <p id="postureSummary">Computing…</p>
+                                <h3><span data-i18n-key="tfa.admin.overview.posture_label">Security posture</span>: <span class="tfa-posture-score" id="postureScore">–</span> / 100</h3>
+                                <p id="postureSummary" data-i18n-key="tfa.admin.posture_computing">Computing…</p>
                             </div>
                         </div>
 
                         <!-- KPI strip -->
                         <div class="tfa-kpi-grid" id="kpiGrid">
-                            <div class="tfa-kpi"><div class="tfa-kpi-label">Enrolled</div><div class="tfa-kpi-value" id="kpiEnrolled">–</div><div class="tfa-kpi-sub" id="kpiEnrolledSub">of – users</div></div>
-                            <div class="tfa-kpi"><div class="tfa-kpi-label">Trusted devices</div><div class="tfa-kpi-value" id="kpiSessions">–</div></div>
-                            <div class="tfa-kpi"><div class="tfa-kpi-label">Banned IPs</div><div class="tfa-kpi-value" id="kpiBans">–</div></div>
-                            <div class="tfa-kpi"><div class="tfa-kpi-label">Audit entries</div><div class="tfa-kpi-value" id="kpiAudit">–</div><div class="tfa-kpi-sub" id="kpiAuditSub">chain ok</div></div>
+                            <div class="tfa-kpi"><div class="tfa-kpi-label" data-i18n-key="tfa.admin.kpi_enrolled">Enrolled</div><div class="tfa-kpi-value" id="kpiEnrolled">–</div><div class="tfa-kpi-sub" id="kpiEnrolledSub">of – users</div></div>
+                            <div class="tfa-kpi"><div class="tfa-kpi-label" data-i18n-key="tfa.admin.kpi_trusted_devices">Trusted devices</div><div class="tfa-kpi-value" id="kpiSessions">–</div></div>
+                            <div class="tfa-kpi"><div class="tfa-kpi-label" data-i18n-key="tfa.admin.kpi_banned_ips">Banned IPs</div><div class="tfa-kpi-value" id="kpiBans">–</div></div>
+                            <div class="tfa-kpi"><div class="tfa-kpi-label" data-i18n-key="tfa.admin.kpi_audit_entries">Audit entries</div><div class="tfa-kpi-value" id="kpiAudit">–</div><div class="tfa-kpi-sub" id="kpiAuditSub" data-i18n-key="tfa.admin.kpi_audit_chain_ok">chain ok</div></div>
                         </div>
 
                         <!-- Factor breakdown -->
                         <div class="tfa-section">
                             <h2 data-i18n-key="tfa.admin.score_breakdown_heading">Score breakdown</h2>
-                            <div class="tfa-factors" id="factorsGrid">Loading…</div>
+                            <div class="tfa-factors" id="factorsGrid" data-i18n-key="tfa.admin.common.loading">Loading…</div>
                         </div>
 
                         <!-- Auth activity chart -->
                         <div class="tfa-chart-card">
-                            <h3>Auth activity (last 30 days)</h3>
+                            <h3 data-i18n-key="tfa.admin.auth_activity_heading">Auth activity (last 30 days)</h3>
                             <svg class="tfa-chart-svg" id="authChart" viewBox="0 0 600 140" preserveAspectRatio="none"></svg>
                         </div>
 
                         <!-- Enrollment by role -->
                         <div class="tfa-chart-card">
-                            <h3>Enrollment by role</h3>
-                            <div id="enrollmentBars">Loading…</div>
+                            <h3 data-i18n-key="tfa.admin.enrollment_by_role_heading">Enrollment by role</h3>
+                            <div id="enrollmentBars" data-i18n-key="tfa.admin.common.loading">Loading…</div>
                         </div>
 
                         <!-- Recent bans inline -->
                         <div class="tfa-section">
                             <h2 data-i18n-key="tfa.admin.active_ip_bans_heading">Active IP bans</h2>
-                            <table class="tfa-table"><thead><tr><th>IP</th><th>Source</th><th>Failures</th><th>Banned at</th><th>Expires</th></tr></thead><tbody id="overviewBansBody"><tr><td colspan="5" class="tfa-empty">No active bans</td></tr></tbody></table>
+                            <table class="tfa-table"><thead><tr><th data-i18n-key="tfa.admin.bans.col_ip">IP</th><th data-i18n-key="tfa.admin.bans.col_source">Source</th><th data-i18n-key="tfa.admin.bans.col_failures">Failures</th><th data-i18n-key="tfa.admin.bans.col_banned_at">Banned at</th><th data-i18n-key="tfa.admin.bans.col_expires">Expires</th></tr></thead><tbody id="overviewBansBody"><tr><td colspan="5" class="tfa-empty" data-i18n-key="tfa.admin.no_active_bans">No active bans</td></tr></tbody></table>
                         </div>
                     </div>
 
                     <!-- USERS -->
                     <div class="tfa-panel" id="panel-users">
                         <div class="tfa-section">
-                            <h2>User 2FA Status</h2>
+                            <h2 data-i18n-key="tfa.admin.users.heading">User 2FA Status</h2>
                             <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
-                                <input type="text" id="usersFilter" placeholder="Search by username..." class="tfa-input" style="flex:1;min-width:240px;" />
+                                <input type="text" id="usersFilter" placeholder="Search by username..." data-i18n-placeholder="tfa.admin.users.filter_placeholder" class="tfa-input" style="flex:1;min-width:240px;" />
                                 <select id="usersBulkAction" class="tfa-input" style="width:240px;">
-                                    <option value="">Bulk action…</option>
-                                    <option value="reset_2fa">Reset 2FA (full wipe)</option>
-                                    <option value="rotate_recovery">Rotate recovery codes</option>
-                                    <option value="revoke_paired_devices">Revoke paired devices</option>
-                                    <option value="revoke_trusted_browsers">Revoke trusted browsers</option>
-                                    <option value="force_logout">Force logout</option>
+                                    <option value="" data-i18n-key="tfa.admin.users.bulk_action_placeholder">Bulk action…</option>
+                                    <option value="reset_2fa" data-i18n-key="tfa.admin.users.bulk_reset_2fa">Reset 2FA (full wipe)</option>
+                                    <option value="rotate_recovery" data-i18n-key="tfa.admin.users.bulk_rotate_recovery">Rotate recovery codes</option>
+                                    <option value="revoke_paired_devices" data-i18n-key="tfa.admin.users.bulk_revoke_paired">Revoke paired devices</option>
+                                    <option value="revoke_trusted_browsers" data-i18n-key="tfa.admin.users.bulk_revoke_trusted">Revoke trusted browsers</option>
+                                    <option value="force_logout" data-i18n-key="tfa.admin.users.bulk_force_logout">Force logout</option>
                                 </select>
-                                <button id="usersBulkApply" class="tfa-btn" type="button">Apply to selected</button>
+                                <button id="usersBulkApply" class="tfa-btn" type="button" data-i18n-key="tfa.admin.users.btn_apply_to_selected">Apply to selected</button>
                             </div>
                             <table class="tfa-table tfa-users-table">
-                                <thead><tr><th style="width:30px;"><input type="checkbox" id="usersSelectAll" /></th><th>User</th><th>2FA</th><th>Devices</th><th>Email</th><th>Status</th><th style="width:1%;white-space:nowrap;">Actions</th></tr></thead>
-                                <tbody id="usersBody"><tr><td colspan="7" class="tfa-empty">Loading...</td></tr></tbody>
+                                <thead><tr><th style="width:30px;"><input type="checkbox" id="usersSelectAll" /></th><th data-i18n-key="tfa.admin.users.col_user">User</th><th data-i18n-key="tfa.admin.users.col_2fa">2FA</th><th data-i18n-key="tfa.admin.users.col_devices">Devices</th><th data-i18n-key="tfa.admin.users.col_email">Email</th><th data-i18n-key="tfa.admin.users.col_status">Status</th><th style="width:1%;white-space:nowrap;" data-i18n-key="tfa.admin.users.col_actions">Actions</th></tr></thead>
+                                <tbody id="usersBody"><tr><td colspan="7" class="tfa-empty" data-i18n-key="tfa.admin.common.loading">Loading...</td></tr></tbody>
                             </table>
                         </div>
                     </div>
@@ -218,11 +218,11 @@
                     <!-- TRUSTED DEVICES -->
                     <div class="tfa-panel" id="panel-devices">
                         <div class="tfa-section">
-                            <h2>All Trusted Devices</h2>
-                            <p style="font-size:13px;color:#888;margin-bottom:12px;">Devices that bypass 2FA. Revoke any you don't recognize.</p>
+                            <h2 data-i18n-key="tfa.admin.devices.heading">All Trusted Devices</h2>
+                            <p style="font-size:13px;color:#888;margin-bottom:12px;" data-i18n-key="tfa.admin.devices.explainer">Devices that bypass 2FA. Revoke any you don't recognize.</p>
                             <table class="tfa-table">
-                                <thead><tr><th>Device</th><th>Added</th><th>Last used</th><th>Expires</th><th></th></tr></thead>
-                                <tbody id="devicesBody"><tr><td colspan="5" class="tfa-empty">Loading...</td></tr></tbody>
+                                <thead><tr><th data-i18n-key="tfa.admin.devices.col_device">Device</th><th data-i18n-key="tfa.admin.devices.col_added">Added</th><th data-i18n-key="tfa.admin.devices.col_last_used">Last used</th><th data-i18n-key="tfa.admin.devices.col_expires">Expires</th><th></th></tr></thead>
+                                <tbody id="devicesBody"><tr><td colspan="5" class="tfa-empty" data-i18n-key="tfa.admin.common.loading">Loading...</td></tr></tbody>
                             </table>
                         </div>
                     </div>
@@ -230,18 +230,18 @@
                     <!-- PAIRINGS -->
                     <div class="tfa-panel" id="panel-pairings">
                         <div class="tfa-section">
-                            <h2>TV / Limited-Input Devices</h2>
-                            <div class="tfa-note">
+                            <h2 data-i18n-key="tfa.admin.pairings.heading">TV / Limited-Input Devices</h2>
+                            <div class="tfa-note" data-i18n-key="tfa.admin.pairings.quick_connect_note">
                                 <strong>Recommended flow: Jellyfin Quick Connect.</strong>
                                 On the TV, choose <em>Quick Connect</em>. Then on a 2FA-verified phone or laptop, open Jellyfin and approve the displayed code. The TV will sign in and inherit the verified status — no TOTP prompt on the TV itself.
                                 <br><br>
                                 Make sure Quick Connect is enabled in Jellyfin's <a href="/web/index.html#!/quickconnect.html" style="color:#00a4dc;">Dashboard → Quick Connect</a>.
                             </div>
-                            <h3>Manual Pairing Requests</h3>
-                            <p style="font-size:12px;color:#888;margin-bottom:8px;">Pending requests from devices that can't use Quick Connect. Approve to grant a 30-day trusted device.</p>
+                            <h3 data-i18n-key="tfa.admin.pairings.manual_heading">Manual Pairing Requests</h3>
+                            <p style="font-size:12px;color:#888;margin-bottom:8px;" data-i18n-key="tfa.admin.pairings.manual_explainer">Pending requests from devices that can't use Quick Connect. Approve to grant a 30-day trusted device.</p>
                             <table class="tfa-table">
-                                <thead><tr><th>User</th><th>Device</th><th>Code</th><th>Expires</th><th>Actions</th></tr></thead>
-                                <tbody id="pairingsBody"><tr><td colspan="5" class="tfa-empty">No pending pairings</td></tr></tbody>
+                                <thead><tr><th data-i18n-key="tfa.admin.pairings.col_user">User</th><th data-i18n-key="tfa.admin.pairings.col_device">Device</th><th data-i18n-key="tfa.admin.pairings.col_code">Code</th><th data-i18n-key="tfa.admin.pairings.col_expires">Expires</th><th data-i18n-key="tfa.admin.pairings.col_actions">Actions</th></tr></thead>
+                                <tbody id="pairingsBody"><tr><td colspan="5" class="tfa-empty" data-i18n-key="tfa.admin.pairings.empty">No pending pairings</td></tr></tbody>
                             </table>
                         </div>
                     </div>
@@ -249,19 +249,19 @@
                     <!-- AUDIT LOG -->
                     <div class="tfa-panel" id="panel-audit">
                         <div class="tfa-section">
-                            <h2>Login Audit Log</h2>
+                            <h2 data-i18n-key="tfa.admin.audit.heading">Login Audit Log</h2>
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
-                                <input type="text" id="auditFilter" placeholder="Filter by user, IP, device, result..." class="tfa-input tfa-filter" style="flex:1;min-width:240px;" />
-                                <button id="auditExportCsv" class="tfa-btn" type="button">Export CSV</button>
+                                <input type="text" id="auditFilter" placeholder="Filter by user, IP, device, result..." data-i18n-placeholder="tfa.admin.audit.filter_placeholder" class="tfa-input tfa-filter" style="flex:1;min-width:240px;" />
+                                <button id="auditExportCsv" class="tfa-btn" type="button" data-i18n-key="tfa.admin.audit.btn_export_csv">Export CSV</button>
                             </div>
                             <table class="tfa-table">
-                                <thead><tr><th>Time</th><th>User</th><th>IP</th><th>Device</th><th>Result</th><th>Method</th></tr></thead>
-                                <tbody id="auditBody"><tr><td colspan="6" class="tfa-empty">No audit entries yet</td></tr></tbody>
+                                <thead><tr><th data-i18n-key="tfa.admin.audit.col_time">Time</th><th data-i18n-key="tfa.admin.audit.col_user">User</th><th data-i18n-key="tfa.admin.audit.col_ip">IP</th><th data-i18n-key="tfa.admin.audit.col_device">Device</th><th data-i18n-key="tfa.admin.audit.col_result">Result</th><th data-i18n-key="tfa.admin.audit.col_method">Method</th></tr></thead>
+                                <tbody id="auditBody"><tr><td colspan="6" class="tfa-empty" data-i18n-key="tfa.admin.audit.empty">No audit entries yet</td></tr></tbody>
                             </table>
                             <div class="tfa-pagination">
-                                <button class="tfa-btn tfa-btn-primary" id="auditPrev">‹ Prev</button>
+                                <button class="tfa-btn tfa-btn-primary" id="auditPrev" data-i18n-key="tfa.admin.audit.btn_prev">‹ Prev</button>
                                 <span class="page-info" id="auditPageInfo">—</span>
-                                <button class="tfa-btn tfa-btn-primary" id="auditNext">Next ›</button>
+                                <button class="tfa-btn tfa-btn-primary" id="auditNext" data-i18n-key="tfa.admin.audit.btn_next">Next ›</button>
                             </div>
                         </div>
                     </div>
@@ -269,9 +269,9 @@
                     <!-- DIAGNOSTICS (v1.4) -->
                     <div class="tfa-panel" id="panel-diagnostics">
                         <div class="tfa-section">
-                            <h2>Plugin Diagnostics</h2>
-                            <p style="font-size:13px;color:#888;margin-bottom:12px;">Run a checklist of common configuration / state checks. Re-run after changing settings or a Jellyfin upgrade.</p>
-                            <button id="diagRun" class="tfa-btn tfa-btn-primary" type="button">Run diagnostics</button>
+                            <h2 data-i18n-key="tfa.admin.diagnostics.heading">Plugin Diagnostics</h2>
+                            <p style="font-size:13px;color:#888;margin-bottom:12px;" data-i18n-key="tfa.admin.diagnostics.explainer">Run a checklist of common configuration / state checks. Re-run after changing settings or a Jellyfin upgrade.</p>
+                            <button id="diagRun" class="tfa-btn tfa-btn-primary" type="button" data-i18n-key="tfa.admin.diagnostics.btn_run">Run diagnostics</button>
                             <div id="diagResults" style="margin-top:14px;"></div>
                         </div>
                     </div>
@@ -279,12 +279,12 @@
                     <!-- RATE LIMITS (v1.4) -->
                     <div class="tfa-panel" id="panel-trips">
                         <div class="tfa-section">
-                            <h2>Recent Rate-Limit Trips</h2>
-                            <p style="font-size:13px;color:#888;margin-bottom:10px;">Per-bucket rate-limit hits since last restart. A burst here usually means someone is brute-forcing — or the limit is too tight for legitimate use.</p>
-                            <button id="tripsRefresh" class="tfa-btn" type="button">Refresh</button>
+                            <h2 data-i18n-key="tfa.admin.trips.heading">Recent Rate-Limit Trips</h2>
+                            <p style="font-size:13px;color:#888;margin-bottom:10px;" data-i18n-key="tfa.admin.trips.explainer">Per-bucket rate-limit hits since last restart. A burst here usually means someone is brute-forcing — or the limit is too tight for legitimate use.</p>
+                            <button id="tripsRefresh" class="tfa-btn" type="button" data-i18n-key="tfa.admin.common.refresh">Refresh</button>
                             <table class="tfa-table" style="margin-top:10px;">
-                                <thead><tr><th>Time</th><th>Bucket</th><th>Limit</th><th>Window (s)</th><th>Retry after (s)</th></tr></thead>
-                                <tbody id="tripsBody"><tr><td colspan="5" class="tfa-empty">No trips since startup</td></tr></tbody>
+                                <thead><tr><th data-i18n-key="tfa.admin.trips.col_time">Time</th><th data-i18n-key="tfa.admin.trips.col_bucket">Bucket</th><th data-i18n-key="tfa.admin.trips.col_limit">Limit</th><th data-i18n-key="tfa.admin.trips.col_window">Window (s)</th><th data-i18n-key="tfa.admin.trips.col_retry_after">Retry after (s)</th></tr></thead>
+                                <tbody id="tripsBody"><tr><td colspan="5" class="tfa-empty" data-i18n-key="tfa.admin.trips.empty">No trips since startup</td></tr></tbody>
                             </table>
                         </div>
                     </div>
@@ -292,76 +292,76 @@
                     <!-- SSO / OIDC SIGN-IN METHODS (v2.0) -->
                     <div class="tfa-panel" id="panel-sso">
                         <div class="tfa-section">
-                            <h2>OIDC / SSO Providers</h2>
-                            <div class="tfa-note">Add an external identity provider (Google, Microsoft, GitHub, Apple, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, or any OIDC-compliant IdP). Users get a "Sign in with X" button on the login page. Each provider needs its own OAuth client registered at the IdP — set the redirect URI to <code id="ssoCallbackHint" style="background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;">/TwoFactorAuth/Oidc/Callback/&lt;providerId&gt;</code> on this server.</div>
+                            <h2 data-i18n-key="tfa.admin.sso.heading">OIDC / SSO Providers</h2>
+                            <div class="tfa-note" data-i18n-key="tfa.admin.sso.note">Add an external identity provider (Google, Microsoft, GitHub, Apple, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, or any OIDC-compliant IdP). Users get a "Sign in with X" button on the login page. Each provider needs its own OAuth client registered at the IdP — set the redirect URI to <code id="ssoCallbackHint" style="background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;">/TwoFactorAuth/Oidc/Callback/&lt;providerId&gt;</code> on this server.</div>
                             <table class="tfa-table">
-                                <thead><tr><th>Provider</th><th>Preset</th><th>Client ID</th><th>Status</th><th>Actions</th></tr></thead>
-                                <tbody id="ssoBody"><tr><td colspan="5" class="tfa-empty">Loading…</td></tr></tbody>
+                                <thead><tr><th data-i18n-key="tfa.admin.sso.col_provider">Provider</th><th data-i18n-key="tfa.admin.sso.col_preset">Preset</th><th data-i18n-key="tfa.admin.sso.col_client_id">Client ID</th><th data-i18n-key="tfa.admin.sso.col_status">Status</th><th data-i18n-key="tfa.admin.sso.col_actions">Actions</th></tr></thead>
+                                <tbody id="ssoBody"><tr><td colspan="5" class="tfa-empty" data-i18n-key="tfa.admin.common.loading">Loading…</td></tr></tbody>
                             </table>
                             <div style="margin-top:14px;">
-                                <button type="button" class="tfa-btn tfa-btn-primary" id="ssoAddBtn">Add provider…</button>
+                                <button type="button" class="tfa-btn tfa-btn-primary" id="ssoAddBtn" data-i18n-key="tfa.admin.sso.btn_add">Add provider…</button>
                             </div>
                         </div>
 
                         <!-- Add/edit form (hidden until needed) -->
                         <div class="tfa-section" id="ssoFormSection" style="display:none;">
-                            <h2 id="ssoFormTitle">New provider</h2>
+                            <h2 id="ssoFormTitle" data-i18n-key="tfa.admin.sso.form_title_new">New provider</h2>
                             <div class="tfa-row">
-                                <label>Preset</label>
+                                <label data-i18n-key="tfa.admin.sso.lbl_preset">Preset</label>
                                 <select id="ssoPreset" class="tfa-input" style="width:240px;"></select>
                             </div>
                             <div class="tfa-row">
-                                <label>Display name</label>
-                                <input type="text" id="ssoDisplay" class="tfa-input" style="width:280px;" placeholder="Sign in with Google" />
+                                <label data-i18n-key="tfa.admin.sso.lbl_display_name">Display name</label>
+                                <input type="text" id="ssoDisplay" class="tfa-input" style="width:280px;" placeholder="Sign in with Google" data-i18n-placeholder="tfa.admin.sso.ph_display_name" />
                             </div>
                             <div class="tfa-row">
-                                <label>Discovery URL</label>
+                                <label data-i18n-key="tfa.admin.sso.lbl_discovery_url">Discovery URL</label>
                                 <input type="text" id="ssoDiscovery" class="tfa-input" style="width:480px;" placeholder="https://example.com/.well-known/openid-configuration" />
                             </div>
                             <div class="tfa-row">
-                                <label>Client ID</label>
+                                <label data-i18n-key="tfa.admin.sso.lbl_client_id">Client ID</label>
                                 <input type="text" id="ssoClientId" class="tfa-input" style="width:480px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>Client secret</label>
-                                <input type="text" id="ssoClientSecret" class="tfa-input" style="width:480px;" placeholder="(leave blank when editing to keep existing)" />
+                                <label data-i18n-key="tfa.admin.sso.lbl_client_secret">Client secret</label>
+                                <input type="text" id="ssoClientSecret" class="tfa-input" style="width:480px;" placeholder="(leave blank when editing to keep existing)" data-i18n-placeholder="tfa.admin.sso.ph_client_secret" />
                             </div>
                             <div class="tfa-row">
-                                <label>Scopes</label>
+                                <label data-i18n-key="tfa.admin.sso.lbl_scopes">Scopes</label>
                                 <input type="text" id="ssoScopes" class="tfa-input" style="width:360px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>Username claim</label>
+                                <label data-i18n-key="tfa.admin.sso.lbl_username_claim">Username claim</label>
                                 <input type="text" id="ssoUsernameClaim" class="tfa-input" style="width:240px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>acr_values (optional)</label>
-                                <input type="text" id="ssoAcr" class="tfa-input" style="width:240px;" placeholder="e.g. mfa" />
+                                <label data-i18n-key="tfa.admin.sso.lbl_acr">acr_values (optional)</label>
+                                <input type="text" id="ssoAcr" class="tfa-input" style="width:240px;" placeholder="e.g. mfa" data-i18n-placeholder="tfa.admin.sso.ph_acr" />
                             </div>
                             <div class="tfa-row">
-                                <label>Allowed groups (comma-separated, optional)</label>
+                                <label data-i18n-key="tfa.admin.sso.lbl_allowed_groups">Allowed groups (comma-separated, optional)</label>
                                 <input type="text" id="ssoAllowedGroups" class="tfa-input" style="width:360px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>Admin groups (comma-separated, optional)</label>
+                                <label data-i18n-key="tfa.admin.sso.lbl_admin_groups">Admin groups (comma-separated, optional)</label>
                                 <input type="text" id="ssoAdminGroups" class="tfa-input" style="width:360px;" />
                             </div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="ssoAutoCreate" is="emby-checkbox" /> <span>Auto-create Jellyfin users on first sign-in (only enable for trusted IdPs)</span></label>
+                                <label><input type="checkbox" id="ssoAutoCreate" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_auto_create">Auto-create Jellyfin users on first sign-in (only enable for trusted IdPs)</span></label>
                             </div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="ssoRequireMfa" is="emby-checkbox" /> <span>Require IdP MFA (refuse sign-in if amr claim doesn't show MFA)</span></label>
+                                <label><input type="checkbox" id="ssoRequireMfa" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_require_mfa">Require IdP MFA (refuse sign-in if amr claim doesn't show MFA)</span></label>
                             </div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="ssoBypass2fa" is="emby-checkbox" /> <span>Skip plugin 2FA (recommended — IdP already authenticated the user)</span></label>
+                                <label><input type="checkbox" id="ssoBypass2fa" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_bypass_2fa">Skip plugin 2FA (recommended — IdP already authenticated the user)</span></label>
                             </div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="ssoEnabled" is="emby-checkbox" /> <span>Show button on login page</span></label>
+                                <label><input type="checkbox" id="ssoEnabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_show_button">Show button on login page</span></label>
                             </div>
                             <div id="ssoSetupHint" class="tfa-note" style="margin-top:8px;display:none;"></div>
                             <div style="margin-top:14px;display:flex;gap:10px;">
-                                <button type="button" class="tfa-btn tfa-btn-primary" id="ssoSaveBtn">Save provider</button>
-                                <button type="button" class="tfa-btn" id="ssoCancelBtn">Cancel</button>
+                                <button type="button" class="tfa-btn tfa-btn-primary" id="ssoSaveBtn" data-i18n-key="tfa.admin.sso.btn_save">Save provider</button>
+                                <button type="button" class="tfa-btn" id="ssoCancelBtn" data-i18n-key="tfa.admin.common.cancel">Cancel</button>
                                 <span id="ssoSaveStatus" style="margin-left:14px;color:#4caf50;font-size:13px;"></span>
                             </div>
                         </div>
@@ -370,17 +370,17 @@
                     <!-- IP BANS (v2.0) -->
                     <div class="tfa-panel" id="panel-bans">
                         <div class="tfa-section">
-                            <h2>Active IP Bans</h2>
-                            <div class="tfa-note">Source IPs are auto-banned after the configured threshold of failed sign-ins (see Settings → Brute-Force Protection). LAN, trusted-proxy, and exempt CIDRs are never banned.</div>
+                            <h2 data-i18n-key="tfa.admin.bans.heading">Active IP Bans</h2>
+                            <div class="tfa-note" data-i18n-key="tfa.admin.bans.note">Source IPs are auto-banned after the configured threshold of failed sign-ins (see Settings → Brute-Force Protection). LAN, trusted-proxy, and exempt CIDRs are never banned.</div>
                             <table class="tfa-table">
-                                <thead><tr><th>IP</th><th>Banned at</th><th>Expires</th><th>Source</th><th>Note</th><th>Actions</th></tr></thead>
-                                <tbody id="bansBody"><tr><td colspan="6" class="tfa-empty">Loading…</td></tr></tbody>
+                                <thead><tr><th data-i18n-key="tfa.admin.bans.col_ip">IP</th><th data-i18n-key="tfa.admin.bans.col_banned_at">Banned at</th><th data-i18n-key="tfa.admin.bans.col_expires">Expires</th><th data-i18n-key="tfa.admin.bans.col_source">Source</th><th data-i18n-key="tfa.admin.bans.col_note">Note</th><th data-i18n-key="tfa.admin.bans.col_actions">Actions</th></tr></thead>
+                                <tbody id="bansBody"><tr><td colspan="6" class="tfa-empty" data-i18n-key="tfa.admin.common.loading">Loading…</td></tr></tbody>
                             </table>
                             <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                                 <input type="text" id="banIp" class="tfa-input" placeholder="1.2.3.4" style="width:200px;" />
-                                <input type="text" id="banNote" class="tfa-input" placeholder="Reason (optional)" style="width:280px;" />
+                                <input type="text" id="banNote" class="tfa-input" placeholder="Reason (optional)" data-i18n-placeholder="tfa.admin.bans.ph_reason" style="width:280px;" />
                                 <input type="number" id="banHours" class="tfa-input" value="24" min="1" max="8760" style="width:90px;" />
-                                <button type="button" class="tfa-btn tfa-btn-danger" id="banAddBtn">Ban IP</button>
+                                <button type="button" class="tfa-btn tfa-btn-danger" id="banAddBtn" data-i18n-key="tfa.admin.bans.btn_ban">Ban IP</button>
                             </div>
                         </div>
                     </div>
@@ -388,284 +388,284 @@
                     <!-- SETTINGS -->
                     <div class="tfa-panel" id="panel-settings">
                         <div class="tfa-section">
-                            <h2>General</h2>
+                            <h2 data-i18n-key="tfa.admin.settings.general_heading">General</h2>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="cfgEnabled" is="emby-checkbox" /> <span>Plugin Enabled</span></label>
+                                <label><input type="checkbox" id="cfgEnabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_plugin_enabled">Plugin Enabled</span></label>
                             </div>
                             <div class="tfa-row tfa-row-stack">
-                                <label for="cfgEnforceScope" style="font-weight:500;">2FA enforcement scope</label>
+                                <label for="cfgEnforceScope" style="font-weight:500;" data-i18n-key="tfa.admin.settings.lbl_enforce_scope">2FA enforcement scope</label>
                                 <select id="cfgEnforceScope" class="tfa-input" style="width:100%;max-width:420px;">
-                                    <option value="Optional">Optional — users opt in from Setup page</option>
-                                    <option value="Admins">Admins only — only Jellyfin admins must have 2FA</option>
-                                    <option value="All">All users — everyone must enroll</option>
+                                    <option value="Optional" data-i18n-key="tfa.admin.settings.scope_optional">Optional — users opt in from Setup page</option>
+                                    <option value="Admins" data-i18n-key="tfa.admin.settings.scope_admins">Admins only — only Jellyfin admins must have 2FA</option>
+                                    <option value="All" data-i18n-key="tfa.admin.settings.scope_all">All users — everyone must enroll</option>
                                 </select>
-                                <div style="color:#888;font-size:13px;line-height:1.45;max-width:760px;">v2.4: per-role policy. Admins-only is the standard pattern for shared media servers.</div>
+                                <div style="color:#888;font-size:13px;line-height:1.45;max-width:760px;" data-i18n-key="tfa.admin.settings.scope_help">v2.4: per-role policy. Admins-only is the standard pattern for shared media servers.</div>
                             </div>
                             <div class="tfa-row tfa-row-stack">
-                                <label><input type="checkbox" id="cfgHibpEnabled" is="emby-checkbox" /> <span>Check passwords against Have I Been Pwned on sign-in</span></label>
-                                <div style="color:#888;font-size:13px;line-height:1.45;max-width:760px;margin-left:40px;">v2.4: opt-in. Only the first 5 hex chars of SHA-1(password) leave the server (k-anonymity). On a breach hit, an audit-log entry is written and a warning is logged — sign-in is never blocked. Fails open if api.pwnedpasswords.com is unreachable.</div>
+                                <label><input type="checkbox" id="cfgHibpEnabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_hibp">Check passwords against Have I Been Pwned on sign-in</span></label>
+                                <div style="color:#888;font-size:13px;line-height:1.45;max-width:760px;margin-left:40px;" data-i18n-key="tfa.admin.settings.hibp_help">v2.4: opt-in. Only the first 5 hex chars of SHA-1(password) leave the server (k-anonymity). On a breach hit, an audit-log entry is written and a warning is logged — sign-in is never blocked. Fails open if api.pwnedpasswords.com is unreachable.</div>
                             </div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="cfgEmailOtp" is="emby-checkbox" /> <span>Allow email OTP as fallback</span></label>
+                                <label><input type="checkbox" id="cfgEmailOtp" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_email_otp">Allow email OTP as fallback</span></label>
                             </div>
                         </div>
 
                         <div class="tfa-section">
-                            <h2>LAN Bypass</h2>
+                            <h2 data-i18n-key="tfa.admin.settings.lan_heading">LAN Bypass</h2>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="cfgLanBypass" is="emby-checkbox" /> <span>Skip 2FA for LAN requests</span></label>
+                                <label><input type="checkbox" id="cfgLanBypass" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_lan_bypass">Skip 2FA for LAN requests</span></label>
                             </div>
                             <div style="margin-top:12px;">
-                                <label style="font-size:13px;color:#888;">LAN CIDR ranges (one per line)</label>
+                                <label style="font-size:13px;color:#888;" data-i18n-key="tfa.admin.settings.lbl_lan_cidrs">LAN CIDR ranges (one per line)</label>
                                 <textarea id="cfgLanCidrs" class="tfa-input"></textarea>
                             </div>
                             <div class="tfa-row" style="margin-top:12px;">
-                                <label><input type="checkbox" id="cfgTrustFwd" is="emby-checkbox" /> <span>Trust X-Forwarded-For (for reverse proxies)</span></label>
+                                <label><input type="checkbox" id="cfgTrustFwd" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_trust_fwd">Trust X-Forwarded-For (for reverse proxies)</span></label>
                             </div>
                             <div style="margin-top:12px;">
-                                <label style="font-size:13px;color:#888;">Trusted proxy CIDRs (one per line)</label>
+                                <label style="font-size:13px;color:#888;" data-i18n-key="tfa.admin.settings.lbl_proxy_cidrs">Trusted proxy CIDRs (one per line)</label>
                                 <textarea id="cfgProxyCidrs" class="tfa-input"></textarea>
                             </div>
                         </div>
 
                         <div class="tfa-section">
-                            <h2>Security</h2>
+                            <h2 data-i18n-key="tfa.admin.settings.security_heading">Security</h2>
                             <div class="tfa-row">
-                                <label>Max failed attempts before lockout</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_max_fail">Max failed attempts before lockout</label>
                                 <input type="number" id="cfgMaxFail" class="tfa-input" style="width:80px;" min="1" />
                             </div>
                             <div class="tfa-row">
-                                <label>Lockout duration (minutes)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_lockout_min">Lockout duration (minutes)</label>
                                 <input type="number" id="cfgLockoutMin" class="tfa-input" style="width:80px;" min="1" />
                             </div>
                             <div class="tfa-row">
-                                <label>Audit log max entries</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_audit_max">Audit log max entries</label>
                                 <input type="number" id="cfgAuditMax" class="tfa-input" style="width:80px;" min="100" />
                             </div>
                         </div>
 
                         <!-- v2.5.0: Hardening controls -->
                         <div class="tfa-section">
-                            <h2>Hardening (v2.5.0)</h2>
+                            <h2 data-i18n-key="tfa.admin.hardening.heading">Hardening (v2.5.0)</h2>
                             <div class="tfa-row tfa-row-stack">
                                 <label class="tfa-check-label">
                                     <input type="checkbox" id="cfgRequire2faToDisable" is="emby-checkbox" />
-                                    <span>Require authenticator/recovery code before a user can turn off their own 2FA &nbsp;<span class="tfa-badge on" style="font-size:10px;vertical-align:middle;">Recommended</span></span>
+                                    <span><span data-i18n-key="tfa.admin.hardening.opt_require_to_disable">Require authenticator/recovery code before a user can turn off their own 2FA</span> &nbsp;<span class="tfa-badge on" style="font-size:10px;vertical-align:middle;" data-i18n-key="tfa.admin.common.recommended">Recommended</span></span>
                                 </label>
-                                <div class="tfa-help">When enabled, users must supply a current TOTP code or a recovery code before they can disable their own two-factor authentication. Admins are unaffected.</div>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.hardening.opt_require_to_disable_help">When enabled, users must supply a current TOTP code or a recovery code before they can disable their own two-factor authentication. Admins are unaffected.</div>
                             </div>
                             <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
-                                <label for="cfgStepUpLevel" style="font-weight:500;">Step-up authentication level</label>
+                                <label for="cfgStepUpLevel" style="font-weight:500;" data-i18n-key="tfa.admin.hardening.lbl_stepup_level">Step-up authentication level</label>
                                 <select id="cfgStepUpLevel" class="tfa-input" style="width:100%;max-width:420px;">
-                                    <option value="0">Off — no additional verification required</option>
-                                    <option value="1">Destructive actions — reset/disable another user's 2FA</option>
-                                    <option value="2">All config changes — any admin settings save</option>
-                                    <option value="3">Everything — incl. audit log access</option>
+                                    <option value="0" data-i18n-key="tfa.admin.hardening.stepup_off">Off — no additional verification required</option>
+                                    <option value="1" data-i18n-key="tfa.admin.hardening.stepup_destructive">Destructive actions — reset/disable another user's 2FA</option>
+                                    <option value="2" data-i18n-key="tfa.admin.hardening.stepup_config">All config changes — any admin settings save</option>
+                                    <option value="3" data-i18n-key="tfa.admin.hardening.stepup_all">Everything — incl. audit log access</option>
                                 </select>
-                                <div class="tfa-help">Controls which admin actions require a fresh 2FA code from the performing admin. "Off" restores v2.4 behaviour. Saved through the gated <code>/TwoFactorAuth/Admin/HardeningConfig</code> endpoint.</div>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.hardening.stepup_level_help">Controls which admin actions require a fresh 2FA code from the performing admin. "Off" restores v2.4 behaviour. Saved through the gated <code>/TwoFactorAuth/Admin/HardeningConfig</code> endpoint.</div>
                             </div>
                         </div>
 
                         <div class="tfa-section">
-                            <h2>SMTP (for Email OTP delivery)</h2>
-                            <p style="font-size:12px;color:#888;margin-bottom:12px;">Required if you enable email OTP. Test with a real provider before relying on it.</p>
+                            <h2 data-i18n-key="tfa.admin.settings.smtp_heading">SMTP (for Email OTP delivery)</h2>
+                            <p style="font-size:12px;color:#888;margin-bottom:12px;" data-i18n-key="tfa.admin.settings.smtp_explainer">Required if you enable email OTP. Test with a real provider before relying on it.</p>
                             <div class="tfa-row">
-                                <label>SMTP Host</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_smtp_host">SMTP Host</label>
                                 <input type="text" id="cfgSmtpHost" class="tfa-input" style="width:280px;" placeholder="smtp.gmail.com" />
                             </div>
                             <div class="tfa-row">
-                                <label>SMTP Port</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_smtp_port">SMTP Port</label>
                                 <input type="number" id="cfgSmtpPort" class="tfa-input" style="width:80px;" />
                             </div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="cfgSmtpSsl" is="emby-checkbox" /> <span>Use SSL/TLS</span></label>
+                                <label><input type="checkbox" id="cfgSmtpSsl" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_smtp_ssl">Use SSL/TLS</span></label>
                             </div>
                             <div class="tfa-row">
-                                <label>SMTP Username</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_smtp_user">SMTP Username</label>
                                 <input type="text" id="cfgSmtpUser" class="tfa-input" style="width:280px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>SMTP Password</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_smtp_pass">SMTP Password</label>
                                 <input type="text" id="cfgSmtpPass" class="tfa-input" style="width:280px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>From Address</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_smtp_from">From Address</label>
                                 <input type="text" id="cfgSmtpFrom" class="tfa-input" style="width:280px;" placeholder="2fa@example.com" />
                             </div>
                             <div class="tfa-row">
-                                <label>From Name</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_smtp_from_name">From Name</label>
                                 <input type="text" id="cfgSmtpFromName" class="tfa-input" style="width:280px;" />
                             </div>
                             <div class="tfa-row" style="margin-top:8px;">
-                                <label>Send test email to</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_smtp_test_to">Send test email to</label>
                                 <div style="display:flex;gap:8px;">
                                     <input type="text" id="cfgSmtpTestTo" class="tfa-input" style="width:240px;" placeholder="me@example.com" />
-                                    <button type="button" class="tfa-btn tfa-btn-primary" id="btnTestSmtp">Send Test</button>
+                                    <button type="button" class="tfa-btn tfa-btn-primary" id="btnTestSmtp" data-i18n-key="tfa.admin.settings.btn_send_test">Send Test</button>
                                 </div>
                             </div>
                             <div id="smtpTestResult" style="font-size:13px;margin-top:6px;"></div>
                         </div>
 
                         <div class="tfa-section">
-                            <h2>Authenticator App</h2>
+                            <h2 data-i18n-key="tfa.admin.settings.authenticator_heading">Authenticator App</h2>
                             <div class="tfa-row">
-                                <label>Issuer name shown in users' apps</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_issuer">Issuer name shown in users' apps</label>
                                 <input type="text" id="cfgIssuer" class="tfa-input" style="width:240px;" placeholder="Jellyfin" />
                             </div>
-                            <p style="font-size:12px;color:#888;margin-top:6px;">Existing enrollments keep their old name. New enrollments will use this. Pick something users will recognize as your server.</p>
+                            <p style="font-size:12px;color:#888;margin-top:6px;" data-i18n-key="tfa.admin.settings.issuer_help">Existing enrollments keep their old name. New enrollments will use this. Pick something users will recognize as your server.</p>
                         </div>
 
                         <div class="tfa-section">
-                            <h2>Push Notifications</h2>
+                            <h2 data-i18n-key="tfa.admin.settings.push_heading">Push Notifications</h2>
                             <div class="tfa-row">
-                                <label>ntfy URL (e.g. https://ntfy.sh)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_ntfy_url">ntfy URL (e.g. https://ntfy.sh)</label>
                                 <input type="text" id="cfgNtfyUrl" class="tfa-input" style="width:300px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>ntfy Topic</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_ntfy_topic">ntfy Topic</label>
                                 <input type="text" id="cfgNtfyTopic" class="tfa-input" style="width:200px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>Gotify URL</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_gotify_url">Gotify URL</label>
                                 <input type="text" id="cfgGotifyUrl" class="tfa-input" style="width:300px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>Gotify App Token</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_gotify_token">Gotify App Token</label>
                                 <input type="text" id="cfgGotifyToken" class="tfa-input" style="width:200px;" />
                             </div>
                             <div style="margin-top:12px;">
-                                <label style="font-size:13px;color:#888;">Admin email addresses for security alerts (one per line)</label>
+                                <label style="font-size:13px;color:#888;" data-i18n-key="tfa.admin.settings.lbl_alert_emails">Admin email addresses for security alerts (one per line)</label>
                                 <textarea id="cfgEmails" class="tfa-input"></textarea>
                             </div>
                             <div class="tfa-row">
-                                <label>Webhook URL (POST every event as JSON)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_webhook_url">Webhook URL (POST every event as JSON)</label>
                                 <input type="text" id="cfgWebhookUrl" class="tfa-input" style="width:300px;" placeholder="https://your-webhook" />
                             </div>
                             <div class="tfa-row">
-                                <label>Webhook secret (optional — adds X-2FA-Signature HMAC)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_webhook_secret">Webhook secret (optional — adds X-2FA-Signature HMAC)</label>
                                 <input type="text" id="cfgWebhookSecret" class="tfa-input" style="width:300px;" />
                             </div>
                             <div style="margin-top:8px;">
-                                <button type="button" class="tfa-btn" id="btnTestWebhook">Send test event</button>
+                                <button type="button" class="tfa-btn" id="btnTestWebhook" data-i18n-key="tfa.admin.settings.btn_test_webhook">Send test event</button>
                                 <span id="webhookTestResult" style="margin-left:10px;font-size:13px;"></span>
                             </div>
                         </div>
 
                         <div class="tfa-section">
-                            <h2>Suspicious-login detection (v1.4)</h2>
-                            <div class="tfa-note">Resolve sign-in IPs to ASN + country via MaxMind GeoLite2 .mmdb files. Sign in once with a free MaxMind account, download GeoLite2-ASN and GeoLite2-Country, place the .mmdb files inside Jellyfin's config directory, and paste the absolute paths below. Without these the plugin still works — just no first-seen alerts.</div>
+                            <h2 data-i18n-key="tfa.admin.settings.suspicious_heading">Suspicious-login detection (v1.4)</h2>
+                            <div class="tfa-note" data-i18n-key="tfa.admin.settings.suspicious_note">Resolve sign-in IPs to ASN + country via MaxMind GeoLite2 .mmdb files. Sign in once with a free MaxMind account, download GeoLite2-ASN and GeoLite2-Country, place the .mmdb files inside Jellyfin's config directory, and paste the absolute paths below. Without these the plugin still works — just no first-seen alerts.</div>
                             <div class="tfa-row">
-                                <label>GeoLite2-ASN.mmdb path</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_geo_asn">GeoLite2-ASN.mmdb path</label>
                                 <input type="text" id="cfgGeoAsn" class="tfa-input" style="width:400px;" placeholder="/config/geoip/GeoLite2-ASN.mmdb" />
                             </div>
                             <div class="tfa-row">
-                                <label>GeoLite2-Country.mmdb path (optional)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_geo_country">GeoLite2-Country.mmdb path (optional)</label>
                                 <input type="text" id="cfgGeoCountry" class="tfa-input" style="width:400px;" placeholder="/config/geoip/GeoLite2-Country.mmdb" />
                             </div>
                         </div>
 
                         <div class="tfa-section">
-                            <h2>Brute-Force Protection (v2.0)</h2>
-                            <div class="tfa-note">Auto-bans source IPs that exceed the failure threshold across all users. LAN bypass and trusted-proxy CIDRs are always exempt. Active bans appear under the IP Bans tab.</div>
+                            <h2 data-i18n-key="tfa.admin.settings.bruteforce_heading">Brute-Force Protection (v2.0)</h2>
+                            <div class="tfa-note" data-i18n-key="tfa.admin.settings.bruteforce_note">Auto-bans source IPs that exceed the failure threshold across all users. LAN bypass and trusted-proxy CIDRs are always exempt. Active bans appear under the IP Bans tab.</div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="cfgBanEnabled" is="emby-checkbox" /> <span>Enable IP banning</span></label>
+                                <label><input type="checkbox" id="cfgBanEnabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_ban_enabled">Enable IP banning</span></label>
                             </div>
                             <div class="tfa-row">
-                                <label>Failure threshold</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_ban_threshold">Failure threshold</label>
                                 <input type="number" id="cfgBanThreshold" class="tfa-input" min="3" max="100" style="width:90px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>Failure window (minutes)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_ban_window">Failure window (minutes)</label>
                                 <input type="number" id="cfgBanWindow" class="tfa-input" min="1" max="1440" style="width:90px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>Ban duration (hours)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_ban_duration">Ban duration (hours)</label>
                                 <input type="number" id="cfgBanDuration" class="tfa-input" min="1" max="8760" style="width:90px;" />
                             </div>
                             <div style="margin-top:12px;">
-                                <label style="font-size:13px;color:#888;">Exempt CIDRs (one per line — never banned)</label>
+                                <label style="font-size:13px;color:#888;" data-i18n-key="tfa.admin.settings.lbl_ban_exempt">Exempt CIDRs (one per line — never banned)</label>
                                 <textarea id="cfgBanExempt" class="tfa-input"></textarea>
                             </div>
                         </div>
 
                         <div class="tfa-section">
-                            <h2>Impossible-Travel Detection (v2.0)</h2>
-                            <div class="tfa-note">Alerts when consecutive sign-ins for the same user are physically impossible given elapsed time (e.g., London then Tokyo 30 min apart). Requires a GeoLite2-City.mmdb database — without it, suspicious-login alerts still work on ASN/country alone.</div>
+                            <h2 data-i18n-key="tfa.admin.settings.travel_heading">Impossible-Travel Detection (v2.0)</h2>
+                            <div class="tfa-note" data-i18n-key="tfa.admin.settings.travel_note">Alerts when consecutive sign-ins for the same user are physically impossible given elapsed time (e.g., London then Tokyo 30 min apart). Requires a GeoLite2-City.mmdb database — without it, suspicious-login alerts still work on ASN/country alone.</div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="cfgTravelEnabled" is="emby-checkbox" /> <span>Enable</span></label>
+                                <label><input type="checkbox" id="cfgTravelEnabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_travel_enabled">Enable</span></label>
                             </div>
                             <div class="tfa-row">
-                                <label>Max plausible speed (km/h, default 900 ≈ jet cruise)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_travel_kmh">Max plausible speed (km/h, default 900 ≈ jet cruise)</label>
                                 <input type="number" id="cfgTravelKmh" class="tfa-input" min="100" max="5000" style="width:120px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>GeoLite2-City.mmdb path (optional)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_geo_city">GeoLite2-City.mmdb path (optional)</label>
                                 <input type="text" id="cfgGeoCity" class="tfa-input" style="width:400px;" placeholder="/config/geoip/GeoLite2-City.mmdb" />
                             </div>
                         </div>
 
                         <div class="tfa-section">
-                            <h2>WebAuthn / passkeys (v1.4)</h2>
-                            <div class="tfa-note">Most setups can leave these blank — RP ID and origin are derived from the request. Override only when behind a reverse proxy whose public hostname differs from the internal one.</div>
+                            <h2 data-i18n-key="tfa.admin.settings.webauthn_heading">WebAuthn / passkeys (v1.4)</h2>
+                            <div class="tfa-note" data-i18n-key="tfa.admin.settings.webauthn_note">Most setups can leave these blank — RP ID and origin are derived from the request. Override only when behind a reverse proxy whose public hostname differs from the internal one.</div>
                             <div class="tfa-row">
-                                <label>Relying Party ID</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_rp_id">Relying Party ID</label>
                                 <input type="text" id="cfgRpId" class="tfa-input" style="width:300px;" placeholder="e.g. jellyfin.example.com" />
                             </div>
                             <div class="tfa-row">
-                                <label>Allowed origins (one per line, https://...)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_rp_origins">Allowed origins (one per line, https://...)</label>
                                 <textarea id="cfgRpOrigins" class="tfa-input"></textarea>
                             </div>
                         </div>
 
                         <div class="tfa-section">
-                            <h2>Tunables (v1.4)</h2>
+                            <h2 data-i18n-key="tfa.admin.settings.tunables_heading">Tunables (v1.4)</h2>
                             <div class="tfa-row">
-                                <label>Pre-verify window (seconds, 30-900)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_preverify">Pre-verify window (seconds, 30-900)</label>
                                 <input type="number" id="cfgPreVerify" class="tfa-input" min="30" max="900" style="width:120px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>Trust cookie TTL (days, 1-90)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_trust_ttl">Trust cookie TTL (days, 1-90)</label>
                                 <input type="number" id="cfgTrustTtl" class="tfa-input" min="1" max="90" style="width:120px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>Default max concurrent sessions per user (0 = unlimited)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_max_sess">Default max concurrent sessions per user (0 = unlimited)</label>
                                 <input type="number" id="cfgMaxSess" class="tfa-input" min="0" max="100" style="width:120px;" />
                             </div>
                             <div class="tfa-row">
-                                <label>Enrollment deadline (UTC, optional — yyyy-MM-dd)</label>
+                                <label data-i18n-key="tfa.admin.settings.lbl_deadline">Enrollment deadline (UTC, optional — yyyy-MM-dd)</label>
                                 <input type="text" id="cfgDeadline" class="tfa-input" style="width:200px;" placeholder="2026-12-31" />
                             </div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="cfgHairpin" is="emby-checkbox" /> <span>Treat server's own public IP as LAN (NAT hairpin) — see security note</span></label>
-                                <p style="font-size:12px;color:#aa8;margin-top:4px;">Anyone sharing the same WAN egress (other devices on the same router, including IoT or guest WiFi) bypasses 2FA. Off by default.</p>
+                                <label><input type="checkbox" id="cfgHairpin" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_hairpin">Treat server's own public IP as LAN (NAT hairpin) — see security note</span></label>
+                                <p style="font-size:12px;color:#aa8;margin-top:4px;" data-i18n-key="tfa.admin.settings.hairpin_help">Anyone sharing the same WAN egress (other devices on the same router, including IoT or guest WiFi) bypasses 2FA. Off by default.</p>
                             </div>
                         </div>
 
-                        <button type="button" class="tfa-btn tfa-btn-primary" id="btnSaveSettings" style="margin-top:8px;padding:11px 32px;font-size:15px;">Save Settings</button>
+                        <button type="button" class="tfa-btn tfa-btn-primary" id="btnSaveSettings" style="margin-top:8px;padding:11px 32px;font-size:15px;" data-i18n-key="tfa.admin.settings.btn_save">Save Settings</button>
                         <span id="saveStatus" style="margin-left:14px;color:#4caf50;font-size:13px;"></span>
 
                         <div class="tfa-section">
                             <h2 data-i18n-key="tfa.admin.backup_restore_heading">Backup & Restore (v2.5.0)</h2>
-                            <p style="font-size:13px;color:#888;margin-bottom:12px;">Download a snapshot of your plugin configuration so you can restore it on another server or roll back after a misconfiguration.</p>
+                            <p style="font-size:13px;color:#888;margin-bottom:12px;" data-i18n-key="tfa.admin.backup_explainer">Download a snapshot of your plugin configuration so you can restore it on another server or roll back after a misconfiguration.</p>
 
                             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-                                <button type="button" class="tfa-btn" id="btnExportConfigOnly">Download config-only export</button>
-                                <button type="button" class="tfa-btn" id="btnExportFull">Download full export (encrypted)…</button>
+                                <button type="button" class="tfa-btn" id="btnExportConfigOnly" data-i18n-key="tfa.admin.btn_download_config_only">Download config-only export</button>
+                                <button type="button" class="tfa-btn" id="btnExportFull" data-i18n-key="tfa.admin.btn_download_full">Download full export (encrypted)…</button>
                             </div>
 
-                            <h3 style="margin-top:14px;font-size:14px;color:#ccc;">Restore</h3>
-                            <p style="font-size:12px;color:#888;margin-bottom:8px;">Paste an exported JSON envelope below. Encrypted exports prompt for the passphrase. Imports overwrite the live configuration — download a fresh export first.</p>
+                            <h3 style="margin-top:14px;font-size:14px;color:#ccc;" data-i18n-key="tfa.admin.restore_heading">Restore</h3>
+                            <p style="font-size:12px;color:#888;margin-bottom:8px;" data-i18n-key="tfa.admin.restore_explainer">Paste an exported JSON envelope below. Encrypted exports prompt for the passphrase. Imports overwrite the live configuration — download a fresh export first.</p>
                             <textarea id="importEnvelope" class="tfa-input" style="width:100%;min-height:120px;font-family:monospace;font-size:12px;" placeholder='{"formatVersion":1,...}'></textarea>
                             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-                                <input type="password" id="importPassphrase" class="tfa-input" placeholder="Passphrase (encrypted exports only)" style="flex:1;min-width:240px;" />
-                                <button type="button" class="tfa-btn tfa-btn-primary" id="btnImportConfig">Apply import</button>
+                                <input type="password" id="importPassphrase" class="tfa-input" placeholder="Passphrase (encrypted exports only)" data-i18n-placeholder="tfa.admin.passphrase_placeholder" style="flex:1;min-width:240px;" />
+                                <button type="button" class="tfa-btn tfa-btn-primary" id="btnImportConfig" data-i18n-key="tfa.admin.btn_apply_import">Apply import</button>
                             </div>
                             <div id="importResult" style="margin-top:10px;font-size:13px;"></div>
                         </div>
 
                         <div class="tfa-section">
-                            <h2>Language</h2>
-                            <p style="font-size:13px;color:#888;margin-bottom:12px;">Change the language of the plugin UI for your own account. The admin can set a server-wide default in the Hardening section.</p>
+                            <h2 data-i18n-key="tfa.admin.lang.heading">Language</h2>
+                            <p style="font-size:13px;color:#888;margin-bottom:12px;" data-i18n-key="tfa.admin.lang.explainer">Change the language of the plugin UI for your own account. The admin can set a server-wide default in the Hardening section.</p>
                             <div id="adminLangPickerHost"></div>
                         </div>
                     </div>
@@ -676,13 +676,13 @@
         <!-- v2.5.0: step-up authentication prompt modal -->
         <div id="tfa-stepup-overlay" role="dialog" aria-modal="true" aria-labelledby="tfa-stepup-title">
             <div id="tfa-stepup-modal">
-                <h3 id="tfa-stepup-title">Admin authentication required</h3>
-                <p>This action requires a fresh verification code from your authenticator app (or a recovery code).</p>
+                <h3 id="tfa-stepup-title" data-i18n-key="tfa.admin.modal.title">Admin authentication required</h3>
+                <p data-i18n-key="tfa.admin.modal.body">This action requires a fresh verification code from your authenticator app (or a recovery code).</p>
                 <input type="text" id="tfa-stepup-code" class="tfa-stepup-code" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="8" />
                 <div id="tfa-stepup-error"></div>
                 <div class="tfa-stepup-actions">
-                    <button type="button" class="tfa-btn" id="tfa-stepup-cancel">Cancel</button>
-                    <button type="button" class="tfa-btn tfa-btn-primary" id="tfa-stepup-submit">Verify</button>
+                    <button type="button" class="tfa-btn" id="tfa-stepup-cancel" data-i18n-key="tfa.admin.common.cancel">Cancel</button>
+                    <button type="button" class="tfa-btn tfa-btn-primary" id="tfa-stepup-submit" data-i18n-key="tfa.admin.modal.btn_verify">Verify</button>
                 </div>
             </div>
         </div>
@@ -691,6 +691,14 @@
             (function() {
                 var pluginId = '94879a0c-da24-4eb1-aa06-f28b4b9333b1';
                 var page = document.querySelector('#TwoFactorAuth');
+
+                // v2.5.0: defensive translation shim — uses the shared helper
+                // when available, otherwise returns the literal English fallback.
+                // Keeps dynamic textContent / innerHTML assignments translatable
+                // without crashing if tfa-i18n.js failed to load.
+                function _tr(k, f) {
+                    return (window.tfaI18n && window.tfaI18n.tr) ? window.tfaI18n.tr(k, f) : f;
+                }
 
                 // v2.5.0 i18n: the shared helper at /TwoFactorAuth/tfa-i18n.js
                 // (loaded from <head>) exposes window.tfaI18n.{tr, applyTranslations,
@@ -777,7 +785,7 @@
                 document.getElementById('tfa-stepup-cancel').addEventListener('click', closeStepUpModal);
                 document.getElementById('tfa-stepup-submit').addEventListener('click', function() {
                     var code = stepUpCodeInput.value.trim();
-                    if (!code) { showStepUpError('Enter a code.'); return; }
+                    if (!code) { showStepUpError(_tr('tfa.admin.modal.err_enter_code', 'Enter a code.')); return; }
                     if (_stepUpResolve) {
                         var cb = _stepUpResolve;
                         _stepUpResolve = null;
@@ -833,11 +841,11 @@
                                         if (verifyResp.status === 429) {
                                             // Rate limit hit — show distinct message, stop retrying.
                                             closeStepUpModal();
-                                            showStepUpError('Too many attempts. Try again later.');
+                                            showStepUpError(_tr('tfa.admin.modal.err_too_many', 'Too many attempts. Try again later.'));
                                             return resp;
                                         }
                                         // Wrong code — show error and loop back to prompt again.
-                                        showStepUpError('Invalid code.');
+                                        showStepUpError(_tr('tfa.admin.modal.err_invalid_code', 'Invalid code.'));
                                         return tryVerify();
                                     });
                                 });
@@ -909,17 +917,17 @@
                         // Posture summary: top "next action" or congratulations
                         const gaps = data.score.factors.filter(f => f.nextAction);
                         document.getElementById('postureSummary').textContent = gaps.length === 0
-                            ? 'All factors at full credit — well done.'
-                            : `Top action: ${gaps[0].nextAction} (+${gaps[0].possible - gaps[0].earned} pts)`;
+                            ? _tr('tfa.admin.posture_all_full', 'All factors at full credit — well done.')
+                            : `${_tr('tfa.admin.posture_top_action', 'Top action:')} ${gaps[0].nextAction} (+${gaps[0].possible - gaps[0].earned} pts)`;
 
                         // KPI strip
                         document.getElementById('kpiEnrolled').textContent = data.kpis.enrolledUsers ?? '–';
-                        document.getElementById('kpiEnrolledSub').textContent = `of ${data.kpis.totalUsers ?? '–'} users`;
+                        document.getElementById('kpiEnrolledSub').textContent = `${_tr('tfa.admin.overview.kpi_of', 'of')} ${data.kpis.totalUsers ?? '–'} ${_tr('tfa.admin.overview.kpi_users', 'users')}`;
                         document.getElementById('kpiSessions').textContent = data.kpis.activeSessions ?? '–';
                         document.getElementById('kpiBans').textContent = data.kpis.bannedIps ?? '–';
                         document.getElementById('kpiAudit').textContent = data.kpis.auditEntries ?? '–';
                         document.getElementById('kpiAuditSub').textContent = data.kpis.auditChainBroken === 0
-                            ? 'chain ok' : `${data.kpis.auditChainBroken} broken`;
+                            ? _tr('tfa.admin.kpi_audit_chain_ok', 'chain ok') : `${data.kpis.auditChainBroken} ${_tr('tfa.admin.kpi_audit_chain_broken', 'broken')}`;
 
                         // Factor grid
                         const factorsEl = document.getElementById('factorsGrid');
@@ -944,11 +952,11 @@
                         const regularPct = r.regularTotal > 0 ? Math.round(100 * r.regularEnrolled / r.regularTotal) : 0;
                         document.getElementById('enrollmentBars').innerHTML = `
                             <div style="margin-bottom:10px;">
-                                <div style="display:flex;justify-content:space-between;font-size:12px;color:#bbb;margin-bottom:4px;"><span>Admins</span><span>${r.adminsEnrolled || 0} / ${r.adminsTotal || 0} (${adminsPct}%)</span></div>
+                                <div style="display:flex;justify-content:space-between;font-size:12px;color:#bbb;margin-bottom:4px;"><span>${escapeHtml(_tr('tfa.admin.overview.role_admins', 'Admins'))}</span><span>${r.adminsEnrolled || 0} / ${r.adminsTotal || 0} (${adminsPct}%)</span></div>
                                 <div class="tfa-factor-bar"><div class="tfa-factor-bar-fill" style="width:${adminsPct}%;background:${adminsPct === 100 ? '#5cb85c' : '#f0ad4e'}"></div></div>
                             </div>
                             <div>
-                                <div style="display:flex;justify-content:space-between;font-size:12px;color:#bbb;margin-bottom:4px;"><span>Regular users</span><span>${r.regularEnrolled || 0} / ${r.regularTotal || 0} (${regularPct}%)</span></div>
+                                <div style="display:flex;justify-content:space-between;font-size:12px;color:#bbb;margin-bottom:4px;"><span>${escapeHtml(_tr('tfa.admin.overview.role_regular', 'Regular users'))}</span><span>${r.regularEnrolled || 0} / ${r.regularTotal || 0} (${regularPct}%)</span></div>
                                 <div class="tfa-factor-bar"><div class="tfa-factor-bar-fill" style="width:${regularPct}%;background:#00a4dc"></div></div>
                             </div>`;
 
@@ -956,7 +964,7 @@
                         const bansBody = document.getElementById('overviewBansBody');
                         const bans = data.bans || [];
                         bansBody.innerHTML = bans.length === 0
-                            ? '<tr><td colspan="5" class="tfa-empty">No active bans</td></tr>'
+                            ? `<tr><td colspan="5" class="tfa-empty">${escapeHtml(_tr('tfa.admin.no_active_bans', 'No active bans'))}</td></tr>`
                             : bans.map(b => `<tr>
                                 <td>${escapeHtml(b.ip)}</td>
                                 <td>${escapeHtml(b.source)}</td>
@@ -966,7 +974,7 @@
                             </tr>`).join('');
                     } catch (err) {
                         console.error('renderOverview failed', err);
-                        document.getElementById('postureSummary').textContent = 'Failed to load dashboard. Check the server log.';
+                        document.getElementById('postureSummary').textContent = _tr('tfa.admin.overview.load_failed', 'Failed to load dashboard. Check the server log.');
                     }
                 }
 
@@ -974,7 +982,7 @@
                     const svg = document.getElementById('authChart');
                     svg.innerHTML = '';
                     if (series.length === 0) {
-                        svg.innerHTML = '<text x="300" y="70" text-anchor="middle" fill="#666" font-size="12">No data in the last 30 days</text>';
+                        svg.innerHTML = '<text x="300" y="70" text-anchor="middle" fill="#666" font-size="12">' + escapeHtml(_tr('tfa.admin.overview.no_chart_data', 'No data in the last 30 days')) + '</text>';
                         return;
                     }
                     const W = 600, H = 140, padL = 30, padR = 10, padT = 10, padB = 20;
@@ -1010,28 +1018,28 @@
                 // ---- v1.4: DIAGNOSTICS ----
                 page.querySelector('#diagRun').addEventListener('click', function() {
                     var box = page.querySelector('#diagResults');
-                    box.innerHTML = 'Running…';
+                    box.innerHTML = escapeHtml(_tr('tfa.admin.diagnostics.running', 'Running…'));
                     apiGet('TwoFactorAuth/Diagnostics').then(function(rows) {
-                        if (!rows || !rows.length) { box.innerHTML = '<em>No checks ran.</em>'; return; }
-                        box.innerHTML = '<table class="tfa-table"><thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead><tbody>' +
+                        if (!rows || !rows.length) { box.innerHTML = '<em>' + escapeHtml(_tr('tfa.admin.diagnostics.no_checks', 'No checks ran.')) + '</em>'; return; }
+                        box.innerHTML = '<table class="tfa-table"><thead><tr><th>' + escapeHtml(_tr('tfa.admin.diagnostics.col_check', 'Check')) + '</th><th>' + escapeHtml(_tr('tfa.admin.diagnostics.col_status', 'Status')) + '</th><th>' + escapeHtml(_tr('tfa.admin.diagnostics.col_detail', 'Detail')) + '</th></tr></thead><tbody>' +
                             rows.map(function(r) {
                                 var s = (r.status || r.Status || '').toLowerCase();
                                 var cls = s === 'ok' ? 'on' : (s === 'warn' ? 'warn' : 'locked');
                                 return '<tr><td>' + escapeHtml(r.label || r.Label) + '</td><td><span class="tfa-badge ' + cls + '">' + (r.status || r.Status) + '</span></td><td style="font-size:12px;color:#aaa;">' + escapeHtml(r.detail || r.Detail) + '</td></tr>';
                             }).join('') + '</tbody></table>';
-                    }).catch(function() { box.innerHTML = '<span style="color:#f44336;">Failed to run diagnostics.</span>'; });
+                    }).catch(function() { box.innerHTML = '<span style="color:#f44336;">' + escapeHtml(_tr('tfa.admin.diagnostics.failed', 'Failed to run diagnostics.')) + '</span>'; });
                 });
 
                 // ---- v1.4: RATE LIMIT TRIPS ----
                 function loadTrips() {
                     apiGet('TwoFactorAuth/RateLimitTrips').then(function(rows) {
                         var body = page.querySelector('#tripsBody');
-                        if (!rows || !rows.length) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No trips since startup</td></tr>'; return; }
+                        if (!rows || !rows.length) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.trips.empty', 'No trips since startup')) + '</td></tr>'; return; }
                         body.innerHTML = rows.slice().reverse().map(function(t) {
                             var d = new Date(t.at || t.At).toLocaleString();
                             return '<tr><td style="font-size:12px;">' + d + '</td><td style="font-family:monospace;font-size:12px;">' + escapeHtml(t.key || t.Key) + '</td><td>' + (t.limit || t.Limit) + '</td><td>' + (t.windowSeconds || t.WindowSeconds) + '</td><td>' + (t.retryAfterSeconds || t.RetryAfterSeconds) + '</td></tr>';
                         }).join('');
-                    }).catch(function() { page.querySelector('#tripsBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load</td></tr>'; });
+                    }).catch(function() { page.querySelector('#tripsBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.common.failed_to_load', 'Failed to load')) + '</td></tr>'; });
                 }
                 page.querySelector('#tripsRefresh').addEventListener('click', loadTrips);
 
@@ -1042,12 +1050,12 @@
                         allUsersData = users || [];
                         renderUsers();
                     }).catch(function() {
-                        page.querySelector('#usersBody').innerHTML = '<tr><td colspan="7" class="tfa-empty">Failed to load users</td></tr>';
+                        page.querySelector('#usersBody').innerHTML = '<tr><td colspan="7" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.users.load_failed', 'Failed to load users')) + '</td></tr>';
                     });
                 }
                 function renderUsers() {
                     var body = page.querySelector('#usersBody');
-                    if (!allUsersData.length) { body.innerHTML = '<tr><td colspan="7" class="tfa-empty">No user data yet</td></tr>'; return; }
+                    if (!allUsersData.length) { body.innerHTML = '<tr><td colspan="7" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.users.no_data', 'No user data yet')) + '</td></tr>'; return; }
                     // Render immediately with emails empty, then fill in async.
                     // Avoids blank table if plugin config can't be fetched.
                     var emails = {};
@@ -1064,7 +1072,22 @@
                         if (!q) return true;
                         return (u.username || u.Username || '').toLowerCase().indexOf(q) >= 0;
                     });
-                    if (!rows.length) { body.innerHTML = '<tr><td colspan="7" class="tfa-empty">No users match</td></tr>'; return; }
+                    if (!rows.length) { body.innerHTML = '<tr><td colspan="7" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.users.no_match', 'No users match')) + '</td></tr>'; return; }
+                    var tDetails = _tr('tfa.admin.users.details', '▸ details');
+                    var tPasskeys = _tr('tfa.admin.users.tip_passkeys', 'Passkeys');
+                    var tTotp = _tr('tfa.admin.users.tip_totp', 'TOTP');
+                    var tTotpOff = _tr('tfa.admin.users.tip_totp_off', 'TOTP off');
+                    var tRcLeft = _tr('tfa.admin.users.tip_rc_left', 'Recovery codes left');
+                    var tNoRc = _tr('tfa.admin.users.tip_no_rc', 'No recovery codes');
+                    var tLocked = _tr('tfa.admin.users.status_locked', 'Locked');
+                    var tOk = _tr('tfa.admin.common.ok', 'OK');
+                    var tDisable = _tr('tfa.admin.users.btn_disable', 'Disable');
+                    var tEnable = _tr('tfa.admin.users.btn_enable', 'Enable');
+                    var tForceLogout = _tr('tfa.admin.users.btn_force_logout', 'Force logout');
+                    var tRevokeAll = _tr('tfa.admin.users.btn_revoke_all', 'Revoke all');
+                    var tExport = _tr('tfa.admin.users.btn_export', 'Export');
+                    var tUnknown = _tr('tfa.admin.users.unknown', 'Unknown');
+                    var tClickDetails = _tr('tfa.admin.users.click_to_load', 'Click ▸ details to load');
                     body.innerHTML = rows.map(function(u) {
                         var uid = u.userId || u.UserId;
                         var uidPlain = String(uid).replace(/-/g,'');
@@ -1076,45 +1099,45 @@
                         var email = emails[uidPlain.toLowerCase()] || '';
                         // Consolidated 2FA cell — TOTP + passkeys + recovery in one column
                         var twoFa = '';
-                        twoFa += totp ? '<span class="tfa-badge on" title="TOTP">TOTP</span> ' : '<span class="tfa-badge off" title="TOTP off">TOTP</span> ';
-                        if (passkeyCount > 0) twoFa += '<span class="tfa-badge on" title="Passkeys">🔑×' + passkeyCount + '</span> ';
+                        twoFa += totp ? '<span class="tfa-badge on" title="' + escapeHtml(tTotp) + '">TOTP</span> ' : '<span class="tfa-badge off" title="' + escapeHtml(tTotpOff) + '">TOTP</span> ';
+                        if (passkeyCount > 0) twoFa += '<span class="tfa-badge on" title="' + escapeHtml(tPasskeys) + '">🔑×' + passkeyCount + '</span> ';
                         twoFa += recoveryRemaining > 0
-                            ? '<span class="tfa-badge on" title="Recovery codes left">RC×' + recoveryRemaining + '</span>'
-                            : '<span class="tfa-badge warn" title="No recovery codes">no RC</span>';
+                            ? '<span class="tfa-badge on" title="' + escapeHtml(tRcLeft) + '">RC×' + recoveryRemaining + '</span>'
+                            : '<span class="tfa-badge warn" title="' + escapeHtml(tNoRc) + '">no RC</span>';
                         return '<tr class="tfa-user-row" data-uid="' + uid + '">' +
                             '<td><input type="checkbox" class="tfa-user-select" data-uid="' + uid + '" /></td>' +
-                            '<td><strong>' + escapeHtml(u.username || u.Username || 'Unknown') + '</strong> ' +
-                              '<a href="#" class="tfa-row-toggle" data-uid="' + uid + '" style="font-size:11px;color:#888;text-decoration:none;margin-left:4px;">▸ details</a></td>' +
+                            '<td><strong>' + escapeHtml(u.username || u.Username || tUnknown) + '</strong> ' +
+                              '<a href="#" class="tfa-row-toggle" data-uid="' + uid + '" style="font-size:11px;color:#888;text-decoration:none;margin-left:4px;">' + escapeHtml(tDetails) + '</a></td>' +
                             '<td>' + twoFa + '</td>' +
                             '<td>' + devices + '</td>' +
                             '<td><input type="email" class="tfa-input tfa-email" data-uid="' + uidPlain + '" value="' + escapeHtml(email) + '" placeholder="user@example.com" style="width:200px;" /></td>' +
-                            '<td>' + (locked ? '<span class="tfa-badge locked">Locked</span>' : '<span class="tfa-badge on">OK</span>') + '</td>' +
+                            '<td>' + (locked ? '<span class="tfa-badge locked">' + escapeHtml(tLocked) + '</span>' : '<span class="tfa-badge on">' + escapeHtml(tOk) + '</span>') + '</td>' +
                             '<td style="white-space:nowrap;">' +
-                              '<button class="tfa-btn tfa-btn-primary tfa-toggle" data-id="' + uid + '" data-next="' + !totp + '">' + (totp ? 'Disable' : 'Enable') + '</button> ' +
-                              '<button class="tfa-btn tfa-btn-danger tfa-force-logout" data-id="' + uid + '">Force logout</button> ' +
-                              '<button class="tfa-btn tfa-revoke-all" data-id="' + uid + '">Revoke all</button> ' +
-                              '<button class="tfa-btn tfa-export-user" data-id="' + uid + '">Export</button>' +
+                              '<button class="tfa-btn tfa-btn-primary tfa-toggle" data-id="' + uid + '" data-next="' + !totp + '">' + escapeHtml(totp ? tDisable : tEnable) + '</button> ' +
+                              '<button class="tfa-btn tfa-btn-danger tfa-force-logout" data-id="' + uid + '">' + escapeHtml(tForceLogout) + '</button> ' +
+                              '<button class="tfa-btn tfa-revoke-all" data-id="' + uid + '">' + escapeHtml(tRevokeAll) + '</button> ' +
+                              '<button class="tfa-btn tfa-export-user" data-id="' + uid + '">' + escapeHtml(tExport) + '</button>' +
                             '</td>' +
                             '</tr>' +
                             // Hidden details row — populated lazily on first toggle
                             '<tr class="tfa-user-details" data-uid="' + uid + '" style="display:none;">' +
                               '<td colspan="7" style="background:rgba(0,0,0,0.25);padding:14px;font-size:12px;">' +
-                                '<div class="tfa-details-content" data-loaded="0">Click ▸ details to load</div>' +
+                                '<div class="tfa-details-content" data-loaded="0">' + escapeHtml(tClickDetails) + '</div>' +
                               '</td>' +
                             '</tr>';
                     }).join('');
                     body.querySelectorAll('.tfa-force-logout').forEach(function(b) {
                         b.addEventListener('click', function() {
-                            if (!confirm('Force-logout this user? All their Jellyfin sessions are terminated and trust state is cleared.')) return;
+                            if (!confirm(_tr('tfa.admin.users.confirm_force_logout', 'Force-logout this user? All their Jellyfin sessions are terminated and trust state is cleared.'))) return;
                             apiPost('TwoFactorAuth/Users/' + b.dataset.id + '/ForceLogout').then(function(r) {
-                                alert('Terminated ' + (r.sessionsTerminated || 0) + ' sessions.');
+                                alert(_tr('tfa.admin.users.terminated_prefix', 'Terminated') + ' ' + (r.sessionsTerminated || 0) + ' ' + _tr('tfa.admin.users.sessions_suffix', 'sessions.'));
                                 loadUsers();
                             });
                         });
                     });
                     body.querySelectorAll('.tfa-revoke-all').forEach(function(b) {
                         b.addEventListener('click', function() {
-                            if (!confirm('Revoke EVERY trusted browser, paired device, registered device id and app password for this user? They will need to re-do 2FA on every client.')) return;
+                            if (!confirm(_tr('tfa.admin.users.confirm_revoke_all', 'Revoke EVERY trusted browser, paired device, registered device id and app password for this user? They will need to re-do 2FA on every client.'))) return;
                             // v2.5.0: route through stepUpFetch so destructive bulk actions
                             // can be gated by the server's StepUpLevel setting.
                             // First call uses stepUpFetch; remaining two use plain apiPost
@@ -1129,7 +1152,7 @@
                                     apiPost('TwoFactorAuth/Admin/Bulk', { action: 'revoke_trusted_browsers', userIds: [b.dataset.id] }),
                                     apiPost('TwoFactorAuth/Admin/Bulk', { action: 'force_logout', userIds: [b.dataset.id] }),
                                 ]);
-                            }).then(function() { alert('Revoked.'); loadUsers(); })
+                            }).then(function() { alert(_tr('tfa.admin.users.revoked', 'Revoked.')); loadUsers(); })
                               .catch(function() { /* step-up cancelled or server error — silently ignore */ });
                         });
                     });
@@ -1147,7 +1170,7 @@
                             if (!det) return;
                             var open = det.style.display !== 'none';
                             det.style.display = open ? 'none' : 'table-row';
-                            t.textContent = open ? '▸ details' : '▾ hide';
+                            t.textContent = open ? _tr('tfa.admin.users.details', '▸ details') : _tr('tfa.admin.users.hide', '▾ hide');
                             if (!open) {
                                 var content = det.querySelector('.tfa-details-content');
                                 if (content && content.dataset.loaded === '0') {
@@ -1160,12 +1183,12 @@
                                         var apps = (exp.twoFactor && exp.twoFactor.appPasswords) || [];
                                         content.innerHTML =
                                             '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">' +
-                                              renderDetailList('Trusted browsers (' + trusted.length + ')', trusted, function(d) { return escapeHtml(d.deviceName) + ' <span class="muted">' + new Date(d.lastUsedAt).toLocaleDateString() + '</span>'; }) +
-                                              renderDetailList('Paired devices (' + paired.length + ')', paired, function(d) { return escapeHtml(d.deviceName) + ' <span class="muted">' + escapeHtml(d.appName || '') + '</span>'; }) +
-                                              renderDetailList('Passkeys (' + passkeys.length + ')', passkeys, function(d) { return escapeHtml(d.label || 'Passkey') + ' <span class="muted">' + new Date(d.createdAt).toLocaleDateString() + '</span>'; }) +
-                                              renderDetailList('App passwords (' + apps.length + ')', apps, function(d) { return escapeHtml(d.label) + ' <span class="muted">' + new Date(d.createdAt).toLocaleDateString() + '</span>'; }) +
+                                              renderDetailList(_tr('tfa.admin.users.detail_trusted', 'Trusted browsers') + ' (' + trusted.length + ')', trusted, function(d) { return escapeHtml(d.deviceName) + ' <span class="muted">' + new Date(d.lastUsedAt).toLocaleDateString() + '</span>'; }) +
+                                              renderDetailList(_tr('tfa.admin.users.detail_paired', 'Paired devices') + ' (' + paired.length + ')', paired, function(d) { return escapeHtml(d.deviceName) + ' <span class="muted">' + escapeHtml(d.appName || '') + '</span>'; }) +
+                                              renderDetailList(_tr('tfa.admin.users.detail_passkeys', 'Passkeys') + ' (' + passkeys.length + ')', passkeys, function(d) { return escapeHtml(d.label || _tr('tfa.admin.users.passkey_default', 'Passkey')) + ' <span class="muted">' + new Date(d.createdAt).toLocaleDateString() + '</span>'; }) +
+                                              renderDetailList(_tr('tfa.admin.users.detail_app_pw', 'App passwords') + ' (' + apps.length + ')', apps, function(d) { return escapeHtml(d.label) + ' <span class="muted">' + new Date(d.createdAt).toLocaleDateString() + '</span>'; }) +
                                             '</div>';
-                                    }).catch(function() { content.innerHTML = 'Failed to load details.'; });
+                                    }).catch(function() { content.innerHTML = escapeHtml(_tr('tfa.admin.users.details_failed', 'Failed to load details.')); });
                                 }
                             }
                         });
@@ -1175,7 +1198,7 @@
                 // Collapsible list helper for the details row — caps visible
                 // entries at 3 by default with an "expand" link if more exist.
                 function renderDetailList(title, items, fmt) {
-                    if (!items.length) return '<div><strong>' + escapeHtml(title) + '</strong><div class="muted">none</div></div>';
+                    if (!items.length) return '<div><strong>' + escapeHtml(title) + '</strong><div class="muted">' + escapeHtml(_tr('tfa.admin.common.none', 'none')) + '</div></div>';
                     var head = '<div><strong>' + escapeHtml(title) + '</strong>';
                     var visible = items.slice(0, 3).map(fmt);
                     var hidden = items.slice(3).map(fmt);
@@ -1186,7 +1209,7 @@
                         html += '<div id="' + moreId + '" style="display:none;">';
                         hidden.forEach(function(v) { html += '<div>' + v + '</div>'; });
                         html += '</div>';
-                        html += '<a href="#" class="tfa-detail-more" data-target="' + moreId + '" style="font-size:11px;color:#00a4dc;text-decoration:none;">+ ' + hidden.length + ' more</a>';
+                        html += '<a href="#" class="tfa-detail-more" data-target="' + moreId + '" style="font-size:11px;color:#00a4dc;text-decoration:none;">+ ' + hidden.length + ' ' + escapeHtml(_tr('tfa.admin.common.more', 'more')) + '</a>';
                     }
                     html += '</div>';
                     return html;
@@ -1202,7 +1225,7 @@
                     var open = box.style.display !== 'none';
                     box.style.display = open ? 'none' : 'block';
                     var n = box.querySelectorAll('div').length;
-                    t.textContent = open ? ('+ ' + n + ' more') : '− collapse';
+                    t.textContent = open ? ('+ ' + n + ' ' + _tr('tfa.admin.common.more', 'more')) : ('− ' + _tr('tfa.admin.common.collapse', 'collapse'));
                 });
                 // Original handlers (toggle + email blur) — these were originally
                 // inside renderUsersRow; restored here as inline finishers.
@@ -1231,7 +1254,7 @@
                 function loadAllDevices() {
                     apiGet('TwoFactorAuth/AllTrustedDevices').then(function(rows) {
                         var body = page.querySelector('#devicesBody');
-                        if (!rows || !rows.length) { body.innerHTML = '<tr><td colspan="6" class="tfa-empty">No trusted devices</td></tr>'; return; }
+                        if (!rows || !rows.length) { body.innerHTML = '<tr><td colspan="6" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.devices.empty', 'No trusted devices')) + '</td></tr>'; return; }
                         // Group by user — long unbroken lists are unreadable.
                         var byUser = {};
                         rows.forEach(function(r) {
@@ -1252,17 +1275,17 @@
                                     '<td>' + added.toLocaleDateString() + '</td>' +
                                     '<td>' + last.toLocaleString() + '</td>' +
                                     '<td>' + expires.toLocaleDateString() + '</td>' +
-                                    '<td><button class="tfa-btn tfa-btn-danger tfa-revoke-dev" data-uid="' + uid + '" data-id="' + (r.id || r.Id) + '">Revoke</button></td>' +
+                                    '<td><button class="tfa-btn tfa-btn-danger tfa-revoke-dev" data-uid="' + uid + '" data-id="' + (r.id || r.Id) + '">' + escapeHtml(_tr('tfa.admin.devices.btn_revoke', 'Revoke')) + '</button></td>' +
                                     '</tr>';
                             };
                             var groupId = 'g_' + String(uid).replace(/-/g,'');
                             groupHtml += '<tr class="tfa-dev-group-row" style="background:rgba(0,164,220,0.08);">' +
                                 '<td colspan="5" style="font-weight:700;">' + escapeHtml(g.user) +
                                 ' <span class="muted" style="font-weight:normal;font-size:12px;">(' + g.devices.length + ')</span> ' +
-                                '<button class="tfa-btn tfa-btn-danger tfa-revoke-user-all" data-uid="' + uid + '" style="margin-left:8px;font-size:11px;padding:2px 8px;">Revoke all for user</button></td></tr>';
+                                '<button class="tfa-btn tfa-btn-danger tfa-revoke-user-all" data-uid="' + uid + '" style="margin-left:8px;font-size:11px;padding:2px 8px;">' + escapeHtml(_tr('tfa.admin.devices.btn_revoke_all_for_user', 'Revoke all for user')) + '</button></td></tr>';
                             first.forEach(function(r) { groupHtml += devRow(r); });
                             if (rest.length) {
-                                groupHtml += '<tr class="tfa-dev-more-toggle-row"><td colspan="5" style="padding-left:20px;"><a href="#" class="tfa-dev-expand" data-target="' + groupId + '" style="color:#00a4dc;font-size:12px;">+ ' + rest.length + ' more</a></td></tr>';
+                                groupHtml += '<tr class="tfa-dev-more-toggle-row"><td colspan="5" style="padding-left:20px;"><a href="#" class="tfa-dev-expand" data-target="' + groupId + '" style="color:#00a4dc;font-size:12px;">+ ' + rest.length + ' ' + escapeHtml(_tr('tfa.admin.common.more', 'more')) + '</a></td></tr>';
                                 groupHtml += '<tbody id="' + groupId + '" style="display:none;">';
                                 rest.forEach(function(r) { groupHtml += devRow(r); });
                                 groupHtml += '</tbody>';
@@ -1271,13 +1294,13 @@
                         body.innerHTML = groupHtml;
                         body.querySelectorAll('.tfa-revoke-dev').forEach(function(b) {
                             b.addEventListener('click', function() {
-                                if (!confirm('Revoke this device?')) return;
+                                if (!confirm(_tr('tfa.admin.devices.confirm_revoke_device', 'Revoke this device?'))) return;
                                 apiDelete('TwoFactorAuth/Users/' + b.dataset.uid + '/Devices/' + b.dataset.id).then(loadAllDevices);
                             });
                         });
                         body.querySelectorAll('.tfa-revoke-user-all').forEach(function(b) {
                             b.addEventListener('click', function() {
-                                if (!confirm('Revoke EVERY trusted browser for this user?')) return;
+                                if (!confirm(_tr('tfa.admin.devices.confirm_revoke_all', 'Revoke EVERY trusted browser for this user?'))) return;
                                 // v2.5.0: stepUpFetch so the server can enforce a step-up gate.
                                 stepUpFetch('TwoFactorAuth/Admin/Bulk', {
                                     method: 'POST',
@@ -1293,11 +1316,12 @@
                                 if (!box) return;
                                 var open = box.style.display !== 'none';
                                 box.style.display = open ? 'none' : '';
-                                a.textContent = open ? a.textContent.replace('− collapse', '+ ' + box.children.length + ' more') : '− collapse';
+                                var collapseText = '− ' + _tr('tfa.admin.common.collapse', 'collapse');
+                                a.textContent = open ? a.textContent.replace(collapseText, '+ ' + box.children.length + ' ' + _tr('tfa.admin.common.more', 'more')) : collapseText;
                             });
                         });
                     }).catch(function() {
-                        page.querySelector('#devicesBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">Failed to load</td></tr>';
+                        page.querySelector('#devicesBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.common.failed_to_load', 'Failed to load')) + '</td></tr>';
                     });
                 }
 
@@ -1305,16 +1329,18 @@
                 function loadPairings() {
                     apiGet('TwoFactorAuth/Pairings').then(function(pairings) {
                         var body = page.querySelector('#pairingsBody');
-                        if (!pairings || !pairings.length) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No pending pairings</td></tr>'; return; }
+                        if (!pairings || !pairings.length) { body.innerHTML = '<tr><td colspan="5" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.pairings.empty', 'No pending pairings')) + '</td></tr>'; return; }
+                        var tApprove = _tr('tfa.admin.pairings.btn_approve', 'Approve');
+                        var tDeny = _tr('tfa.admin.pairings.btn_deny', 'Deny');
                         body.innerHTML = pairings.map(function(p) {
                             var code = p.code || p.Code;
                             var exp = new Date(p.expiresAt || p.ExpiresAt).toLocaleTimeString();
                             return '<tr><td>' + escapeHtml(p.username || p.Username) + '</td><td>' + escapeHtml(p.deviceName || p.DeviceName) + '</td><td style="font-family:monospace;font-weight:700;letter-spacing:2px;">' + code + '</td><td>' + exp + '</td>' +
-                                '<td><button class="tfa-btn tfa-btn-success tfa-approve" data-code="' + code + '">Approve</button> <button class="tfa-btn tfa-btn-danger tfa-deny" data-code="' + code + '">Deny</button></td></tr>';
+                                '<td><button class="tfa-btn tfa-btn-success tfa-approve" data-code="' + code + '">' + escapeHtml(tApprove) + '</button> <button class="tfa-btn tfa-btn-danger tfa-deny" data-code="' + code + '">' + escapeHtml(tDeny) + '</button></td></tr>';
                         }).join('');
                         body.querySelectorAll('.tfa-approve').forEach(function(b) { b.addEventListener('click', function() { apiPost('TwoFactorAuth/Pairings/' + b.dataset.code + '/Approve').then(loadPairings); }); });
                         body.querySelectorAll('.tfa-deny').forEach(function(b) { b.addEventListener('click', function() { apiPost('TwoFactorAuth/Pairings/' + b.dataset.code + '/Deny').then(loadPairings); }); });
-                    }).catch(function() { page.querySelector('#pairingsBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load</td></tr>'; });
+                    }).catch(function() { page.querySelector('#pairingsBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.common.failed_to_load', 'Failed to load')) + '</td></tr>'; });
                 }
 
                 // ---- AUDIT ----
@@ -1326,7 +1352,7 @@
                         allAudit = entries || [];
                         auditPage = 0;
                         renderAudit();
-                    }).catch(function() { page.querySelector('#auditBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">Failed to load</td></tr>'; });
+                    }).catch(function() { page.querySelector('#auditBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.common.failed_to_load', 'Failed to load')) + '</td></tr>'; });
                 }
                 function renderAudit() {
                     var q = page.querySelector('#auditFilter').value.toLowerCase();
@@ -1335,7 +1361,7 @@
                     if (auditPage >= totalPages) auditPage = totalPages - 1;
                     var slice = filtered.slice(auditPage * AUDIT_PAGE_SIZE, (auditPage + 1) * AUDIT_PAGE_SIZE);
                     var body = page.querySelector('#auditBody');
-                    if (!slice.length) { body.innerHTML = '<tr><td colspan="6" class="tfa-empty">No matching entries</td></tr>'; }
+                    if (!slice.length) { body.innerHTML = '<tr><td colspan="6" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.audit.no_matches', 'No matching entries')) + '</td></tr>'; }
                     else {
                         var resultColors = { 'Success':'on','Failed':'locked','Bypassed':'on','Locked':'locked','ChallengeIssued':'off' };
                         var resultNames = ['Success','Failed','Bypassed','Locked','ChallengeIssued'];
@@ -1346,7 +1372,7 @@
                             return '<tr><td style="font-size:12px;">' + t + '</td><td>' + escapeHtml(e.username || e.Username) + '</td><td style="font-family:monospace;font-size:12px;">' + escapeHtml(e.remoteIp || e.RemoteIp) + '</td><td>' + escapeHtml(e.deviceName || e.DeviceName) + '</td><td><span class="tfa-badge ' + (resultColors[rName] || 'off') + '">' + rName + '</span></td><td>' + escapeHtml(e.method || e.Method) + '</td></tr>';
                         }).join('');
                     }
-                    page.querySelector('#auditPageInfo').textContent = 'Page ' + (auditPage + 1) + ' of ' + totalPages + ' (' + filtered.length + ' entries)';
+                    page.querySelector('#auditPageInfo').textContent = _tr('tfa.admin.audit.page', 'Page') + ' ' + (auditPage + 1) + ' ' + _tr('tfa.admin.audit.of', 'of') + ' ' + totalPages + ' (' + filtered.length + ' ' + _tr('tfa.admin.audit.entries', 'entries') + ')';
                     page.querySelector('#auditPrev').disabled = auditPage === 0;
                     page.querySelector('#auditNext').disabled = auditPage >= totalPages - 1;
                 }
@@ -1358,10 +1384,10 @@
                 });
                 page.querySelector('#usersBulkApply').addEventListener('click', function() {
                     var action = page.querySelector('#usersBulkAction').value;
-                    if (!action) { alert('Pick a bulk action first.'); return; }
+                    if (!action) { alert(_tr('tfa.admin.users.alert_pick_action', 'Pick a bulk action first.')); return; }
                     var ids = Array.prototype.slice.call(page.querySelectorAll('.tfa-user-select:checked')).map(function(c){return c.dataset.uid;});
-                    if (!ids.length) { alert('Select at least one user.'); return; }
-                    if (!confirm('Apply "' + action + '" to ' + ids.length + ' user(s)?')) return;
+                    if (!ids.length) { alert(_tr('tfa.admin.users.alert_select_user', 'Select at least one user.')); return; }
+                    if (!confirm(_tr('tfa.admin.users.confirm_apply_prefix', 'Apply') + ' "' + action + '" ' + _tr('tfa.admin.users.confirm_apply_middle', 'to') + ' ' + ids.length + ' ' + _tr('tfa.admin.users.confirm_apply_suffix', 'user(s)?'))) return;
                     // v2.5.0: route through stepUpFetch so the server can enforce a
                     // step-up gate on destructive actions (e.g. reset_2fa).
                     stepUpFetch('TwoFactorAuth/Admin/Bulk', {
@@ -1369,16 +1395,16 @@
                         headers: getHeaders(),
                         body: JSON.stringify({ action: action, userIds: ids }),
                     }).then(function(r) {
-                        if (!r.ok) { r.json().catch(function(){return{};}).then(function(b){ alert('Action failed: ' + (b.message || r.status)); }); return; }
+                        if (!r.ok) { r.json().catch(function(){return{};}).then(function(b){ alert(_tr('tfa.admin.users.action_failed', 'Action failed:') + ' ' + (b.message || r.status)); }); return; }
                         return r.json().catch(function(){return{};}).then(function(r) {
-                            alert('Processed ' + (r.processed || 0) + ' user(s).');
+                            alert(_tr('tfa.admin.users.processed_prefix', 'Processed') + ' ' + (r.processed || 0) + ' ' + _tr('tfa.admin.users.processed_suffix', 'user(s).'));
                             loadUsers();
                         });
                     });
                 });
                 // v1.4: audit CSV export
                 page.querySelector('#auditExportCsv').addEventListener('click', function() {
-                    if (!allAudit.length) { alert('Nothing to export.'); return; }
+                    if (!allAudit.length) { alert(_tr('tfa.admin.audit.nothing_to_export', 'Nothing to export.')); return; }
                     var rows = [['Time','User','IP','DeviceId','DeviceName','Result','Method','Details']];
                     allAudit.forEach(function(e) {
                         rows.push([
@@ -1407,8 +1433,8 @@
                 page.querySelector('#btnTestWebhook').addEventListener('click', function() {
                     var out = page.querySelector('#webhookTestResult');
                     var url = page.querySelector('#cfgWebhookUrl').value.trim();
-                    if (!url) { out.style.color = '#f44336'; out.textContent = '✗ Enter a Webhook URL first.'; return; }
-                    out.style.color = '#888'; out.textContent = 'Saving + sending…';
+                    if (!url) { out.style.color = '#f44336'; out.textContent = '✗ ' + _tr('tfa.admin.settings.webhook_need_url', 'Enter a Webhook URL first.'); return; }
+                    out.style.color = '#888'; out.textContent = _tr('tfa.admin.settings.saving_sending', 'Saving + sending…');
                     // Persist current Webhook URL/Secret so the server-side
                     // dispatch uses what the admin sees in the input boxes.
                     ApiClient.getPluginConfiguration(pluginId).then(function(c) {
@@ -1418,8 +1444,8 @@
                     }).then(function() {
                         return apiPost('TwoFactorAuth/Admin/WebhookTest');
                     }).then(function(r) {
-                        out.style.color = '#4caf50'; out.textContent = '✓ ' + (r.message || 'Sent');
-                    }).catch(function(e) { out.style.color = '#f44336'; out.textContent = '✗ Failed (check server log).'; });
+                        out.style.color = '#4caf50'; out.textContent = '✓ ' + (r.message || _tr('tfa.admin.common.sent', 'Sent'));
+                    }).catch(function(e) { out.style.color = '#f44336'; out.textContent = '✗ ' + _tr('tfa.admin.settings.webhook_failed', 'Failed (check server log).'); });
                 });
                 page.querySelector('#auditPrev').addEventListener('click', function() { if (auditPage > 0) { auditPage--; renderAudit(); } });
                 page.querySelector('#auditNext').addEventListener('click', function() { auditPage++; renderAudit(); });
@@ -1483,14 +1509,15 @@
                 page.querySelector('#btnTestSmtp').addEventListener('click', function() {
                     var to = page.querySelector('#cfgSmtpTestTo').value.trim();
                     var out = page.querySelector('#smtpTestResult');
-                    if (!to) { out.style.color = '#f44336'; out.textContent = 'Enter an email address.'; return; }
-                    out.style.color = '#888'; out.textContent = 'Sending...';
+                    if (!to) { out.style.color = '#f44336'; out.textContent = _tr('tfa.admin.settings.smtp_need_email', 'Enter an email address.'); return; }
+                    out.style.color = '#888'; out.textContent = _tr('tfa.admin.settings.smtp_sending', 'Sending...');
                     apiPost('TwoFactorAuth/TestSmtp', { toAddress: to }).then(function(r) {
-                        out.style.color = '#4caf50'; out.textContent = '✓ ' + (r.message || 'Sent');
+                        out.style.color = '#4caf50'; out.textContent = '✓ ' + (r.message || _tr('tfa.admin.common.sent', 'Sent'));
                     }).catch(function(r) {
                         out.style.color = '#f44336';
-                        if (r && r.json) { r.json().then(function(b) { out.textContent = '✗ ' + (b.message || 'Send failed'); }).catch(function(){ out.textContent = '✗ Send failed'; }); }
-                        else { out.textContent = '✗ Send failed'; }
+                        var sendFailed = _tr('tfa.admin.settings.smtp_send_failed', 'Send failed');
+                        if (r && r.json) { r.json().then(function(b) { out.textContent = '✗ ' + (b.message || sendFailed); }).catch(function(){ out.textContent = '✗ ' + sendFailed; }); }
+                        else { out.textContent = '✗ ' + sendFailed; }
                     });
                 });
                 page.querySelector('#btnSaveSettings').addEventListener('click', function() {
@@ -1567,13 +1594,13 @@
                             var s = page.querySelector('#saveStatus');
                             if (r.ok || r.status === 200) {
                                 s.style.color = '#4caf50';
-                                s.textContent = '✓ Saved';
+                                s.textContent = '✓ ' + _tr('tfa.admin.settings.saved', 'Saved');
                             } else if (r.status === 403) {
                                 s.style.color = '#ff9800';
-                                s.textContent = '⚠ Other settings saved; hardening config requires step-up verification.';
+                                s.textContent = '⚠ ' + _tr('tfa.admin.settings.saved_partial_stepup', 'Other settings saved; hardening config requires step-up verification.');
                             } else {
                                 s.style.color = '#f44336';
-                                s.textContent = '✓ Settings saved (hardening config endpoint error — check server log)';
+                                s.textContent = '✓ ' + _tr('tfa.admin.settings.saved_with_hardening_error', 'Settings saved (hardening config endpoint error — check server log)');
                             }
                             setTimeout(function() { s.style.color = ''; s.textContent = ''; }, 3500);
                         });
@@ -1591,12 +1618,12 @@
                         link.href = URL.createObjectURL(blob);
                         link.download = '2fa-export-config-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
                         document.body.appendChild(link); link.click(); link.remove();
-                    } catch (e) { console.error('export failed', e); alert('Export failed: ' + e.message); }
+                    } catch (e) { console.error('export failed', e); alert(_tr('tfa.admin.backup.export_failed', 'Export failed:') + ' ' + e.message); }
                 });
 
                 document.getElementById('btnExportFull')?.addEventListener('click', async () => {
-                    const pass = prompt('Set a passphrase (>=8 chars). You will need this exact passphrase to restore.');
-                    if (!pass || pass.length < 8) { alert('Passphrase must be at least 8 characters'); return; }
+                    const pass = prompt(_tr('tfa.admin.backup.prompt_passphrase', 'Set a passphrase (>=8 chars). You will need this exact passphrase to restore.'));
+                    if (!pass || pass.length < 8) { alert(_tr('tfa.admin.backup.passphrase_too_short', 'Passphrase must be at least 8 characters')); return; }
                     try {
                         const url = ApiClient.getUrl('TwoFactorAuth/Config/Export?includeSecrets=true');
                         const resp = await stepUpFetch(url, {
@@ -1612,15 +1639,15 @@
                         link.href = URL.createObjectURL(blob);
                         link.download = '2fa-export-full-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
                         document.body.appendChild(link); link.click(); link.remove();
-                    } catch (e) { alert('Export failed: ' + e.message); }
+                    } catch (e) { alert(_tr('tfa.admin.backup.export_failed', 'Export failed:') + ' ' + e.message); }
                 });
 
                 document.getElementById('btnImportConfig')?.addEventListener('click', async () => {
                     const envText = document.getElementById('importEnvelope').value.trim();
                     const passphrase = document.getElementById('importPassphrase').value;
-                    if (!envText) { alert('Paste an export envelope first'); return; }
+                    if (!envText) { alert(_tr('tfa.admin.backup.need_envelope', 'Paste an export envelope first')); return; }
                     const resultEl = document.getElementById('importResult');
-                    resultEl.innerHTML = 'Importing&hellip;';
+                    resultEl.innerHTML = escapeHtml(_tr('tfa.admin.import_in_progress', 'Importing…'));
                     try {
                         const resp = await stepUpFetch(ApiClient.getUrl('TwoFactorAuth/Config/Import'), {
                             method: 'POST',
@@ -1629,14 +1656,14 @@
                         });
                         const data = await resp.json().catch(() => ({}));
                         if (!resp.ok) {
-                            resultEl.innerHTML = '<span style="color:#d9534f">Failed: ' + escapeHtml(data.message || 'unknown error') + '</span>';
+                            resultEl.innerHTML = '<span style="color:#d9534f">' + escapeHtml(_tr('tfa.admin.import_failed', 'Failed:')) + ' ' + escapeHtml(data.message || _tr('tfa.admin.common.unknown_error', 'unknown error')) + '</span>';
                             return;
                         }
                         const warnings = data.warnings || [];
-                        resultEl.innerHTML = '<span style="color:#5cb85c">Import applied.</span>' +
+                        resultEl.innerHTML = '<span style="color:#5cb85c">' + escapeHtml(_tr('tfa.admin.import_applied', 'Import applied.')) + '</span>' +
                             (warnings.length > 0 ? '<ul style="margin:6px 0;padding-left:18px;color:#f0ad4e;">' +
                                 warnings.map(w => '<li>' + escapeHtml(w) + '</li>').join('') + '</ul>' : '');
-                    } catch (e) { resultEl.innerHTML = '<span style="color:#d9534f">Network error: ' + escapeHtml(e.message) + '</span>'; }
+                    } catch (e) { resultEl.innerHTML = '<span style="color:#d9534f">' + escapeHtml(_tr('tfa.admin.import_network_error', 'Network error:')) + ' ' + escapeHtml(e.message) + '</span>'; }
                 });
 
                 // ---- v2.0 SSO PROVIDERS ----
@@ -1655,18 +1682,23 @@
                     apiGet('TwoFactorAuth/Oidc/Providers').then(function(rows) {
                         var body = page.querySelector('#ssoBody');
                         if (!rows || !rows.length) {
-                            body.innerHTML = '<tr><td colspan="5" class="tfa-empty">No providers yet. Click "Add provider" to set one up.</td></tr>';
+                            body.innerHTML = '<tr><td colspan="5" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.sso.empty', 'No providers yet. Click "Add provider" to set one up.')) + '</td></tr>';
                             return;
                         }
+                        var tEnabled = _tr('tfa.admin.sso.status_enabled', 'enabled');
+                        var tDisabled = _tr('tfa.admin.sso.status_disabled', 'disabled');
+                        var tEdit = _tr('tfa.admin.sso.btn_edit', 'Edit');
+                        var tDelete = _tr('tfa.admin.sso.btn_delete', 'Delete');
+                        var tIdPrefix = _tr('tfa.admin.sso.id_prefix', 'id:');
                         body.innerHTML = rows.map(function(p) {
-                            var status = p.enabled ? '<span class="tfa-badge on">enabled</span>' : '<span class="tfa-badge off">disabled</span>';
+                            var status = p.enabled ? '<span class="tfa-badge on">' + escapeHtml(tEnabled) + '</span>' : '<span class="tfa-badge off">' + escapeHtml(tDisabled) + '</span>';
                             return '<tr>'
-                                + '<td><strong>' + escapeHtml(p.displayName) + '</strong><br/><span style="font-size:11px;color:#888;">id: ' + escapeHtml(p.id) + '</span></td>'
+                                + '<td><strong>' + escapeHtml(p.displayName) + '</strong><br/><span style="font-size:11px;color:#888;">' + escapeHtml(tIdPrefix) + ' ' + escapeHtml(p.id) + '</span></td>'
                                 + '<td>' + escapeHtml(p.preset || '') + '</td>'
                                 + '<td style="font-family:monospace;font-size:12px;">' + escapeHtml((p.clientId || '').slice(0,18)) + (p.clientId && p.clientId.length > 18 ? '…' : '') + '</td>'
                                 + '<td>' + status + '</td>'
-                                + '<td><button class="tfa-btn" data-sso-edit="' + escapeHtml(p.id) + '">Edit</button> '
-                                + '<button class="tfa-btn tfa-btn-danger" data-sso-del="' + escapeHtml(p.id) + '">Delete</button></td>'
+                                + '<td><button class="tfa-btn" data-sso-edit="' + escapeHtml(p.id) + '">' + escapeHtml(tEdit) + '</button> '
+                                + '<button class="tfa-btn tfa-btn-danger" data-sso-del="' + escapeHtml(p.id) + '">' + escapeHtml(tDelete) + '</button></td>'
                                 + '</tr>';
                         }).join('');
                         body.querySelectorAll('[data-sso-edit]').forEach(function(b) {
@@ -1674,17 +1706,17 @@
                         });
                         body.querySelectorAll('[data-sso-del]').forEach(function(b) {
                             b.addEventListener('click', function() {
-                                if (!confirm('Delete this OIDC provider? Users linked to it will lose the link.')) return;
+                                if (!confirm(_tr('tfa.admin.sso.confirm_delete', 'Delete this OIDC provider? Users linked to it will lose the link.'))) return;
                                 apiDelete('TwoFactorAuth/Oidc/Providers/' + encodeURIComponent(b.dataset.ssoDel)).then(loadSso);
                             });
                         });
                     }).catch(function() {
-                        page.querySelector('#ssoBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">Failed to load providers</td></tr>';
+                        page.querySelector('#ssoBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.sso.load_failed', 'Failed to load providers')) + '</td></tr>';
                     });
                 }
                 function showSsoForm(prov) {
                     page.querySelector('#ssoFormSection').style.display = 'block';
-                    page.querySelector('#ssoFormTitle').textContent = prov ? ('Edit ' + prov.displayName) : 'New provider';
+                    page.querySelector('#ssoFormTitle').textContent = prov ? (_tr('tfa.admin.sso.form_title_edit', 'Edit') + ' ' + prov.displayName) : _tr('tfa.admin.sso.form_title_new', 'New provider');
                     page.querySelector('#ssoDisplay').value = prov ? (prov.displayName || '') : '';
                     page.querySelector('#ssoPreset').value = prov ? (prov.preset || 'generic') : 'generic';
                     page.querySelector('#ssoDiscovery').value = prov ? (prov.discoveryUrl || '') : '';
@@ -1747,10 +1779,10 @@
                         BypassPluginTwoFa: page.querySelector('#ssoBypass2fa').checked,
                         Enabled: page.querySelector('#ssoEnabled').checked,
                     };
-                    if (!body.DisplayName) { alert('Display name is required.'); return; }
-                    if (!body.ClientId) { alert('Client ID is required.'); return; }
+                    if (!body.DisplayName) { alert(_tr('tfa.admin.sso.alert_display_required', 'Display name is required.')); return; }
+                    if (!body.ClientId) { alert(_tr('tfa.admin.sso.alert_client_id_required', 'Client ID is required.')); return; }
                     var status = page.querySelector('#ssoSaveStatus');
-                    status.style.color = '#888'; status.textContent = 'Saving…';
+                    status.style.color = '#888'; status.textContent = _tr('tfa.admin.common.saving', 'Saving…');
                     var p = ssoEditingId
                         ? fetch(ApiClient.serverAddress() + '/TwoFactorAuth/Oidc/Providers/' + encodeURIComponent(ssoEditingId),
                             { method: 'PUT', headers: getHeaders(), body: JSON.stringify(body) })
@@ -1758,12 +1790,12 @@
                             { method: 'POST', headers: getHeaders(), body: JSON.stringify(body) });
                     p.then(function(r) {
                         if (!r.ok) throw r;
-                        status.style.color = '#4caf50'; status.textContent = '✓ Saved';
+                        status.style.color = '#4caf50'; status.textContent = '✓ ' + _tr('tfa.admin.settings.saved', 'Saved');
                         setTimeout(function() { status.textContent = ''; }, 2000);
                         page.querySelector('#ssoFormSection').style.display = 'none';
                         loadSso();
                     }).catch(function(err) {
-                        status.style.color = '#f44336'; status.textContent = '✗ Save failed';
+                        status.style.color = '#f44336'; status.textContent = '✗ ' + _tr('tfa.admin.common.save_failed', 'Save failed');
                         if (err && err.text) { err.text().then(function(t) { console.error('[2FA] SSO save:', t); }); }
                     });
                 });
@@ -1773,9 +1805,10 @@
                     apiGet('TwoFactorAuth/IpBans').then(function(rows) {
                         var body = page.querySelector('#bansBody');
                         if (!rows || !rows.length) {
-                            body.innerHTML = '<tr><td colspan="6" class="tfa-empty">No active bans</td></tr>';
+                            body.innerHTML = '<tr><td colspan="6" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.no_active_bans', 'No active bans')) + '</td></tr>';
                             return;
                         }
+                        var tUnban = _tr('tfa.admin.bans.btn_unban', 'Unban');
                         body.innerHTML = rows.map(function(b) {
                             return '<tr>'
                                 + '<td style="font-family:monospace;">' + escapeHtml(b.ip || b.Ip) + '</td>'
@@ -1783,7 +1816,7 @@
                                 + '<td style="font-size:12px;">' + new Date(b.expiresAt || b.ExpiresAt).toLocaleString() + '</td>'
                                 + '<td>' + escapeHtml(b.source || b.Source || '') + '</td>'
                                 + '<td>' + escapeHtml(b.note || b.Note || '') + '</td>'
-                                + '<td><button class="tfa-btn tfa-btn-success" data-unban="' + escapeHtml(b.ip || b.Ip) + '">Unban</button></td>'
+                                + '<td><button class="tfa-btn tfa-btn-success" data-unban="' + escapeHtml(b.ip || b.Ip) + '">' + escapeHtml(tUnban) + '</button></td>'
                                 + '</tr>';
                         }).join('');
                         body.querySelectorAll('[data-unban]').forEach(function(btn) {
@@ -1792,12 +1825,12 @@
                             });
                         });
                     }).catch(function() {
-                        page.querySelector('#bansBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">Failed to load</td></tr>';
+                        page.querySelector('#bansBody').innerHTML = '<tr><td colspan="6" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.common.failed_to_load', 'Failed to load')) + '</td></tr>';
                     });
                 }
                 page.querySelector('#banAddBtn').addEventListener('click', function() {
                     var ip = page.querySelector('#banIp').value.trim();
-                    if (!ip) { alert('IP is required.'); return; }
+                    if (!ip) { alert(_tr('tfa.admin.bans.alert_ip_required', 'IP is required.')); return; }
                     var body = {
                         Ip: ip,
                         Note: page.querySelector('#banNote').value.trim(),
