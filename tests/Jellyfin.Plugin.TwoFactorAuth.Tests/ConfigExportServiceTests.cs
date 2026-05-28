@@ -66,6 +66,8 @@ public class ConfigExportRedactionTests
     public async Task ConfigOnlyExport_StripsSecretFields()
     {
         var svc = ConfigExportTestHarness.Build(out var cfg);
+        cfg.GotifyAppToken = "gotify-token";
+        cfg.NtfyTopic = "ntfy-secret-topic";
         cfg.SmtpPassword = "smtp-secret";
         cfg.WebhookSecret = "webhook-secret";
         cfg.WebhookEd25519PrivateKey = "ed25519-secret";
@@ -77,12 +79,16 @@ public class ConfigExportRedactionTests
         Assert.Equal(string.Empty, payload.Configuration.SmtpPassword);
         Assert.Equal(string.Empty, payload.Configuration.WebhookSecret);
         Assert.Equal(string.Empty, payload.Configuration.WebhookEd25519PrivateKey);
+        Assert.Equal(string.Empty, payload.Configuration.GotifyAppToken);
+        Assert.Equal(string.Empty, payload.Configuration.NtfyTopic);
         Assert.Single(payload.Configuration.OidcProviders);
         Assert.Equal(string.Empty, payload.Configuration.OidcProviders[0].ClientSecret);
 
         Assert.Contains("SmtpPassword", payload.RedactedFields);
         Assert.Contains("WebhookSecret", payload.RedactedFields);
         Assert.Contains("WebhookEd25519PrivateKey", payload.RedactedFields);
+        Assert.Contains("GotifyAppToken", payload.RedactedFields);
+        Assert.Contains("NtfyTopic", payload.RedactedFields);
         Assert.Contains("OidcProviders[0].ClientSecret", payload.RedactedFields);
 
         Assert.False(env.Encrypted);

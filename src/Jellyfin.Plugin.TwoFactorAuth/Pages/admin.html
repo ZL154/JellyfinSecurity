@@ -1567,8 +1567,11 @@
                     const pass = prompt('Set a passphrase (>=8 chars). You will need this exact passphrase to restore.');
                     if (!pass || pass.length < 8) { alert('Passphrase must be at least 8 characters'); return; }
                     try {
-                        const url = ApiClient.getUrl('TwoFactorAuth/Config/Export?includeSecrets=true&passphrase=' + encodeURIComponent(pass));
-                        const resp = await stepUpFetch(url, { method: 'GET' });
+                        const url = ApiClient.getUrl('TwoFactorAuth/Config/Export?includeSecrets=true');
+                        const resp = await stepUpFetch(url, {
+                            method: 'GET',
+                            headers: Object.assign({}, getHeaders(), { 'X-Export-Passphrase': pass })
+                        });
                         if (!resp.ok) {
                             const txt = await resp.text();
                             throw new Error('HTTP ' + resp.status + ': ' + txt);

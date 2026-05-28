@@ -3352,7 +3352,7 @@ public class TwoFactorAuthController : ControllerBase
 
     [HttpGet("Config/Export")]
     [Authorize(Policy = "RequiresElevation")]
-    public async Task<IActionResult> ExportConfig([FromQuery] bool includeSecrets = false, [FromQuery] string? passphrase = null)
+    public async Task<IActionResult> ExportConfig([FromQuery] bool includeSecrets = false, [FromHeader(Name = "X-Export-Passphrase")] string? passphrase = null)
     {
         if (includeSecrets)
         {

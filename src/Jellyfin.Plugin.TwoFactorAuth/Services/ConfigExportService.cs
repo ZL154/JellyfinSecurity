@@ -63,6 +63,16 @@ public class ConfigExportService
             redactedCfg.WebhookEd25519PrivateKey = string.Empty;
             redacted.Add("WebhookEd25519PrivateKey");
         }
+        if (!string.IsNullOrEmpty(redactedCfg.GotifyAppToken))
+        {
+            redactedCfg.GotifyAppToken = string.Empty;
+            redacted.Add("GotifyAppToken");
+        }
+        if (!string.IsNullOrEmpty(redactedCfg.NtfyTopic))
+        {
+            redactedCfg.NtfyTopic = string.Empty;
+            redacted.Add("NtfyTopic");
+        }
         for (int i = 0; i < redactedCfg.OidcProviders.Count; i++)
         {
             if (!string.IsNullOrEmpty(redactedCfg.OidcProviders[i].ClientSecret))
