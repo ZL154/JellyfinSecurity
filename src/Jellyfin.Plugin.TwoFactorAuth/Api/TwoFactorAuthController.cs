@@ -895,6 +895,7 @@ public class TwoFactorAuthController : ControllerBase
         // clickjacking targets. frame-ancestors 'none' is the modern equivalent
         // of X-Frame-Options: DENY; include both for browser coverage.
         Response.Headers["X-Frame-Options"] = "DENY";
+        Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
         Response.Headers["Content-Security-Policy"] = "frame-ancestors 'none'";
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         Response.Headers["Referrer-Policy"] = "no-referrer";
