@@ -1295,6 +1295,34 @@ public class TwoFactorAuthController : ControllerBase
         return Ok();
     }
 
+    // POST /TwoFactorAuth/StepUp/Verify — exchange a fresh 2FA code for a
+    // short-lived step-up token so the next sensitive admin action passes.
+    [HttpPost("StepUp/Verify")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult> StepUpVerify([FromBody] StepUpVerifyRequest request)
+    {
+        var userId = GetCurrentUserId();
+        var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+
+        var ok = !string.IsNullOrWhiteSpace(request?.Code)
+                 && _stepUp.VerifyUserCode(userData, request!.Code!);
+        if (!ok)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Invalid code." });
+        }
+
+        // Persist any consumed recovery code (VerifyUserCode marks it Used),
+        // then grant the step-up token.
+        await _store.MutateAsync(userId, ud =>
+        {
+            ud.RecoveryCodes = userData.RecoveryCodes;
+        }).ConfigureAwait(false);
+        _challengeStore.MarkStepUpVerified(userId);
+        return Ok(new { verified = true });
+    }
+
     // -------------------------------------------------------------------------
     // POST /TwoFactorAuth/RecoveryCodes/Generate — generate (or rotate) recovery codes.
     // Returns plaintext codes ONCE. User must save them.

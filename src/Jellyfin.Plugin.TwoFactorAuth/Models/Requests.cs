@@ -86,3 +86,10 @@ public class DisableRequest
 {
     public string? Code { get; set; }
 }
+
+/// <summary>v2.5.0: body for exchanging a fresh 2FA code for a short-lived
+/// step-up token.</summary>
+public class StepUpVerifyRequest
+{
+    public string? Code { get; set; }
+}
