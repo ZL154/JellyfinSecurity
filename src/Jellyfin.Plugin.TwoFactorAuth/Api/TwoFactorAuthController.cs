@@ -3482,6 +3482,27 @@ public class TwoFactorAuthController : ControllerBase
         return Content(js, "application/javascript; charset=utf-8");
     }
 
+    // v2.5.0: externalize admin.html's huge inline <script> body so it survives
+    // Jellyfin's admin SPA loadView templater. The templater treats ${...} like
+    // a template-literal engine and corrupts embedded JS, throwing SyntaxError.
+    // Mirrors GetSharedI18nScript's [AllowAnonymous] pattern because the
+    // admin config-page loader may fetch the script tag without auth headers.
+    [HttpGet("admin-script.js")]
+    [AllowAnonymous]
+    [Produces("application/javascript")]
+    public IActionResult GetAdminScript()
+    {
+        var assembly = typeof(Plugin).Assembly;
+        var resourceName = $"{typeof(Plugin).Namespace}.Pages.admin-script.js";
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null) return NotFound();
+        using var reader = new System.IO.StreamReader(stream);
+        var js = reader.ReadToEnd();
+        Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        return Content(js, "application/javascript; charset=utf-8");
+    }
+
     [HttpGet("translations/{lang}")]
     [AllowAnonymous]
     public ActionResult GetTranslations([FromRoute] string lang)

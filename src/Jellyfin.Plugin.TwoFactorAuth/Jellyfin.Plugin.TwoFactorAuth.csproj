@@ -82,6 +82,7 @@
     <EmbeddedResource Update="Pages\translations\pt.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.pt.json" />
     <EmbeddedResource Update="Pages\translations\zh.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.zh.json" />
     <EmbeddedResource Update="Pages\tfa-i18n.js" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.tfa-i18n.js" />
+    <EmbeddedResource Update="Pages\admin-script.js" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.admin-script.js" />
   </ItemGroup>
 
 </Project>
