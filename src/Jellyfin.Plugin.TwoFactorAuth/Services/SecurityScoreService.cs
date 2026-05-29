@@ -5,9 +5,13 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -24,6 +28,7 @@ public class SecurityScoreService : IDisposable
 
     private readonly UserTwoFactorStore _store;
     private readonly StatsService _stats;
+    private readonly IUserManager? _userManager;
     private readonly ILogger<SecurityScoreService> _logger;
     private readonly Func<PluginConfiguration> _configAccessor;
     private readonly string _historyPath;
@@ -34,23 +39,37 @@ public class SecurityScoreService : IDisposable
     public SecurityScoreService(
         UserTwoFactorStore store,
         StatsService stats,
+        IUserManager userManager,
         IApplicationPaths paths,
         ILogger<SecurityScoreService> logger)
-        : this(store, stats, paths, logger, () => Plugin.Instance?.Configuration ?? new PluginConfiguration())
+        : this(store, stats, userManager, paths, logger, () => Plugin.Instance?.Configuration ?? new PluginConfiguration())
     {
     }
 
     // Test seam — accepts a config accessor delegate so tests can mutate config
-    // without spinning up the full Plugin singleton.
+    // without spinning up the full Plugin singleton. userManager is nullable in the
+    // test ctor so existing tests that don't touch admin-enumeration paths still work.
     internal SecurityScoreService(
         UserTwoFactorStore store,
         StatsService stats,
         IApplicationPaths paths,
         ILogger<SecurityScoreService> logger,
         Func<PluginConfiguration> configAccessor)
+        : this(store, stats, null!, paths, logger, configAccessor)
+    {
+    }
+
+    internal SecurityScoreService(
+        UserTwoFactorStore store,
+        StatsService stats,
+        IUserManager? userManager,
+        IApplicationPaths paths,
+        ILogger<SecurityScoreService> logger,
+        Func<PluginConfiguration> configAccessor)
     {
         _store = store;
         _stats = stats;
+        _userManager = userManager;
         _logger = logger;
         _configAccessor = configAccessor;
 
@@ -234,31 +253,20 @@ public class SecurityScoreService : IDisposable
 
     private bool AreAllAdminsProtected(IReadOnlyList<UserTwoFactorData> data)
     {
-        IEnumerable<object> jfUsers;
-        try { jfUsers = _stats.EnumerateUsersPublic(); }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Admin enumeration failed; treating admins factor as vacuously true.");
-            return true;
-        }
+        // v2.5.0 fix #2: HasPermission is an EXTENSION METHOD on User, so
+        // GetType().GetMethod("HasPermission") returns null and every user gets
+        // classified as non-admin. Use IUserManager.Users directly with the typed
+        // extension call. _userManager is null only on the test seam ctor — in
+        // that case treat factor as vacuously true to preserve existing test
+        // semantics.
+        if (_userManager is null) return true;
         var enrolledIds = new HashSet<Guid>(data
             .Where(d => d.TotpEnabled || d.Passkeys.Count > 0)
             .Select(d => d.UserId));
-        // v2.5.0 fix: classify admins by calling user.HasPermission(PermissionKind.IsAdministrator)
-        // — modern Jellyfin stores the admin bit on the permissions list rather than on a
-        // top-level Policy.IsAdministrator property. The old reflection probe always missed it
-        // (Policy was null on 10.11.x), counting every admin as a regular user. Use reflection
-        // again so we don't take a hard ABI dep on a specific PermissionKind enum signature.
-        var permKindType = typeof(Jellyfin.Database.Implementations.Enums.PermissionKind);
-        foreach (var u in jfUsers)
+        foreach (var u in _userManager.Users)
         {
-            var idProp = u.GetType().GetProperty("Id");
-            if (idProp?.GetValue(u) is not Guid id) continue;
-            var hasPermMethod = u.GetType().GetMethod("HasPermission", new[] { permKindType });
-            var isAdmin = hasPermMethod != null
-                && (bool?)hasPermMethod.Invoke(u, new object[] { Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator }) == true;
-            if (!isAdmin) continue;
-            if (!enrolledIds.Contains(id)) return false;
+            if (!u.HasPermission(PermissionKind.IsAdministrator)) continue;
+            if (!enrolledIds.Contains(u.Id)) return false;
         }
         // "No admins exist" still scores full credit (vacuous truth).
         return true;

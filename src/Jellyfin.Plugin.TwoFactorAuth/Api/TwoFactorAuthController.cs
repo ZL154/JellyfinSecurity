@@ -3435,21 +3435,15 @@ public class TwoFactorAuthController : ControllerBase
             .Where(d => d.TotpEnabled || d.Passkeys.Count > 0)
             .Select(d => d.UserId));
         int adminsTotal = 0, adminsEnrolled = 0, regularTotal = 0, regularEnrolled = 0;
-        // v2.5.0 fix: classify admins via user.HasPermission(PermissionKind.IsAdministrator).
-        // Modern Jellyfin stores the admin bit on the permissions table rather than a
-        // top-level Policy.IsAdministrator property, so the old reflection probe came
-        // back false for every admin and the Overview reported "Admins 0/0, Regular 1/N"
-        // even when an admin was clearly the one looking at the page. Reflection is kept
-        // so we stay loosely coupled to the User entity shape across Jellyfin minor versions.
-        var permKindType = typeof(Jellyfin.Database.Implementations.Enums.PermissionKind);
-        foreach (var u in _stats.EnumerateUsersPublic())
+        // v2.5.0 fix #2: HasPermission is an EXTENSION METHOD on User, not an instance
+        // method, so GetType().GetMethod("HasPermission") returns null and every user
+        // was being classified as non-admin. Use _userManager.Users directly with the
+        // typed extension-method call — _userManager is already injected and the
+        // plugin pins to Jellyfin.Controller 10.11.8 so there's no ABI risk.
+        foreach (var u in _userManager.Users)
         {
-            var idProp = u.GetType().GetProperty("Id");
-            if (idProp?.GetValue(u) is not Guid id) continue;
-            var hasPermMethod = u.GetType().GetMethod("HasPermission", new[] { permKindType });
-            var isAdmin = hasPermMethod != null
-                && (bool?)hasPermMethod.Invoke(u, new object[] { Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator }) == true;
-            var isEnrolled = enrolledIds.Contains(id);
+            var isAdmin = u.HasPermission(PermissionKind.IsAdministrator);
+            var isEnrolled = enrolledIds.Contains(u.Id);
             if (isAdmin) { adminsTotal++; if (isEnrolled) adminsEnrolled++; }
             else { regularTotal++; if (isEnrolled) regularEnrolled++; }
         }
