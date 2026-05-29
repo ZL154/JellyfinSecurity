@@ -29,7 +29,7 @@
 
 <p align="center">
   <a href="https://github.com/ZL154/JellyfinSecurity/stargazers"><img src="https://img.shields.io/github/stars/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Stars&color=00a4dc&logo=github&logoColor=white" alt="Stars" /></a>
-  <a href="https://github.com/ZL154/JellyfinSecurity/commits/main"><img src="https://img.shields.io/github/last-commit/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Last%20commit&color=2b2b2b&logo=github&logoColor=white" alt="Last commit" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/releases/latest"><img src="https://img.shields.io/github/release-date/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Released&color=2b2b2b&logo=github&logoColor=white" alt="Latest release date" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/security/advisories"><img src="https://img.shields.io/github/issues-search/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Open%20advisories&query=is%3Aopen%20label%3Asecurity&color=00a4dc&logo=github&logoColor=white" alt="Open security advisories" /></a>
 </p>
 
