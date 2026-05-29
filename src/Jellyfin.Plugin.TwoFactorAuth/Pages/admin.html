@@ -146,6 +146,14 @@
             .tfa-chart-point { cursor: pointer; transition: r 0.1s; }
             .tfa-chart-point:hover { r: 5; }
             .tfa-chart-hit { cursor: pointer; }
+
+            /* v2.5.0: chart header (heading + range selector) */
+            #TwoFactorAuth .tfa-chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+            #TwoFactorAuth .tfa-chart-header h3 { margin: 0; }
+            #TwoFactorAuth .tfa-chart-range { display: flex; gap: 4px; }
+            #TwoFactorAuth .tfa-range-btn { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: #aaa; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+            #TwoFactorAuth .tfa-range-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+            #TwoFactorAuth .tfa-range-btn.active { background: #00a4dc; border-color: #00a4dc; color: #fff; }
         </style>
 
         <div data-role="content">
@@ -205,7 +213,14 @@
 
                         <!-- Auth activity chart -->
                         <div class="tfa-chart-card">
-                            <h3 data-i18n-key="tfa.admin.auth_activity_heading">Auth activity (last 30 days)</h3>
+                            <div class="tfa-chart-header">
+                                <h3 id="authChartHeading" data-i18n-key="tfa.admin.chart.heading_30d">Auth activity (last 30 days)</h3>
+                                <div class="tfa-chart-range" id="authChartRange">
+                                    <button type="button" class="tfa-range-btn active" data-range="30d" data-i18n-key="tfa.admin.chart.range_30d">30 days</button>
+                                    <button type="button" class="tfa-range-btn" data-range="1m" data-i18n-key="tfa.admin.chart.range_1m">1 month</button>
+                                    <button type="button" class="tfa-range-btn" data-range="1y" data-i18n-key="tfa.admin.chart.range_1y">1 year</button>
+                                </div>
+                            </div>
                             <svg class="tfa-chart-svg" id="authChart" viewBox="0 0 600 140" preserveAspectRatio="none"></svg>
                             <div class="tfa-chart-tooltip" id="authChartTooltip"></div>
                         </div>

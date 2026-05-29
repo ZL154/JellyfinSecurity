@@ -633,5 +633,11 @@
   "tfa.admin.settings.btn_save_default_lang": "Standardsprache speichern",
   "tfa.admin.chart.successful": "Erfolgreich",
   "tfa.admin.chart.failed": "Fehlgeschlagen",
-  "tfa.admin.chart.locked": "Gesperrt"
+  "tfa.admin.chart.locked": "Gesperrt",
+  "tfa.admin.chart.range_30d": "30 Tage",
+  "tfa.admin.chart.range_1m": "1 Monat",
+  "tfa.admin.chart.range_1y": "1 Jahr",
+  "tfa.admin.chart.heading_30d": "Anmeldeaktivität (letzte 30 Tage)",
+  "tfa.admin.chart.heading_1m": "Anmeldeaktivität (letzter Monat)",
+  "tfa.admin.chart.heading_1y": "Anmeldeaktivität (letztes Jahr)"
 }

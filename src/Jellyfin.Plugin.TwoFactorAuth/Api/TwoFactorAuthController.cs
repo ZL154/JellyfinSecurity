@@ -3421,7 +3421,7 @@ public class TwoFactorAuthController : ControllerBase
 
     [HttpGet("Dashboard/Overview")]
     [Authorize(Policy = "RequiresElevation")]
-    public async Task<IActionResult> GetDashboardOverview()
+    public async Task<IActionResult> GetDashboardOverview([FromQuery] string range = "30d")
     {
         var score = await _scoreService.ComputeAsync().ConfigureAwait(false);
         var history = await _scoreService.GetHistoryAsync(30).ConfigureAwait(false);
@@ -3448,11 +3448,37 @@ public class TwoFactorAuthController : ControllerBase
             else { regularTotal++; if (isEnrolled) regularEnrolled++; }
         }
 
-        // Time series bucketed per UTC day for the auth-activity chart.
-        var since30 = DateTime.UtcNow.AddDays(-30);
+        // v2.5.0: time-series window is selectable via ?range=30d|1m|1y.
+        // 30d and 1m bucket per UTC day; 1y buckets per month so the chart
+        // stays readable across a full year. Any unknown value falls back
+        // to 30d so admins can't trigger a server error by hand-crafting
+        // the URL.
+        var normalizedRange = range?.ToLowerInvariant() switch
+        {
+            "1m" => "1m",
+            "1y" => "1y",
+            _ => "30d"
+        };
+        DateTime since;
+        string bucketFormat;
+        switch (normalizedRange)
+        {
+            case "1m":
+                since = DateTime.UtcNow.AddMonths(-1);
+                bucketFormat = "yyyy-MM-dd";
+                break;
+            case "1y":
+                since = DateTime.UtcNow.AddYears(-1);
+                bucketFormat = "yyyy-MM";
+                break;
+            default:
+                since = DateTime.UtcNow.AddDays(-30);
+                bucketFormat = "yyyy-MM-dd";
+                break;
+        }
         var timeSeries = audit
-            .Where(e => e.Timestamp >= since30)
-            .GroupBy(e => e.Timestamp.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+            .Where(e => e.Timestamp >= since)
+            .GroupBy(e => e.Timestamp.ToString(bucketFormat, CultureInfo.InvariantCulture))
             .Select(g => new
             {
                 date = g.Key,
@@ -3514,6 +3540,7 @@ public class TwoFactorAuthController : ControllerBase
                 regularTotal,
                 regularEnrolled
             },
+            range = normalizedRange,
             timeSeries,
             bans = bans.Select(b => new
             {

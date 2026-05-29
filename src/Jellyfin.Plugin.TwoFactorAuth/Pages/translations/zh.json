@@ -633,5 +633,11 @@
   "tfa.admin.settings.btn_save_default_lang": "保存默认语言",
   "tfa.admin.chart.successful": "成功",
   "tfa.admin.chart.failed": "失败",
-  "tfa.admin.chart.locked": "已锁定"
+  "tfa.admin.chart.locked": "已锁定",
+  "tfa.admin.chart.range_30d": "30 天",
+  "tfa.admin.chart.range_1m": "1 个月",
+  "tfa.admin.chart.range_1y": "1 年",
+  "tfa.admin.chart.heading_30d": "认证活动(最近 30 天)",
+  "tfa.admin.chart.heading_1m": "认证活动(最近一个月)",
+  "tfa.admin.chart.heading_1y": "认证活动(最近一年)"
 }

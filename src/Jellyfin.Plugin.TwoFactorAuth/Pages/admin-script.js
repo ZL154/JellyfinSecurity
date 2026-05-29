@@ -227,9 +227,14 @@
                 }
 
                 // ---- v2.5.0 Phase 2: DASHBOARD OVERVIEW ----
+                // _currentRange tracks the active auth-activity chart window.
+                // Values: '30d', '1m', '1y' — passed as ?range= to the
+                // overview endpoint. The range selector buttons toggle this.
+                var _currentRange = '30d';
+
                 async function renderOverview() {
                     try {
-                        const data = await apiGet('TwoFactorAuth/Dashboard/Overview');
+                        const data = await apiGet('TwoFactorAuth/Dashboard/Overview?range=' + encodeURIComponent(_currentRange));
 
                         // Posture banner
                         const score = data.score.total || 0;
@@ -284,6 +289,17 @@
                         }).join('');
 
                         // Auth-activity chart — stacked area: success (green), failed (orange), locked (red)
+                        // v2.5.0: heading reflects the active range.
+                        var headingEl = document.getElementById('authChartHeading');
+                        if (headingEl) {
+                            var hKey = _currentRange === '1y'
+                                ? 'tfa.admin.chart.heading_1y'
+                                : (_currentRange === '1m' ? 'tfa.admin.chart.heading_1m' : 'tfa.admin.chart.heading_30d');
+                            var hFallback = _currentRange === '1y'
+                                ? 'Auth activity (last year)'
+                                : (_currentRange === '1m' ? 'Auth activity (last month)' : 'Auth activity (last 30 days)');
+                            headingEl.textContent = _tr(hKey, hFallback);
+                        }
                         renderAuthChart(data.timeSeries || []);
 
                         // Enrollment by role bars
@@ -410,6 +426,26 @@
                             rect.addEventListener('mouseout', hideTip);
                         });
                     }
+                }
+
+                // v2.5.0: auth-activity chart range buttons. Click handlers
+                // swap the active class, update _currentRange, and re-fetch
+                // the dashboard overview so the chart redraws with the new
+                // window. Buttons are inside the Overview panel, so they
+                // exist at IIFE-parse time.
+                var rangeContainer = document.getElementById('authChartRange');
+                if (rangeContainer) {
+                    rangeContainer.addEventListener('click', function(e) {
+                        var btn = e.target.closest('.tfa-range-btn');
+                        if (!btn) return;
+                        var r = btn.getAttribute('data-range');
+                        if (!r || r === _currentRange) return;
+                        _currentRange = r;
+                        Array.prototype.forEach.call(rangeContainer.querySelectorAll('.tfa-range-btn'), function(b) {
+                            b.classList.toggle('active', b === btn);
+                        });
+                        renderOverview();
+                    });
                 }
 
                 // ---- v1.4: DIAGNOSTICS ----

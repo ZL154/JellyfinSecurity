@@ -633,5 +633,11 @@
   "tfa.admin.settings.btn_save_default_lang": "Salva lingua predefinita",
   "tfa.admin.chart.successful": "Riuscito",
   "tfa.admin.chart.failed": "Fallito",
-  "tfa.admin.chart.locked": "Bloccato"
+  "tfa.admin.chart.locked": "Bloccato",
+  "tfa.admin.chart.range_30d": "30 giorni",
+  "tfa.admin.chart.range_1m": "1 mese",
+  "tfa.admin.chart.range_1y": "1 anno",
+  "tfa.admin.chart.heading_30d": "Attività di autenticazione (ultimi 30 giorni)",
+  "tfa.admin.chart.heading_1m": "Attività di autenticazione (ultimo mese)",
+  "tfa.admin.chart.heading_1y": "Attività di autenticazione (ultimo anno)"
 }

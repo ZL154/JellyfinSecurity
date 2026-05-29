@@ -633,5 +633,11 @@
   "tfa.admin.settings.btn_save_default_lang": "Save default language",
   "tfa.admin.chart.successful": "Successful",
   "tfa.admin.chart.failed": "Failed",
-  "tfa.admin.chart.locked": "Locked-out"
+  "tfa.admin.chart.locked": "Locked-out",
+  "tfa.admin.chart.range_30d": "30 days",
+  "tfa.admin.chart.range_1m": "1 month",
+  "tfa.admin.chart.range_1y": "1 year",
+  "tfa.admin.chart.heading_30d": "Auth activity (last 30 days)",
+  "tfa.admin.chart.heading_1m": "Auth activity (last month)",
+  "tfa.admin.chart.heading_1y": "Auth activity (last year)"
 }
