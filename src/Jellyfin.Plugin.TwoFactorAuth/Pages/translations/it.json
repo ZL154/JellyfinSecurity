@@ -605,5 +605,7 @@
   "tfa.pairconfirm.success_prefix": "Dispositivo associato. Ora puoi accedere su",
   "tfa.pairconfirm.fallback_device": "il dispositivo",
   "tfa.pairconfirm.error_failed": "Associazione non riuscita.",
-  "tfa.pairconfirm.error_network": "Errore di rete. Riprova."
+  "tfa.pairconfirm.error_network": "Errore di rete. Riprova.",
+  "tfa.setup.ap.default_label": "Password app",
+  "tfa.setup.trusted.default_browser": "Browser"
 }

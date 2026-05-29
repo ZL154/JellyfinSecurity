@@ -605,5 +605,7 @@
   "tfa.pairconfirm.success_prefix": "Appareil appairé. Vous pouvez maintenant vous connecter sur",
   "tfa.pairconfirm.fallback_device": "l'appareil",
   "tfa.pairconfirm.error_failed": "Échec de l'appairage.",
-  "tfa.pairconfirm.error_network": "Erreur réseau. Réessayez."
+  "tfa.pairconfirm.error_network": "Erreur réseau. Réessayez.",
+  "tfa.setup.ap.default_label": "Mot de passe d'application",
+  "tfa.setup.trusted.default_browser": "Navigateur"
 }

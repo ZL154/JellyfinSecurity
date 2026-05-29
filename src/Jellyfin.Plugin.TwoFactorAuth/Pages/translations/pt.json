@@ -605,5 +605,7 @@
   "tfa.pairconfirm.success_prefix": "Dispositivo pareado. Agora você pode entrar em",
   "tfa.pairconfirm.fallback_device": "o dispositivo",
   "tfa.pairconfirm.error_failed": "Falha no pareamento.",
-  "tfa.pairconfirm.error_network": "Erro de rede. Tente novamente."
+  "tfa.pairconfirm.error_network": "Erro de rede. Tente novamente.",
+  "tfa.setup.ap.default_label": "Senha de aplicativo",
+  "tfa.setup.trusted.default_browser": "Navegador"
 }

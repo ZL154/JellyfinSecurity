@@ -605,5 +605,7 @@
   "tfa.pairconfirm.success_prefix": "Dispositivo emparejado. Ahora puedes iniciar sesión en",
   "tfa.pairconfirm.fallback_device": "el dispositivo",
   "tfa.pairconfirm.error_failed": "Error al emparejar.",
-  "tfa.pairconfirm.error_network": "Error de red. Inténtalo de nuevo."
+  "tfa.pairconfirm.error_network": "Error de red. Inténtalo de nuevo.",
+  "tfa.setup.ap.default_label": "Contraseña de aplicación",
+  "tfa.setup.trusted.default_browser": "Navegador"
 }

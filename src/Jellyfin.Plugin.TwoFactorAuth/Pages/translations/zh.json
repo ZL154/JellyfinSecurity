@@ -605,5 +605,7 @@
   "tfa.pairconfirm.success_prefix": "设备已配对。您现在可以登录",
   "tfa.pairconfirm.fallback_device": "该设备",
   "tfa.pairconfirm.error_failed": "配对失败。",
-  "tfa.pairconfirm.error_network": "网络错误。请重试。"
+  "tfa.pairconfirm.error_network": "网络错误。请重试。",
+  "tfa.setup.ap.default_label": "应用密码",
+  "tfa.setup.trusted.default_browser": "浏览器"
 }

@@ -771,7 +771,7 @@
                 return '<div class="device-row">' +
                     '<div class="device-icon">🔑</div>' +
                     '<div class="device-info">' +
-                        '<div class="device-name">' + escapeHtml(p.label) + '</div>' +
+                        '<div class="device-name">' + escapeHtml((!p.label || p.label === 'App password') ? _tr('tfa.setup.ap.default_label', 'App password') : p.label) + '</div>' +
                         '<div class="device-meta">' + _tr('tfa.setup.ap.created_prefix', 'created') + ' ' + fmtRel(p.createdAt) + ' · ' + _tr('tfa.setup.common.last_used_prefix', 'last used') + ' ' + fmtRel(p.lastUsedAt) + (p.lastDeviceName ? ' ' + _tr('tfa.setup.ap.from_prefix', 'from') + ' ' + escapeHtml(p.lastDeviceName) : '') + '</div>' +
                     '</div>' +
                     '<button class="btn-danger btn-sm tfa-revoke-ap" data-id="' + escapeHtml(p.id) + '">' + _tr('tfa.setup.common.btn_revoke', 'Revoke') + '</button>' +
@@ -793,7 +793,7 @@
                 return '<div class="device-row">' +
                     '<div class="device-icon">🌐</div>' +
                     '<div class="device-info">' +
-                        '<div class="device-name">' + escapeHtml(d.deviceName || d.DeviceName || _tr('tfa.setup.trusted.unknown_browser', 'Unknown browser')) + '</div>' +
+                        '<div class="device-name">' + escapeHtml(((d.deviceName === 'Browser' || d.DeviceName === 'Browser') ? _tr('tfa.setup.trusted.default_browser', 'Browser') : (d.deviceName || d.DeviceName || _tr('tfa.setup.trusted.unknown_browser', 'Unknown browser')))) + '</div>' +
                         '<div class="device-meta">' + _tr('tfa.setup.trusted.added_prefix', 'added') + ' ' + fmtRel(d.createdAt || d.CreatedAt) + ' · ' + _tr('tfa.setup.common.last_used_prefix', 'last used') + ' ' + fmtRel(d.lastUsedAt || d.LastUsedAt) + '</div>' +
                     '</div>' +
                     '<button class="btn-danger btn-sm tfa-revoke-trust" data-id="' + escapeHtml(d.id || d.Id) + '">' + _tr('tfa.setup.common.btn_revoke', 'Revoke') + '</button>' +

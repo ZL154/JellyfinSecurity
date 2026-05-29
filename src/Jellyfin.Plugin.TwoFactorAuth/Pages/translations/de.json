@@ -605,5 +605,7 @@
   "tfa.pairconfirm.success_prefix": "Gerät gekoppelt. Sie können sich jetzt anmelden auf",
   "tfa.pairconfirm.fallback_device": "dem Gerät",
   "tfa.pairconfirm.error_failed": "Kopplung fehlgeschlagen.",
-  "tfa.pairconfirm.error_network": "Netzwerkfehler. Versuchen Sie es erneut."
+  "tfa.pairconfirm.error_network": "Netzwerkfehler. Versuchen Sie es erneut.",
+  "tfa.setup.ap.default_label": "App-Passwort",
+  "tfa.setup.trusted.default_browser": "Browser"
 }

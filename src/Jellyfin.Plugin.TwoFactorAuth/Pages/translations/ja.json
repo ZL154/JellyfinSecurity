@@ -605,5 +605,7 @@
   "tfa.pairconfirm.success_prefix": "デバイスをペアリングしました。次の端末でサインインできます:",
   "tfa.pairconfirm.fallback_device": "デバイス",
   "tfa.pairconfirm.error_failed": "ペアリングに失敗しました。",
-  "tfa.pairconfirm.error_network": "ネットワークエラー。再度お試しください。"
+  "tfa.pairconfirm.error_network": "ネットワークエラー。再度お試しください。",
+  "tfa.setup.ap.default_label": "アプリパスワード",
+  "tfa.setup.trusted.default_browser": "ブラウザ"
 }

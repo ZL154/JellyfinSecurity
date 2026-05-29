@@ -605,5 +605,7 @@
   "tfa.pairconfirm.success_prefix": "Device paired. You can now sign in on",
   "tfa.pairconfirm.fallback_device": "the device",
   "tfa.pairconfirm.error_failed": "Pairing failed.",
-  "tfa.pairconfirm.error_network": "Network error. Try again."
+  "tfa.pairconfirm.error_network": "Network error. Try again.",
+  "tfa.setup.ap.default_label": "App password",
+  "tfa.setup.trusted.default_browser": "Browser"
 }
