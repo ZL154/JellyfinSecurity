@@ -506,6 +506,13 @@
             return '📦';
         }
 
+        // v2.5.0 fix: setup.html runs OUTSIDE Jellyfin's SPA shell, so
+        // window.ApiClient.getCurrentUserId() is undefined here. We stash
+        // the user's GUID from /Users/Me each loadAll() pass and let the
+        // indefinite-trust handlers (which need it for the PUT URL) read
+        // from this module-scope var instead of poking ApiClient.
+        var _myUserId = null;
+
         // ============ STATUS ============
         function loadAll() {
             var token = getToken();
@@ -526,6 +533,7 @@
                 api('GET', 'TwoFactorAuth/MySessions').catch(function() { return []; }),
             ]).then(function(r) {
                 var myStatus = r[0], me = r[1];
+                if (me && (me.Id || me.id)) _myUserId = me.Id || me.id;
                 if (!me) {
                     // /Users/Me failed — most likely the access token was
                     // rejected (blocked, expired, or not present). Tell the
@@ -772,7 +780,7 @@
                 b.addEventListener('click', async function() {
                     var id = b.dataset.id;
                     var next = b.dataset.current !== 'true';
-                    var uid = (window.ApiClient && ApiClient.getCurrentUserId && ApiClient.getCurrentUserId()) || '';
+                    var uid = _myUserId || (window.ApiClient && ApiClient.getCurrentUserId && ApiClient.getCurrentUserId()) || '';
                     if (!uid) { alert(_tr('tfa.error.unknown', 'Something went wrong')); return; }
                     try {
                         await api('PUT', 'TwoFactorAuth/Users/' + uid + '/PairedDevices/' + id + '/Indefinite', { indefinite: next });
@@ -839,7 +847,7 @@
                 b.addEventListener('click', async function() {
                     var id = b.dataset.id;
                     var next = b.dataset.current !== 'true';
-                    var uid = (window.ApiClient && ApiClient.getCurrentUserId && ApiClient.getCurrentUserId()) || '';
+                    var uid = _myUserId || (window.ApiClient && ApiClient.getCurrentUserId && ApiClient.getCurrentUserId()) || '';
                     if (!uid) { alert(_tr('tfa.error.unknown', 'Something went wrong')); return; }
                     try {
                         await api('PUT', 'TwoFactorAuth/Users/' + uid + '/TrustedBrowsers/' + id + '/Indefinite', { indefinite: next });

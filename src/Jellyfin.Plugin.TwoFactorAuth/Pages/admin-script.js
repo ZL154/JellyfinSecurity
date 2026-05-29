@@ -366,10 +366,37 @@
                         const poly = points.concat(bottomPoints.reverse()).join(' ');
                         svgInner += `<polygon points="${poly}" fill="${colors[layer]}" fill-opacity="0.55" stroke="${colors[layer]}" stroke-width="1" />`;
                     }
+                    // v2.5.0: light horizontal gridlines at 25/50/75% of max
+                    // so the chart isn't visually flat between 0 and the top
+                    // value. Drawn UNDER the polygons (svgInner ordering) so
+                    // they read as faint background grid.
+                    [0.25, 0.5, 0.75].forEach(frac => {
+                        const v = Math.round(max * frac);
+                        const y = yScale(v);
+                        svgInner = `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="2,3" />` +
+                                   `<text x="${padL - 4}" y="${y + 3}" text-anchor="end" fill="#666" font-size="9">${v}</text>` +
+                                   svgInner;
+                    });
                     // Y axis baseline
                     svgInner += `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#444" stroke-width="1" />`;
                     svgInner += `<text x="${padL - 4}" y="${padT + 8}" text-anchor="end" fill="#888" font-size="10">${max}</text>`;
                     svgInner += `<text x="${padL - 4}" y="${H - padB}" text-anchor="end" fill="#888" font-size="10">0</text>`;
+                    // v2.5.0: x-axis date labels — show first, middle, last
+                    // bucket so the user knows what date range they're seeing.
+                    if (series.length >= 2) {
+                        const indices = series.length >= 4
+                            ? [0, Math.floor(series.length / 2), series.length - 1]
+                            : [0, series.length - 1];
+                        indices.forEach(i => {
+                            const x = padL + i * xStep;
+                            // For monthly buckets (yyyy-MM) show as-is; for daily (yyyy-MM-dd) show MM-dd.
+                            const lbl = series[i].date.length === 7
+                                ? series[i].date
+                                : series[i].date.substring(5);
+                            const anchor = i === 0 ? 'start' : (i === series.length - 1 ? 'end' : 'middle');
+                            svgInner += `<text x="${x}" y="${H - 6}" text-anchor="${anchor}" fill="#888" font-size="9">${escapeHtml(lbl)}</text>`;
+                        });
+                    }
 
                     // v2.5.0: filled data-point markers at the top of the
                     // stacked totals so each day/month is a visible dot.
