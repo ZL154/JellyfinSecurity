@@ -203,7 +203,10 @@
         function syncCompactLabel() {
             expandLabels();
             var sel = select.options[select.selectedIndex];
-            if (sel) sel.textContent = sel.value;
+            // v2.5.0: collapsed label shows uppercase code (EN/DE/…) so the
+            // tiny pill next to the globe glyph stays readable. Full native
+            // names are restored on focus/mousedown via expandLabels().
+            if (sel) sel.textContent = (sel.value || '').toUpperCase();
         }
         select.addEventListener('mousedown', expandLabels);
         select.addEventListener('focus', expandLabels);
