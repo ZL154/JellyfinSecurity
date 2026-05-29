@@ -272,6 +272,7 @@
   "tfa.admin.sso.opt_require_mfa": "Require IdP MFA (refuse sign-in if amr claim doesn't show MFA)",
   "tfa.admin.sso.opt_bypass_2fa": "Skip plugin 2FA (recommended — IdP already authenticated the user)",
   "tfa.admin.sso.opt_show_button": "Show button on login page",
+  "tfa.admin.sso.opt_force_https": "Force HTTPS on redirect_uri (only if your reverse proxy doesn't propagate X-Forwarded-Proto)",
   "tfa.admin.sso.btn_save": "Save provider",
   "tfa.admin.sso.alert_display_required": "Display name is required.",
   "tfa.admin.sso.alert_client_id_required": "Client ID is required.",

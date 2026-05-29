@@ -272,6 +272,7 @@
   "tfa.admin.sso.opt_require_mfa": "IdPのMFAを必須にする(amrクレームでMFAが示されない場合はサインインを拒否)",
   "tfa.admin.sso.opt_bypass_2fa": "プラグインの2FAをスキップ(推奨 — IdPがすでにユーザーを認証済み)",
   "tfa.admin.sso.opt_show_button": "ログインページにボタンを表示",
+  "tfa.admin.sso.opt_force_https": "redirect_uri を HTTPS に強制(リバースプロキシが X-Forwarded-Proto を伝播しない場合のみ)",
   "tfa.admin.sso.btn_save": "プロバイダーを保存",
   "tfa.admin.sso.alert_display_required": "表示名は必須です。",
   "tfa.admin.sso.alert_client_id_required": "クライアントIDは必須です。",

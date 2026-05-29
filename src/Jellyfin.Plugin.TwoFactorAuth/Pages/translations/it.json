@@ -272,6 +272,7 @@
   "tfa.admin.sso.opt_require_mfa": "Richiedi MFA dell'IdP (rifiuta l'accesso se il claim amr non indica MFA)",
   "tfa.admin.sso.opt_bypass_2fa": "Salta il 2FA del plugin (consigliato — l'IdP ha già autenticato l'utente)",
   "tfa.admin.sso.opt_show_button": "Mostra pulsante nella pagina di accesso",
+  "tfa.admin.sso.opt_force_https": "Forza HTTPS su redirect_uri (solo se il reverse proxy non propaga X-Forwarded-Proto)",
   "tfa.admin.sso.btn_save": "Salva provider",
   "tfa.admin.sso.alert_display_required": "Il nome visualizzato è obbligatorio.",
   "tfa.admin.sso.alert_client_id_required": "L'ID client è obbligatorio.",

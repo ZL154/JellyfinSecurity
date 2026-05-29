@@ -272,6 +272,7 @@
   "tfa.admin.sso.opt_require_mfa": "Exigir MFA del IdP (rechazar inicio si el claim amr no muestra MFA)",
   "tfa.admin.sso.opt_bypass_2fa": "Omitir el 2FA del plugin (recomendado — el IdP ya autenticó al usuario)",
   "tfa.admin.sso.opt_show_button": "Mostrar botón en la página de inicio de sesión",
+  "tfa.admin.sso.opt_force_https": "Forzar HTTPS en redirect_uri (solo si tu proxy inverso no propaga X-Forwarded-Proto)",
   "tfa.admin.sso.btn_save": "Guardar proveedor",
   "tfa.admin.sso.alert_display_required": "El nombre para mostrar es obligatorio.",
   "tfa.admin.sso.alert_client_id_required": "El ID del cliente es obligatorio.",

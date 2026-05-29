@@ -272,6 +272,7 @@
   "tfa.admin.sso.opt_require_mfa": "要求 IdP MFA(若 amr 声明未显示 MFA 则拒绝登录)",
   "tfa.admin.sso.opt_bypass_2fa": "跳过插件 2FA(推荐 — IdP 已对用户进行了认证)",
   "tfa.admin.sso.opt_show_button": "在登录页显示按钮",
+  "tfa.admin.sso.opt_force_https": "强制 redirect_uri 使用 HTTPS(仅在反向代理不传递 X-Forwarded-Proto 时启用)",
   "tfa.admin.sso.btn_save": "保存提供方",
   "tfa.admin.sso.alert_display_required": "显示名称为必填项。",
   "tfa.admin.sso.alert_client_id_required": "客户端 ID 为必填项。",

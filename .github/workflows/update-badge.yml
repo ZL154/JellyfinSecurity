@@ -15,8 +15,11 @@ jobs:
   update:
     runs-on: ubuntu-latest
     # Skip when the previous commit was already this workflow,
-    # so we never recurse on our own push.
-    if: ${{ github.event.head_commit.author.name != 'github-actions[bot]' || !contains(github.event.head_commit.message, 'auto: bump Last-commit badge') }}
+    # so we never recurse on our own push. The whole expression is wrapped in
+    # double quotes so strict YAML parsers (OSSF Scorecard) don't choke on the
+    # colon inside the single-quoted commit-message literal. GitHub Actions
+    # evaluates ${{ ... }} fine inside a YAML quoted string.
+    if: "${{ github.event.head_commit.author.name != 'github-actions[bot]' || !contains(github.event.head_commit.message, 'auto: bump Last-commit badge') }}"
 
     steps:
       - name: Checkout

@@ -272,6 +272,7 @@
   "tfa.admin.sso.opt_require_mfa": "IdP-MFA erforderlich (Anmeldung ablehnen, wenn der amr-Claim keine MFA zeigt)",
   "tfa.admin.sso.opt_bypass_2fa": "Plugin-2FA überspringen (empfohlen — der IdP hat den Benutzer bereits authentifiziert)",
   "tfa.admin.sso.opt_show_button": "Schaltfläche auf der Anmeldeseite anzeigen",
+  "tfa.admin.sso.opt_force_https": "HTTPS für redirect_uri erzwingen (nur wenn der Reverse-Proxy X-Forwarded-Proto nicht weiterreicht)",
   "tfa.admin.sso.btn_save": "Anbieter speichern",
   "tfa.admin.sso.alert_display_required": "Anzeigename ist erforderlich.",
   "tfa.admin.sso.alert_client_id_required": "Client ID ist erforderlich.",

@@ -406,6 +406,9 @@
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="ssoEnabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_show_button">Show button on login page</span></label>
                             </div>
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="ssoForceHttps" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_force_https">Force HTTPS on redirect_uri (only if your reverse proxy doesn't propagate X-Forwarded-Proto)</span></label>
+                            </div>
                             <div id="ssoSetupHint" class="tfa-note" style="margin-top:8px;display:none;"></div>
                             <div style="margin-top:14px;display:flex;gap:10px;">
                                 <button type="button" class="tfa-btn tfa-btn-primary" id="ssoSaveBtn" data-i18n-key="tfa.admin.sso.btn_save">Save provider</button>
