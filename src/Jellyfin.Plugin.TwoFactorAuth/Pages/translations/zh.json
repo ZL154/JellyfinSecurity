@@ -654,5 +654,13 @@
   "tfa.setup.passkeys.diag_rp_id": "已配置的 RP ID：",
   "tfa.setup.passkeys.diag_origins": "已配置的来源：",
   "tfa.setup.passkeys.diag_auto": "（自动）",
-  "tfa.setup.passkeys.diag_none": "（无）"
+  "tfa.setup.passkeys.diag_none": "（无）",
+  "tfa.admin.hardening.allow_indefinite_trust_label": "允许用户选择启用设备无限期信任",
+  "tfa.admin.hardening.allow_indefinite_trust_pill": "高级",
+  "tfa.admin.hardening.allow_indefinite_trust_help": "启用后，用户可以将单个受信任的浏览器和已配对设备标记为无限期保持登录（无需每30天重新认证）。出于安全考虑默认关闭 — 任何能物理访问设备的人在用户手动撤销前都将保持访问权限。",
+  "tfa.setup.trusted.indefinite_label": "无限期",
+  "tfa.setup.trusted.indefinite_title": "无限期保持登录（跳过30天重新认证）",
+  "tfa.setup.trusted.indefinite_active": "无限期 ✓",
+  "tfa.setup.paired.indefinite_label": "无限期",
+  "tfa.setup.paired.indefinite_title": "无限期保持配对"
 }

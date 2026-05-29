@@ -785,10 +785,21 @@ public class TwoFactorAuthController : ControllerBase
                 // (a) a stolen cookie can't be replayed with an attacker-chosen
                 // X-Emby-Device-Id header and (b) an attacker who tampers with
                 // the trust record file can't extend the window. TTL is admin-
-                // configurable in v1.4 (default 30 days, range 1-90).
-                var ttlDays = Math.Clamp(
-                    Plugin.Instance?.Configuration?.TrustCookieTtlDays ?? 30, 1, 90);
-                var expiryUnix = DateTimeOffset.UtcNow.AddDays(ttlDays).ToUnixTimeSeconds();
+                // configurable in v1.4 (default 30 days, range 1-90). v2.5.0:
+                // if the trust record carries IndefiniteTrust, the cookie is
+                // issued with ~100yr expiry.
+                DateTimeOffset cookieExpires;
+                if (trustRecord.IndefiniteTrust)
+                {
+                    cookieExpires = DateTimeOffset.UtcNow.AddYears(100);
+                }
+                else
+                {
+                    var ttlDays = Math.Clamp(
+                        Plugin.Instance?.Configuration?.TrustCookieTtlDays ?? 30, 1, 90);
+                    cookieExpires = DateTimeOffset.UtcNow.AddDays(ttlDays);
+                }
+                var expiryUnix = cookieExpires.ToUnixTimeSeconds();
                 var deviceB64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(deviceId ?? string.Empty))
                     .TrimEnd('=').Replace('+', '-').Replace('/', '_');
                 var cookieValue = $"{user.Id:N}.{trustRecord.Id}.{deviceB64}.{expiryUnix}";
@@ -804,7 +815,7 @@ public class TwoFactorAuthController : ControllerBase
                     // unchanged.
                     Secure = BypassEvaluator.IsSecureRequest(HttpContext),
                     SameSite = SameSiteMode.Strict,
-                    Expires = DateTimeOffset.UtcNow.AddDays(ttlDays),
+                    Expires = cookieExpires,
                     Path = "/",
                     IsEssential = true,
                 });
@@ -1473,6 +1484,7 @@ public class TwoFactorAuthController : ControllerBase
             DeviceName = d.DeviceName,
             CreatedAt = d.CreatedAt,
             LastUsedAt = d.LastUsedAt,
+            IndefiniteTrust = d.IndefiniteTrust,
         }).ToList();
 
         return Ok(response);
@@ -1528,6 +1540,67 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         return Ok();
+    }
+
+    // -------------------------------------------------------------------------
+    // v2.5.0: per-device indefinite-trust opt-in. Gated by the admin-side
+    // AllowIndefiniteTrust master switch; refuses when off so a stale client
+    // can't flip the bit after the admin disabled the feature. Self-or-admin
+    // authorized via IsAuthorizedForUser.
+    // -------------------------------------------------------------------------
+
+    [HttpPut("Users/{userId:guid}/TrustedBrowsers/{recordId}/Indefinite")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> SetTrustedBrowserIndefinite(
+        [FromRoute] Guid userId,
+        [FromRoute] string recordId,
+        [FromBody] SetIndefiniteTrustRequest request)
+    {
+        if (!IsAuthorizedForUser(userId)) return Forbid();
+        var cfg = Plugin.Instance?.Configuration ?? new Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration();
+        if (!cfg.AllowIndefiniteTrust)
+        {
+            return BadRequest(new { message = "Indefinite trust is disabled by the administrator." });
+        }
+        // Step-up gate: extending trust forever is security-relevant, so it
+        // counts as a config change under the admin-side StepUpLevel policy.
+        var guard = StepUpGuard(StepUpAction.ConfigChange);
+        if (guard is not null) return guard;
+        await _store.MutateAsync(userId, d =>
+        {
+            var rec = d.TrustedDevices.FirstOrDefault(t => t.Id == recordId);
+            if (rec is not null) rec.IndefiniteTrust = request?.Indefinite ?? false;
+        }).ConfigureAwait(false);
+        return Ok(new { ok = true });
+    }
+
+    [HttpPut("Users/{userId:guid}/PairedDevices/{recordId}/Indefinite")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> SetPairedDeviceIndefinite(
+        [FromRoute] Guid userId,
+        [FromRoute] string recordId,
+        [FromBody] SetIndefiniteTrustRequest request)
+    {
+        if (!IsAuthorizedForUser(userId)) return Forbid();
+        var cfg = Plugin.Instance?.Configuration ?? new Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration();
+        if (!cfg.AllowIndefiniteTrust)
+        {
+            return BadRequest(new { message = "Indefinite trust is disabled by the administrator." });
+        }
+        var guard = StepUpGuard(StepUpAction.ConfigChange);
+        if (guard is not null) return guard;
+        await _store.MutateAsync(userId, d =>
+        {
+            var rec = d.PairedDevices.FirstOrDefault(p => p.Id == recordId);
+            if (rec is not null) rec.IndefiniteTrust = request?.Indefinite ?? false;
+        }).ConfigureAwait(false);
+        return Ok(new { ok = true });
     }
 
     // -------------------------------------------------------------------------
@@ -2395,6 +2468,7 @@ public class TwoFactorAuthController : ControllerBase
             createdAt = p.CreatedAt,
             lastUsedAt = p.LastUsedAt,
             lastIp = p.LastIp,
+            indefiniteTrust = p.IndefiniteTrust,
         });
         return Ok(rows);
     }
@@ -3317,6 +3391,10 @@ public class TwoFactorAuthController : ControllerBase
             // Clamp to the same range MarkStepUpVerified uses (60-900).
             config.StepUpWindowSeconds = Math.Clamp(request.StepUpWindowSeconds.Value, 60, 900);
         }
+        if (request.AllowIndefiniteTrust.HasValue)
+        {
+            config.AllowIndefiniteTrust = request.AllowIndefiniteTrust.Value;
+        }
         plugin.SaveConfiguration();
         return Ok();
     }
@@ -3567,7 +3645,11 @@ public class TwoFactorAuthController : ControllerBase
         return Ok(new
         {
             defaultLanguage = cfg.DefaultLanguage,
-            supportedLanguages = SupportedLanguages
+            supportedLanguages = SupportedLanguages,
+            // v2.5.0: lets setup.html decide whether to render the per-device
+            // indefinite-trust toggle. The server-side endpoints also enforce
+            // this — the public-config flag is purely a UI gate.
+            allowIndefiniteTrust = cfg.AllowIndefiniteTrust,
         });
     }
 

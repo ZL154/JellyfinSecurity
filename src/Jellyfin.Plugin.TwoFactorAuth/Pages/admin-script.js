@@ -981,6 +981,8 @@
                         // v2.5.0 hardening fields
                         page.querySelector('#cfgRequire2faToDisable').checked = !!c.RequireTwoFactorToDisable;
                         page.querySelector('#cfgStepUpLevel').value = (c.StepUpLevel != null ? c.StepUpLevel : 0);
+                        var indefEl = page.querySelector('#cfgAllowIndefiniteTrust');
+                        if (indefEl) indefEl.checked = !!c.AllowIndefiniteTrust;
                         // v2.5.0 Localization: server-wide default language
                         var dlSel = page.querySelector('#cfgDefaultLanguage');
                         if (dlSel) dlSel.value = c.DefaultLanguage || 'en';
@@ -1095,10 +1097,12 @@
                     }).then(function() {
                         // v2.5.0: also persist hardening fields via the gated endpoint.
                         // This lets the server enforce a step-up gate on these specific fields.
+                        var indefEl = page.querySelector('#cfgAllowIndefiniteTrust');
                         var hardening = {
                             RequireTwoFactorToDisable: page.querySelector('#cfgRequire2faToDisable').checked,
                             StepUpLevel: parseInt(page.querySelector('#cfgStepUpLevel').value, 10) || 0,
                             StepUpWindowSeconds: (_currentConfig && _currentConfig.StepUpWindowSeconds) || 300,
+                            AllowIndefiniteTrust: indefEl ? indefEl.checked : false,
                         };
                         return stepUpFetch('TwoFactorAuth/Admin/HardeningConfig', {
                             method: 'POST',

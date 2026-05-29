@@ -532,6 +532,14 @@
                                 </select>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.hardening.stepup_level_help">Controls which admin actions require a fresh 2FA code from the performing admin. "Off" restores v2.4 behaviour. Saved through the gated <code>/TwoFactorAuth/Admin/HardeningConfig</code> endpoint.</div>
                             </div>
+                            <!-- v2.5.0: master switch for per-device indefinite-trust opt-in. -->
+                            <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
+                                <label class="tfa-check-label">
+                                    <input type="checkbox" id="cfgAllowIndefiniteTrust" is="emby-checkbox" />
+                                    <span><span data-i18n-key="tfa.admin.hardening.allow_indefinite_trust_label">Allow users to opt into indefinite device trust</span> &nbsp;<span class="tfa-badge warn" style="font-size:10px;vertical-align:middle;" data-i18n-key="tfa.admin.hardening.allow_indefinite_trust_pill">Advanced</span></span>
+                                </label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.hardening.allow_indefinite_trust_help">When enabled, users can mark individual trusted browsers and paired devices to stay signed in indefinitely (no 30-day re-auth). Default OFF for safety — anyone with physical access to the device retains access until the user manually revokes.</div>
+                            </div>
                         </div>
 
                         <div class="tfa-section">

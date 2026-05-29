@@ -151,6 +151,12 @@ public class TrustedDevice
     public DateTime CreatedAt { get; set; }
 
     public DateTime LastUsedAt { get; set; }
+
+    /// <summary>v2.5.0: when true, the trust cookie for this record is issued
+    /// with a far-future (100-year) expiry and the server-side validator skips
+    /// the expiry check. Only settable when the admin has enabled
+    /// PluginConfiguration.AllowIndefiniteTrust.</summary>
+    public bool IndefiniteTrust { get; set; }
 }
 
 /// <summary>App-specific password that lets a native client bypass 2FA.
@@ -245,4 +251,9 @@ public class PairedDevice
     public DateTime LastUsedAt { get; set; }
 
     public string LastIp { get; set; } = string.Empty;
+
+    /// <summary>v2.5.0: when true, this paired device stays bypass-eligible
+    /// without the usual 30-day re-auth. Only settable when the admin has
+    /// enabled PluginConfiguration.AllowIndefiniteTrust.</summary>
+    public bool IndefiniteTrust { get; set; }
 }

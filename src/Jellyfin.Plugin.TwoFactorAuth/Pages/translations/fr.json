@@ -654,5 +654,13 @@
   "tfa.setup.passkeys.diag_rp_id": "RP ID configuré :",
   "tfa.setup.passkeys.diag_origins": "origines configurées :",
   "tfa.setup.passkeys.diag_auto": "(automatique)",
-  "tfa.setup.passkeys.diag_none": "(aucune)"
+  "tfa.setup.passkeys.diag_none": "(aucune)",
+  "tfa.admin.hardening.allow_indefinite_trust_label": "Autoriser les utilisateurs à activer la confiance d'appareil indéfinie",
+  "tfa.admin.hardening.allow_indefinite_trust_pill": "Avancé",
+  "tfa.admin.hardening.allow_indefinite_trust_help": "Lorsqu'activé, les utilisateurs peuvent marquer des navigateurs de confiance et des appareils appairés individuels pour rester connectés indéfiniment (pas de ré-authentification tous les 30 jours). DÉSACTIVÉ par défaut pour la sécurité — quiconque a un accès physique à l'appareil conserve l'accès jusqu'à ce que l'utilisateur le révoque manuellement.",
+  "tfa.setup.trusted.indefinite_label": "Indéfini",
+  "tfa.setup.trusted.indefinite_title": "Rester connecté indéfiniment (ignorer la ré-authentification de 30 jours)",
+  "tfa.setup.trusted.indefinite_active": "Indéfini ✓",
+  "tfa.setup.paired.indefinite_label": "Indéfini",
+  "tfa.setup.paired.indefinite_title": "Rester appairé indéfiniment"
 }

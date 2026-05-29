@@ -80,13 +80,18 @@ public class TrustCookieMiddleware
                     return;
                 }
 
-                if (!long.TryParse(parts[3], out var expiryUnix)
-                    || DateTimeOffset.FromUnixTimeSeconds(expiryUnix) <= DateTimeOffset.UtcNow)
+                if (!long.TryParse(parts[3], out var expiryUnix))
                 {
-                    _logger.LogDebug("[2FA] Trust cookie expired for {UserId}", userId);
                     await _next(context).ConfigureAwait(false);
                     return;
                 }
+
+                // v2.5.0: actual expiry enforcement is deferred until we've
+                // located the trust record, so we can skip the expiry check
+                // for records flagged IndefiniteTrust=true (belt-and-suspenders:
+                // the cookie was issued with ~100yr expiry, but if a client
+                // clears the cookie expiry the server still honors it).
+                var expired = DateTimeOffset.FromUnixTimeSeconds(expiryUnix) <= DateTimeOffset.UtcNow;
 
                 string? signedDeviceId;
                 try
@@ -124,6 +129,14 @@ public class TrustCookieMiddleware
                     return;
                 }
 
+                // v2.5.0: honor IndefiniteTrust by bypassing the expiry check.
+                if (expired && !trustRecord.IndefiniteTrust)
+                {
+                    _logger.LogDebug("[2FA] Trust cookie expired for {UserId}", userId);
+                    await _next(context).ConfigureAwait(false);
+                    return;
+                }
+
                 _challengeStore.MarkDevicePreVerified(userId, signedDeviceId);
                 _challengeStore.UnblockDevice(userId, signedDeviceId);
 
@@ -133,8 +146,8 @@ public class TrustCookieMiddleware
                 // Rotate cookie on use — short grace via overlapping expiry, old
                 // cookie's HMAC still valid until TTL but LastUsedAt was just
                 // updated so theft is bounded. The new cookie's expiry is a fresh
-                // 30-day window (sliding session).
-                IssueTrustCookie(context, userId, trustRecord.Id, signedDeviceId);
+                // 30-day window (sliding session) — or ~100yr if IndefiniteTrust.
+                IssueTrustCookie(context, userId, trustRecord.Id, signedDeviceId, trustRecord.IndefiniteTrust);
                 return;
             }
 
@@ -188,11 +201,23 @@ public class TrustCookieMiddleware
         }
     }
 
-    internal void IssueTrustCookie(HttpContext context, Guid userId, string trustRecordId, string deviceId)
+    internal void IssueTrustCookie(HttpContext context, Guid userId, string trustRecordId, string deviceId, bool indefinite = false)
     {
-        var ttlDays = Math.Clamp(
-            Plugin.Instance?.Configuration?.TrustCookieTtlDays ?? 30, 1, 90);
-        var expiryUnix = DateTimeOffset.UtcNow.AddDays(ttlDays).ToUnixTimeSeconds();
+        DateTimeOffset expiresAt;
+        if (indefinite)
+        {
+            // v2.5.0: indefinite trust — push the cookie expiry ~100 years out.
+            // The corresponding server-side TrustedDevice record carries
+            // IndefiniteTrust=true so validation also skips the expiry check.
+            expiresAt = DateTimeOffset.UtcNow.AddYears(100);
+        }
+        else
+        {
+            var ttlDays = Math.Clamp(
+                Plugin.Instance?.Configuration?.TrustCookieTtlDays ?? 30, 1, 90);
+            expiresAt = DateTimeOffset.UtcNow.AddDays(ttlDays);
+        }
+        var expiryUnix = expiresAt.ToUnixTimeSeconds();
         var deviceB64 = Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(deviceId ?? string.Empty));
         var payload = $"{userId:N}.{trustRecordId}.{deviceB64}.{expiryUnix}";
         var hmac = _cookieSigner.Sign(payload);
@@ -208,7 +233,7 @@ public class TrustCookieMiddleware
             // TrustedProxyCidrs, so it cannot be spoofed.
             Secure = BypassEvaluator.IsSecureRequest(context),
             SameSite = SameSiteMode.Strict,
-            Expires = DateTimeOffset.UtcNow.AddDays(ttlDays),
+            Expires = expiresAt,
             Path = "/",
             IsEssential = true,
         });

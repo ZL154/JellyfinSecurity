@@ -654,5 +654,13 @@
   "tfa.setup.passkeys.diag_rp_id": "konfigurierte RP-ID:",
   "tfa.setup.passkeys.diag_origins": "konfigurierte Origins:",
   "tfa.setup.passkeys.diag_auto": "(automatisch)",
-  "tfa.setup.passkeys.diag_none": "(keine)"
+  "tfa.setup.passkeys.diag_none": "(keine)",
+  "tfa.admin.hardening.allow_indefinite_trust_label": "Benutzern erlauben, unbegrenztes Gerätevertrauen zu aktivieren",
+  "tfa.admin.hardening.allow_indefinite_trust_pill": "Erweitert",
+  "tfa.admin.hardening.allow_indefinite_trust_help": "Wenn aktiviert, können Benutzer einzelne vertrauenswürdige Browser und gekoppelte Geräte als dauerhaft angemeldet markieren (keine 30-Tage-Neuauthentifizierung). Standardmäßig AUS aus Sicherheitsgründen — wer physischen Zugriff auf das Gerät hat, behält den Zugriff, bis der Benutzer ihn manuell widerruft.",
+  "tfa.setup.trusted.indefinite_label": "Unbegrenzt",
+  "tfa.setup.trusted.indefinite_title": "Dauerhaft angemeldet bleiben (30-Tage-Neuauthentifizierung überspringen)",
+  "tfa.setup.trusted.indefinite_active": "Unbegrenzt ✓",
+  "tfa.setup.paired.indefinite_label": "Unbegrenzt",
+  "tfa.setup.paired.indefinite_title": "Dauerhaft gekoppelt bleiben"
 }

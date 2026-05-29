@@ -112,6 +112,17 @@ public class HardeningConfigRequest
     public bool? RequireTwoFactorToDisable { get; set; }
     public Jellyfin.Plugin.TwoFactorAuth.Configuration.StepUpLevel? StepUpLevel { get; set; }
     public int? StepUpWindowSeconds { get; set; }
+    /// <summary>v2.5.0: admin-side master switch that gates the per-device
+    /// indefinite-trust user opt-in.</summary>
+    public bool? AllowIndefiniteTrust { get; set; }
+}
+
+/// <summary>v2.5.0: per-device opt-in for indefinite trust. Set on a single
+/// trusted browser or paired device, gated by the admin-side AllowIndefiniteTrust
+/// master switch.</summary>
+public class SetIndefiniteTrustRequest
+{
+    public bool Indefinite { get; set; }
 }
 
 /// <summary>v2.5.0: payload for POST /TwoFactorAuth/Config/Import. Envelope is

@@ -53,6 +53,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// token, seconds. Clamped 60-900.</summary>
     public int StepUpWindowSeconds { get; set; } = 300;
 
+    /// <summary>v2.5.0: when true, users can opt individual trusted browsers
+    /// and paired devices into indefinite trust (no 30-day re-auth). When
+    /// false, the toggle is hidden from the user UI entirely. Disabled by
+    /// default — admins must explicitly enable.</summary>
+    public bool AllowIndefiniteTrust { get; set; } = false;
+
     /// <summary>v2.4: granular 2FA enforcement scope. Optional (per-user
     /// opt-in), Admins (only admins must have 2FA), or All (everyone).</summary>
     public EnforcementScope EnforcementScope { get; set; } = EnforcementScope.Optional;

@@ -654,5 +654,13 @@
   "tfa.setup.passkeys.diag_rp_id": "configured RP ID:",
   "tfa.setup.passkeys.diag_origins": "configured origins:",
   "tfa.setup.passkeys.diag_auto": "(auto)",
-  "tfa.setup.passkeys.diag_none": "(none)"
+  "tfa.setup.passkeys.diag_none": "(none)",
+  "tfa.admin.hardening.allow_indefinite_trust_label": "Allow users to opt into indefinite device trust",
+  "tfa.admin.hardening.allow_indefinite_trust_pill": "Advanced",
+  "tfa.admin.hardening.allow_indefinite_trust_help": "When enabled, users can mark individual trusted browsers and paired devices to stay signed in indefinitely (no 30-day re-auth). Default OFF for safety — anyone with physical access to the device retains access until the user manually revokes.",
+  "tfa.setup.trusted.indefinite_label": "Indefinite",
+  "tfa.setup.trusted.indefinite_title": "Stay signed in indefinitely (skip 30-day re-auth)",
+  "tfa.setup.trusted.indefinite_active": "Indefinite ✓",
+  "tfa.setup.paired.indefinite_label": "Indefinite",
+  "tfa.setup.paired.indefinite_title": "Stay paired indefinitely"
 }

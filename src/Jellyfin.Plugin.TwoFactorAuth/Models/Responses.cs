@@ -56,6 +56,11 @@ public class TrustedDeviceResponse
     public DateTime CreatedAt { get; set; }
 
     public DateTime LastUsedAt { get; set; }
+
+    /// <summary>v2.5.0: surfaces the IndefiniteTrust flag so setup.html can
+    /// render the per-row toggle in the "active" state for records the user
+    /// has already opted in.</summary>
+    public bool IndefiniteTrust { get; set; }
 }
 
 public class UserTwoFactorStatus

@@ -654,5 +654,13 @@
   "tfa.setup.passkeys.diag_rp_id": "RP ID configurado:",
   "tfa.setup.passkeys.diag_origins": "orígenes configurados:",
   "tfa.setup.passkeys.diag_auto": "(automático)",
-  "tfa.setup.passkeys.diag_none": "(ninguno)"
+  "tfa.setup.passkeys.diag_none": "(ninguno)",
+  "tfa.admin.hardening.allow_indefinite_trust_label": "Permitir a los usuarios optar por confianza indefinida del dispositivo",
+  "tfa.admin.hardening.allow_indefinite_trust_pill": "Avanzado",
+  "tfa.admin.hardening.allow_indefinite_trust_help": "Cuando está habilitado, los usuarios pueden marcar navegadores de confianza y dispositivos emparejados individuales para permanecer conectados indefinidamente (sin reautenticación cada 30 días). DESACTIVADO por defecto por seguridad — cualquiera con acceso físico al dispositivo conserva el acceso hasta que el usuario lo revoque manualmente.",
+  "tfa.setup.trusted.indefinite_label": "Indefinido",
+  "tfa.setup.trusted.indefinite_title": "Permanecer conectado indefinidamente (omitir reautenticación de 30 días)",
+  "tfa.setup.trusted.indefinite_active": "Indefinido ✓",
+  "tfa.setup.paired.indefinite_label": "Indefinido",
+  "tfa.setup.paired.indefinite_title": "Permanecer emparejado indefinidamente"
 }

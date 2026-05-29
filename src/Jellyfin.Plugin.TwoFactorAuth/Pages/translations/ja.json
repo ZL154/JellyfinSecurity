@@ -654,5 +654,13 @@
   "tfa.setup.passkeys.diag_rp_id": "設定されたRP ID:",
   "tfa.setup.passkeys.diag_origins": "設定されたオリジン:",
   "tfa.setup.passkeys.diag_auto": "(自動)",
-  "tfa.setup.passkeys.diag_none": "(なし)"
+  "tfa.setup.passkeys.diag_none": "(なし)",
+  "tfa.admin.hardening.allow_indefinite_trust_label": "ユーザーが無期限のデバイス信頼を有効化することを許可",
+  "tfa.admin.hardening.allow_indefinite_trust_pill": "高度",
+  "tfa.admin.hardening.allow_indefinite_trust_help": "有効にすると、ユーザーは個別の信頼済みブラウザーやペアリング済みデバイスを無期限にサインイン状態に維持できます（30日ごとの再認証なし）。安全のためデフォルトはオフ — デバイスに物理的にアクセスできる人は、ユーザーが手動で取り消すまでアクセスを保持します。",
+  "tfa.setup.trusted.indefinite_label": "無期限",
+  "tfa.setup.trusted.indefinite_title": "無期限にサインイン状態を維持（30日の再認証をスキップ）",
+  "tfa.setup.trusted.indefinite_active": "無期限 ✓",
+  "tfa.setup.paired.indefinite_label": "無期限",
+  "tfa.setup.paired.indefinite_title": "無期限にペアリングを維持"
 }

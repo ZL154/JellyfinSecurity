@@ -743,13 +743,22 @@
                 return;
             }
             document.getElementById('btnRevokeAllPaired').style.display = '';
+            // v2.5.0: only show the indefinite-trust toggle when the admin has
+            // explicitly enabled the feature via /public-config.
+            var showIndef = !!(window._tfaPublicConfig && window._tfaPublicConfig.allowIndefiniteTrust);
             renderCollapsibleRows(box, list, 5, function(d) {
+                var indefBtn = '';
+                if (showIndef) {
+                    var active = !!d.indefiniteTrust;
+                    indefBtn = '<button class="btn-ghost btn-sm tfa-set-indefinite-paired" data-id="' + escapeHtml(d.id) + '" data-current="' + (active ? 'true' : 'false') + '" title="' + _tr('tfa.setup.paired.indefinite_title', 'Stay paired indefinitely') + '" style="' + (active ? 'border-color:#4caf50;color:#66bb6a;' : '') + '">' + (active ? _tr('tfa.setup.trusted.indefinite_active', 'Indefinite ✓') : _tr('tfa.setup.paired.indefinite_label', 'Indefinite')) + '</button>';
+                }
                 return '<div class="device-row">' +
                     '<div class="device-icon">' + deviceIcon(d.deviceName + ' ' + d.appName) + '</div>' +
                     '<div class="device-info">' +
                         '<div class="device-name">' + escapeHtml(d.deviceName || _tr('tfa.setup.common.unknown', 'Unknown')) + '</div>' +
                         '<div class="device-meta">' + escapeHtml(d.appName) + ' · ' + _tr('tfa.setup.paired.paired_prefix', 'paired') + ' ' + fmtRel(d.createdAt) + ' · ' + _tr('tfa.setup.common.last_used_prefix', 'last used') + ' ' + fmtRel(d.lastUsedAt) + (d.lastIp ? ' · ' + escapeHtml(d.lastIp) : '') + '</div>' +
                     '</div>' +
+                    indefBtn +
                     '<button class="btn-danger btn-sm tfa-revoke-paired" data-id="' + escapeHtml(d.id) + '">' + _tr('tfa.setup.common.btn_revoke', 'Revoke') + '</button>' +
                     '</div>';
             });
@@ -757,6 +766,18 @@
                 b.addEventListener('click', async function() {
                     if (!(await tfaConfirm(_tr('tfa.setup.paired.confirm_revoke', 'Revoke this device? It will need to re-pair on next sign-in.')))) return;
                     api('DELETE', 'TwoFactorAuth/PairedDevices/' + b.dataset.id).then(loadAll);
+                });
+            });
+            box.querySelectorAll('.tfa-set-indefinite-paired').forEach(function(b) {
+                b.addEventListener('click', async function() {
+                    var id = b.dataset.id;
+                    var next = b.dataset.current !== 'true';
+                    var uid = (window.ApiClient && ApiClient.getCurrentUserId && ApiClient.getCurrentUserId()) || '';
+                    if (!uid) { alert(_tr('tfa.error.unknown', 'Something went wrong')); return; }
+                    try {
+                        await api('PUT', 'TwoFactorAuth/Users/' + uid + '/PairedDevices/' + id + '/Indefinite', { indefinite: next });
+                        loadAll();
+                    } catch (e) { alert(_tr('tfa.error.unknown', 'Something went wrong')); }
                 });
             });
         }
@@ -789,20 +810,41 @@
             if (!list || !list.length) { card.style.display = 'none'; return; }
             card.style.display = 'block';
             var box = document.getElementById('trustedList');
+            // v2.5.0: per-row indefinite-trust toggle, gated by admin opt-in.
+            var showIndef = !!(window._tfaPublicConfig && window._tfaPublicConfig.allowIndefiniteTrust);
             renderCollapsibleRows(box, list, 5, function(d) {
+                var rowId = d.id || d.Id;
+                var indefBtn = '';
+                if (showIndef) {
+                    var active = !!(d.indefiniteTrust || d.IndefiniteTrust);
+                    indefBtn = '<button class="btn-ghost btn-sm tfa-set-indefinite-trust" data-id="' + escapeHtml(rowId) + '" data-current="' + (active ? 'true' : 'false') + '" title="' + _tr('tfa.setup.trusted.indefinite_title', 'Stay signed in indefinitely (skip 30-day re-auth)') + '" style="' + (active ? 'border-color:#4caf50;color:#66bb6a;' : '') + '">' + (active ? _tr('tfa.setup.trusted.indefinite_active', 'Indefinite ✓') : _tr('tfa.setup.trusted.indefinite_label', 'Indefinite')) + '</button>';
+                }
                 return '<div class="device-row">' +
                     '<div class="device-icon">🌐</div>' +
                     '<div class="device-info">' +
                         '<div class="device-name">' + escapeHtml(((d.deviceName === 'Browser' || d.DeviceName === 'Browser') ? _tr('tfa.setup.trusted.default_browser', 'Browser') : (d.deviceName || d.DeviceName || _tr('tfa.setup.trusted.unknown_browser', 'Unknown browser')))) + '</div>' +
                         '<div class="device-meta">' + _tr('tfa.setup.trusted.added_prefix', 'added') + ' ' + fmtRel(d.createdAt || d.CreatedAt) + ' · ' + _tr('tfa.setup.common.last_used_prefix', 'last used') + ' ' + fmtRel(d.lastUsedAt || d.LastUsedAt) + '</div>' +
                     '</div>' +
-                    '<button class="btn-danger btn-sm tfa-revoke-trust" data-id="' + escapeHtml(d.id || d.Id) + '">' + _tr('tfa.setup.common.btn_revoke', 'Revoke') + '</button>' +
+                    indefBtn +
+                    '<button class="btn-danger btn-sm tfa-revoke-trust" data-id="' + escapeHtml(rowId) + '">' + _tr('tfa.setup.common.btn_revoke', 'Revoke') + '</button>' +
                     '</div>';
             });
             box.querySelectorAll('.tfa-revoke-trust').forEach(function(b) {
                 b.addEventListener('click', async function() {
                     if (!(await tfaConfirm(_tr('tfa.setup.trusted.confirm_revoke', 'Revoke this trusted browser? It will need 2FA again on next sign-in.')))) return;
                     api('DELETE', 'TwoFactorAuth/Devices/' + b.dataset.id).then(loadAll);
+                });
+            });
+            box.querySelectorAll('.tfa-set-indefinite-trust').forEach(function(b) {
+                b.addEventListener('click', async function() {
+                    var id = b.dataset.id;
+                    var next = b.dataset.current !== 'true';
+                    var uid = (window.ApiClient && ApiClient.getCurrentUserId && ApiClient.getCurrentUserId()) || '';
+                    if (!uid) { alert(_tr('tfa.error.unknown', 'Something went wrong')); return; }
+                    try {
+                        await api('PUT', 'TwoFactorAuth/Users/' + uid + '/TrustedBrowsers/' + id + '/Indefinite', { indefinite: next });
+                        loadAll();
+                    } catch (e) { alert(_tr('tfa.error.unknown', 'Something went wrong')); }
                 });
             });
         }
@@ -1217,6 +1259,15 @@
             loadPasskeys();
         };
 
+        // v2.5.0: fetch the anonymous public-config so renderers know whether
+        // to show the per-device indefinite-trust toggle. Stored on window so
+        // re-renders triggered later don't refetch.
+        window._tfaPublicConfig = null;
+        var publicConfigPromise = fetch('/TwoFactorAuth/public-config')
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(c) { window._tfaPublicConfig = c || {}; })
+            .catch(function() { window._tfaPublicConfig = {}; });
+
         // v2.5.0 i18n race fix: tfa-i18n.js is async-loaded, so when this
         // script runs window.tfaI18n is usually undefined. If we kick off
         // loadAll() immediately, every _tr(key, 'English fallback') call
@@ -1228,8 +1279,10 @@
         // Defer the initial render until the bundle is loaded; the
         // ternary defends against tfa-i18n.js failing to load at all so
         // the page still renders (in English) instead of hanging.
-        (window.tfaI18n && window.tfaI18n.ready ? window.tfaI18n.ready : Promise.resolve())
-            .then(function() { loadAll(); });
+        Promise.all([
+            (window.tfaI18n && window.tfaI18n.ready ? window.tfaI18n.ready : Promise.resolve()),
+            publicConfigPromise,
+        ]).then(function() { loadAll(); });
     </script>
 </body>
 </html>
