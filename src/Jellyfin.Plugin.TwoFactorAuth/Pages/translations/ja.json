@@ -607,5 +607,22 @@
   "tfa.pairconfirm.error_failed": "ペアリングに失敗しました。",
   "tfa.pairconfirm.error_network": "ネットワークエラー。再度お試しください。",
   "tfa.setup.ap.default_label": "アプリパスワード",
-  "tfa.setup.trusted.default_browser": "ブラウザ"
+  "tfa.setup.trusted.default_browser": "ブラウザ",
+  "tfa.factor.coverage.label": "2FAカバレッジ",
+  "tfa.factor.coverage.action": "残りの{count}人のユーザーに2FAを設定してください。",
+  "tfa.factor.admins.label": "すべての管理者が保護されています",
+  "tfa.factor.admins.action": "少なくとも1つの管理者アカウントに2FAがありません。すべての管理者に設定してください。",
+  "tfa.factor.enforcement.label": "強制モード",
+  "tfa.factor.enforcement.action": "満点を得るには強制対象を「すべてのユーザー」に切り替えてください。",
+  "tfa.factor.audit_chain.label": "監査チェーンの整合性",
+  "tfa.factor.audit_chain.action_one": "{count}件の監査エントリにハッシュの破損があります。調査してください。",
+  "tfa.factor.audit_chain.action_many": "{count}件の監査エントリにハッシュの破損があります。調査してください。",
+  "tfa.factor.ipban.label": "IPブルートフォースBan",
+  "tfa.factor.ipban.action": "繰り返されるブルートフォース攻撃を止めるため、IP Banを有効にしてください。",
+  "tfa.factor.travel.label": "不可能な移動の検出",
+  "tfa.factor.travel.action": "不可能な移動の検出を有効にしてください(GeoIP Cityデータベースが必要)。",
+  "tfa.factor.hibp.label": "HIBPパスワード漏洩チェック",
+  "tfa.factor.hibp.action": "新規または変更されたパスワードに対してHIBPチェックを有効にしてください。",
+  "tfa.factor.clean_7d.label": "過去7日間の認証失敗イベントなし",
+  "tfa.factor.clean_7d.action": "最近の認証失敗またはロックアウトイベントがあります。監査ログを確認してください。"
 }

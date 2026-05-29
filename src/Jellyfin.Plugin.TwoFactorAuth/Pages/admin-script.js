@@ -10,6 +10,27 @@
                     return (window.tfaI18n && window.tfaI18n.tr) ? window.tfaI18n.tr(k, f) : f;
                 }
 
+                // v2.5.0: translate-with-interpolation helper. Used by the
+                // dashboard Score-breakdown card so factor.NextAction strings
+                // like "Enroll the remaining {count} user(s) in 2FA." get the
+                // {count} placeholder replaced from factor.NextActionData. The
+                // server stamps both NextAction (English literal w/ number
+                // already baked in) AND NextActionKey + NextActionData so the
+                // frontend can re-localize without losing the count.
+                function _trWithData(key, fallback, data) {
+                    var s = _tr(key, fallback);
+                    if (s == null) return fallback;
+                    if (data && typeof data === 'object') {
+                        Object.keys(data).forEach(function(k) {
+                            // Escape the placeholder name — keys are
+                            // server-controlled today but cheap to harden.
+                            var safe = String(k).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            s = s.replace(new RegExp('\\{' + safe + '\\}', 'g'), data[k]);
+                        });
+                    }
+                    return s;
+                }
+
                 // v2.5.0 i18n: the shared helper at /TwoFactorAuth/tfa-i18n.js
                 // (loaded from <head>) exposes window.tfaI18n.{tr, applyTranslations,
                 // loadTranslations, renderLanguagePicker, getEffectiveLanguage} and
@@ -225,10 +246,13 @@
                         else if (score < 80) ring.classList.add('warn');
 
                         // Posture summary: top "next action" or congratulations
+                        // v2.5.0: resolve the localized next-action via the key + data
+                        // pair so the Top-action banner reads in the user's language
+                        // instead of falling through to the English literal.
                         const gaps = data.score.factors.filter(f => f.nextAction);
                         document.getElementById('postureSummary').textContent = gaps.length === 0
                             ? _tr('tfa.admin.posture_all_full', 'All factors at full credit — well done.')
-                            : `${_tr('tfa.admin.posture_top_action', 'Top action:')} ${gaps[0].nextAction} (+${gaps[0].possible - gaps[0].earned} pts)`;
+                            : `${_tr('tfa.admin.posture_top_action', 'Top action:')} ${_trWithData(gaps[0].nextActionKey, gaps[0].nextAction, gaps[0].nextActionData)} (+${gaps[0].possible - gaps[0].earned} pts)`;
 
                         // KPI strip
                         document.getElementById('kpiEnrolled').textContent = data.kpis.enrolledUsers ?? '–';
@@ -240,16 +264,22 @@
                             ? _tr('tfa.admin.kpi_audit_chain_ok', 'chain ok') : `${data.kpis.auditChainBroken} ${_tr('tfa.admin.kpi_audit_chain_broken', 'broken')}`;
 
                         // Factor grid
+                        // v2.5.0: each factor row uses f.labelKey + f.nextActionKey + f.nextActionData
+                        // so the breakdown card localizes alongside the rest of the admin UI.
+                        // English literals on f.label / f.nextAction stay as the fallback when
+                        // a key is missing from the active bundle.
                         const factorsEl = document.getElementById('factorsGrid');
                         factorsEl.innerHTML = (data.score.factors || []).map(f => {
                             const pct = f.possible > 0 ? Math.round(100 * f.earned / f.possible) : 0;
+                            const label = _tr(f.labelKey, f.label);
+                            const action = f.nextAction ? _trWithData(f.nextActionKey, f.nextAction, f.nextActionData) : null;
                             return `<div class="tfa-factor ${f.status}">
                                 <div class="tfa-factor-head">
-                                    <div class="tfa-factor-label">${escapeHtml(f.label)}</div>
+                                    <div class="tfa-factor-label">${escapeHtml(label)}</div>
                                     <div class="tfa-factor-pts">${f.earned} / ${f.possible}</div>
                                 </div>
                                 <div class="tfa-factor-bar"><div class="tfa-factor-bar-fill" style="width:${pct}%"></div></div>
-                                ${f.nextAction ? `<div class="tfa-factor-action">&rarr; ${escapeHtml(f.nextAction)}</div>` : ''}
+                                ${action ? `<div class="tfa-factor-action">&rarr; ${escapeHtml(action)}</div>` : ''}
                             </div>`;
                         }).join('');
 

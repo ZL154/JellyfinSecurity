@@ -607,5 +607,22 @@
   "tfa.pairconfirm.error_failed": "Associazione non riuscita.",
   "tfa.pairconfirm.error_network": "Errore di rete. Riprova.",
   "tfa.setup.ap.default_label": "Password app",
-  "tfa.setup.trusted.default_browser": "Browser"
+  "tfa.setup.trusted.default_browser": "Browser",
+  "tfa.factor.coverage.label": "Copertura 2FA",
+  "tfa.factor.coverage.action": "Abilita la 2FA per i {count} utenti rimanenti.",
+  "tfa.factor.admins.label": "Tutti gli amministratori protetti",
+  "tfa.factor.admins.action": "Almeno un account amministratore non ha la 2FA. Abilitala per tutti gli admin.",
+  "tfa.factor.enforcement.label": "Modalità di applicazione",
+  "tfa.factor.enforcement.action": "Imposta l'applicazione su «Tutti gli utenti» per ottenere il punteggio pieno.",
+  "tfa.factor.audit_chain.label": "Integrità della catena di audit",
+  "tfa.factor.audit_chain.action_one": "{count} voce di audit ha un hash danneggiato. Da verificare.",
+  "tfa.factor.audit_chain.action_many": "{count} voci di audit hanno hash danneggiati. Da verificare.",
+  "tfa.factor.ipban.label": "Blocco IP anti brute-force",
+  "tfa.factor.ipban.action": "Abilita il blocco IP per fermare i tentativi ripetuti di brute-force.",
+  "tfa.factor.travel.label": "Rilevamento spostamento impossibile",
+  "tfa.factor.travel.action": "Abilita il rilevamento di spostamento impossibile (richiede il database GeoIP City).",
+  "tfa.factor.hibp.label": "Verifica HIBP password compromesse",
+  "tfa.factor.hibp.action": "Abilita la verifica HIBP su password nuove o modificate.",
+  "tfa.factor.clean_7d.label": "Nessun errore di autenticazione in 7 giorni",
+  "tfa.factor.clean_7d.action": "Errori di autenticazione o blocchi recenti. Controlla il log di audit."
 }

@@ -607,5 +607,22 @@
   "tfa.pairconfirm.error_failed": "Error al emparejar.",
   "tfa.pairconfirm.error_network": "Error de red. Inténtalo de nuevo.",
   "tfa.setup.ap.default_label": "Contraseña de aplicación",
-  "tfa.setup.trusted.default_browser": "Navegador"
+  "tfa.setup.trusted.default_browser": "Navegador",
+  "tfa.factor.coverage.label": "Cobertura de 2FA",
+  "tfa.factor.coverage.action": "Inscribe a los {count} usuarios restantes en 2FA.",
+  "tfa.factor.admins.label": "Todos los administradores protegidos",
+  "tfa.factor.admins.action": "Al menos una cuenta de administrador no tiene 2FA. Actívalo para todos los administradores.",
+  "tfa.factor.enforcement.label": "Modo de aplicación",
+  "tfa.factor.enforcement.action": "Cambia la aplicación a «Todos los usuarios» para obtener el crédito completo.",
+  "tfa.factor.audit_chain.label": "Integridad de la cadena de auditoría",
+  "tfa.factor.audit_chain.action_one": "{count} entrada de auditoría tiene un hash roto. Investígalo.",
+  "tfa.factor.audit_chain.action_many": "{count} entradas de auditoría tienen hashes rotos. Investígalas.",
+  "tfa.factor.ipban.label": "Bloqueo de IP por fuerza bruta",
+  "tfa.factor.ipban.action": "Activa el bloqueo de IPs para detener intentos repetidos de fuerza bruta.",
+  "tfa.factor.travel.label": "Detección de viaje imposible",
+  "tfa.factor.travel.action": "Activa la detección de viaje imposible (requiere la base GeoIP City).",
+  "tfa.factor.hibp.label": "Comprobación de filtraciones HIBP",
+  "tfa.factor.hibp.action": "Activa la comprobación HIBP en contraseñas nuevas o cambiadas.",
+  "tfa.factor.clean_7d.label": "Sin fallos de autenticación en 7 días",
+  "tfa.factor.clean_7d.action": "Eventos recientes de fallo o bloqueo. Revisa el registro de auditoría."
 }

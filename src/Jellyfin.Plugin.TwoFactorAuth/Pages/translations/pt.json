@@ -607,5 +607,22 @@
   "tfa.pairconfirm.error_failed": "Falha no pareamento.",
   "tfa.pairconfirm.error_network": "Erro de rede. Tente novamente.",
   "tfa.setup.ap.default_label": "Senha de aplicativo",
-  "tfa.setup.trusted.default_browser": "Navegador"
+  "tfa.setup.trusted.default_browser": "Navegador",
+  "tfa.factor.coverage.label": "Cobertura de 2FA",
+  "tfa.factor.coverage.action": "Inscreva os {count} utilizadores restantes em 2FA.",
+  "tfa.factor.admins.label": "Todos os administradores protegidos",
+  "tfa.factor.admins.action": "Pelo menos uma conta de administrador não tem 2FA. Ative-a em todos os administradores.",
+  "tfa.factor.enforcement.label": "Modo de imposição",
+  "tfa.factor.enforcement.action": "Mude a imposição para «Todos os utilizadores» para obter a pontuação total.",
+  "tfa.factor.audit_chain.label": "Integridade da cadeia de auditoria",
+  "tfa.factor.audit_chain.action_one": "{count} entrada de auditoria tem um hash quebrado. A investigar.",
+  "tfa.factor.audit_chain.action_many": "{count} entradas de auditoria têm hashes quebrados. A investigar.",
+  "tfa.factor.ipban.label": "Bloqueio de IP por força bruta",
+  "tfa.factor.ipban.action": "Ative o bloqueio de IP para travar tentativas repetidas de força bruta.",
+  "tfa.factor.travel.label": "Deteção de viagem impossível",
+  "tfa.factor.travel.action": "Ative a deteção de viagem impossível (requer base GeoIP City).",
+  "tfa.factor.hibp.label": "Verificação HIBP de palavras-passe comprometidas",
+  "tfa.factor.hibp.action": "Ative a verificação HIBP em palavras-passe novas ou alteradas.",
+  "tfa.factor.clean_7d.label": "Sem falhas de autenticação em 7 dias",
+  "tfa.factor.clean_7d.action": "Falhas ou bloqueios recentes. Reveja o registo de auditoria."
 }

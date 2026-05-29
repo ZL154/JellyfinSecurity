@@ -607,5 +607,22 @@
   "tfa.pairconfirm.error_failed": "配对失败。",
   "tfa.pairconfirm.error_network": "网络错误。请重试。",
   "tfa.setup.ap.default_label": "应用密码",
-  "tfa.setup.trusted.default_browser": "浏览器"
+  "tfa.setup.trusted.default_browser": "浏览器",
+  "tfa.factor.coverage.label": "2FA 覆盖率",
+  "tfa.factor.coverage.action": "为剩余的 {count} 个用户启用 2FA。",
+  "tfa.factor.admins.label": "所有管理员均已受保护",
+  "tfa.factor.admins.action": "至少有一个管理员账户未启用 2FA。请为所有管理员启用。",
+  "tfa.factor.enforcement.label": "强制模式",
+  "tfa.factor.enforcement.action": "将强制范围切换为「所有用户」以获得满分。",
+  "tfa.factor.audit_chain.label": "审计链完整性",
+  "tfa.factor.audit_chain.action_one": "{count} 条审计记录的哈希已损坏,请检查。",
+  "tfa.factor.audit_chain.action_many": "{count} 条审计记录的哈希已损坏,请检查。",
+  "tfa.factor.ipban.label": "IP 暴力破解封禁",
+  "tfa.factor.ipban.action": "启用 IP 封禁以阻止反复的暴力破解尝试。",
+  "tfa.factor.travel.label": "不可能行程检测",
+  "tfa.factor.travel.action": "启用不可能行程检测(需要 GeoIP City 数据库)。",
+  "tfa.factor.hibp.label": "HIBP 密码泄露检查",
+  "tfa.factor.hibp.action": "对新设置或修改的密码启用 HIBP 泄露检查。",
+  "tfa.factor.clean_7d.label": "近 7 天无身份验证失败事件",
+  "tfa.factor.clean_7d.action": "近期出现认证失败或锁定事件。请查看审计日志。"
 }

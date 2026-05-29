@@ -607,5 +607,22 @@
   "tfa.pairconfirm.error_failed": "Kopplung fehlgeschlagen.",
   "tfa.pairconfirm.error_network": "Netzwerkfehler. Versuchen Sie es erneut.",
   "tfa.setup.ap.default_label": "App-Passwort",
-  "tfa.setup.trusted.default_browser": "Browser"
+  "tfa.setup.trusted.default_browser": "Browser",
+  "tfa.factor.coverage.label": "2FA-Abdeckung",
+  "tfa.factor.coverage.action": "Aktiviere 2FA für die verbleibenden {count} Benutzer.",
+  "tfa.factor.admins.label": "Alle Admins geschützt",
+  "tfa.factor.admins.action": "Mindestens ein Admin-Konto hat kein 2FA. Aktiviere es für alle Admins.",
+  "tfa.factor.enforcement.label": "Erzwingungsmodus",
+  "tfa.factor.enforcement.action": "Stelle die Erzwingung auf „Alle Benutzer\" um, um die volle Punktzahl zu erhalten.",
+  "tfa.factor.audit_chain.label": "Integrität der Audit-Kette",
+  "tfa.factor.audit_chain.action_one": "{count} Audit-Eintrag hat einen ungültigen Hash. Bitte prüfen.",
+  "tfa.factor.audit_chain.action_many": "{count} Audit-Einträge haben ungültige Hashes. Bitte prüfen.",
+  "tfa.factor.ipban.label": "IP-Brute-Force-Sperre",
+  "tfa.factor.ipban.action": "Aktiviere IP-Sperren, um wiederholte Brute-Force-Versuche zu stoppen.",
+  "tfa.factor.travel.label": "Unmögliche-Reise-Erkennung",
+  "tfa.factor.travel.action": "Aktiviere die Unmögliche-Reise-Erkennung (benötigt GeoIP-City-Datenbank).",
+  "tfa.factor.hibp.label": "HIBP-Passwortleckprüfung",
+  "tfa.factor.hibp.action": "Aktiviere die HIBP-Prüfung bei neuen oder geänderten Passwörtern.",
+  "tfa.factor.clean_7d.label": "Keine fehlgeschlagenen Anmeldungen in 7 Tagen",
+  "tfa.factor.clean_7d.action": "Kürzliche fehlgeschlagene Anmeldungen oder Sperrungen. Prüfe das Audit-Log."
 }

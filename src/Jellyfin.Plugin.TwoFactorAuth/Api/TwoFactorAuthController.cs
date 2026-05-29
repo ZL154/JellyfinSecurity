@@ -3431,14 +3431,24 @@ public class TwoFactorAuthController : ControllerBase
                 total = score.Total,
                 possible = score.Possible,
                 grade = score.Grade,
+                // v2.5.0: flatten LabelKey / NextActionKey / NextActionData
+                // onto the anonymous shape so System.Text.Json camelCases them
+                // for the admin UI. Without flattening, Jellyfin's serializer
+                // keeps the original PascalCase property names on nested DTOs
+                // and the frontend's f.labelKey / f.nextActionData lookups
+                // come back undefined (see commit d70e730 for the underlying
+                // serializer quirk).
                 factors = score.Factors.Select(f => new
                 {
                     id = f.Id,
                     label = f.Label,
+                    labelKey = f.LabelKey,
                     earned = f.Earned,
                     possible = f.Possible,
                     status = f.Status,
-                    nextAction = f.NextAction
+                    nextAction = f.NextAction,
+                    nextActionKey = f.NextActionKey,
+                    nextActionData = f.NextActionData
                 }),
                 computedAt = score.ComputedAt
             },

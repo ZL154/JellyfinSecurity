@@ -607,5 +607,22 @@
   "tfa.pairconfirm.error_failed": "Pairing failed.",
   "tfa.pairconfirm.error_network": "Network error. Try again.",
   "tfa.setup.ap.default_label": "App password",
-  "tfa.setup.trusted.default_browser": "Browser"
+  "tfa.setup.trusted.default_browser": "Browser",
+  "tfa.factor.coverage.label": "2FA coverage",
+  "tfa.factor.coverage.action": "Enroll the remaining {count} user(s) in 2FA.",
+  "tfa.factor.admins.label": "All admins protected",
+  "tfa.factor.admins.action": "At least one admin account is missing 2FA. Enroll all admins.",
+  "tfa.factor.enforcement.label": "Enforcement mode",
+  "tfa.factor.enforcement.action": "Switch enforcement to 'All users' for full credit.",
+  "tfa.factor.audit_chain.label": "Audit chain integrity",
+  "tfa.factor.audit_chain.action_one": "{count} audit entry has a broken hash. Investigate.",
+  "tfa.factor.audit_chain.action_many": "{count} audit entries have broken hashes. Investigate.",
+  "tfa.factor.ipban.label": "IP brute-force ban",
+  "tfa.factor.ipban.action": "Enable IP banning to stop repeated brute-force attempts.",
+  "tfa.factor.travel.label": "Impossible-travel detection",
+  "tfa.factor.travel.action": "Enable impossible-travel detection (needs GeoIP city DB).",
+  "tfa.factor.hibp.label": "HIBP password breach check",
+  "tfa.factor.hibp.action": "Enable HIBP breach checking on new/changed passwords.",
+  "tfa.factor.clean_7d.label": "No failed-auth events in 7 days",
+  "tfa.factor.clean_7d.action": "Recent failed-auth or lockout events. Review the audit log."
 }

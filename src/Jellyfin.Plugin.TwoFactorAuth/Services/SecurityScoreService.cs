@@ -80,19 +80,26 @@ public class SecurityScoreService : IDisposable
         var factors = new List<ScoreFactor>(8);
 
         // 1. 2FA coverage (30 pts, scaled by %)
+        // v2.5.0: each factor carries a LabelKey / NextActionKey so the admin UI
+        // can localize the breakdown card. NextActionData ships the interpolation
+        // payload (e.g., { count = N }) for actions that include dynamic numbers.
         var users = await _store.GetAllUsersAsync().ConfigureAwait(false);
         int enrolled = users.Count(u => u.TotpEnabled || u.Passkeys.Count > 0);
         int totalUsers = users.Count;
         double pctEnrolled = totalUsers > 0 ? (double)enrolled / totalUsers : 0;
         int coverage = (int)Math.Round(30 * pctEnrolled);
+        int remainingToEnroll = totalUsers - enrolled;
         factors.Add(new ScoreFactor
         {
             Id = "coverage",
             Label = "2FA coverage",
+            LabelKey = "tfa.factor.coverage.label",
             Earned = coverage,
             Possible = 30,
             Status = pctEnrolled >= 1 ? "ok" : pctEnrolled >= 0.5 ? "partial" : "fail",
-            NextAction = pctEnrolled < 1 ? $"Enroll the remaining {totalUsers - enrolled} user(s) in 2FA." : null
+            NextAction = pctEnrolled < 1 ? $"Enroll the remaining {remainingToEnroll} user(s) in 2FA." : null,
+            NextActionKey = pctEnrolled < 1 ? "tfa.factor.coverage.action" : null,
+            NextActionData = pctEnrolled < 1 ? new Dictionary<string, object> { ["count"] = remainingToEnroll } : null
         });
 
         // 2. All admins protected (20 pts, binary)
@@ -101,10 +108,12 @@ public class SecurityScoreService : IDisposable
         {
             Id = "admins",
             Label = "All admins protected",
+            LabelKey = "tfa.factor.admins.label",
             Earned = allAdminsProtected ? 20 : 0,
             Possible = 20,
             Status = allAdminsProtected ? "ok" : "fail",
-            NextAction = allAdminsProtected ? null : "At least one admin account is missing 2FA. Enroll all admins."
+            NextAction = allAdminsProtected ? null : "At least one admin account is missing 2FA. Enroll all admins.",
+            NextActionKey = allAdminsProtected ? null : "tfa.factor.admins.action"
         });
 
         // 3. Enforcement mode (15 / 8 / 0)
@@ -118,10 +127,12 @@ public class SecurityScoreService : IDisposable
         {
             Id = "enforcement",
             Label = "Enforcement mode",
+            LabelKey = "tfa.factor.enforcement.label",
             Earned = enforcement,
             Possible = 15,
             Status = enforcement == 15 ? "ok" : enforcement == 8 ? "partial" : "fail",
-            NextAction = enforcement < 15 ? "Switch enforcement to 'All users' for full credit." : null
+            NextAction = enforcement < 15 ? "Switch enforcement to 'All users' for full credit." : null,
+            NextActionKey = enforcement < 15 ? "tfa.factor.enforcement.action" : null
         });
 
         // 4. Audit chain verified (10 / 0)
@@ -131,10 +142,17 @@ public class SecurityScoreService : IDisposable
         {
             Id = "audit-chain",
             Label = "Audit chain integrity",
+            LabelKey = "tfa.factor.audit_chain.label",
             Earned = broken == 0 ? 10 : 0,
             Possible = 10,
             Status = broken == 0 ? "ok" : "fail",
-            NextAction = broken == 0 ? null : $"{broken} audit entr{(broken == 1 ? "y has" : "ies have")} a broken hash. Investigate."
+            NextAction = broken == 0 ? null : $"{broken} audit entr{(broken == 1 ? "y has" : "ies have")} a broken hash. Investigate.",
+            // Pluralization is handled by picking the singular vs. plural key
+            // server-side. Both keys exist in en.json + every translation file.
+            NextActionKey = broken == 0
+                ? null
+                : (broken == 1 ? "tfa.factor.audit_chain.action_one" : "tfa.factor.audit_chain.action_many"),
+            NextActionData = broken == 0 ? null : new Dictionary<string, object> { ["count"] = broken }
         });
 
         // 5. IP banning (8 / 0)
@@ -142,10 +160,12 @@ public class SecurityScoreService : IDisposable
         {
             Id = "ipban",
             Label = "IP brute-force ban",
+            LabelKey = "tfa.factor.ipban.label",
             Earned = cfg.IpBanEnabled ? 8 : 0,
             Possible = 8,
             Status = cfg.IpBanEnabled ? "ok" : "fail",
-            NextAction = cfg.IpBanEnabled ? null : "Enable IP banning to stop repeated brute-force attempts."
+            NextAction = cfg.IpBanEnabled ? null : "Enable IP banning to stop repeated brute-force attempts.",
+            NextActionKey = cfg.IpBanEnabled ? null : "tfa.factor.ipban.action"
         });
 
         // 6. Impossible-travel (7 / 0)
@@ -153,10 +173,12 @@ public class SecurityScoreService : IDisposable
         {
             Id = "travel",
             Label = "Impossible-travel detection",
+            LabelKey = "tfa.factor.travel.label",
             Earned = cfg.ImpossibleTravelEnabled ? 7 : 0,
             Possible = 7,
             Status = cfg.ImpossibleTravelEnabled ? "ok" : "fail",
-            NextAction = cfg.ImpossibleTravelEnabled ? null : "Enable impossible-travel detection (needs GeoIP city DB)."
+            NextAction = cfg.ImpossibleTravelEnabled ? null : "Enable impossible-travel detection (needs GeoIP city DB).",
+            NextActionKey = cfg.ImpossibleTravelEnabled ? null : "tfa.factor.travel.action"
         });
 
         // 7. HIBP (5 / 0)
@@ -164,10 +186,12 @@ public class SecurityScoreService : IDisposable
         {
             Id = "hibp",
             Label = "HIBP password breach check",
+            LabelKey = "tfa.factor.hibp.label",
             Earned = cfg.HibpEnabled ? 5 : 0,
             Possible = 5,
             Status = cfg.HibpEnabled ? "ok" : "fail",
-            NextAction = cfg.HibpEnabled ? null : "Enable HIBP breach checking on new/changed passwords."
+            NextAction = cfg.HibpEnabled ? null : "Enable HIBP breach checking on new/changed passwords.",
+            NextActionKey = cfg.HibpEnabled ? null : "tfa.factor.hibp.action"
         });
 
         // 8. No breach/lockout in last 7 days (5 / 0)
@@ -178,10 +202,12 @@ public class SecurityScoreService : IDisposable
         {
             Id = "clean-7d",
             Label = "No failed-auth events in 7 days",
+            LabelKey = "tfa.factor.clean_7d.label",
             Earned = clean7 ? 5 : 0,
             Possible = 5,
             Status = clean7 ? "ok" : "fail",
-            NextAction = clean7 ? null : "Recent failed-auth or lockout events. Review the audit log."
+            NextAction = clean7 ? null : "Recent failed-auth or lockout events. Review the audit log.",
+            NextActionKey = clean7 ? null : "tfa.factor.clean_7d.action"
         });
 
         int total = factors.Sum(f => f.Earned);

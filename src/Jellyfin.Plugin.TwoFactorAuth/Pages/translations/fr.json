@@ -607,5 +607,22 @@
   "tfa.pairconfirm.error_failed": "Échec de l'appairage.",
   "tfa.pairconfirm.error_network": "Erreur réseau. Réessayez.",
   "tfa.setup.ap.default_label": "Mot de passe d'application",
-  "tfa.setup.trusted.default_browser": "Navigateur"
+  "tfa.setup.trusted.default_browser": "Navigateur",
+  "tfa.factor.coverage.label": "Couverture 2FA",
+  "tfa.factor.coverage.action": "Activez la 2FA pour les {count} utilisateur(s) restant(s).",
+  "tfa.factor.admins.label": "Tous les administrateurs protégés",
+  "tfa.factor.admins.action": "Au moins un compte administrateur n'a pas de 2FA. Activez-la pour tous les administrateurs.",
+  "tfa.factor.enforcement.label": "Mode d'application",
+  "tfa.factor.enforcement.action": "Passez l'application sur « Tous les utilisateurs » pour obtenir tous les points.",
+  "tfa.factor.audit_chain.label": "Intégrité de la chaîne d'audit",
+  "tfa.factor.audit_chain.action_one": "{count} entrée d'audit a un hash rompu. À examiner.",
+  "tfa.factor.audit_chain.action_many": "{count} entrées d'audit ont des hashes rompus. À examiner.",
+  "tfa.factor.ipban.label": "Blocage IP anti-force brute",
+  "tfa.factor.ipban.action": "Activez le blocage IP pour stopper les attaques par force brute répétées.",
+  "tfa.factor.travel.label": "Détection de voyage impossible",
+  "tfa.factor.travel.action": "Activez la détection de voyage impossible (nécessite la base GeoIP City).",
+  "tfa.factor.hibp.label": "Vérification HIBP de mots de passe compromis",
+  "tfa.factor.hibp.action": "Activez la vérification HIBP sur les mots de passe nouveaux ou modifiés.",
+  "tfa.factor.clean_7d.label": "Aucun échec d'authentification sur 7 jours",
+  "tfa.factor.clean_7d.action": "Échecs ou verrouillages récents. Consultez le journal d'audit."
 }
