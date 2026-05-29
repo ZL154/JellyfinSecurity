@@ -1,0 +1,58 @@
+name: Update Last-commit badge
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-badge
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    # Skip when the previous commit was already this workflow,
+    # so we never recurse on our own push.
+    if: ${{ github.event.head_commit.author.name != 'github-actions[bot]' || !contains(github.event.head_commit.message, 'auto: bump Last-commit badge') }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Compute today (UTC)
+        id: today
+        run: echo "date=$(date -u +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Rewrite badge URL if stale
+        id: rewrite
+        env:
+          TODAY: ${{ steps.today.outputs.date }}
+        run: |
+          set -euo pipefail
+          BADGE_RE='s|Last%20commit-[0-9]{4}--[0-9]{2}--[0-9]{2}-|Last%20commit-'"${TODAY//-/--}"'-|g'
+          before=$(grep -c 'Last%20commit-' README.md || true)
+          sed -i -E "$BADGE_RE" README.md
+          if git diff --quiet README.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true"  >> "$GITHUB_OUTPUT"
+          fi
+          echo "before-matches=$before" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        if: steps.rewrite.outputs.changed == 'true'
+        env:
+          TODAY: ${{ steps.today.outputs.date }}
+        run: |
+          set -euo pipefail
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md
+          git commit -m "auto: bump Last-commit badge to $TODAY [skip ci]"
+          git push origin HEAD:main
