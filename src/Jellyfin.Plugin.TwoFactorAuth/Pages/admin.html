@@ -129,11 +129,22 @@
             #TwoFactorAuth .tfa-lang-picker-wrap select:focus { outline: none; }
             #TwoFactorAuth .tfa-lang-picker-wrap select option { background: #1a1a1a; color: #ddd; }
             #TwoFactorAuth .tfa-lang-picker-wrap select option:checked { background: #00a4dc; color: #fff; }
+
+            /* v2.5.0: persistent top strip — hosts language picker outside the tab panels
+               so users can switch language regardless of which tab they're on. */
+            #TwoFactorAuth .tfa-top-strip { display: flex; justify-content: flex-end; padding: 8px 0; margin-bottom: 4px; }
+            #TwoFactorAuth .tfa-top-strip .tfa-lang-picker-wrap { font-size: 12px; }
         </style>
 
         <div data-role="content">
             <div class="content-primary">
                 <div class="tfa-container">
+                    <!-- v2.5.0: persistent top strip — language picker is always visible
+                         regardless of which tab the admin is viewing. -->
+                    <div class="tfa-top-strip">
+                        <div id="adminLangPickerHost"></div>
+                    </div>
+
                     <div class="tfa-note" data-i18n-key="tfa.admin.common.api_keys_note">Service integrations like Sonarr/Radarr use standard Jellyfin API keys, which already bypass user authentication — no plugin configuration needed.</div>
 
                     <div class="tfa-tabs">
@@ -692,11 +703,6 @@
                             <div id="importResult" style="margin-top:10px;font-size:13px;"></div>
                         </div>
 
-                        <div class="tfa-section">
-                            <h2 data-i18n-key="tfa.admin.lang.heading">Language</h2>
-                            <p style="font-size:13px;color:#888;margin-bottom:12px;" data-i18n-key="tfa.admin.lang.explainer">Change the language of the plugin UI for your own account. The admin can set a server-wide default in the Hardening section.</p>
-                            <div id="adminLangPickerHost"></div>
-                        </div>
                     </div>
                 </div>
             </div>
