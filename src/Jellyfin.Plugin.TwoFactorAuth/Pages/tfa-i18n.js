@@ -251,6 +251,24 @@
         wrap.appendChild(select);
         host.appendChild(wrap);
         syncCompactLabel();
+
+        // v2.5.1 bugfix: pages call renderLanguagePicker() synchronously during
+        // their inline init, but _lang is still 'en' at that point because
+        // loadTranslations() is async (it hits /public-config and the
+        // user-preferences endpoint). The picker rendered with the English
+        // option selected; later loadTranslations() resolved and content
+        // swapped to the real language — but the <select>'s value was never
+        // updated, so the picker kept reading 'English' even after the page
+        // content switched to e.g. Deutsch. Re-sync after _readyPromise
+        // resolves. If it's already resolved the .then fires immediately.
+        function syncSelectionFromResolvedLang() {
+            if (select.value !== _lang) {
+                select.value = _lang;
+                syncCompactLabel();
+            }
+        }
+        _readyPromise.then(syncSelectionFromResolvedLang);
+
         return select;
     }
 

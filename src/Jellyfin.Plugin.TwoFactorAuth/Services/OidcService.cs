@@ -198,6 +198,49 @@ public class OidcService : IDisposable
             return new CallbackResult(false, "Token verification failed: " + ex.Message, null, null, null, null);
         }
 
+        return await FinalizeSignInAsync(provider, disc, claims, accessToken, pending.ReturnUrl).ConfigureAwait(false);
+    }
+
+    /// <summary>v2.5.1: RFC 8693-style token-exchange entry point for native
+    /// clients (Swiftfin, Findroid, Tizen apps, …) that performed their own
+    /// OIDC auth-code+PKCE flow at the IdP and now hold an id_token issued
+    /// for OUR ClientId. We re-verify the id_token (signature, issuer,
+    /// audience=ClientId, expiry — NOT nonce, since we didn't issue one) and
+    /// run the same post-verification pipeline as CompleteAsync. The
+    /// controller then mints a one-shot bridge token the client posts to
+    /// /Users/AuthenticateByName, identical to the browser flow.</summary>
+    public async Task<CallbackResult> ExchangeIdTokenAsync(
+        OidcProvider provider, string idToken, string? accessToken)
+    {
+        var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
+
+        ClaimsBundle claims;
+        try
+        {
+            // expectedNonce=null deliberately — see VerifyIdTokenAsync comment.
+            claims = await VerifyIdTokenAsync(provider, disc, idToken, expectedNonce: null).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] OIDC token-exchange id_token verification failed");
+            return new CallbackResult(false, "Token verification failed: " + ex.Message, null, null, null, null);
+        }
+
+        return await FinalizeSignInAsync(provider, disc, claims, accessToken, returnUrl: string.Empty).ConfigureAwait(false);
+    }
+
+    /// <summary>Shared pipeline that runs after an id_token has been verified:
+    /// merge /userinfo claims, enforce IdP-MFA + group allowlist, resolve to a
+    /// Jellyfin user, persist the SsoLink, and route auth via our provider so
+    /// bridge tokens work. Called by both <see cref="CompleteAsync"/> (browser
+    /// callback) and <see cref="ExchangeIdTokenAsync"/> (native token exchange).</summary>
+    private async Task<CallbackResult> FinalizeSignInAsync(
+        OidcProvider provider,
+        Discovery disc,
+        ClaimsBundle claims,
+        string? accessToken,
+        string returnUrl)
+    {
         // Issue #29: many IdPs (Authelia default, Keycloak default realms,
         // Authentik) emit `groups`/`roles` ONLY in the /userinfo response, not
         // in the id_token JWT. Without this, the AllowedGroups allowlist would
@@ -322,7 +365,7 @@ public class OidcService : IDisposable
             _logger.LogWarning(ex, "[2FA] Could not reassign AuthenticationProviderId for {User}", matchedUser.Username);
         }
 
-        return new CallbackResult(true, null, matchedUser.Id, matchedUser.Username, pending.ReturnUrl, link);
+        return new CallbackResult(true, null, matchedUser.Id, matchedUser.Username, returnUrl, link);
     }
 
     /// <summary>Try to find a Jellyfin user matching the IdP claims. Order:
@@ -384,7 +427,7 @@ public class OidcService : IDisposable
         string[] Groups,
         string[] Amr);
 
-    private async Task<ClaimsBundle> VerifyIdTokenAsync(OidcProvider provider, Discovery disc, string idToken, string expectedNonce)
+    private async Task<ClaimsBundle> VerifyIdTokenAsync(OidcProvider provider, Discovery disc, string idToken, string? expectedNonce)
     {
         // SEC-M1: peek the unverified header to extract `kid`, then ask the
         // JWKs cache for a fresh fetch if that kid isn't already cached.
@@ -418,11 +461,20 @@ public class OidcService : IDisposable
         handler.ValidateToken(idToken, validationParams, out var validated);
         var jwt = (JwtSecurityToken)validated;
 
-        // Nonce check — protects against replayed callbacks.
-        var nonceClaim = jwt.Claims.FirstOrDefault(c => c.Type == "nonce")?.Value;
-        if (nonceClaim != expectedNonce)
+        // Nonce check — protects against replayed callbacks in the
+        // browser-redirect flow. v2.5.1: skipped when expectedNonce is null,
+        // because the Token Exchange path doesn't drive a redirect — the
+        // native client ran its own OIDC flow against the IdP with its own
+        // nonce, so we have nothing to compare against. The other id_token
+        // protections (signature, issuer, audience=our.ClientId, expiry,
+        // ClockSkew) still apply on every path.
+        if (expectedNonce is not null)
         {
-            throw new SecurityTokenException("Nonce mismatch");
+            var nonceClaim = jwt.Claims.FirstOrDefault(c => c.Type == "nonce")?.Value;
+            if (nonceClaim != expectedNonce)
+            {
+                throw new SecurityTokenException("Nonce mismatch");
+            }
         }
 
         var sub = jwt.Subject;

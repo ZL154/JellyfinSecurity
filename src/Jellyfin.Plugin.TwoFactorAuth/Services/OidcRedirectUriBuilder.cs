@@ -28,13 +28,24 @@ internal static class OidcRedirectUriBuilder
         string? forwardedHost,
         string peer,
         IReadOnlyList<string> trustedCidrs,
-        string providerId)
+        string providerId,
+        bool forceHttps = false)
     {
         var proxyTrusted = trustedCidrs.Any(c => BypassEvaluator.IsIpInCidr(peer, c));
 
         var scheme = proxyTrusted && !string.IsNullOrEmpty(forwardedProto)
             ? forwardedProto.Split(',')[0].Trim()
             : directScheme;
+
+        // v2.5.1 per-provider override: when the admin set ForceHttps on this
+        // provider, the scheme decision is bypassed entirely. The host still
+        // honours forwarded headers when proxyTrusted; only the scheme is
+        // forced to https because that's the bug ForceHttps was designed for
+        // (TLS-terminating proxy that doesn't propagate X-Forwarded-Proto).
+        if (forceHttps)
+        {
+            scheme = "https";
+        }
 
         var host = proxyTrusted && !string.IsNullOrEmpty(forwardedHost)
             ? forwardedHost.Split(',')[0].Trim()

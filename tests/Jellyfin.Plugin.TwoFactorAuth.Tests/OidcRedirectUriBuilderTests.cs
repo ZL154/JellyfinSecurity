@@ -102,4 +102,84 @@ public class OidcRedirectUriBuilderTests
 
         Assert.Equal("https://jellyfin.example.com/TwoFactorAuth/Oidc/Callback/kanidm", result);
     }
+
+    [Fact]
+    public void Build_ForceHttps_OverridesDirectHttp_WhenNoForwardedHeaders()
+    {
+        // v2.5.1: Cloudflare Tunnel / some Caddy setups terminate TLS upstream
+        // but do NOT propagate X-Forwarded-Proto. Without ForceHttps the URI
+        // is built as http:// and the IdP rejects it. ForceHttps=true bypasses
+        // the proxy-trust scheme decision entirely.
+        var result = OidcRedirectUriBuilder.Build(
+            directScheme: "http",
+            directHost: "jellyfin.example.com",
+            forwardedProto: null,
+            forwardedHost: null,
+            peer: "10.0.0.5",
+            trustedCidrs: Trusted,
+            providerId: "kanidm",
+            forceHttps: true);
+
+        Assert.Equal("https://jellyfin.example.com/TwoFactorAuth/Oidc/Callback/kanidm", result);
+    }
+
+    [Fact]
+    public void Build_ForceHttps_StillRefusesUntrustedHostHeader()
+    {
+        // ForceHttps must ONLY force the scheme. The X-Forwarded-Host trust
+        // boundary stays intact — an attacker still cannot poison the host
+        // by hitting the server directly with ForceHttps enabled on a
+        // provider. This is the regression that would let ForceHttps
+        // accidentally bypass redirect_uri-poisoning defence.
+        var result = OidcRedirectUriBuilder.Build(
+            directScheme: "http",
+            directHost: "jellyfin.example.com",
+            forwardedProto: null,
+            forwardedHost: "attacker.com",
+            peer: "203.0.113.42",                    // NOT in trusted CIDRs
+            trustedCidrs: Trusted,
+            providerId: "kanidm",
+            forceHttps: true);
+
+        Assert.Equal("https://jellyfin.example.com/TwoFactorAuth/Oidc/Callback/kanidm", result);
+    }
+
+    [Fact]
+    public void Build_ForceHttps_AppliesEvenWhenForwardedProtoIsHttp()
+    {
+        // Defensive check: even if a misconfigured proxy sends
+        // X-Forwarded-Proto: http (despite TLS being terminated), ForceHttps
+        // still wins. Configured intent ("this provider's redirect_uri MUST
+        // be https") beats wire signals.
+        var result = OidcRedirectUriBuilder.Build(
+            directScheme: "http",
+            directHost: "jellyfin.example.com",
+            forwardedProto: "http",
+            forwardedHost: null,
+            peer: "10.0.0.5",
+            trustedCidrs: Trusted,
+            providerId: "kanidm",
+            forceHttps: true);
+
+        Assert.Equal("https://jellyfin.example.com/TwoFactorAuth/Oidc/Callback/kanidm", result);
+    }
+
+    [Fact]
+    public void Build_ForceHttpsFalse_ExistingBehaviourUnchanged()
+    {
+        // ForceHttps=false (default) must produce IDENTICAL output to the
+        // pre-v2.5.1 signature. This pins all existing callers / tests
+        // against accidental behaviour drift from the refactor.
+        var result = OidcRedirectUriBuilder.Build(
+            directScheme: "http",
+            directHost: "jellyfin.local:8096",
+            forwardedProto: null,
+            forwardedHost: null,
+            peer: "10.0.0.5",
+            trustedCidrs: Trusted,
+            providerId: "kanidm",
+            forceHttps: false);
+
+        Assert.Equal("http://jellyfin.local:8096/TwoFactorAuth/Oidc/Callback/kanidm", result);
+    }
 }

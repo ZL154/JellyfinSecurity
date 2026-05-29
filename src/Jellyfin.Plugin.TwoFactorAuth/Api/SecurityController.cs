@@ -86,6 +86,7 @@ public class SecurityController : ControllerBase
         public bool RequireIdpMfa { get; set; }
         public bool BypassPluginTwoFa { get; set; } = true;
         public bool Enabled { get; set; } = true;
+        public bool ForceHttps { get; set; }
     }
 
     [HttpGet("Oidc/Presets")]
@@ -174,6 +175,7 @@ public class SecurityController : ControllerBase
             RequireIdpMfa = req.RequireIdpMfa,
             BypassPluginTwoFa = req.BypassPluginTwoFa,
             Enabled = req.Enabled,
+            ForceHttps = req.ForceHttps,
             CreatedAt = DateTime.UtcNow,
         };
         config.OidcProviders.Add(provider);
@@ -205,6 +207,7 @@ public class SecurityController : ControllerBase
         existing.RequireIdpMfa = req.RequireIdpMfa;
         existing.BypassPluginTwoFa = req.BypassPluginTwoFa;
         existing.Enabled = req.Enabled;
+        existing.ForceHttps = req.ForceHttps;
         plugin.SaveConfiguration();
         _oidc.InvalidateCache(id);
         return Ok();
@@ -274,7 +277,7 @@ public class SecurityController : ControllerBase
             safeReturn = returnUrl;
         }
 
-        var redirectUri = BuildRedirectUri(providerId);
+        var redirectUri = BuildRedirectUri(provider);
         try
         {
             var (authUrl, _) = await _oidc.BeginAsync(provider, redirectUri, safeReturn).ConfigureAwait(false);
@@ -332,7 +335,7 @@ public class SecurityController : ControllerBase
             return Redirect(LoginErrorUrl("Provider not found"));
         }
 
-        var redirectUri = BuildRedirectUri(providerId);
+        var redirectUri = BuildRedirectUri(provider);
         _logger.LogInformation("[2FA] OIDC token exchange redirect_uri={Uri}", redirectUri);
         var result = await _oidc.CompleteAsync(provider, code, state, redirectUri).ConfigureAwait(false);
         if (!result.Success || result.UserId is null || result.Username is null)
@@ -408,6 +411,106 @@ public class SecurityController : ControllerBase
         return Content(html, "text/html; charset=utf-8");
     }
 
+    // =========================================================================
+    // OIDC TOKEN EXCHANGE (v2.5.1, anonymous, RFC 8693-style)
+    // =========================================================================
+    // Native clients (Swiftfin, Findroid, Tizen apps) run their own OIDC
+    // auth-code+PKCE flow against the same client_id this plugin is configured
+    // with, then POST the resulting id_token here. We verify it (signature +
+    // issuer + audience=ClientId + expiry — NOT nonce, because we didn't
+    // issue one) and mint a one-shot bridge token the client posts to
+    // /Users/AuthenticateByName, identical to the browser bridge flow.
+
+    public class OidcTokenExchangeRequest
+    {
+        [Required] public string IdToken { get; set; } = string.Empty;
+        public string? AccessToken { get; set; }
+    }
+
+    public class OidcTokenExchangeResponse
+    {
+        public string Username { get; set; } = string.Empty;
+        public string BridgeToken { get; set; } = string.Empty;
+        public bool BypassPluginTwoFa { get; set; }
+    }
+
+    [HttpPost("Oidc/Exchange/{providerId}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ExchangeToken(
+        [FromRoute] string providerId,
+        [FromBody, Required] OidcTokenExchangeRequest req)
+    {
+        // Same IP-ban / rate-limit gate as /Oidc/Login. Token exchange is
+        // unauthenticated so it gets the same anti-abuse boundary.
+        var ip = RateLimiter.ClientKey(HttpContext);
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_bans.CheckBanned(clientIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This IP address is temporarily blocked.",
+                expiresAt = ban.ExpiresAt,
+            });
+        }
+
+        var rl = _oidcRateLimiter.CheckAndRecord("oidc_exchange:" + ip, 20, TimeSpan.FromMinutes(5));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many sign-in attempts. Try again in {rl.retryAfterSeconds} seconds.",
+            });
+        }
+
+        var provider = Plugin.Instance?.Configuration.OidcProviders
+            .FirstOrDefault(p => p.Id == providerId && p.Enabled);
+        if (provider is null)
+        {
+            return NotFound(new { message = "Provider not found or disabled." });
+        }
+        if (string.IsNullOrWhiteSpace(req.IdToken))
+        {
+            return BadRequest(new { message = "id_token is required." });
+        }
+
+        var result = await _oidc.ExchangeIdTokenAsync(provider, req.IdToken, req.AccessToken).ConfigureAwait(false);
+        if (!result.Success || result.UserId is null || result.Username is null)
+        {
+            _bans.RecordFailure(clientIp);
+            _logger.LogWarning("[2FA] OIDC token-exchange failed for {Pid}: {Err}", providerId, result.Error);
+            return BadRequest(new { message = result.Error ?? "Token exchange failed." });
+        }
+
+        // Per-user IP allowlist (same gate as the browser callback).
+        if (!await _allowlist.IsAllowedAsync(result.UserId.Value, clientIp).ConfigureAwait(false))
+        {
+            _logger.LogWarning("[2FA] OIDC token-exchange refused for {User}: IP {Ip} not in allowlist",
+                result.Username, clientIp);
+            _bans.RecordFailure(clientIp);
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Sign-in is not allowed from this network.",
+            });
+        }
+
+        var token = _oidcBridge.Mint(
+            result.UserId.Value,
+            result.Username,
+            providerId,
+            bypassPluginTwoFa: provider.BypassPluginTwoFa);
+
+        _logger.LogInformation("[2FA] OIDC token-exchange success for {User} via {Pid}",
+            result.Username, providerId);
+
+        return Ok(new OidcTokenExchangeResponse
+        {
+            Username = result.Username,
+            BridgeToken = token,
+            BypassPluginTwoFa = provider.BypassPluginTwoFa,
+        });
+    }
+
     private static string LoginErrorUrl(string msg)
     {
         // Trim to prevent log pollution via long IdP-returned errors, and
@@ -418,7 +521,7 @@ public class SecurityController : ControllerBase
         return "/web/index.html#!/login.html?oidcError=" + Uri.EscapeDataString(safe);
     }
 
-    private string BuildRedirectUri(string providerId)
+    private string BuildRedirectUri(OidcProvider provider)
     {
         // SECURITY: X-Forwarded-Host/Proto are ONLY trusted when the direct
         // peer is a configured trusted-proxy CIDR. Otherwise we'd accept any
@@ -436,7 +539,8 @@ public class SecurityController : ControllerBase
             forwardedHost: Request.Headers.TryGetValue("X-Forwarded-Host", out var h) ? h.ToString() : null,
             peer: peer,
             trustedCidrs: trustedCidrs,
-            providerId: providerId);
+            providerId: provider.Id,
+            forceHttps: provider.ForceHttps);
     }
 
     // =========================================================================

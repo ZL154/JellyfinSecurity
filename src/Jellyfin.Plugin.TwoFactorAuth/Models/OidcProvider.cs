@@ -81,5 +81,13 @@ public class OidcProvider
     /// page. Disable to hide a provider while keeping its config saved.</summary>
     public bool Enabled { get; set; } = true;
 
+    /// <summary>v2.5.1: force the redirect_uri scheme to https regardless of
+    /// what the request / forwarded headers say. Needed when Jellyfin is
+    /// behind a TLS-terminating proxy (Cloudflare Tunnel, some Caddy / nginx
+    /// configs) that doesn't propagate <c>X-Forwarded-Proto</c> reliably —
+    /// without this, redirect_uri is built as http:// and the IdP refuses
+    /// the exchange. Default false; opt in per provider.</summary>
+    public bool ForceHttps { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }
