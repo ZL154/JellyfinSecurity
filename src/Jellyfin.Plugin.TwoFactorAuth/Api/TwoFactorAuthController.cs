@@ -3497,10 +3497,32 @@ public class TwoFactorAuthController : ControllerBase
         return Ok(s);
     }
 
+    // v2.5.2: in-memory cache for the Dashboard/Overview response keyed by
+    // range. The endpoint runs the security-score pipeline (full user list +
+    // full audit log scan + chain verification) AND builds the chart, so a
+    // tab switch / range flip / refresh would otherwise re-pay the whole
+    // bill. 15-second TTL: long enough that flipping between tabs feels
+    // instant, short enough that admins see fresh data within a minute of
+    // any change. Cache is cross-admin (data is server-wide) and small (<6
+    // entries: 1w/1m/1y × bucketing). On a process restart it clears.
+    private static readonly object _overviewCacheLock = new();
+    private static readonly Dictionary<string, (DateTime At, object Body)> _overviewCache = new();
+    private static readonly TimeSpan _overviewCacheTtl = TimeSpan.FromSeconds(15);
+
     [HttpGet("Dashboard/Overview")]
     [Authorize(Policy = "RequiresElevation")]
     public async Task<IActionResult> GetDashboardOverview([FromQuery] string range = "1m")
     {
+        var cacheKey = (range ?? "1m").ToLowerInvariant();
+        lock (_overviewCacheLock)
+        {
+            if (_overviewCache.TryGetValue(cacheKey, out var entry) &&
+                (DateTime.UtcNow - entry.At) < _overviewCacheTtl)
+            {
+                return Ok(entry.Body);
+            }
+        }
+
         var score = await _scoreService.ComputeAsync().ConfigureAwait(false);
         var history = await _scoreService.GetHistoryAsync(30).ConfigureAwait(false);
         var stats = await _stats.ComputeAsync().ConfigureAwait(false);
@@ -3615,7 +3637,7 @@ public class TwoFactorAuthController : ControllerBase
 
         int chainBroken = DiagnosticsService.VerifyAuditChainPublic(audit);
 
-        return Ok(new
+        var body = new
         {
             // Flatten typed DTOs into anonymous shape so System.Text.Json
             // emits camelCase consistently — the SecurityScore/IpBanEntry
@@ -3675,7 +3697,13 @@ public class TwoFactorAuthController : ControllerBase
                 source = b.Source,
                 note = b.Note
             })
-        });
+        };
+
+        lock (_overviewCacheLock)
+        {
+            _overviewCache[cacheKey] = (DateTime.UtcNow, body);
+        }
+        return Ok(body);
     }
 
     // v2.5.0: anonymous server-wide defaults so login.html / challenge.html
@@ -3722,12 +3750,18 @@ public class TwoFactorAuthController : ControllerBase
     // v2.5.0: externalize admin.html's huge inline <script> body so it survives
     // Jellyfin's admin SPA loadView templater. The templater treats ${...} like
     // a template-literal engine and corrupts embedded JS, throwing SyntaxError.
-    // Auth required: admin-script.js is only loaded from admin.html (which is
-    // admin-gated). Same-origin <script src> tags carry the Jellyfin session
-    // cookie automatically, so [Authorize] does not break the load while still
-    // refusing anonymous fetches (and clearing CodeQL CWE-285 false-positive).
+    //
+    // v2.5.2: MUST stay [AllowAnonymous]. v2.5.1's CodeQL CWE-285 "fix" set
+    // this to [Authorize] on the assumption that same-origin <script src>
+    // requests carry credentials — they carry COOKIES, not the
+    // `Authorization: MediaBrowser Token="..."` header that Jellyfin's auth
+    // pipeline actually checks. The script 401s, never loads, admin page
+    // sticks at "Computing…" and tabs stop working. The script content is
+    // PURE JAVASCRIPT UI code shipped to every admin browser anyway — there
+    // is nothing to gate. CodeQL #255 stays dismissed as a false-positive
+    // (the named-resource heuristic flagged the "admin-" prefix).
     [HttpGet("admin-script.js")]
-    [Authorize]
+    [AllowAnonymous]
     [Produces("application/javascript")]
     public IActionResult GetAdminScript()
     {
