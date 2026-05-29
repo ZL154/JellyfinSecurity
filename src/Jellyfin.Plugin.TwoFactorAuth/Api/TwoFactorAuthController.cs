@@ -3391,13 +3391,20 @@ public class TwoFactorAuthController : ControllerBase
             .Where(d => d.TotpEnabled || d.Passkeys.Count > 0)
             .Select(d => d.UserId));
         int adminsTotal = 0, adminsEnrolled = 0, regularTotal = 0, regularEnrolled = 0;
+        // v2.5.0 fix: classify admins via user.HasPermission(PermissionKind.IsAdministrator).
+        // Modern Jellyfin stores the admin bit on the permissions table rather than a
+        // top-level Policy.IsAdministrator property, so the old reflection probe came
+        // back false for every admin and the Overview reported "Admins 0/0, Regular 1/N"
+        // even when an admin was clearly the one looking at the page. Reflection is kept
+        // so we stay loosely coupled to the User entity shape across Jellyfin minor versions.
+        var permKindType = typeof(Jellyfin.Database.Implementations.Enums.PermissionKind);
         foreach (var u in _stats.EnumerateUsersPublic())
         {
             var idProp = u.GetType().GetProperty("Id");
-            var policyProp = u.GetType().GetProperty("Policy");
             if (idProp?.GetValue(u) is not Guid id) continue;
-            var policy = policyProp?.GetValue(u);
-            var isAdmin = policy?.GetType().GetProperty("IsAdministrator")?.GetValue(policy) as bool? ?? false;
+            var hasPermMethod = u.GetType().GetMethod("HasPermission", new[] { permKindType });
+            var isAdmin = hasPermMethod != null
+                && (bool?)hasPermMethod.Invoke(u, new object[] { Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator }) == true;
             var isEnrolled = enrolledIds.Contains(id);
             if (isAdmin) { adminsTotal++; if (isEnrolled) adminsEnrolled++; }
             else { regularTotal++; if (isEnrolled) regularEnrolled++; }

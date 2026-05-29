@@ -244,13 +244,19 @@ public class SecurityScoreService : IDisposable
         var enrolledIds = new HashSet<Guid>(data
             .Where(d => d.TotpEnabled || d.Passkeys.Count > 0)
             .Select(d => d.UserId));
+        // v2.5.0 fix: classify admins by calling user.HasPermission(PermissionKind.IsAdministrator)
+        // — modern Jellyfin stores the admin bit on the permissions list rather than on a
+        // top-level Policy.IsAdministrator property. The old reflection probe always missed it
+        // (Policy was null on 10.11.x), counting every admin as a regular user. Use reflection
+        // again so we don't take a hard ABI dep on a specific PermissionKind enum signature.
+        var permKindType = typeof(Jellyfin.Database.Implementations.Enums.PermissionKind);
         foreach (var u in jfUsers)
         {
             var idProp = u.GetType().GetProperty("Id");
-            var policyProp = u.GetType().GetProperty("Policy");
             if (idProp?.GetValue(u) is not Guid id) continue;
-            var policy = policyProp?.GetValue(u);
-            var isAdmin = policy?.GetType().GetProperty("IsAdministrator")?.GetValue(policy) as bool? ?? false;
+            var hasPermMethod = u.GetType().GetMethod("HasPermission", new[] { permKindType });
+            var isAdmin = hasPermMethod != null
+                && (bool?)hasPermMethod.Invoke(u, new object[] { Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator }) == true;
             if (!isAdmin) continue;
             if (!enrolledIds.Contains(id)) return false;
         }
