@@ -6,6 +6,7 @@
     "overview": "Comprehensive Jellyfin security: 2FA, passkeys, OIDC/SSO, brute-force protection, impossible-travel detection, IP allowlist, and audit logging.",
     "owner": "ZL154",
     "category": "General",
+    "imageUrl": "https://raw.githubusercontent.com/ZL154/JellyfinSecurity/main/assets/logo.png",
     "versions": [
       {
         "version": "2.4.13.0",
