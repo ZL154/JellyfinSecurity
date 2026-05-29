@@ -177,7 +177,7 @@
                         <!-- Factor breakdown -->
                         <div class="tfa-section">
                             <h2 data-i18n-key="tfa.admin.score_breakdown_heading">Score breakdown</h2>
-                            <div class="tfa-factors" id="factorsGrid">Loading…</div>
+                            <div class="tfa-factors" id="factorsGrid" data-i18n-key="tfa.admin.common.loading">Loading…</div>
                         </div>
 
                         <!-- Auth activity chart -->
@@ -189,13 +189,13 @@
                         <!-- Enrollment by role -->
                         <div class="tfa-chart-card">
                             <h3 data-i18n-key="tfa.admin.enrollment_by_role_heading">Enrollment by role</h3>
-                            <div id="enrollmentBars">Loading…</div>
+                            <div id="enrollmentBars" data-i18n-key="tfa.admin.common.loading">Loading…</div>
                         </div>
 
                         <!-- Recent bans inline -->
                         <div class="tfa-section">
                             <h2 data-i18n-key="tfa.admin.active_ip_bans_heading">Active IP bans</h2>
-                            <table class="tfa-table"><thead><tr><th data-i18n-key="tfa.admin.bans.col_ip">IP</th><th data-i18n-key="tfa.admin.bans.col_source">Source</th><th data-i18n-key="tfa.admin.bans.col_failures">Failures</th><th data-i18n-key="tfa.admin.bans.col_banned_at">Banned at</th><th data-i18n-key="tfa.admin.bans.col_expires">Expires</th></tr></thead><tbody id="overviewBansBody"><tr><td colspan="5" class="tfa-empty">No active bans</td></tr></tbody></table>
+                            <table class="tfa-table"><thead><tr><th data-i18n-key="tfa.admin.bans.col_ip">IP</th><th data-i18n-key="tfa.admin.bans.col_source">Source</th><th data-i18n-key="tfa.admin.bans.col_failures">Failures</th><th data-i18n-key="tfa.admin.bans.col_banned_at">Banned at</th><th data-i18n-key="tfa.admin.bans.col_expires">Expires</th></tr></thead><tbody id="overviewBansBody"><tr><td colspan="5" class="tfa-empty" data-i18n-key="tfa.admin.no_active_bans">No active bans</td></tr></tbody></table>
                         </div>
                     </div>
 
@@ -248,7 +248,7 @@
                             <p style="font-size:12px;color:#888;margin-bottom:8px;" data-i18n-key="tfa.admin.pairings.manual_explainer">Pending requests from devices that can't use Quick Connect. Approve to grant a 30-day trusted device.</p>
                             <table class="tfa-table">
                                 <thead><tr><th data-i18n-key="tfa.admin.pairings.col_user">User</th><th data-i18n-key="tfa.admin.pairings.col_device">Device</th><th data-i18n-key="tfa.admin.pairings.col_code">Code</th><th data-i18n-key="tfa.admin.pairings.col_expires">Expires</th><th data-i18n-key="tfa.admin.pairings.col_actions">Actions</th></tr></thead>
-                                <tbody id="pairingsBody"><tr><td colspan="5" class="tfa-empty">No pending pairings</td></tr></tbody>
+                                <tbody id="pairingsBody"><tr><td colspan="5" class="tfa-empty" data-i18n-key="tfa.admin.pairings.empty">No pending pairings</td></tr></tbody>
                             </table>
                         </div>
                     </div>
@@ -291,7 +291,7 @@
                             <button id="tripsRefresh" class="tfa-btn" type="button" data-i18n-key="tfa.admin.common.refresh">Refresh</button>
                             <table class="tfa-table" style="margin-top:10px;">
                                 <thead><tr><th data-i18n-key="tfa.admin.trips.col_time">Time</th><th data-i18n-key="tfa.admin.trips.col_bucket">Bucket</th><th data-i18n-key="tfa.admin.trips.col_limit">Limit</th><th data-i18n-key="tfa.admin.trips.col_window">Window (s)</th><th data-i18n-key="tfa.admin.trips.col_retry_after">Retry after (s)</th></tr></thead>
-                                <tbody id="tripsBody"><tr><td colspan="5" class="tfa-empty">No trips since startup</td></tr></tbody>
+                                <tbody id="tripsBody"><tr><td colspan="5" class="tfa-empty" data-i18n-key="tfa.admin.trips.empty">No trips since startup</td></tr></tbody>
                             </table>
                         </div>
                     </div>
@@ -303,7 +303,7 @@
                             <div class="tfa-note" data-i18n-key="tfa.admin.sso.note">Add an external identity provider (Google, Microsoft, GitHub, Apple, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, or any OIDC-compliant IdP). Users get a "Sign in with X" button on the login page. Each provider needs its own OAuth client registered at the IdP — set the redirect URI to <code id="ssoCallbackHint" style="background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;">/TwoFactorAuth/Oidc/Callback/&lt;providerId&gt;</code> on this server.</div>
                             <table class="tfa-table">
                                 <thead><tr><th data-i18n-key="tfa.admin.sso.col_provider">Provider</th><th data-i18n-key="tfa.admin.sso.col_preset">Preset</th><th data-i18n-key="tfa.admin.sso.col_client_id">Client ID</th><th data-i18n-key="tfa.admin.sso.col_status">Status</th><th data-i18n-key="tfa.admin.sso.col_actions">Actions</th></tr></thead>
-                                <tbody id="ssoBody"><tr><td colspan="5" class="tfa-empty">Loading…</td></tr></tbody>
+                                <tbody id="ssoBody"><tr><td colspan="5" class="tfa-empty" data-i18n-key="tfa.admin.common.loading">Loading…</td></tr></tbody>
                             </table>
                             <div style="margin-top:14px;">
                                 <button type="button" class="tfa-btn tfa-btn-primary" id="ssoAddBtn" data-i18n-key="tfa.admin.sso.btn_add">Add provider…</button>
@@ -381,7 +381,7 @@
                             <div class="tfa-note" data-i18n-key="tfa.admin.bans.note">Source IPs are auto-banned after the configured threshold of failed sign-ins (see Settings → Brute-Force Protection). LAN, trusted-proxy, and exempt CIDRs are never banned.</div>
                             <table class="tfa-table">
                                 <thead><tr><th data-i18n-key="tfa.admin.bans.col_ip">IP</th><th data-i18n-key="tfa.admin.bans.col_banned_at">Banned at</th><th data-i18n-key="tfa.admin.bans.col_expires">Expires</th><th data-i18n-key="tfa.admin.bans.col_source">Source</th><th data-i18n-key="tfa.admin.bans.col_note">Note</th><th data-i18n-key="tfa.admin.bans.col_actions">Actions</th></tr></thead>
-                                <tbody id="bansBody"><tr><td colspan="6" class="tfa-empty">Loading…</td></tr></tbody>
+                                <tbody id="bansBody"><tr><td colspan="6" class="tfa-empty" data-i18n-key="tfa.admin.common.loading">Loading…</td></tr></tbody>
                             </table>
                             <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                                 <input type="text" id="banIp" class="tfa-input" placeholder="1.2.3.4" style="width:200px;" />
