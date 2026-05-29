@@ -49,7 +49,19 @@
                     }
                     var host = document.getElementById('adminLangPickerHost');
                     if (host && !host.firstChild) {
-                        window.tfaI18n.renderLanguagePicker(host);
+                        // v2.5.3: pass onChange so the dynamic Overview content
+                        // (factor labels, posture top-action prose, KPI sub-text,
+                        // role-enrollment labels) re-renders in the newly-picked
+                        // language. tfa-i18n's applyTranslations() only refreshes
+                        // [data-i18n-key] elements, which the dynamic containers
+                        // intentionally no longer carry — so without this, the
+                        // static chrome (tabs, headings) switches but the
+                        // breakdown cards keep the previous language.
+                        window.tfaI18n.renderLanguagePicker(host, {
+                            onChange: function() {
+                                if (typeof renderOverview === 'function') renderOverview();
+                            }
+                        });
                     }
                 }
 
@@ -236,6 +248,22 @@
 
                 async function renderOverview() {
                     try {
+                        // v2.5.3: defensively strip data-i18n-key from the dynamic
+                        // containers BEFORE we write to them. admin.html ships these
+                        // with data-i18n-key="tfa.admin.common.loading" so the
+                        // initial "Loading…" placeholder localizes. After we
+                        // populate them with cards/bars, any subsequent
+                        // applyTranslations() sweep (e.g., the bundle finishing its
+                        // async load AFTER our innerHTML write, or the user changing
+                        // language) would re-walk [data-i18n-key] nodes and
+                        // overwrite their content back to the translated "Loading…"
+                        // — which is exactly the bug seen in non-English locales.
+                        ['factorsGrid', 'enrollmentBars'].forEach(function(id) {
+                            var el = document.getElementById(id);
+                            if (el && el.hasAttribute('data-i18n-key')) {
+                                el.removeAttribute('data-i18n-key');
+                            }
+                        });
                         const data = await apiGet('TwoFactorAuth/Dashboard/Overview?range=' + encodeURIComponent(_currentRange));
 
                         // Posture banner
@@ -1408,9 +1436,25 @@
                 // ApiClient finish initializing its auth state before we hit
                 // /Dashboard/Overview (otherwise the first call can race with
                 // token rehydration and get an empty response).
+                //
+                // v2.5.3: gate the initial render on window.tfaI18n.ready so the
+                // translation bundle is loaded BEFORE _tr() calls fire. Without
+                // the gate, in non-English locales the bundle fetch races
+                // renderOverview and "Top action:", "of", "users", etc. return
+                // the English fallback because _bundle isn't populated yet. The
+                // gate plus the data-i18n-key strip inside renderOverview fixes
+                // both halves of the screenshot bug (English Top-action prose +
+                // stuck "読み込み中..." for score breakdown / enrollment bars).
+                // tfaI18n.ready always resolves (even on bundle fetch failure)
+                // so this never hangs.
                 setTimeout(function() {
-                    renderOverview();
-                    loadUsers();
-                    _initAdminLangPicker();
+                    var ready = (window.tfaI18n && window.tfaI18n.ready)
+                        ? window.tfaI18n.ready
+                        : Promise.resolve();
+                    ready.then(function() {
+                        renderOverview();
+                        loadUsers();
+                        _initAdminLangPicker();
+                    });
                 }, 100);
             })();
