@@ -64,8 +64,6 @@ visible trust signals is treated as a high-priority bug.
 
 ## 🆕 What's new in v2.5.0
 
-> *This callout summarises the v2.5 release. The features themselves are documented in their permanent sections below — when v2.6 ships, this callout can be replaced without losing the docs.*
-
 - **[Step-up authentication](#-step-up-authentication-v25)** — destructive admin actions (disable plugin, delete user, rebuild audit chain) now re-prompt for 2FA. Four levels: `Off`, `Destructive`, `AllConfigChanges`, `Everything`.
 - **[Encrypted configuration exports](#-encrypted-configuration-exports-v25)** — back up plugin config with a passphrase. AES-256-GCM, PBKDF2-SHA256 600k iterations, versioned envelope.
 - **[Admin Dashboard Overview](#-security-score--admin-overview-v25)** — auth-activity time series with 1w / 1m / 1y range selector, hover tooltips, and 12-factor security score (expanded from 5).
