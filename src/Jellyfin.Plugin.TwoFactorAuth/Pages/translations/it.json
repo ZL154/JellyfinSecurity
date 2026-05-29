@@ -647,5 +647,12 @@
   "tfa.factor.webhook.label": "Webhook per gli eventi di sicurezza",
   "tfa.factor.webhook.action": "Configura un URL webhook in modo che gli eventi di sicurezza (blocchi, lockout, modifiche 2FA) generino notifiche.",
   "tfa.factor.recovery_codes.label": "Codici di recupero generati",
-  "tfa.factor.recovery_codes.action": "Chiedi agli utenti registrati di generare codici di recupero — sono un fattore di backup critico."
+  "tfa.factor.recovery_codes.action": "Chiedi agli utenti registrati di generare codici di recupero — sono un fattore di backup critico.",
+  "tfa.setup.passkeys.diag_browser_origin": "origine del browser:",
+  "tfa.setup.passkeys.diag_server_host": "host visto dal server:",
+  "tfa.setup.passkeys.diag_scheme": "(schema=",
+  "tfa.setup.passkeys.diag_rp_id": "RP ID configurato:",
+  "tfa.setup.passkeys.diag_origins": "origini configurate:",
+  "tfa.setup.passkeys.diag_auto": "(automatico)",
+  "tfa.setup.passkeys.diag_none": "(nessuno)"
 }

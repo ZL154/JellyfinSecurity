@@ -747,7 +747,7 @@
                 return '<div class="device-row">' +
                     '<div class="device-icon">' + deviceIcon(d.deviceName + ' ' + d.appName) + '</div>' +
                     '<div class="device-info">' +
-                        '<div class="device-name">' + escapeHtml(d.deviceName) + '</div>' +
+                        '<div class="device-name">' + escapeHtml(d.deviceName || _tr('tfa.setup.common.unknown', 'Unknown')) + '</div>' +
                         '<div class="device-meta">' + escapeHtml(d.appName) + ' · ' + _tr('tfa.setup.paired.paired_prefix', 'paired') + ' ' + fmtRel(d.createdAt) + ' · ' + _tr('tfa.setup.common.last_used_prefix', 'last used') + ' ' + fmtRel(d.lastUsedAt) + (d.lastIp ? ' · ' + escapeHtml(d.lastIp) : '') + '</div>' +
                     '</div>' +
                     '<button class="btn-danger btn-sm tfa-revoke-paired" data-id="' + escapeHtml(d.id) + '">' + _tr('tfa.setup.common.btn_revoke', 'Revoke') + '</button>' +
@@ -1055,12 +1055,24 @@
             // "advanced" disclosure they can't expand.
             api('GET', 'TwoFactorAuth/Passkeys/Diagnose').then(function(j) {
                 wrap.style.display = '';
+                // v2.5.0: each English label is localized via _tr() so the
+                // diagnostics block matches the rest of the UI's language.
+                // Header names (X-Forwarded-Host, X-Forwarded-Proto) and
+                // config keys (TrustForwardedFor, trustedProxyCidrs, peer)
+                // are protocol identifiers and intentionally NOT translated.
+                var labelBrowser = _tr('tfa.setup.passkeys.diag_browser_origin', 'browser origin:');
+                var labelServer = _tr('tfa.setup.passkeys.diag_server_host', 'server sees host:');
+                var labelScheme = _tr('tfa.setup.passkeys.diag_scheme', '(scheme=');
+                var labelRpId = _tr('tfa.setup.passkeys.diag_rp_id', 'configured RP ID:');
+                var labelOrigins = _tr('tfa.setup.passkeys.diag_origins', 'configured origins:');
+                var labelAuto = _tr('tfa.setup.passkeys.diag_auto', '(auto)');
+                var labelNone = _tr('tfa.setup.passkeys.diag_none', '(none)');
                 d.innerHTML =
-                    'browser origin: <strong>' + window.location.origin + '</strong><br>' +
-                    'server sees host: <strong>' + (j.requestHost || '?') + '</strong> (scheme=' + (j.requestScheme || '?') + ')<br>' +
-                    'X-Forwarded-Host: ' + (j.xForwardedHost || '(none)') + ' / Proto: ' + (j.xForwardedProto || '(none)') + '<br>' +
-                    'configured RP ID: <strong>' + (j.configuredRpId || '(auto)') + '</strong><br>' +
-                    'configured origins: ' + ((j.configuredOrigins || []).join(', ') || '(auto)') + '<br>' +
+                    labelBrowser + ' <strong>' + window.location.origin + '</strong><br>' +
+                    labelServer + ' <strong>' + (j.requestHost || '?') + '</strong> ' + labelScheme + (j.requestScheme || '?') + ')<br>' +
+                    'X-Forwarded-Host: ' + (j.xForwardedHost || labelNone) + ' / Proto: ' + (j.xForwardedProto || labelNone) + '<br>' +
+                    labelRpId + ' <strong>' + (j.configuredRpId || labelAuto) + '</strong><br>' +
+                    labelOrigins + ' ' + ((j.configuredOrigins || []).join(', ') || labelAuto) + '<br>' +
                     'TrustForwardedFor=' + j.trustForwardedFor + ' trustedProxyCidrs=' + j.trustedProxyCidrCount + ' peer=' + (j.remoteIp || '?');
             }).catch(function() {
                 wrap.style.display = 'none';
