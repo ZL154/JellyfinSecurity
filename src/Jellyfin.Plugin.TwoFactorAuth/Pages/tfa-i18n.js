@@ -22,6 +22,15 @@
     var _bundle = null;
     var _lang = 'en';
     var _loaded = false;
+    // v2.5.0: callers (setup.html, pairconfirm.html, …) need to defer their
+    // dynamic-row rendering until the bundle is fetched + applyTranslations()
+    // has run once. Otherwise _tr() falls back to the English literal because
+    // <script src=".../tfa-i18n.js"> is async-loaded and window.tfaI18n is
+    // undefined at the moment the inline init code fires. We expose a promise
+    // that always resolves (even on fetch failure → resolves to 'en') so
+    // callers never wait forever.
+    var _readyResolve;
+    var _readyPromise = new Promise(function (r) { _readyResolve = r; });
 
     function hasApiClient() {
         return typeof window.ApiClient !== 'undefined' && window.ApiClient &&
@@ -136,6 +145,15 @@
         try { document.documentElement.setAttribute('lang', _lang); } catch (e) { /* ignore */ }
     }
 
+    function _signalReady() {
+        if (_readyResolve) {
+            try { _readyResolve(); } catch (e) { /* ignore */ }
+            _readyResolve = null;
+        }
+        try { document.dispatchEvent(new CustomEvent('tfa-i18n-ready')); }
+        catch (e) { /* old browser without CustomEvent ctor — ignore */ }
+    }
+
     function loadTranslations() {
         return resolveLanguage().then(function (lang) {
             _lang = lang || 'en';
@@ -146,10 +164,14 @@
             _bundle = bundle || {};
             _loaded = true;
             applyTranslations();
+            _signalReady();
             return _lang;
         }).catch(function () {
             _bundle = {};
             _loaded = true;
+            // Resolve the ready promise even on failure so callers that gate
+            // on it don't hang forever (e.g., bundle 404 / offline / DNS).
+            _signalReady();
             return _lang;
         });
     }
@@ -240,7 +262,15 @@
         renderLanguagePicker: renderLanguagePicker,
         getEffectiveLanguage: getEffectiveLanguage,
         SUPPORTED: SUPPORTED.slice(),
-        LANG_LABELS: LANG_LABELS
+        LANG_LABELS: LANG_LABELS,
+        // v2.5.0: gate inline-script initial renders on this so dynamic list
+        // rows (paired devices, sessions, "Signed in as X", recovery count,
+        // …) render with the localized strings instead of the English
+        // literal fallback. Pattern:
+        //   (window.tfaI18n && window.tfaI18n.ready ? window.tfaI18n.ready
+        //                                            : Promise.resolve())
+        //       .then(function() { loadAll(); loadPasskeys(); });
+        ready: _readyPromise
     };
 
     // Auto-load when the document is ready.

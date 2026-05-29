@@ -123,34 +123,44 @@
         var params = new URLSearchParams(window.location.search);
         var token = params.get('token');
 
-        if (!token) {
-            showStatus(_tr('tfa.pairconfirm.error_missing_token', 'Missing pairing token.'), false);
-        } else if (!getToken()) {
-            showStatus(_tr('tfa.pairconfirm.error_signin_required', 'You need to sign in first. '), false);
-            document.getElementById('statusBox').innerHTML += '<a href="/web/index.html">' + _tr('tfa.pairconfirm.signin_link', 'Sign in →') + '</a>';
-        } else {
-            // Decode token payload client-side (just for display — server re-verifies signature)
-            try {
-                var fixed = token.replace(/-/g, '+').replace(/_/g, '/');
-                while (fixed.length % 4) fixed += '=';
-                var decoded = atob(fixed);
-                var dotIdx = decoded.lastIndexOf('.');
-                var payload = decoded.substring(0, dotIdx);
-                var parts = payload.split('|');
-                var deviceId = parts[2];
-                var exp = parseInt(parts[3], 10);
-                if (Date.now() / 1000 > exp) {
-                    showStatus(_tr('tfa.pairconfirm.error_expired', 'This pairing link has expired. Generate a new QR.'), false);
+        // v2.5.0 i18n race fix: tfa-i18n.js is async-loaded, so window.tfaI18n
+        // is undefined when this inline script runs. All of the initial-render
+        // _tr() calls below (missing token, signin required, expired link,
+        // app-name fallback, invalid token) would silently fall back to the
+        // English literal. Defer the whole top-level render block until the
+        // bundle is loaded; ternary keeps the page functional if the helper
+        // script fails to load entirely.
+        (window.tfaI18n && window.tfaI18n.ready ? window.tfaI18n.ready : Promise.resolve())
+            .then(function() {
+                if (!token) {
+                    showStatus(_tr('tfa.pairconfirm.error_missing_token', 'Missing pairing token.'), false);
+                } else if (!getToken()) {
+                    showStatus(_tr('tfa.pairconfirm.error_signin_required', 'You need to sign in first. '), false);
+                    document.getElementById('statusBox').innerHTML += '<a href="/web/index.html">' + _tr('tfa.pairconfirm.signin_link', 'Sign in →') + '</a>';
                 } else {
-                    // We don't know the device name client-side — it's stored server-side
-                    // in the pending pairing record. Show deviceId as fallback.
-                    document.getElementById('deviceName').textContent = deviceId;
-                    document.getElementById('appName').textContent = _tr('tfa.pairconfirm.app_pairing_server_side', 'Pairing server-side');
-                    document.getElementById('deviceCard').style.display = 'block';
-                    document.getElementById('btnConfirm').disabled = false;
+                    // Decode token payload client-side (just for display — server re-verifies signature)
+                    try {
+                        var fixed = token.replace(/-/g, '+').replace(/_/g, '/');
+                        while (fixed.length % 4) fixed += '=';
+                        var decoded = atob(fixed);
+                        var dotIdx = decoded.lastIndexOf('.');
+                        var payload = decoded.substring(0, dotIdx);
+                        var parts = payload.split('|');
+                        var deviceId = parts[2];
+                        var exp = parseInt(parts[3], 10);
+                        if (Date.now() / 1000 > exp) {
+                            showStatus(_tr('tfa.pairconfirm.error_expired', 'This pairing link has expired. Generate a new QR.'), false);
+                        } else {
+                            // We don't know the device name client-side — it's stored server-side
+                            // in the pending pairing record. Show deviceId as fallback.
+                            document.getElementById('deviceName').textContent = deviceId;
+                            document.getElementById('appName').textContent = _tr('tfa.pairconfirm.app_pairing_server_side', 'Pairing server-side');
+                            document.getElementById('deviceCard').style.display = 'block';
+                            document.getElementById('btnConfirm').disabled = false;
+                        }
+                    } catch (e) { showStatus(_tr('tfa.pairconfirm.error_invalid_token', 'Invalid token.'), false); }
                 }
-            } catch (e) { showStatus(_tr('tfa.pairconfirm.error_invalid_token', 'Invalid token.'), false); }
-        }
+            });
 
         document.getElementById('btnConfirm').addEventListener('click', function() {
             this.disabled = true;

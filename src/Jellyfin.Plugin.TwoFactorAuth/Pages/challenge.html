@@ -235,11 +235,23 @@
         var currentMethod = 'totp';
         var availableMethods = ['totp'];
 
+        // v2.5.0 i18n race fix: tfa-i18n.js is async-loaded, so window.tfaI18n
+        // is undefined when this inline script runs. loadChallengeInfo() and
+        // its downstream renders (renderAvailableMethods, refreshPasskeyButton,
+        // showEnrollmentRequired) call _tr() for every label/hint they emit;
+        // if we fire them before the bundle resolves the user sees the English
+        // fallback. Defer until the helper signals ready; ternary keeps the
+        // page functional (in English) if the helper script itself fails to
+        // load.
+        var _i18nReady = (window.tfaI18n && window.tfaI18n.ready)
+            ? window.tfaI18n.ready : Promise.resolve();
         if (!challengeToken) {
-            showError(_tr('tfa.challenge.expired', 'No challenge token. Return to login.'));
-            document.getElementById('btnVerify').disabled = true;
+            _i18nReady.then(function() {
+                showError(_tr('tfa.challenge.expired', 'No challenge token. Return to login.'));
+                document.getElementById('btnVerify').disabled = true;
+            });
         } else {
-            loadChallengeInfo();
+            _i18nReady.then(function() { loadChallengeInfo(); });
         }
 
         function showError(msg) {

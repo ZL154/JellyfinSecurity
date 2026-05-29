@@ -1205,7 +1205,19 @@
             loadPasskeys();
         };
 
-        loadAll();
+        // v2.5.0 i18n race fix: tfa-i18n.js is async-loaded, so when this
+        // script runs window.tfaI18n is usually undefined. If we kick off
+        // loadAll() immediately, every _tr(key, 'English fallback') call
+        // inside the row renderers (renderPaired / renderSessions /
+        // renderAppPasswords / renderTrusted / renderRecovery / renderStatus
+        // / loadSsoLinks / loadIpAllowlist / loadPasskeys) returns the
+        // English literal — section headings get translated by
+        // applyTranslations() but the dynamic rows stay in English.
+        // Defer the initial render until the bundle is loaded; the
+        // ternary defends against tfa-i18n.js failing to load at all so
+        // the page still renders (in English) instead of hanging.
+        (window.tfaI18n && window.tfaI18n.ready ? window.tfaI18n.ready : Promise.resolve())
+            .then(function() { loadAll(); });
     </script>
 </body>
 </html>
