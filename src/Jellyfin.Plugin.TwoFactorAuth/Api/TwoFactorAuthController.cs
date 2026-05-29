@@ -3422,7 +3422,26 @@ public class TwoFactorAuthController : ControllerBase
 
         return Ok(new
         {
-            score,
+            // Flatten typed DTOs into anonymous shape so System.Text.Json
+            // emits camelCase consistently — the SecurityScore/IpBanEntry
+            // classes have PascalCase properties and Jellyfin's serializer
+            // does not auto-lowercase nested DTO members.
+            score = new
+            {
+                total = score.Total,
+                possible = score.Possible,
+                grade = score.Grade,
+                factors = score.Factors.Select(f => new
+                {
+                    id = f.Id,
+                    label = f.Label,
+                    earned = f.Earned,
+                    possible = f.Possible,
+                    status = f.Status,
+                    nextAction = f.NextAction
+                }),
+                computedAt = score.ComputedAt
+            },
             kpis = new
             {
                 enrolledUsers = stats.EnrolledCount,
@@ -3432,7 +3451,7 @@ public class TwoFactorAuthController : ControllerBase
                 auditEntries = audit.Count,
                 auditChainBroken = chainBroken
             },
-            history,
+            history = history.Select(h => new { date = h.Date, score = h.Score }),
             enrollmentByRole = new
             {
                 adminsTotal,
@@ -3441,7 +3460,15 @@ public class TwoFactorAuthController : ControllerBase
                 regularEnrolled
             },
             timeSeries,
-            bans
+            bans = bans.Select(b => new
+            {
+                ip = b.Ip,
+                bannedAt = b.BannedAt,
+                expiresAt = b.ExpiresAt,
+                failureCount = b.FailureCount,
+                source = b.Source,
+                note = b.Note
+            })
         });
     }
 
