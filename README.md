@@ -551,8 +551,6 @@ A 12-factor security score (raw 130 points, normalized to 100) and a live auth-a
 | Webhook | 5 | Push notifications (ntfy / Gotify / webhook) configured |
 | Recovery codes | 5 | At least one user has generated recovery codes |
 
-**Why the 100 ceiling**: 130 raw points so individual factor weights can be tuned without renormalizing the public-facing score. Each factor's contribution is shown in the score breakdown, in the admin's chosen language.
-
 ### Auth-activity overview
 
 Admin dashboard → **Overview** tab shows a stacked-area chart of successful / failed / blocked sign-ins.
