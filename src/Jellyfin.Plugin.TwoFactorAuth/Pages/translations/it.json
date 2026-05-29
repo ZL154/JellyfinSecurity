@@ -624,5 +624,8 @@
   "tfa.factor.hibp.label": "Verifica HIBP password compromesse",
   "tfa.factor.hibp.action": "Abilita la verifica HIBP su password nuove o modificate.",
   "tfa.factor.clean_7d.label": "Nessun errore di autenticazione in 7 giorni",
-  "tfa.factor.clean_7d.action": "Errori di autenticazione o blocchi recenti. Controlla il log di audit."
+  "tfa.factor.clean_7d.action": "Errori di autenticazione o blocchi recenti. Controlla il log di audit.",
+  "tfa.admin.audit.rebuild_chain": "Ricostruisci catena di audit",
+  "tfa.admin.audit.rebuild_confirm": "Ricostruire la catena hash di audit dai dati attuali? Verrà rimosso l'avviso di catena danneggiata, ma anche CANCELLATA qualsiasi prova di manomissione. Continuare?",
+  "tfa.admin.audit.rebuild_success": "Ricostruite {count} voci di audit."
 }

@@ -624,5 +624,8 @@
   "tfa.factor.hibp.label": "Vérification HIBP de mots de passe compromis",
   "tfa.factor.hibp.action": "Activez la vérification HIBP sur les mots de passe nouveaux ou modifiés.",
   "tfa.factor.clean_7d.label": "Aucun échec d'authentification sur 7 jours",
-  "tfa.factor.clean_7d.action": "Échecs ou verrouillages récents. Consultez le journal d'audit."
+  "tfa.factor.clean_7d.action": "Échecs ou verrouillages récents. Consultez le journal d'audit.",
+  "tfa.admin.audit.rebuild_chain": "Reconstruire la chaîne d'audit",
+  "tfa.admin.audit.rebuild_confirm": "Reconstruire la chaîne de hachage d'audit à partir des données actuelles ? Cela efface l'avertissement de chaîne rompue mais SUPPRIME toute preuve d'altération. Continuer ?",
+  "tfa.admin.audit.rebuild_success": "{count} entrées d'audit reconstruites."
 }

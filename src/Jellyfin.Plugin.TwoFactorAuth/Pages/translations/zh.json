@@ -624,5 +624,8 @@
   "tfa.factor.hibp.label": "HIBP 密码泄露检查",
   "tfa.factor.hibp.action": "对新设置或修改的密码启用 HIBP 泄露检查。",
   "tfa.factor.clean_7d.label": "近 7 天无身份验证失败事件",
-  "tfa.factor.clean_7d.action": "近期出现认证失败或锁定事件。请查看审计日志。"
+  "tfa.factor.clean_7d.action": "近期出现认证失败或锁定事件。请查看审计日志。",
+  "tfa.admin.audit.rebuild_chain": "重建审计链",
+  "tfa.admin.audit.rebuild_confirm": "根据当前数据重建审计哈希链?这将清除链损坏的警告,但也会抹除任何篡改证据。是否继续?",
+  "tfa.admin.audit.rebuild_success": "已重建 {count} 条审计记录。"
 }

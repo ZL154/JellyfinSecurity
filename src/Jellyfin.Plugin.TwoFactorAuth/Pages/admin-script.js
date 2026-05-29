@@ -370,6 +370,50 @@
                     }).catch(function() { box.innerHTML = '<span style="color:#f44336;">' + escapeHtml(_tr('tfa.admin.diagnostics.failed', 'Failed to run diagnostics.')) + '</span>'; });
                 });
 
+                // ---- v2.5.0: REBUILD AUDIT CHAIN ----
+                // Gated by the destructive-tier step-up policy server-side.
+                // We use stepUpFetch so a 401-with-stepup-challenge body
+                // pops the verification modal and retries automatically.
+                var rebuildBtn = page.querySelector('#rebuildChainBtn');
+                if (rebuildBtn) {
+                    rebuildBtn.addEventListener('click', function() {
+                        var msg = _tr('tfa.admin.audit.rebuild_confirm',
+                            'Rebuild the audit hash chain from current data? This clears the broken-chain warning but ERASES evidence of any tampering. Continue?');
+                        if (!confirm(msg)) return;
+                        var out = page.querySelector('#rebuildChainResult');
+                        out.style.color = '#888';
+                        out.textContent = _tr('tfa.admin.common.saving', 'Saving…');
+                        stepUpFetch('TwoFactorAuth/Admin/RebuildAuditChain', {
+                            method: 'POST',
+                            headers: getHeaders()
+                        }).then(function(r) {
+                            if (!r || (!r.ok && r.status !== 200)) {
+                                out.style.color = '#f44336';
+                                out.textContent = '✗ ' + _tr('tfa.admin.common.save_failed', 'Save failed');
+                                return;
+                            }
+                            return r.json().catch(function() { return { rebuilt: 0 }; }).then(function(body) {
+                                out.style.color = '#4caf50';
+                                var tpl = _tr('tfa.admin.audit.rebuild_success', 'Rebuilt N audit entries.');
+                                // Backwards-compatible substitution: prefer
+                                // {count} if the translator switched to a
+                                // placeholder, otherwise fall back to "N".
+                                out.textContent = '✓ ' + tpl.replace('{count}', body.rebuilt || 0).replace('N', body.rebuilt || 0);
+                                // Re-run diagnostics so the broken-chain row
+                                // updates to "ok" without a manual refresh.
+                                var diagBtn = page.querySelector('#diagRun');
+                                if (diagBtn) diagBtn.click();
+                                // Re-render the Overview so the score factor
+                                // also reflects the cleared warning.
+                                if (typeof renderOverview === 'function') renderOverview();
+                            });
+                        }).catch(function() {
+                            out.style.color = '#f44336';
+                            out.textContent = '✗ ' + _tr('tfa.admin.common.save_failed', 'Save failed');
+                        });
+                    });
+                }
+
                 // ---- v1.4: RATE LIMIT TRIPS ----
                 function loadTrips() {
                     apiGet('TwoFactorAuth/RateLimitTrips').then(function(rows) {

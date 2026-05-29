@@ -341,6 +341,56 @@ public class UserTwoFactorStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// v2.5.0: rebuilds the audit log hash chain from the current entries,
+    /// treating the present state as the new baseline. Use after detecting
+    /// chain corruption (broken EntryHash on one or more rows) to clear the
+    /// diagnostic warning. NOTE: this erases tampering evidence — admin-only
+    /// operation, gated by the destructive-tier step-up policy.
+    ///
+    /// Returns the number of entries that were re-hashed (zero when the log
+    /// is empty). Persists the rewritten list to disk inline rather than
+    /// waiting on the periodic flush timer, so the operation is atomic from
+    /// the admin's point of view.
+    /// </summary>
+    public async Task<int> RebuildAuditChainAsync()
+    {
+        await _auditLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            // Force the in-memory list to exist before we walk it. Lazy load
+            // mirrors AddAuditEntryAsync / GetAuditLogAsync so callers don't
+            // have to pre-warm the cache.
+            _auditEntries ??= await ReadAuditFileAsync().ConfigureAwait(false);
+
+            if (_auditEntries.Count == 0) return 0;
+
+            // Walk the list in order, re-tying each entry's PreviousHash to
+            // the prior entry's freshly-computed EntryHash. The first row
+            // anchors to the all-zero "genesis" string, same convention as
+            // AddAuditEntryAsync.
+            string prev = string.Empty;
+            foreach (var e in _auditEntries)
+            {
+                e.PreviousHash = string.IsNullOrEmpty(prev) ? new string('0', 64) : prev;
+                e.EntryHash = ComputeAuditEntryHash(e);
+                prev = e.EntryHash;
+            }
+
+            // Persist inline. AtomicWriteAsync gives us a temp-file + rename so
+            // a crash mid-write leaves the previous audit.json intact.
+            var json = JsonSerializer.Serialize(_auditEntries, JsonOptions);
+            await AtomicWriteAsync(_auditFilePath, json).ConfigureAwait(false);
+            _auditDirty = false;
+
+            return _auditEntries.Count;
+        }
+        finally
+        {
+            _auditLock.Release();
+        }
+    }
+
     // -------------------------------------------------------------------------
     // API keys
     // -------------------------------------------------------------------------

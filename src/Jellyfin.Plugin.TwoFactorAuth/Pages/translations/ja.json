@@ -624,5 +624,8 @@
   "tfa.factor.hibp.label": "HIBPパスワード漏洩チェック",
   "tfa.factor.hibp.action": "新規または変更されたパスワードに対してHIBPチェックを有効にしてください。",
   "tfa.factor.clean_7d.label": "過去7日間の認証失敗イベントなし",
-  "tfa.factor.clean_7d.action": "最近の認証失敗またはロックアウトイベントがあります。監査ログを確認してください。"
+  "tfa.factor.clean_7d.action": "最近の認証失敗またはロックアウトイベントがあります。監査ログを確認してください。",
+  "tfa.admin.audit.rebuild_chain": "監査チェーンを再構築",
+  "tfa.admin.audit.rebuild_confirm": "現在のデータから監査ハッシュチェーンを再構築しますか?チェーン破損の警告は解消されますが、改ざんの痕跡も消去されます。続行しますか?",
+  "tfa.admin.audit.rebuild_success": "{count}件の監査エントリを再構築しました。"
 }

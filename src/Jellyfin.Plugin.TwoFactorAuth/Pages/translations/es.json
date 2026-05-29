@@ -624,5 +624,8 @@
   "tfa.factor.hibp.label": "Comprobación de filtraciones HIBP",
   "tfa.factor.hibp.action": "Activa la comprobación HIBP en contraseñas nuevas o cambiadas.",
   "tfa.factor.clean_7d.label": "Sin fallos de autenticación en 7 días",
-  "tfa.factor.clean_7d.action": "Eventos recientes de fallo o bloqueo. Revisa el registro de auditoría."
+  "tfa.factor.clean_7d.action": "Eventos recientes de fallo o bloqueo. Revisa el registro de auditoría.",
+  "tfa.admin.audit.rebuild_chain": "Reconstruir cadena de auditoría",
+  "tfa.admin.audit.rebuild_confirm": "¿Reconstruir la cadena hash de auditoría con los datos actuales? Esto borrará la advertencia de cadena rota pero ELIMINARÁ cualquier evidencia de manipulación. ¿Continuar?",
+  "tfa.admin.audit.rebuild_success": "{count} entradas de auditoría reconstruidas."
 }

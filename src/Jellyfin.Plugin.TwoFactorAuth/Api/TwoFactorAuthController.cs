@@ -3367,6 +3367,22 @@ public class TwoFactorAuthController : ControllerBase
         return Ok(checks.Select(c => new { id = c.Id, label = c.Label, status = c.Status.ToString(), detail = c.Detail }));
     }
 
+    /// <summary>v2.5.0: rebuilds the audit-log hash chain after the admin
+    /// has reviewed a broken-chain diagnostic. Gated by the destructive-tier
+    /// step-up policy because it intentionally erases tampering evidence —
+    /// a malicious admin who already has 2FA could use this to clean up
+    /// after themselves. The dashboard audit_chain factor reads as green
+    /// again immediately after a successful rebuild.</summary>
+    [HttpPost("Admin/RebuildAuditChain")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> RebuildAuditChain()
+    {
+        var guard = StepUpGuard(StepUpAction.ResetOtherUser2fa);
+        if (guard is not null) return guard;
+        var count = await _store.RebuildAuditChainAsync().ConfigureAwait(false);
+        return Ok(new { ok = true, rebuilt = count });
+    }
+
     [HttpGet("Stats")]
     [Authorize(Policy = "RequiresElevation")]
     public async Task<IActionResult> GetStats()

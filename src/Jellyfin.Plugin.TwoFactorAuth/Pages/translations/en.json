@@ -624,5 +624,8 @@
   "tfa.factor.hibp.label": "HIBP password breach check",
   "tfa.factor.hibp.action": "Enable HIBP breach checking on new/changed passwords.",
   "tfa.factor.clean_7d.label": "No failed-auth events in 7 days",
-  "tfa.factor.clean_7d.action": "Recent failed-auth or lockout events. Review the audit log."
+  "tfa.factor.clean_7d.action": "Recent failed-auth or lockout events. Review the audit log.",
+  "tfa.admin.audit.rebuild_chain": "Rebuild audit chain",
+  "tfa.admin.audit.rebuild_confirm": "Rebuild the audit hash chain from current data? This clears the broken-chain warning but ERASES evidence of any tampering. Continue?",
+  "tfa.admin.audit.rebuild_success": "Rebuilt {count} audit entries."
 }

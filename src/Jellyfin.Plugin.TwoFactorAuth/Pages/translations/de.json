@@ -624,5 +624,8 @@
   "tfa.factor.hibp.label": "HIBP-Passwortleckprüfung",
   "tfa.factor.hibp.action": "Aktiviere die HIBP-Prüfung bei neuen oder geänderten Passwörtern.",
   "tfa.factor.clean_7d.label": "Keine fehlgeschlagenen Anmeldungen in 7 Tagen",
-  "tfa.factor.clean_7d.action": "Kürzliche fehlgeschlagene Anmeldungen oder Sperrungen. Prüfe das Audit-Log."
+  "tfa.factor.clean_7d.action": "Kürzliche fehlgeschlagene Anmeldungen oder Sperrungen. Prüfe das Audit-Log.",
+  "tfa.admin.audit.rebuild_chain": "Audit-Kette neu aufbauen",
+  "tfa.admin.audit.rebuild_confirm": "Audit-Hashkette aus den aktuellen Daten neu aufbauen? Dies entfernt die Warnung über die defekte Kette, LÖSCHT aber auch alle Spuren einer Manipulation. Fortfahren?",
+  "tfa.admin.audit.rebuild_success": "{count} Audit-Einträge wurden neu aufgebaut."
 }
