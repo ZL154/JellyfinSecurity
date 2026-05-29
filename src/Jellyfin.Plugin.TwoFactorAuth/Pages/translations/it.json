@@ -634,10 +634,8 @@
   "tfa.admin.chart.successful": "Riuscito",
   "tfa.admin.chart.failed": "Fallito",
   "tfa.admin.chart.locked": "Bloccato",
-  "tfa.admin.chart.range_30d": "30 giorni",
   "tfa.admin.chart.range_1m": "1 mese",
   "tfa.admin.chart.range_1y": "1 anno",
-  "tfa.admin.chart.heading_30d": "Attività di autenticazione (ultimi 30 giorni)",
   "tfa.admin.chart.heading_1m": "Attività di autenticazione (ultimo mese)",
   "tfa.admin.chart.heading_1y": "Attività di autenticazione (ultimo anno)",
   "tfa.factor.require_to_disable.label": "Richiedi 2FA per disattivare il proprio 2FA",
@@ -662,5 +660,7 @@
   "tfa.setup.trusted.indefinite_title": "Rimani connesso indefinitamente (salta la ri-autenticazione di 30 giorni)",
   "tfa.setup.trusted.indefinite_active": "Indefinito ✓",
   "tfa.setup.paired.indefinite_label": "Indefinito",
-  "tfa.setup.paired.indefinite_title": "Rimani accoppiato indefinitamente"
+  "tfa.setup.paired.indefinite_title": "Rimani accoppiato indefinitamente",
+  "tfa.admin.chart.range_1w": "1 settimana",
+  "tfa.admin.chart.heading_1w": "Attività di autenticazione (ultima settimana)"
 }

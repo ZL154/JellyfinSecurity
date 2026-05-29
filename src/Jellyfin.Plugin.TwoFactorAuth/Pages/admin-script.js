@@ -228,9 +228,11 @@
 
                 // ---- v2.5.0 Phase 2: DASHBOARD OVERVIEW ----
                 // _currentRange tracks the active auth-activity chart window.
-                // Values: '30d', '1m', '1y' — passed as ?range= to the
+                // Values: '1w', '1m', '1y' — passed as ?range= to the
                 // overview endpoint. The range selector buttons toggle this.
-                var _currentRange = '30d';
+                // 1m is the default since most admins care about the last
+                // month of activity at a glance.
+                var _currentRange = '1m';
 
                 async function renderOverview() {
                     try {
@@ -294,10 +296,10 @@
                         if (headingEl) {
                             var hKey = _currentRange === '1y'
                                 ? 'tfa.admin.chart.heading_1y'
-                                : (_currentRange === '1m' ? 'tfa.admin.chart.heading_1m' : 'tfa.admin.chart.heading_30d');
+                                : (_currentRange === '1w' ? 'tfa.admin.chart.heading_1w' : 'tfa.admin.chart.heading_1m');
                             var hFallback = _currentRange === '1y'
                                 ? 'Auth activity (last year)'
-                                : (_currentRange === '1m' ? 'Auth activity (last month)' : 'Auth activity (last 30 days)');
+                                : (_currentRange === '1w' ? 'Auth activity (last week)' : 'Auth activity (last month)');
                             headingEl.textContent = _tr(hKey, hFallback);
                         }
                         renderAuthChart(data.timeSeries || []);

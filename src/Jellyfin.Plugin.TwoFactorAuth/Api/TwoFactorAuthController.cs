@@ -3499,7 +3499,7 @@ public class TwoFactorAuthController : ControllerBase
 
     [HttpGet("Dashboard/Overview")]
     [Authorize(Policy = "RequiresElevation")]
-    public async Task<IActionResult> GetDashboardOverview([FromQuery] string range = "30d")
+    public async Task<IActionResult> GetDashboardOverview([FromQuery] string range = "1m")
     {
         var score = await _scoreService.ComputeAsync().ConfigureAwait(false);
         var history = await _scoreService.GetHistoryAsync(30).ConfigureAwait(false);
@@ -3526,46 +3526,87 @@ public class TwoFactorAuthController : ControllerBase
             else { regularTotal++; if (isEnrolled) regularEnrolled++; }
         }
 
-        // v2.5.0: time-series window is selectable via ?range=30d|1m|1y.
-        // 30d and 1m bucket per UTC day; 1y buckets per month so the chart
-        // stays readable across a full year. Any unknown value falls back
-        // to 30d so admins can't trigger a server error by hand-crafting
-        // the URL.
+        // v2.5.0: time-series window is selectable via ?range=1w|1m|1y.
+        // 1w and 1m bucket per UTC day; 1y buckets per month. Any unknown
+        // value falls back to 1m so admins can't trigger a server error
+        // by hand-crafting the URL. The output is BACKFILLED — every
+        // bucket between `since` and now appears (even with zero counts)
+        // so the chart spans the full range instead of collapsing to a
+        // single bar when audit retention is shorter than the window.
         var normalizedRange = range?.ToLowerInvariant() switch
         {
-            "1m" => "1m",
+            "1w" => "1w",
             "1y" => "1y",
-            _ => "30d"
+            _ => "1m"
         };
         DateTime since;
-        string bucketFormat;
+        bool monthly;
         switch (normalizedRange)
         {
-            case "1m":
-                since = DateTime.UtcNow.AddMonths(-1);
-                bucketFormat = "yyyy-MM-dd";
+            case "1w":
+                since = DateTime.UtcNow.Date.AddDays(-6);
+                monthly = false;
                 break;
             case "1y":
-                since = DateTime.UtcNow.AddYears(-1);
-                bucketFormat = "yyyy-MM";
+                since = new DateTime(DateTime.UtcNow.Year - 1, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1);
+                monthly = true;
                 break;
             default:
-                since = DateTime.UtcNow.AddDays(-30);
-                bucketFormat = "yyyy-MM-dd";
+                since = DateTime.UtcNow.Date.AddDays(-29);
+                monthly = false;
                 break;
         }
-        var timeSeries = audit
+        var bucketFormat = monthly ? "yyyy-MM" : "yyyy-MM-dd";
+
+        // Bucket the real audit entries.
+        var grouped = audit
             .Where(e => e.Timestamp >= since)
             .GroupBy(e => e.Timestamp.ToString(bucketFormat, CultureInfo.InvariantCulture))
-            .Select(g => new
+            .ToDictionary(g => g.Key, g => new
             {
-                date = g.Key,
                 success = g.Count(e => e.Result == AuditResult.Success),
                 failed = g.Count(e => e.Result == AuditResult.Failed),
                 locked = g.Count(e => e.Result == AuditResult.Locked)
-            })
-            .OrderBy(x => x.date, StringComparer.Ordinal)
-            .ToList();
+            });
+
+        // Backfill: enumerate every expected bucket between `since` and now.
+        var timeSeries = new List<object>();
+        if (monthly)
+        {
+            var cursor = new DateTime(since.Year, since.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var end = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            while (cursor <= end)
+            {
+                var key = cursor.ToString(bucketFormat, CultureInfo.InvariantCulture);
+                grouped.TryGetValue(key, out var bucket);
+                timeSeries.Add(new
+                {
+                    date = key,
+                    success = bucket?.success ?? 0,
+                    failed = bucket?.failed ?? 0,
+                    locked = bucket?.locked ?? 0
+                });
+                cursor = cursor.AddMonths(1);
+            }
+        }
+        else
+        {
+            var cursor = since.Date;
+            var end = DateTime.UtcNow.Date;
+            while (cursor <= end)
+            {
+                var key = cursor.ToString(bucketFormat, CultureInfo.InvariantCulture);
+                grouped.TryGetValue(key, out var bucket);
+                timeSeries.Add(new
+                {
+                    date = key,
+                    success = bucket?.success ?? 0,
+                    failed = bucket?.failed ?? 0,
+                    locked = bucket?.locked ?? 0
+                });
+                cursor = cursor.AddDays(1);
+            }
+        }
 
         int chainBroken = DiagnosticsService.VerifyAuditChainPublic(audit);
 

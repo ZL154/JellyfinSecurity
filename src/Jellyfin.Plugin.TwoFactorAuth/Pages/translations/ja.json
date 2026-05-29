@@ -634,10 +634,8 @@
   "tfa.admin.chart.successful": "成功",
   "tfa.admin.chart.failed": "失敗",
   "tfa.admin.chart.locked": "ロックアウト",
-  "tfa.admin.chart.range_30d": "30日間",
   "tfa.admin.chart.range_1m": "1か月",
   "tfa.admin.chart.range_1y": "1年",
-  "tfa.admin.chart.heading_30d": "認証アクティビティ(過去30日間)",
   "tfa.admin.chart.heading_1m": "認証アクティビティ(過去1か月)",
   "tfa.admin.chart.heading_1y": "認証アクティビティ(過去1年)",
   "tfa.factor.require_to_disable.label": "自分の2FAを無効化するときに2FAを要求",
@@ -662,5 +660,7 @@
   "tfa.setup.trusted.indefinite_title": "無期限にサインイン状態を維持（30日の再認証をスキップ）",
   "tfa.setup.trusted.indefinite_active": "無期限 ✓",
   "tfa.setup.paired.indefinite_label": "無期限",
-  "tfa.setup.paired.indefinite_title": "無期限にペアリングを維持"
+  "tfa.setup.paired.indefinite_title": "無期限にペアリングを維持",
+  "tfa.admin.chart.range_1w": "1週間",
+  "tfa.admin.chart.heading_1w": "認証アクティビティ(過去1週間)"
 }

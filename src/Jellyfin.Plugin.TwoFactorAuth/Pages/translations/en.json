@@ -634,10 +634,8 @@
   "tfa.admin.chart.successful": "Successful",
   "tfa.admin.chart.failed": "Failed",
   "tfa.admin.chart.locked": "Locked-out",
-  "tfa.admin.chart.range_30d": "30 days",
   "tfa.admin.chart.range_1m": "1 month",
   "tfa.admin.chart.range_1y": "1 year",
-  "tfa.admin.chart.heading_30d": "Auth activity (last 30 days)",
   "tfa.admin.chart.heading_1m": "Auth activity (last month)",
   "tfa.admin.chart.heading_1y": "Auth activity (last year)",
   "tfa.factor.require_to_disable.label": "Require 2FA to disable own 2FA",
@@ -662,5 +660,7 @@
   "tfa.setup.trusted.indefinite_title": "Stay signed in indefinitely (skip 30-day re-auth)",
   "tfa.setup.trusted.indefinite_active": "Indefinite ✓",
   "tfa.setup.paired.indefinite_label": "Indefinite",
-  "tfa.setup.paired.indefinite_title": "Stay paired indefinitely"
+  "tfa.setup.paired.indefinite_title": "Stay paired indefinitely",
+  "tfa.admin.chart.range_1w": "1 week",
+  "tfa.admin.chart.heading_1w": "Auth activity (last week)"
 }

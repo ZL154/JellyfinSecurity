@@ -634,10 +634,8 @@
   "tfa.admin.chart.successful": "Erfolgreich",
   "tfa.admin.chart.failed": "Fehlgeschlagen",
   "tfa.admin.chart.locked": "Gesperrt",
-  "tfa.admin.chart.range_30d": "30 Tage",
   "tfa.admin.chart.range_1m": "1 Monat",
   "tfa.admin.chart.range_1y": "1 Jahr",
-  "tfa.admin.chart.heading_30d": "Anmeldeaktivität (letzte 30 Tage)",
   "tfa.admin.chart.heading_1m": "Anmeldeaktivität (letzter Monat)",
   "tfa.admin.chart.heading_1y": "Anmeldeaktivität (letztes Jahr)",
   "tfa.factor.require_to_disable.label": "2FA erforderlich, um eigene 2FA zu deaktivieren",
@@ -662,5 +660,7 @@
   "tfa.setup.trusted.indefinite_title": "Dauerhaft angemeldet bleiben (30-Tage-Neuauthentifizierung überspringen)",
   "tfa.setup.trusted.indefinite_active": "Unbegrenzt ✓",
   "tfa.setup.paired.indefinite_label": "Unbegrenzt",
-  "tfa.setup.paired.indefinite_title": "Dauerhaft gekoppelt bleiben"
+  "tfa.setup.paired.indefinite_title": "Dauerhaft gekoppelt bleiben",
+  "tfa.admin.chart.range_1w": "1 Woche",
+  "tfa.admin.chart.heading_1w": "Anmelde-Aktivität (letzte Woche)"
 }
