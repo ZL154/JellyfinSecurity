@@ -223,12 +223,13 @@
             }
         }
         function syncCompactLabel() {
+            // v2.5.0 follow-up: collapsed label shows the FULL native name
+            // (English / Deutsch / 日本語 / …) instead of the bare uppercase
+            // code. Users found EN/DE/JA unclear next to the globe glyph.
+            // The host CSS gives the picker enough room (min-width 80px,
+            // max-width 140px, text-overflow: ellipsis) so longer strings
+            // like "Português" don't blow out the toolbar.
             expandLabels();
-            var sel = select.options[select.selectedIndex];
-            // v2.5.0: collapsed label shows uppercase code (EN/DE/…) so the
-            // tiny pill next to the globe glyph stays readable. Full native
-            // names are restored on focus/mousedown via expandLabels().
-            if (sel) sel.textContent = (sel.value || '').toUpperCase();
         }
         select.addEventListener('mousedown', expandLabels);
         select.addEventListener('focus', expandLabels);
