@@ -620,7 +620,7 @@
   "tfa.factor.ipban.label": "Bloqueio de IP por força bruta",
   "tfa.factor.ipban.action": "Ative o bloqueio de IP para travar tentativas repetidas de força bruta.",
   "tfa.factor.travel.label": "Deteção de viagem impossível",
-  "tfa.factor.travel.action": "Ative a deteção de viagem impossível (requer base GeoIP City).",
+  "tfa.factor.travel.action": "Ative a deteção de viagem impossível E configure o caminho da BD GeoIP de cidade.",
   "tfa.factor.hibp.label": "Verificação HIBP de palavras-passe comprometidas",
   "tfa.factor.hibp.action": "Ative a verificação HIBP em palavras-passe novas ou alteradas.",
   "tfa.factor.clean_7d.label": "Sem falhas de autenticação em 7 dias",
@@ -639,5 +639,13 @@
   "tfa.admin.chart.range_1y": "1 ano",
   "tfa.admin.chart.heading_30d": "Atividade de autenticação (últimos 30 dias)",
   "tfa.admin.chart.heading_1m": "Atividade de autenticação (último mês)",
-  "tfa.admin.chart.heading_1y": "Atividade de autenticação (último ano)"
+  "tfa.admin.chart.heading_1y": "Atividade de autenticação (último ano)",
+  "tfa.factor.require_to_disable.label": "Exigir 2FA para desativar o próprio 2FA",
+  "tfa.factor.require_to_disable.action": "Ative «Exigir um código de autenticador/recuperação antes de um utilizador poder desativar o seu próprio 2FA» em Endurecimento.",
+  "tfa.factor.stepup.label": "Autenticação step-up ativada",
+  "tfa.factor.stepup.action": "Suba o nível de step-up para AllConfigChanges ou Everything para obter crédito total.",
+  "tfa.factor.webhook.label": "Webhook para eventos de segurança",
+  "tfa.factor.webhook.action": "Configure um URL de webhook para que os eventos de segurança (bloqueios, lockouts, alterações de 2FA) disparem notificações.",
+  "tfa.factor.recovery_codes.label": "Códigos de recuperação gerados",
+  "tfa.factor.recovery_codes.action": "Peça aos utilizadores registados que gerem códigos de recuperação — são um fator de salvaguarda crítico."
 }

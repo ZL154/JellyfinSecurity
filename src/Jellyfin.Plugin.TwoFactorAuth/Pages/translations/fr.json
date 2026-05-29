@@ -620,7 +620,7 @@
   "tfa.factor.ipban.label": "Blocage IP anti-force brute",
   "tfa.factor.ipban.action": "Activez le blocage IP pour stopper les attaques par force brute répétées.",
   "tfa.factor.travel.label": "Détection de voyage impossible",
-  "tfa.factor.travel.action": "Activez la détection de voyage impossible (nécessite la base GeoIP City).",
+  "tfa.factor.travel.action": "Activez la détection de voyage impossible ET configurez le chemin de la BD GeoIP des villes.",
   "tfa.factor.hibp.label": "Vérification HIBP de mots de passe compromis",
   "tfa.factor.hibp.action": "Activez la vérification HIBP sur les mots de passe nouveaux ou modifiés.",
   "tfa.factor.clean_7d.label": "Aucun échec d'authentification sur 7 jours",
@@ -639,5 +639,13 @@
   "tfa.admin.chart.range_1y": "1 an",
   "tfa.admin.chart.heading_30d": "Activité d’authentification (30 derniers jours)",
   "tfa.admin.chart.heading_1m": "Activité d’authentification (dernier mois)",
-  "tfa.admin.chart.heading_1y": "Activité d’authentification (dernière année)"
+  "tfa.admin.chart.heading_1y": "Activité d’authentification (dernière année)",
+  "tfa.factor.require_to_disable.label": "Exiger 2FA pour désactiver son propre 2FA",
+  "tfa.factor.require_to_disable.action": "Activez « Exiger un code d’authentificateur/de récupération avant qu’un utilisateur ne puisse désactiver son propre 2FA » dans Durcissement.",
+  "tfa.factor.stepup.label": "Authentification step-up activée",
+  "tfa.factor.stepup.action": "Relevez le niveau step-up à AllConfigChanges ou Everything pour obtenir le crédit complet.",
+  "tfa.factor.webhook.label": "Webhook pour les événements de sécurité",
+  "tfa.factor.webhook.action": "Configurez une URL de webhook pour que les événements de sécurité (bannissements, verrouillages, modifications 2FA) déclenchent des notifications.",
+  "tfa.factor.recovery_codes.label": "Codes de récupération générés",
+  "tfa.factor.recovery_codes.action": "Demandez aux utilisateurs enregistrés de générer des codes de récupération — c’est un facteur de secours essentiel."
 }

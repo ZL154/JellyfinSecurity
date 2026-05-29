@@ -17,10 +17,11 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
 /// <summary>
-/// Computes a 0-100 security posture score by aggregating 8 weighted factors
-/// over plugin config, the per-user 2FA store, and the audit log. Pure compute
-/// (Task 3 of v2.5.0 Phase 2) — snapshot/history persistence is layered on in
-/// Task 4.
+/// Computes a 0-100 security posture score by aggregating 12 weighted factors
+/// over plugin config, the per-user 2FA store, and the audit log. The factors
+/// sum to 130 raw points and are normalized to a 100-ceiling for grading.
+/// Pure compute (Task 3 of v2.5.0 Phase 2) — snapshot/history persistence is
+/// layered on in Task 4.
 /// </summary>
 public class SecurityScoreService : IDisposable
 {
@@ -96,7 +97,7 @@ public class SecurityScoreService : IDisposable
     public async Task<SecurityScore> ComputeAsync()
     {
         var cfg = _configAccessor();
-        var factors = new List<ScoreFactor>(8);
+        var factors = new List<ScoreFactor>(12);
 
         // 1. 2FA coverage (30 pts, scaled by %)
         // v2.5.0: each factor carries a LabelKey / NextActionKey so the admin UI
@@ -188,16 +189,21 @@ public class SecurityScoreService : IDisposable
         });
 
         // 6. Impossible-travel (7 / 0)
+        // v2.5.0: previously this only checked the toggle, so an admin could
+        // score full credit without ever configuring the GeoLite2-City.mmdb
+        // database that the detector actually needs. Require BOTH the toggle
+        // AND a non-empty city-DB path so the factor reflects real coverage.
+        var travelEnabled = cfg.ImpossibleTravelEnabled && !string.IsNullOrWhiteSpace(cfg.GeoIpCityDbPath);
         factors.Add(new ScoreFactor
         {
             Id = "travel",
             Label = "Impossible-travel detection",
             LabelKey = "tfa.factor.travel.label",
-            Earned = cfg.ImpossibleTravelEnabled ? 7 : 0,
+            Earned = travelEnabled ? 7 : 0,
             Possible = 7,
-            Status = cfg.ImpossibleTravelEnabled ? "ok" : "fail",
-            NextAction = cfg.ImpossibleTravelEnabled ? null : "Enable impossible-travel detection (needs GeoIP city DB).",
-            NextActionKey = cfg.ImpossibleTravelEnabled ? null : "tfa.factor.travel.action"
+            Status = travelEnabled ? "ok" : "fail",
+            NextAction = travelEnabled ? null : "Enable impossible-travel detection AND configure the GeoIP city DB path.",
+            NextActionKey = travelEnabled ? null : "tfa.factor.travel.action"
         });
 
         // 7. HIBP (5 / 0)
@@ -229,13 +235,92 @@ public class SecurityScoreService : IDisposable
             NextActionKey = clean7 ? null : "tfa.factor.clean_7d.action"
         });
 
+        // 9. v2.5.0: Require 2FA before a user can disable their own 2FA (8 / 0)
+        factors.Add(new ScoreFactor
+        {
+            Id = "require-to-disable",
+            Label = "Require 2FA to disable own 2FA",
+            LabelKey = "tfa.factor.require_to_disable.label",
+            Earned = cfg.RequireTwoFactorToDisable ? 8 : 0,
+            Possible = 8,
+            Status = cfg.RequireTwoFactorToDisable ? "ok" : "partial",
+            NextAction = cfg.RequireTwoFactorToDisable ? null : "Turn on \"Require authenticator/recovery code before a user can turn off their own 2FA\" in Hardening.",
+            NextActionKey = cfg.RequireTwoFactorToDisable ? null : "tfa.factor.require_to_disable.action"
+        });
+
+        // 10. v2.5.0: Step-up authentication level (7 / 0, graded)
+        int stepUpEarned = cfg.StepUpLevel switch
+        {
+            StepUpLevel.Off => 0,
+            StepUpLevel.Destructive => 4,
+            StepUpLevel.AllConfigChanges => 6,
+            StepUpLevel.Everything => 7,
+            _ => 0
+        };
+        factors.Add(new ScoreFactor
+        {
+            Id = "stepup",
+            Label = "Step-up authentication enabled",
+            LabelKey = "tfa.factor.stepup.label",
+            Earned = stepUpEarned,
+            Possible = 7,
+            Status = stepUpEarned >= 6 ? "ok" : stepUpEarned > 0 ? "partial" : "fail",
+            NextAction = stepUpEarned >= 7 ? null : "Raise step-up level to AllConfigChanges or Everything for full credit.",
+            NextActionKey = stepUpEarned >= 7 ? null : "tfa.factor.stepup.action"
+        });
+
+        // 11. v2.5.0: Webhook configured for security events (5 / 0)
+        bool webhookConfigured = !string.IsNullOrWhiteSpace(cfg.WebhookUrl);
+        factors.Add(new ScoreFactor
+        {
+            Id = "webhook",
+            Label = "Webhook for security events",
+            LabelKey = "tfa.factor.webhook.label",
+            Earned = webhookConfigured ? 5 : 0,
+            Possible = 5,
+            Status = webhookConfigured ? "ok" : "partial",
+            NextAction = webhookConfigured ? null : "Configure a webhook URL so security events (bans, lockouts, 2FA changes) trigger notifications.",
+            NextActionKey = webhookConfigured ? null : "tfa.factor.webhook.action"
+        });
+
+        // 12. v2.5.0: Recovery codes generated for enrolled users (5 / 0, scaled)
+        // Counts only TOTP-enrolled users — a passkey-only user has no use
+        // for backup OTP recovery codes. If nobody is TOTP-enrolled the factor
+        // is "fail" with no nextAction, since the gap is fixed by enrollment
+        // (already covered by the coverage factor) rather than by anything
+        // recovery-code specific.
+        var totpUsers = users.Where(u => u.TotpEnabled).ToList();
+        int withCodes = totpUsers.Count(u => u.RecoveryCodes.Count > 0);
+        int recoveryEarned = totpUsers.Count == 0
+            ? 0
+            : (int)Math.Round(5.0 * withCodes / totpUsers.Count);
+        factors.Add(new ScoreFactor
+        {
+            Id = "recovery-codes",
+            Label = "Recovery codes generated",
+            LabelKey = "tfa.factor.recovery_codes.label",
+            Earned = recoveryEarned,
+            Possible = 5,
+            Status = totpUsers.Count == 0 ? "fail" : (recoveryEarned == 5 ? "ok" : "partial"),
+            NextAction = (totpUsers.Count == 0 || recoveryEarned == 5)
+                ? null
+                : "Ask enrolled users to generate recovery codes — they're a critical backup factor.",
+            NextActionKey = (totpUsers.Count == 0 || recoveryEarned == 5)
+                ? null
+                : "tfa.factor.recovery_codes.action"
+        });
+
         int total = factors.Sum(f => f.Earned);
         int possible = factors.Sum(f => f.Possible);
+        // v2.5.0: scale to a 100 ceiling so adding factors doesn't break the
+        // "0-100 grade" expectation downstream. Sum-of-possibles is now 130;
+        // we normalize earned into the same 0-100 frame.
+        int scaledTotal = possible > 0 ? (int)Math.Round(100.0 * total / possible) : 0;
         return new SecurityScore
         {
-            Total = total,
-            Possible = possible,
-            Grade = GradeFromTotal(total),
+            Total = scaledTotal,
+            Possible = 100,
+            Grade = GradeFromTotal(scaledTotal),
             Factors = factors,
             ComputedAt = DateTime.UtcNow
         };

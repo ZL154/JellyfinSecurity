@@ -620,7 +620,7 @@
   "tfa.factor.ipban.label": "IP brute-force ban",
   "tfa.factor.ipban.action": "Enable IP banning to stop repeated brute-force attempts.",
   "tfa.factor.travel.label": "Impossible-travel detection",
-  "tfa.factor.travel.action": "Enable impossible-travel detection (needs GeoIP city DB).",
+  "tfa.factor.travel.action": "Enable impossible-travel detection AND configure the GeoIP city DB path.",
   "tfa.factor.hibp.label": "HIBP password breach check",
   "tfa.factor.hibp.action": "Enable HIBP breach checking on new/changed passwords.",
   "tfa.factor.clean_7d.label": "No failed-auth events in 7 days",
@@ -639,5 +639,13 @@
   "tfa.admin.chart.range_1y": "1 year",
   "tfa.admin.chart.heading_30d": "Auth activity (last 30 days)",
   "tfa.admin.chart.heading_1m": "Auth activity (last month)",
-  "tfa.admin.chart.heading_1y": "Auth activity (last year)"
+  "tfa.admin.chart.heading_1y": "Auth activity (last year)",
+  "tfa.factor.require_to_disable.label": "Require 2FA to disable own 2FA",
+  "tfa.factor.require_to_disable.action": "Turn on \"Require authenticator/recovery code before a user can turn off their own 2FA\" in Hardening.",
+  "tfa.factor.stepup.label": "Step-up authentication enabled",
+  "tfa.factor.stepup.action": "Raise step-up level to AllConfigChanges or Everything for full credit.",
+  "tfa.factor.webhook.label": "Webhook for security events",
+  "tfa.factor.webhook.action": "Configure a webhook URL so security events (bans, lockouts, 2FA changes) trigger notifications.",
+  "tfa.factor.recovery_codes.label": "Recovery codes generated",
+  "tfa.factor.recovery_codes.action": "Ask enrolled users to generate recovery codes — they’re a critical backup factor."
 }

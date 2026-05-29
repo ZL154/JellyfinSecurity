@@ -620,7 +620,7 @@
   "tfa.factor.ipban.label": "IP-Brute-Force-Sperre",
   "tfa.factor.ipban.action": "Aktiviere IP-Sperren, um wiederholte Brute-Force-Versuche zu stoppen.",
   "tfa.factor.travel.label": "Unmögliche-Reise-Erkennung",
-  "tfa.factor.travel.action": "Aktiviere die Unmögliche-Reise-Erkennung (benötigt GeoIP-City-Datenbank).",
+  "tfa.factor.travel.action": "Impossible-Travel-Erkennung aktivieren UND den Pfad zur GeoIP-City-Datenbank konfigurieren.",
   "tfa.factor.hibp.label": "HIBP-Passwortleckprüfung",
   "tfa.factor.hibp.action": "Aktiviere die HIBP-Prüfung bei neuen oder geänderten Passwörtern.",
   "tfa.factor.clean_7d.label": "Keine fehlgeschlagenen Anmeldungen in 7 Tagen",
@@ -639,5 +639,13 @@
   "tfa.admin.chart.range_1y": "1 Jahr",
   "tfa.admin.chart.heading_30d": "Anmeldeaktivität (letzte 30 Tage)",
   "tfa.admin.chart.heading_1m": "Anmeldeaktivität (letzter Monat)",
-  "tfa.admin.chart.heading_1y": "Anmeldeaktivität (letztes Jahr)"
+  "tfa.admin.chart.heading_1y": "Anmeldeaktivität (letztes Jahr)",
+  "tfa.factor.require_to_disable.label": "2FA erforderlich, um eigene 2FA zu deaktivieren",
+  "tfa.factor.require_to_disable.action": "Aktiviere „Authenticator-/Wiederherstellungscode verlangen, bevor ein Benutzer seine eigene 2FA deaktivieren darf“ unter Härtung.",
+  "tfa.factor.stepup.label": "Step-up-Authentifizierung aktiv",
+  "tfa.factor.stepup.action": "Step-up-Stufe auf AllConfigChanges oder Everything anheben, um vollen Punktwert zu erhalten.",
+  "tfa.factor.webhook.label": "Webhook für Sicherheitsereignisse",
+  "tfa.factor.webhook.action": "Eine Webhook-URL konfigurieren, damit Sicherheitsereignisse (Sperren, Lockouts, 2FA-Änderungen) Benachrichtigungen auslösen.",
+  "tfa.factor.recovery_codes.label": "Wiederherstellungscodes erzeugt",
+  "tfa.factor.recovery_codes.action": "Eingerichtete Benutzer auffordern, Wiederherstellungscodes zu generieren — sie sind ein kritischer Backup-Faktor."
 }

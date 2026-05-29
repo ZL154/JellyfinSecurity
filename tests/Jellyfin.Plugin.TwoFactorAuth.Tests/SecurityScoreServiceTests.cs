@@ -72,12 +72,14 @@ public class SecurityScoreComputeTests
         cfg.ImpossibleTravelEnabled = false;
         cfg.HibpEnabled = false;
         var score = await svc.ComputeAsync();
-        // Empty store + NSubstitute stub on EnumerateUsersPublic yields the
-        // vacuous-truth baseline: admins(20, no admins exist) + audit-chain(10,
-        // empty log) + clean-7d(5, empty log) = 35. All toggle factors off.
-        Assert.InRange(score.Total, 30, 40);
+        // v2.5.0: 12 factors, normalized to 100 ceiling. Vacuous-truth
+        // baseline: admins(20, no admins exist) + audit-chain(10, empty log)
+        // + clean-7d(5, empty log) = 35 raw of 130 possible -> ~27 after
+        // scaling. All toggle factors off; the four new hardening factors
+        // also score zero.
+        Assert.InRange(score.Total, 20, 35);
         Assert.Equal("F", score.Grade);
-        Assert.Equal(8, score.Factors.Count);
+        Assert.Equal(12, score.Factors.Count);
     }
 
     [Fact]
@@ -87,12 +89,20 @@ public class SecurityScoreComputeTests
         cfg.EnforcementScope = EnforcementScope.All;
         cfg.IpBanEnabled = true;
         cfg.ImpossibleTravelEnabled = true;
+        // v2.5.0: travel now requires the city-DB path; supply a sentinel
+        // so the factor scores full credit alongside the other toggles.
+        cfg.GeoIpCityDbPath = "/tmp/GeoLite2-City.mmdb";
         cfg.HibpEnabled = true;
+        cfg.RequireTwoFactorToDisable = true;
+        cfg.StepUpLevel = StepUpLevel.Everything;
+        cfg.WebhookUrl = "https://example.invalid/hook";
         var score = await svc.ComputeAsync();
-        // No users enrolled, all toggle factors at full + vacuous admins/audit/clean:
-        // admins(20) + enforcement(15) + audit-chain(10) + ipban(8) + travel(7)
-        // + hibp(5) + clean-7d(5) = 70 (coverage=0 since no users).
-        Assert.InRange(score.Total, 65, 75);
+        // No users enrolled — coverage(0) and recovery-codes(0, since no
+        // TOTP users to scale against). Everything else at full credit:
+        // admins(20) + enforcement(15) + audit-chain(10) + ipban(8)
+        // + travel(7) + hibp(5) + clean-7d(5) + require-to-disable(8)
+        // + stepup(7) + webhook(5) = 90 raw of 130 -> ~69 after scaling.
+        Assert.InRange(score.Total, 60, 75);
     }
 
     [Theory]

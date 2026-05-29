@@ -620,7 +620,7 @@
   "tfa.factor.ipban.label": "IP 暴力破解封禁",
   "tfa.factor.ipban.action": "启用 IP 封禁以阻止反复的暴力破解尝试。",
   "tfa.factor.travel.label": "不可能行程检测",
-  "tfa.factor.travel.action": "启用不可能行程检测(需要 GeoIP City 数据库)。",
+  "tfa.factor.travel.action": "同时开启不可能旅行检测并配置 GeoIP 城市数据库路径。",
   "tfa.factor.hibp.label": "HIBP 密码泄露检查",
   "tfa.factor.hibp.action": "对新设置或修改的密码启用 HIBP 泄露检查。",
   "tfa.factor.clean_7d.label": "近 7 天无身份验证失败事件",
@@ -639,5 +639,13 @@
   "tfa.admin.chart.range_1y": "1 年",
   "tfa.admin.chart.heading_30d": "认证活动(最近 30 天)",
   "tfa.admin.chart.heading_1m": "认证活动(最近一个月)",
-  "tfa.admin.chart.heading_1y": "认证活动(最近一年)"
+  "tfa.admin.chart.heading_1y": "认证活动(最近一年)",
+  "tfa.factor.require_to_disable.label": "禁用自身 2FA 时需要 2FA",
+  "tfa.factor.require_to_disable.action": "在“加固”中开启“用户在关闭自己的 2FA 之前必须提供认证器或恢复代码”。",
+  "tfa.factor.stepup.label": "已启用 Step-up 认证",
+  "tfa.factor.stepup.action": "将 Step-up 级别提升到 AllConfigChanges 或 Everything 即可得到满分。",
+  "tfa.factor.webhook.label": "安全事件 Webhook",
+  "tfa.factor.webhook.action": "配置 Webhook URL，以便安全事件（封禁、锁定、2FA 变更）能触发通知。",
+  "tfa.factor.recovery_codes.label": "已生成恢复代码",
+  "tfa.factor.recovery_codes.action": "请已注册的用户生成恢复代码 — 这是关键的备用要素。"
 }
