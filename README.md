@@ -49,7 +49,7 @@ visible to anyone, including you:
 - **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (250 tests covering crypto, parsers, and middleware). Green = tests pass.
 - **[CodeQL badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml)** — GitHub's static security scanner runs the `security-extended` + `security-and-quality` C# query packs on every push, PR, and weekly. Green = no security findings.
 - **[OpenSSF Scorecard](https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity)** — the Linux Foundation's automated security-posture rating (0–10). Scores branch protection, CodeQL, dependency updates, pinned actions, signed releases, security policy, token permissions, and more. Click the badge to see the per-check breakdown.
-- **[Test suite](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — 200 xUnit tests covering the security-critical code paths (cookie HMAC, TOTP replay protection, recovery-code PBKDF2, CIDR parser, X-Forwarded-For trust-walk, refuse-LAN-bypass-when-XFF-missing guard, device-token binding, AES-GCM v2 AAD, HIBP k-anonymity hashing, atomic challenge consumption, OIDC redirect_uri proxy-header resolution, OIDC userinfo claim merge, SMTP port 465 socket-option mapping, step-up code verification, step-up action classification, ChallengeStore step-up tokens). Runs on every PR + push.
+- **[Test suite](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — 250 xUnit tests covering the security-critical code paths (cookie HMAC, TOTP replay protection, recovery-code PBKDF2, CIDR parser, X-Forwarded-For trust-walk, refuse-LAN-bypass-when-XFF-missing guard, device-token binding, AES-GCM v2 AAD, HIBP k-anonymity hashing, atomic challenge consumption, OIDC redirect_uri proxy-header resolution, OIDC userinfo claim merge, SMTP port 465 socket-option mapping, step-up code verification, step-up action classification, ChallengeStore step-up tokens). Runs on every PR + push.
 - **[Open security advisories](https://github.com/ZL154/JellyfinSecurity/security/advisories)** — historical vulnerabilities filed via [SECURITY.md](SECURITY.md), with patch versions, severity, and CVE references.
 - **[Dependabot PRs](https://github.com/ZL154/JellyfinSecurity/pulls?q=is%3Apr+author%3Aapp%2Fdependabot)** — security and version updates for every NuGet dependency. Frequent merges = vulnerabilities don't sit unpatched.
 - **[Pull request review history](https://github.com/ZL154/JellyfinSecurity/pulls?q=is%3Apr+is%3Aclosed)** — non-trivial changes go through review even when the maintainer is solo, and the diff is public.
@@ -58,6 +58,22 @@ visible to anyone, including you:
 
 If any of these go red, file an issue or DM `@zack154` on Discord — fixing
 visible trust signals is treated as a high-priority bug.
+
+---
+
+## 🆕 What's new in v2.5.0
+
+> *This callout summarises the v2.5 release. The features themselves are documented in their permanent sections below — when v2.6 ships, this callout can be replaced without losing the docs.*
+
+- **[Step-up authentication](#-step-up-authentication-v25)** — destructive admin actions (disable plugin, delete user, rebuild audit chain) now re-prompt for 2FA. Four levels: `Off`, `Destructive`, `AllConfigChanges`, `Everything`.
+- **[Encrypted configuration exports](#-encrypted-configuration-exports-v25)** — back up plugin config with a passphrase. AES-256-GCM, PBKDF2-SHA256 600k iterations, versioned envelope.
+- **[Admin Dashboard Overview](#-security-score--admin-overview-v25)** — auth-activity time series with 1w / 1m / 1y range selector, hover tooltips, and 12-factor security score (expanded from 5).
+- **[Internationalization](#-internationalization-v25)** — 8 languages (English, Deutsch, Español, Français, Italiano, 日本語, Português, 中文) at full key parity. Native-name picker. Per-user preference + server-wide default.
+- **[Indefinite device trust](#-indefinite-device-trust-v25)** — admin-gated opt-in for users who want a device signed in until they explicitly log out. Off by default.
+- **Audit chain rebuild** — admin action (step-up gated) to repair a broken audit-log hash chain after disk corruption or manual edits.
+- **`RequireTwoFactorToDisable` hardening flag** — disabling 2FA self-service now requires a fresh 2FA challenge.
+- **Translatable score factor labels** — every score factor shows in the user's chosen language.
+- 250/250 tests pass. Clean build with `TreatWarningsAsErrors=true`. In-place upgrade — existing TOTP enrollments, passkeys, OIDC links, trusted browsers, paired devices, and audit history all carry over.
 
 ---
 
@@ -73,6 +89,11 @@ visible trust signals is treated as a high-priority bug.
 - [Brute-force IP banning (v2.0)](#-brute-force-ip-banning-v20)
 - [Impossible-travel detection (v2.0)](#-impossible-travel-detection-v20)
 - [Per-user IP allowlist (v2.0)](#-per-user-ip-allowlist-v20)
+- [Step-up authentication (v2.5)](#-step-up-authentication-v25)
+- [Encrypted configuration exports (v2.5)](#-encrypted-configuration-exports-v25)
+- [Security score & admin overview (v2.5)](#-security-score--admin-overview-v25)
+- [Internationalization (v2.5)](#-internationalization-v25)
+- [Indefinite device trust (v2.5)](#-indefinite-device-trust-v25)
 - [SMTP setup (email OTP)](#-smtp-setup-email-otp)
 - [Recovery — locked out](#-recovery--locked-out)
 - [Troubleshooting](#%EF%B8%8F-troubleshooting)
@@ -100,6 +121,16 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ---
 
 ## 🧩 Features
+
+### New in v2.5
+- **Step-up authentication** — configurable level (`Off` / `Destructive` / `AllConfigChanges` / `Everything`) re-prompts for 2FA on sensitive admin actions.
+- **Encrypted configuration exports** — passphrase-protected (AES-256-GCM, PBKDF2-SHA256 600k iter) versioned export envelopes for back-up / migration.
+- **12-factor security score** — coverage, admins, enforcement, audit chain, IP ban, impossible-travel (functional check), HIBP, clean-7d audit, require-to-disable, step-up, webhook, recovery codes. Raw 130 pts normalized to a 100 ceiling.
+- **Admin Dashboard Overview** — auth-activity stacked-area chart with 1w / 1m / 1y range selector, hover tooltips, dashed gridlines, x-axis date markers, server-side bucket backfill.
+- **Internationalization (8 languages)** — en / de / es / fr / it / ja / pt / zh at full key parity. Native-name picker. Per-user preference + server-wide default + URL `?lang=` override.
+- **Indefinite device trust (opt-in)** — admin-gated `AllowIndefiniteTrust` flag; users can mark individual trusted browsers / paired devices to never expire.
+- **Audit-chain rebuild** — admin action (step-up gated) to repair audit-log hash continuity after disk corruption.
+- **`RequireTwoFactorToDisable`** — re-prompts for 2FA before a user can disable their own 2FA.
 
 ### New in v2.0
 - **OIDC / SSO sign-in** — Google, Microsoft/Entra, Apple, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, or any OIDC-compliant IdP. PKCE, id_token signature validation, group-based authorisation, optional AMR-based IdP-MFA enforcement.
@@ -356,6 +387,8 @@ Paginated, filterable login attempt history. Tracks success, failures, lockouts,
 - **Security** — failed-attempt threshold, lockout duration, audit log size
 - **SMTP** — host, port, SSL, credentials, from-address (required for email OTP)
 - **Push Notifications** — ntfy URL/topic, Gotify URL/token, admin email addresses
+- **Hardening (v2.5)** — `RequireTwoFactorToDisable` (re-prompts before a user can self-disable 2FA), `StepUpLevel` (which admin actions re-prompt for 2FA), `AllowIndefiniteTrust` (gates the user-side opt-in for never-expiring trust), `DefaultLanguage` (server-wide UI default; users can still override per-user)
+- **Audit chain (v2.5)** — **Rebuild audit chain** button repairs the hash chain after disk corruption / manual edits (step-up gated)
 
 ---
 
@@ -449,6 +482,136 @@ Pin a user account to specific CIDRs. Empty = no restriction (default). Useful f
 **Configure (admin, per user):** `PUT /TwoFactorAuth/IpAllowlist/User/{userId}` (UI not wired in yet; edit the user JSON or use the API).
 
 ⚠ **Self-lockout risk:** if you typo a CIDR, you can't sign in. Recover by editing `/config/plugins/configurations/TwoFactorAuth/users/<your-guid>.json` and clearing `IpAllowlistCidrs`.
+
+---
+
+## 🔐 Step-up authentication (v2.5)
+
+Re-prompts the admin for a fresh 2FA challenge before sensitive operations. Defends against a logged-in session being hijacked or left unattended on a workstation.
+
+**Configure:** Jellyfin Security → **Settings → Hardening → Step-up level**:
+
+| Level | What re-prompts |
+|---|---|
+| `Off` | Nothing. (Default — opt in deliberately.) |
+| `Destructive` | Deleting users, wiping 2FA state, rebuilding the audit chain, removing OIDC providers. |
+| `AllConfigChanges` | All of `Destructive`, plus toggling settings, editing SMTP / push / brute-force / impossible-travel config. |
+| `Everything` | All of `AllConfigChanges`, plus viewing audit log, listing IP bans, exporting config. (Strongest — least convenient.) |
+
+**How the flow looks**:
+1. Admin clicks a gated action (e.g. **Rebuild audit chain**).
+2. UI shows a 2FA challenge modal.
+3. Admin enters the 6-digit code (or passkey / recovery code).
+4. Action proceeds. Step-up token is single-use; re-prompts next time.
+
+**Related setting**: `RequireTwoFactorToDisable` — when on, users can't disable their own 2FA without entering a fresh code first. Stops a stolen session cookie from being used to switch 2FA off.
+
+---
+
+## 📦 Encrypted configuration exports (v2.5)
+
+Back up or migrate plugin configuration (settings, OIDC providers, trusted CIDRs, brute-force config, etc.) without leaking secrets.
+
+**Export (admin)**:
+1. Admin dashboard → **Config → Export**.
+2. Enter a passphrase (10+ chars recommended; longer is better).
+3. Download the `.json.enc` envelope. Treat it like a password — its strength is the passphrase's.
+
+**Import (admin)**:
+1. Admin dashboard → **Config → Import**.
+2. Upload the `.json.enc` file → enter the same passphrase → review the preview of what will change → confirm.
+
+**Crypto envelope** (so you can audit it):
+- **KDF**: PBKDF2-SHA256, 600 000 iterations, 32-byte derived key, 16-byte random salt per export.
+- **Cipher**: AES-256-GCM with 12-byte random nonce.
+- **AAD**: Plugin version + envelope version, so an export captured under v2.5 can't be replayed against a future incompatible schema.
+- **Versioned envelope**: `{ "v": 1, "salt": "...", "nonce": "...", "ct": "...", "tag": "..." }` — future versions can change parameters without breaking decryption of older exports.
+
+⚠ **No back door**: a lost passphrase means the export is unrecoverable. The plugin author cannot decrypt your file. Store the passphrase in your password manager *separately from the export file*.
+
+---
+
+## 📊 Security score & admin overview (v2.5)
+
+A 12-factor security score (raw 130 points, normalized to 100) and a live auth-activity chart on the admin dashboard.
+
+### 12 score factors
+
+| Factor | Points | What it checks |
+|---|---:|---|
+| Coverage | 30 | % of users enrolled in 2FA |
+| Admin coverage | 20 | All admins specifically have 2FA on |
+| Enforcement | 15 | `RequireForAll` is on |
+| Audit chain | 10 | Hash chain is intact (no breakage) |
+| IP ban | 8 | Brute-force banning enabled with sane threshold |
+| Impossible travel | 7 | Functional — requires `GeoIpCityDbPath` set to a valid MaxMind file |
+| HIBP | 5 | Have-I-Been-Pwned password check enabled |
+| Clean 7-day audit | 5 | No failed admin sign-ins in the last 7 days |
+| Require-to-disable | 8 | `RequireTwoFactorToDisable` is on |
+| Step-up | 7 | `StepUpLevel` is `Destructive` or stronger |
+| Webhook | 5 | Push notifications (ntfy / Gotify / webhook) configured |
+| Recovery codes | 5 | At least one user has generated recovery codes |
+
+**Why the 100 ceiling**: 130 raw points so individual factor weights can be tuned without renormalizing the public-facing score. Each factor's contribution is shown in the score breakdown, in the admin's chosen language.
+
+### Auth-activity overview
+
+Admin dashboard → **Overview** tab shows a stacked-area chart of successful / failed / blocked sign-ins.
+
+- **Range selector**: 1 week / 1 month / 1 year. Buckets are server-side: per-hour for 1w, per-day for 1m, per-month for 1y.
+- **Sparse-range backfill**: empty buckets are filled with zero on the server so a 1-year chart still spans 12 bars even if only one month has data — no collapsed-bar UX.
+- **Hover tooltips** show exact counts and the bucket date.
+- **Dashed gridlines at 25 / 50 / 75 %** and **first / middle / last x-axis date markers** so values are readable without hovering.
+
+---
+
+## 🌍 Internationalization (v2.5)
+
+Every user-visible string in the setup, login, challenge, and admin pages is translatable. Ships with 8 first-class languages at full key parity (664 keys each).
+
+| Language | Locale | Display name in picker |
+|---|---|---|
+| English | en | English |
+| Deutsch | de | Deutsch |
+| Español | es | Español |
+| Français | fr | Français |
+| Italiano | it | Italiano |
+| 日本語 | ja | 日本語 |
+| Português | pt | Português |
+| 中文 | zh | 中文 |
+
+**How the active language is chosen** (first match wins):
+1. URL `?lang=de` override (useful for support / screenshots).
+2. Per-user preference saved from the language picker (`PUT /TwoFactorAuth/Users/{id}/preferences`).
+3. `localStorage` (so the picker remembers across sessions).
+4. Server-wide `DefaultLanguage` setting (admin sets in **Settings → Hardening**).
+5. Fallback to English.
+
+**Native-name picker** — the picker shows each language in its own script ("Deutsch", "日本語", "中文") rather than locale codes, so a user who only reads Japanese can find their language without reading English.
+
+**Implementation notes** (for translators / contributors):
+- Translation bundles live in `src/Jellyfin.Plugin.TwoFactorAuth/Pages/translations/<lang>.json` and are served via `/TwoFactorAuth/translations/{lang}` with strong caching.
+- The shared `tfa-i18n.js` helper exposes `window.tfaI18n.tr(key, fallback)`, `loadTranslations(lang)`, `applyTranslations(root)`, `renderLanguagePicker(container)`, `getEffectiveLanguage()`, and a `ready` promise so dynamic JS-rendered content doesn't render in English before the bundle loads.
+- `/TwoFactorAuth/public-config` exposes the server-wide default language to anonymous pages (login / challenge) without leaking other config.
+
+**Want to add a language?** Copy `translations/en.json` → translate → drop in `translations/<your-locale>.json`. The picker auto-discovers new files. Pull requests welcome.
+
+---
+
+## 🕰️ Indefinite device trust (v2.5)
+
+Lets a user mark a specific trusted browser or paired device as "trusted forever" instead of "trusted for 30 days." Useful for a personal phone or home TV where the user would rather have one less prompt and accept the residual risk if the device is lost.
+
+**Admin gate (default off)**: Jellyfin Security → **Settings → Hardening → AllowIndefiniteTrust**. When off, the user-side opt-in toggle is hidden entirely — no way to enable per-device. When on, users see an **Indefinite trust** toggle on each of their trusted browsers / paired devices.
+
+**User opt-in** (per device):
+1. Setup page → **Trusted Devices** or **Paired Devices** card.
+2. Click the **Indefinite trust** toggle on the device you want to never expire.
+3. Confirm. The trust cookie's expiry is set to 100 years and the middleware skips the normal expiry check for this device.
+
+**Revoke / undo**: same toggle off. Or revoke the device entirely from Setup → Trusted Devices.
+
+⚠ **Tradeoff** — an indefinite-trust device is your weakest link. If someone steals the laptop, that browser is signed in until *you* revoke it. Don't enable on shared / borrowed machines, and revoke immediately on device loss. The admin gate exists so org admins can keep this off entirely if their threat model doesn't tolerate the tradeoff.
 
 ---
 
@@ -662,6 +825,44 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.5.0 — Hardening, observability, i18n, and indefinite trust
+
+**Hardening**
+- **Step-up authentication** — configurable level (`Off` / `Destructive` / `AllConfigChanges` / `Everything`) re-prompts the admin for 2FA before sensitive operations. Step-up tokens are single-use.
+- **Encrypted configuration exports** — passphrase-protected backup/migration. AES-256-GCM with PBKDF2-SHA256 (600 000 iterations) key derivation, versioned envelope so future schema changes don't break old exports.
+- **Audit-chain rebuild** — admin action (step-up gated) to repair audit-log hash continuity after disk corruption or manual edits.
+- **`RequireTwoFactorToDisable` flag** — re-prompts for 2FA before a user can disable their own 2FA.
+
+**Observability**
+- **12-factor security score** (was 5). New factors: clean-7d audit, require-to-disable, step-up coverage, webhook configured, recovery codes generated, impossible-travel as a functional check. Raw 130 pts normalized to a 100 ceiling. Translatable factor labels with interpolation data.
+- **Admin Dashboard Overview** — auth-activity stacked-area chart with 1w / 1m / 1y range selector, hover tooltips, dashed gridlines at 25/50/75 %, x-axis date markers. Server-side bucket backfill so sparse 1-year data still spans the full range.
+- **`/Dashboard/Overview` endpoint** — accepts `?range=1w|1m|1y`. Backs the chart and the score breakdown.
+
+**Internationalization**
+- **8 languages** (en / de / es / fr / it / ja / pt / zh) at full key parity — 664 keys each.
+- **`tfa-i18n.js` shared helper** — `tr() / loadTranslations() / applyTranslations() / renderLanguagePicker() / getEffectiveLanguage()` + a `ready` promise so dynamic JS-rendered content waits for the bundle.
+- **Native-name picker** — shows each language in its own script ("Deutsch", "日本語", "中文") instead of locale codes.
+- **Resolution order**: URL `?lang=` → per-user pref → `localStorage` → server `DefaultLanguage` → English.
+- **Admin Settings → Default Language** — server-wide picker; users can still override per-user.
+- **`/TwoFactorAuth/public-config`** — exposes default language to anonymous pages.
+- **`/TwoFactorAuth/translations/{lang}`** — embedded-resource endpoint with strong caching.
+
+**Indefinite device trust (opt-in)**
+- Admin-gated `AllowIndefiniteTrust` config flag — default off. When off the user-side toggle is hidden entirely.
+- Per-device opt-in for trusted browsers and paired devices. Trust cookie expiry = 100 years; middleware skips expiry check for records flagged `IndefiniteTrust=true`.
+- Revoke instantly from the same Setup-page card.
+
+**Other fixes**
+- `admin-script.js` externalized from `admin.html` so Jellyfin's SPA `loadView` template-literal stripping no longer breaks the dashboard with a `SyntaxError: Unexpected token 'class'`.
+- `/Dashboard/Overview` DTOs flattened to force camelCase JSON serialization.
+- Setup page stashes `/Users/Me` Id into a module-scope `_myUserId` so the indefinite-trust toggle works without `window.ApiClient` (which isn't loaded on the Setup page).
+- Admin enumeration uses `_userManager.Users.HasPermission(PermissionKind.IsAdministrator)` directly (typed extension method) — fixes the 0/0 admin count regression.
+- All dynamic JS-rendered content deferred behind `window.tfaI18n.ready` so it doesn't render in English before the translation bundle loads.
+
+**Tests**: 250/250 pass. Clean build with `TreatWarningsAsErrors=true`.
+
+**Upgrade**: in-place — existing TOTP enrollments, passkeys, OIDC links, trusted browsers, paired devices, and audit history all carry over.
 
 ### 2.3.0 — Security maintenance and forced enrollment
 
