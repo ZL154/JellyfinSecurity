@@ -627,5 +627,8 @@
   "tfa.factor.clean_7d.action": "Échecs ou verrouillages récents. Consultez le journal d'audit.",
   "tfa.admin.audit.rebuild_chain": "Reconstruire la chaîne d'audit",
   "tfa.admin.audit.rebuild_confirm": "Reconstruire la chaîne de hachage d'audit à partir des données actuelles ? Cela efface l'avertissement de chaîne rompue mais SUPPRIME toute preuve d'altération. Continuer ?",
-  "tfa.admin.audit.rebuild_success": "{count} entrées d'audit reconstruites."
+  "tfa.admin.audit.rebuild_success": "{count} entrées d'audit reconstruites.",
+  "tfa.admin.settings.localization_heading": "Localisation",
+  "tfa.admin.settings.lbl_default_lang": "Langue par défaut du serveur (utilisée pour les pages avant connexion et comme repli pour chaque utilisateur)",
+  "tfa.admin.settings.btn_save_default_lang": "Enregistrer la langue par défaut"
 }

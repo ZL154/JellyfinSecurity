@@ -627,5 +627,8 @@
   "tfa.factor.clean_7d.action": "最近の認証失敗またはロックアウトイベントがあります。監査ログを確認してください。",
   "tfa.admin.audit.rebuild_chain": "監査チェーンを再構築",
   "tfa.admin.audit.rebuild_confirm": "現在のデータから監査ハッシュチェーンを再構築しますか?チェーン破損の警告は解消されますが、改ざんの痕跡も消去されます。続行しますか?",
-  "tfa.admin.audit.rebuild_success": "{count}件の監査エントリを再構築しました。"
+  "tfa.admin.audit.rebuild_success": "{count}件の監査エントリを再構築しました。",
+  "tfa.admin.settings.localization_heading": "ローカライズ",
+  "tfa.admin.settings.lbl_default_lang": "サーバー全体のデフォルト言語(ログイン前ページとユーザーごとのフォールバックに使用)",
+  "tfa.admin.settings.btn_save_default_lang": "デフォルト言語を保存"
 }

@@ -627,5 +627,8 @@
   "tfa.factor.clean_7d.action": "近期出现认证失败或锁定事件。请查看审计日志。",
   "tfa.admin.audit.rebuild_chain": "重建审计链",
   "tfa.admin.audit.rebuild_confirm": "根据当前数据重建审计哈希链?这将清除链损坏的警告,但也会抹除任何篡改证据。是否继续?",
-  "tfa.admin.audit.rebuild_success": "已重建 {count} 条审计记录。"
+  "tfa.admin.audit.rebuild_success": "已重建 {count} 条审计记录。",
+  "tfa.admin.settings.localization_heading": "本地化",
+  "tfa.admin.settings.lbl_default_lang": "服务器全局默认语言(用于登录前页面以及作为各用户的后备语言)",
+  "tfa.admin.settings.btn_save_default_lang": "保存默认语言"
 }

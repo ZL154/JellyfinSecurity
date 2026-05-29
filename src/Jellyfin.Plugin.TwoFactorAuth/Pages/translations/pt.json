@@ -627,5 +627,8 @@
   "tfa.factor.clean_7d.action": "Falhas ou bloqueios recentes. Reveja o registo de auditoria.",
   "tfa.admin.audit.rebuild_chain": "Reconstruir cadeia de auditoria",
   "tfa.admin.audit.rebuild_confirm": "Reconstruir a cadeia de hash de auditoria a partir dos dados atuais? Isto remove o aviso de cadeia partida mas APAGA qualquer evidência de adulteração. Continuar?",
-  "tfa.admin.audit.rebuild_success": "{count} entradas de auditoria reconstruídas."
+  "tfa.admin.audit.rebuild_success": "{count} entradas de auditoria reconstruídas.",
+  "tfa.admin.settings.localization_heading": "Localização",
+  "tfa.admin.settings.lbl_default_lang": "Idioma predefinido do servidor (usado nas páginas pré-início de sessão e como fallback por utilizador)",
+  "tfa.admin.settings.btn_save_default_lang": "Guardar idioma predefinido"
 }

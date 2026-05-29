@@ -1,5 +1,14 @@
 namespace Jellyfin.Plugin.TwoFactorAuth.Models;
 
+/// <summary>v2.5.0: payload for the admin Settings → Localization picker
+/// that persists PluginConfiguration.DefaultLanguage (the pre-login fallback
+/// language used by login.html / challenge.html / setup.html before a
+/// per-user preference is known).</summary>
+public class DefaultLanguageRequest
+{
+    public string? DefaultLanguage { get; set; }
+}
+
 public class VerifyRequest
 {
     public string ChallengeToken { get; set; } = string.Empty;

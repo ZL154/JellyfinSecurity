@@ -627,5 +627,8 @@
   "tfa.factor.clean_7d.action": "Errori di autenticazione o blocchi recenti. Controlla il log di audit.",
   "tfa.admin.audit.rebuild_chain": "Ricostruisci catena di audit",
   "tfa.admin.audit.rebuild_confirm": "Ricostruire la catena hash di audit dai dati attuali? Verrà rimosso l'avviso di catena danneggiata, ma anche CANCELLATA qualsiasi prova di manomissione. Continuare?",
-  "tfa.admin.audit.rebuild_success": "Ricostruite {count} voci di audit."
+  "tfa.admin.audit.rebuild_success": "Ricostruite {count} voci di audit.",
+  "tfa.admin.settings.localization_heading": "Localizzazione",
+  "tfa.admin.settings.lbl_default_lang": "Lingua predefinita del server (usata nelle pagine pre-login e come fallback per ogni utente)",
+  "tfa.admin.settings.btn_save_default_lang": "Salva lingua predefinita"
 }

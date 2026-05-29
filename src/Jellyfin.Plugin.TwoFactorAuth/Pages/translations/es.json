@@ -627,5 +627,8 @@
   "tfa.factor.clean_7d.action": "Eventos recientes de fallo o bloqueo. Revisa el registro de auditoría.",
   "tfa.admin.audit.rebuild_chain": "Reconstruir cadena de auditoría",
   "tfa.admin.audit.rebuild_confirm": "¿Reconstruir la cadena hash de auditoría con los datos actuales? Esto borrará la advertencia de cadena rota pero ELIMINARÁ cualquier evidencia de manipulación. ¿Continuar?",
-  "tfa.admin.audit.rebuild_success": "{count} entradas de auditoría reconstruidas."
+  "tfa.admin.audit.rebuild_success": "{count} entradas de auditoría reconstruidas.",
+  "tfa.admin.settings.localization_heading": "Localización",
+  "tfa.admin.settings.lbl_default_lang": "Idioma predeterminado del servidor (usado en las páginas previas al inicio de sesión y como respaldo por usuario)",
+  "tfa.admin.settings.btn_save_default_lang": "Guardar idioma predeterminado"
 }

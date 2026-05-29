@@ -3383,6 +3383,34 @@ public class TwoFactorAuthController : ControllerBase
         return Ok(new { ok = true, rebuilt = count });
     }
 
+    /// <summary>v2.5.0: persist the server-wide DefaultLanguage that the
+    /// pre-login pages (login.html, challenge.html, setup.html) read via
+    /// /TwoFactorAuth/public-config to pick a translation bundle before a
+    /// per-user preference is available. Validates against the supported-
+    /// language allowlist before writing so a malicious or typo'd value
+    /// can't poison the bundle resolution.</summary>
+    [HttpPost("Admin/DefaultLanguage")]
+    [Authorize(Policy = "RequiresElevation")]
+    public IActionResult SetDefaultLanguage([FromBody] DefaultLanguageRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.DefaultLanguage))
+        {
+            return BadRequest(new { message = "defaultLanguage required" });
+        }
+        if (Array.IndexOf(SupportedLanguages, request.DefaultLanguage) < 0)
+        {
+            return BadRequest(new { message = "unsupported language" });
+        }
+        var cfg = Plugin.Instance?.Configuration;
+        if (cfg is null)
+        {
+            return StatusCode(500, new { message = "no config" });
+        }
+        cfg.DefaultLanguage = request.DefaultLanguage;
+        Plugin.Instance?.SaveConfiguration();
+        return Ok(new { ok = true });
+    }
+
     [HttpGet("Stats")]
     [Authorize(Policy = "RequiresElevation")]
     public async Task<IActionResult> GetStats()

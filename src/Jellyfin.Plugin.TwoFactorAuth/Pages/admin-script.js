@@ -888,6 +888,43 @@
                         // v2.5.0 hardening fields
                         page.querySelector('#cfgRequire2faToDisable').checked = !!c.RequireTwoFactorToDisable;
                         page.querySelector('#cfgStepUpLevel').value = (c.StepUpLevel != null ? c.StepUpLevel : 0);
+                        // v2.5.0 Localization: server-wide default language
+                        var dlSel = page.querySelector('#cfgDefaultLanguage');
+                        if (dlSel) dlSel.value = c.DefaultLanguage || 'en';
+                    });
+                }
+
+                // v2.5.0: server-wide DefaultLanguage save handler. Posts the
+                // chosen code to /TwoFactorAuth/Admin/DefaultLanguage which
+                // validates against the supported-language allowlist before
+                // persisting. The pre-login pages read the new value via
+                // /TwoFactorAuth/public-config on next load.
+                var saveDefLangBtn = page.querySelector('#btnSaveDefaultLang');
+                if (saveDefLangBtn) {
+                    saveDefLangBtn.addEventListener('click', function() {
+                        var sel = page.querySelector('#cfgDefaultLanguage');
+                        var status = page.querySelector('#defaultLangStatus');
+                        if (!sel || !status) return;
+                        var lang = sel.value || 'en';
+                        status.style.color = '#888';
+                        status.textContent = _tr('tfa.admin.common.saving', 'Saving…');
+                        fetch(ApiClient.serverAddress() + '/TwoFactorAuth/Admin/DefaultLanguage', {
+                            method: 'POST',
+                            headers: getHeaders(),
+                            body: JSON.stringify({ defaultLanguage: lang })
+                        }).then(function(r) {
+                            if (r.ok) {
+                                status.style.color = '#4caf50';
+                                status.textContent = '✓ ' + _tr('tfa.admin.settings.saved', 'Saved');
+                            } else {
+                                status.style.color = '#f44336';
+                                status.textContent = '✗ ' + _tr('tfa.admin.common.save_failed', 'Save failed');
+                            }
+                            setTimeout(function() { status.style.color = ''; status.textContent = ''; }, 3500);
+                        }).catch(function() {
+                            status.style.color = '#f44336';
+                            status.textContent = '✗ ' + _tr('tfa.admin.common.save_failed', 'Save failed');
+                        });
                     });
                 }
                 page.querySelector('#btnTestSmtp').addEventListener('click', function() {

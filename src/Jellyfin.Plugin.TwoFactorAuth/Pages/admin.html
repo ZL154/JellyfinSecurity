@@ -453,6 +453,26 @@
                             </div>
                         </div>
 
+                        <!-- v2.5.0: Localization (server-wide default language) -->
+                        <div class="tfa-section">
+                            <h2 data-i18n-key="tfa.admin.settings.localization_heading">Localization</h2>
+                            <div class="tfa-row tfa-row-stack">
+                                <label for="cfgDefaultLanguage" style="font-weight:500;" data-i18n-key="tfa.admin.settings.lbl_default_lang">Server-wide default language (used for pre-login pages and as the per-user fallback)</label>
+                                <select id="cfgDefaultLanguage" class="tfa-input" style="width:100%;max-width:280px;">
+                                    <option value="en">English</option>
+                                    <option value="de">Deutsch</option>
+                                    <option value="es">Español</option>
+                                    <option value="fr">Français</option>
+                                    <option value="it">Italiano</option>
+                                    <option value="ja">日本語</option>
+                                    <option value="pt">Português</option>
+                                    <option value="zh">中文</option>
+                                </select>
+                                <button class="tfa-btn tfa-btn-primary" id="btnSaveDefaultLang" type="button" style="margin-top:8px;align-self:flex-start;" data-i18n-key="tfa.admin.settings.btn_save_default_lang">Save default language</button>
+                                <span id="defaultLangStatus" style="margin-left:10px;font-size:12px;"></span>
+                            </div>
+                        </div>
+
                         <!-- v2.5.0: Hardening controls -->
                         <div class="tfa-section">
                             <h2 data-i18n-key="tfa.admin.hardening.heading">Hardening (v2.5.0)</h2>

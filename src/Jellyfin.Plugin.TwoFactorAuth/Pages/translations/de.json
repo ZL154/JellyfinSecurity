@@ -627,5 +627,8 @@
   "tfa.factor.clean_7d.action": "Kürzliche fehlgeschlagene Anmeldungen oder Sperrungen. Prüfe das Audit-Log.",
   "tfa.admin.audit.rebuild_chain": "Audit-Kette neu aufbauen",
   "tfa.admin.audit.rebuild_confirm": "Audit-Hashkette aus den aktuellen Daten neu aufbauen? Dies entfernt die Warnung über die defekte Kette, LÖSCHT aber auch alle Spuren einer Manipulation. Fortfahren?",
-  "tfa.admin.audit.rebuild_success": "{count} Audit-Einträge wurden neu aufgebaut."
+  "tfa.admin.audit.rebuild_success": "{count} Audit-Einträge wurden neu aufgebaut.",
+  "tfa.admin.settings.localization_heading": "Lokalisierung",
+  "tfa.admin.settings.lbl_default_lang": "Serverweite Standardsprache (für Seiten vor der Anmeldung und als Fallback pro Benutzer)",
+  "tfa.admin.settings.btn_save_default_lang": "Standardsprache speichern"
 }
