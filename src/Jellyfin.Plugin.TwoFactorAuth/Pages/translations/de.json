@@ -630,5 +630,8 @@
   "tfa.admin.audit.rebuild_success": "{count} Audit-Einträge wurden neu aufgebaut.",
   "tfa.admin.settings.localization_heading": "Lokalisierung",
   "tfa.admin.settings.lbl_default_lang": "Serverweite Standardsprache (für Seiten vor der Anmeldung und als Fallback pro Benutzer)",
-  "tfa.admin.settings.btn_save_default_lang": "Standardsprache speichern"
+  "tfa.admin.settings.btn_save_default_lang": "Standardsprache speichern",
+  "tfa.admin.chart.successful": "Erfolgreich",
+  "tfa.admin.chart.failed": "Fehlgeschlagen",
+  "tfa.admin.chart.locked": "Gesperrt"
 }

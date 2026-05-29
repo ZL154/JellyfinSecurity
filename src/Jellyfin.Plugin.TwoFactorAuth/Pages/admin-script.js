@@ -320,7 +320,9 @@
 
                 function renderAuthChart(series) {
                     const svg = document.getElementById('authChart');
+                    const tooltip = document.getElementById('authChartTooltip');
                     svg.innerHTML = '';
+                    if (tooltip) tooltip.style.display = 'none';
                     if (series.length === 0) {
                         svg.innerHTML = '<text x="300" y="70" text-anchor="middle" fill="#666" font-size="12">' + escapeHtml(_tr('tfa.admin.overview.no_chart_data', 'No data in the last 30 days')) + '</text>';
                         return;
@@ -352,7 +354,62 @@
                     svgInner += `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#444" stroke-width="1" />`;
                     svgInner += `<text x="${padL - 4}" y="${padT + 8}" text-anchor="end" fill="#888" font-size="10">${max}</text>`;
                     svgInner += `<text x="${padL - 4}" y="${H - padB}" text-anchor="end" fill="#888" font-size="10">0</text>`;
+
+                    // v2.5.0: filled data-point markers at the top of the
+                    // stacked totals so each day/month is a visible dot.
+                    series.forEach((s, i) => {
+                        const total = (s.success || 0) + (s.failed || 0) + (s.locked || 0);
+                        const x = padL + i * xStep;
+                        const y = yScale(total);
+                        svgInner += `<circle class="tfa-chart-point" cx="${x}" cy="${y}" r="3" fill="#fff" stroke="#00a4dc" stroke-width="1" data-idx="${i}" />`;
+                    });
+
+                    // v2.5.0: invisible hit-target rects, one per data point.
+                    // Wider than the marker so hover is forgiving on dense series.
+                    const hitW = Math.max(xStep, 8);
+                    series.forEach((s, i) => {
+                        const x = padL + i * xStep - hitW / 2;
+                        svgInner += `<rect class="tfa-chart-hit" x="${x}" y="${padT}" width="${hitW}" height="${H - padT - padB}" fill="transparent" data-idx="${i}" />`;
+                    });
+
                     svg.innerHTML = svgInner;
+
+                    // v2.5.0: hover wiring — populate + position the tooltip
+                    // relative to the chart card on each rect's mouseover.
+                    if (tooltip) {
+                        const card = svg.closest('.tfa-chart-card');
+                        const lblSuccess = _tr('tfa.admin.chart.successful', 'Successful');
+                        const lblFailed = _tr('tfa.admin.chart.failed', 'Failed');
+                        const lblLocked = _tr('tfa.admin.chart.locked', 'Locked-out');
+                        const showTip = function(idx, evt) {
+                            const s = series[idx];
+                            if (!s) return;
+                            tooltip.innerHTML =
+                                '<div class="tt-date">' + escapeHtml(s.date) + '</div>' +
+                                '<div class="tt-row tt-success"><span>' + escapeHtml(lblSuccess) + '</span><span>' + (s.success || 0) + '</span></div>' +
+                                '<div class="tt-row tt-failed"><span>' + escapeHtml(lblFailed) + '</span><span>' + (s.failed || 0) + '</span></div>' +
+                                '<div class="tt-row tt-locked"><span>' + escapeHtml(lblLocked) + '</span><span>' + (s.locked || 0) + '</span></div>';
+                            tooltip.style.display = 'block';
+                            if (card) {
+                                const cardRect = card.getBoundingClientRect();
+                                let left = evt.clientX - cardRect.left + 12;
+                                let top = evt.clientY - cardRect.top + 12;
+                                // keep inside card horizontally
+                                const tw = tooltip.offsetWidth || 160;
+                                if (left + tw > cardRect.width) left = cardRect.width - tw - 4;
+                                if (left < 0) left = 0;
+                                tooltip.style.left = left + 'px';
+                                tooltip.style.top = top + 'px';
+                            }
+                        };
+                        const hideTip = function() { tooltip.style.display = 'none'; };
+                        Array.prototype.forEach.call(svg.querySelectorAll('.tfa-chart-hit'), function(rect) {
+                            const idx = parseInt(rect.getAttribute('data-idx'), 10);
+                            rect.addEventListener('mouseover', function(e) { showTip(idx, e); });
+                            rect.addEventListener('mousemove', function(e) { showTip(idx, e); });
+                            rect.addEventListener('mouseout', hideTip);
+                        });
+                    }
                 }
 
                 // ---- v1.4: DIAGNOSTICS ----

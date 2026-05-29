@@ -134,6 +134,18 @@
                so users can switch language regardless of which tab they're on. */
             #TwoFactorAuth .tfa-top-strip { display: flex; justify-content: flex-end; padding: 8px 0; margin-bottom: 4px; }
             #TwoFactorAuth .tfa-top-strip .tfa-lang-picker-wrap { font-size: 12px; }
+
+            /* v2.5.0: auth-activity chart hover tooltip + data-point markers */
+            #TwoFactorAuth .tfa-chart-card { position: relative; }
+            #TwoFactorAuth .tfa-chart-tooltip { position: absolute; background: rgba(0,0,0,0.92); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 6px 10px; font-size: 12px; color: #ddd; pointer-events: none; display: none; z-index: 100; min-width: 140px; }
+            #TwoFactorAuth .tfa-chart-tooltip .tt-date { font-weight: 600; margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; }
+            #TwoFactorAuth .tfa-chart-tooltip .tt-row { display: flex; justify-content: space-between; gap: 12px; }
+            #TwoFactorAuth .tfa-chart-tooltip .tt-success { color: #5cb85c; }
+            #TwoFactorAuth .tfa-chart-tooltip .tt-failed { color: #f0ad4e; }
+            #TwoFactorAuth .tfa-chart-tooltip .tt-locked { color: #d9534f; }
+            .tfa-chart-point { cursor: pointer; transition: r 0.1s; }
+            .tfa-chart-point:hover { r: 5; }
+            .tfa-chart-hit { cursor: pointer; }
         </style>
 
         <div data-role="content">
@@ -195,6 +207,7 @@
                         <div class="tfa-chart-card">
                             <h3 data-i18n-key="tfa.admin.auth_activity_heading">Auth activity (last 30 days)</h3>
                             <svg class="tfa-chart-svg" id="authChart" viewBox="0 0 600 140" preserveAspectRatio="none"></svg>
+                            <div class="tfa-chart-tooltip" id="authChartTooltip"></div>
                         </div>
 
                         <!-- Enrollment by role -->

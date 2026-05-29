@@ -630,5 +630,8 @@
   "tfa.admin.audit.rebuild_success": "已重建 {count} 条审计记录。",
   "tfa.admin.settings.localization_heading": "本地化",
   "tfa.admin.settings.lbl_default_lang": "服务器全局默认语言(用于登录前页面以及作为各用户的后备语言)",
-  "tfa.admin.settings.btn_save_default_lang": "保存默认语言"
+  "tfa.admin.settings.btn_save_default_lang": "保存默认语言",
+  "tfa.admin.chart.successful": "成功",
+  "tfa.admin.chart.failed": "失败",
+  "tfa.admin.chart.locked": "已锁定"
 }

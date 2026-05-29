@@ -630,5 +630,8 @@
   "tfa.admin.audit.rebuild_success": "Ricostruite {count} voci di audit.",
   "tfa.admin.settings.localization_heading": "Localizzazione",
   "tfa.admin.settings.lbl_default_lang": "Lingua predefinita del server (usata nelle pagine pre-login e come fallback per ogni utente)",
-  "tfa.admin.settings.btn_save_default_lang": "Salva lingua predefinita"
+  "tfa.admin.settings.btn_save_default_lang": "Salva lingua predefinita",
+  "tfa.admin.chart.successful": "Riuscito",
+  "tfa.admin.chart.failed": "Fallito",
+  "tfa.admin.chart.locked": "Bloccato"
 }

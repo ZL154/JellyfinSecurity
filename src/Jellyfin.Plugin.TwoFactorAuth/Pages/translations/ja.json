@@ -630,5 +630,8 @@
   "tfa.admin.audit.rebuild_success": "{count}件の監査エントリを再構築しました。",
   "tfa.admin.settings.localization_heading": "ローカライズ",
   "tfa.admin.settings.lbl_default_lang": "サーバー全体のデフォルト言語(ログイン前ページとユーザーごとのフォールバックに使用)",
-  "tfa.admin.settings.btn_save_default_lang": "デフォルト言語を保存"
+  "tfa.admin.settings.btn_save_default_lang": "デフォルト言語を保存",
+  "tfa.admin.chart.successful": "成功",
+  "tfa.admin.chart.failed": "失敗",
+  "tfa.admin.chart.locked": "ロックアウト"
 }
