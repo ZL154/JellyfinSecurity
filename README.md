@@ -15,7 +15,8 @@
   <img src="https://img.shields.io/badge/Jellyfin-10.11%2B-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
-  <img src="https://img.shields.io/github/v/release/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&color=00a4dc&label=Version" />
+  <!-- Static version badge — bump on each release. Switched from img.shields.io/github/v/release because that endpoint periodically returns 'unable to select next GitHub token from pool'. -->
+  <img src="https://img.shields.io/badge/Version-v2.5.0-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
