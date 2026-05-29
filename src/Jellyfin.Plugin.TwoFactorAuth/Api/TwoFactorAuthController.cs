@@ -3548,7 +3548,12 @@ public class TwoFactorAuthController : ControllerBase
                 monthly = false;
                 break;
             case "1y":
-                since = new DateTime(DateTime.UtcNow.Year - 1, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1);
+                // Start at the first day of the month 11 months ago, so a 1-year chart
+                // spans 12 monthly buckets including the current (partial) month.
+                // Computing via AddMonths(-11) avoids the unsafe (Year-1) pattern that
+                // CodeQL flags as potentially producing an invalid DateTime year.
+                var firstOfThisMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                since = firstOfThisMonth.AddMonths(-11);
                 monthly = true;
                 break;
             default:
@@ -3717,10 +3722,12 @@ public class TwoFactorAuthController : ControllerBase
     // v2.5.0: externalize admin.html's huge inline <script> body so it survives
     // Jellyfin's admin SPA loadView templater. The templater treats ${...} like
     // a template-literal engine and corrupts embedded JS, throwing SyntaxError.
-    // Mirrors GetSharedI18nScript's [AllowAnonymous] pattern because the
-    // admin config-page loader may fetch the script tag without auth headers.
+    // Auth required: admin-script.js is only loaded from admin.html (which is
+    // admin-gated). Same-origin <script src> tags carry the Jellyfin session
+    // cookie automatically, so [Authorize] does not break the load while still
+    // refusing anonymous fetches (and clearing CodeQL CWE-285 false-positive).
     [HttpGet("admin-script.js")]
-    [AllowAnonymous]
+    [Authorize]
     [Produces("application/javascript")]
     public IActionResult GetAdminScript()
     {

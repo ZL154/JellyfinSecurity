@@ -30,7 +30,8 @@
 
 <p align="center">
   <a href="https://github.com/ZL154/JellyfinSecurity/stargazers"><img src="https://img.shields.io/github/stars/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Stars&color=00a4dc&logo=github&logoColor=white" alt="Stars" /></a>
-  <a href="https://github.com/ZL154/JellyfinSecurity/releases/latest"><img src="https://img.shields.io/github/release-date/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Released&color=2b2b2b&logo=github&logoColor=white" alt="Latest release date" /></a>
+  <!-- Static released-date badge — bump on each release. Switched from img.shields.io/github/release-date for the same reason as the Version badge (token-pool errors on the github/* shields family). -->
+  <a href="https://github.com/ZL154/JellyfinSecurity/releases/latest"><img src="https://img.shields.io/badge/Released-2026--05--29-2b2b2b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=github&logoColor=white" alt="Latest release date" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/security/advisories"><img src="https://img.shields.io/github/issues-search/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Open%20advisories&query=is%3Aopen%20label%3Asecurity&color=00a4dc&logo=github&logoColor=white" alt="Open security advisories" /></a>
 </p>
 
