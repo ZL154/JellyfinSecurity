@@ -1162,4 +1162,18 @@
                     _initAdminLangPicker();
                 });
                 document.addEventListener('DOMContentLoaded', _initAdminLangPicker);
+
+                // v2.5.0 externalize-fix: the script tag is fetched async, so by
+                // the time the IIFE finishes parsing, the SPA's pageshow event has
+                // already fired. The pageshow listener above only catches
+                // subsequent re-entries. Kick off the initial render directly so
+                // the Overview populates on first paint. Small setTimeout lets
+                // ApiClient finish initializing its auth state before we hit
+                // /Dashboard/Overview (otherwise the first call can race with
+                // token rehydration and get an empty response).
+                setTimeout(function() {
+                    renderOverview();
+                    loadUsers();
+                    _initAdminLangPicker();
+                }, 100);
             })();
