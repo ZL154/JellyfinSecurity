@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Jellyfin Security" width="220" />
+  <img src="assets/logo.png" alt="Jellyfin Security" width="100%" />
 </p>
 
 ```text
