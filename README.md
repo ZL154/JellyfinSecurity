@@ -24,14 +24,14 @@
   <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/ci.yml?branch=main&style=for-the-badge&labelColor=000000&label=CI&logo=github&logoColor=white" alt="CI" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/codeql.yml?branch=main&style=for-the-badge&labelColor=000000&label=CodeQL&logo=github&logoColor=white" alt="CodeQL" /></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity"><img src="https://img.shields.io/ossf-scorecard/github.com/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=OSSF%20Score&color=00a4dc" alt="OpenSSF Scorecard" /></a>
-  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-250%20passing-00a4dc?style=for-the-badge&labelColor=000000&logo=xunit&logoColor=white" alt="Tests" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-254%20passing-00a4dc?style=for-the-badge&labelColor=000000&logo=xunit&logoColor=white" alt="Tests" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/blob/main/SECURITY.md"><img src="https://img.shields.io/badge/Security-Policy-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=gitbook&logoColor=white" alt="Security policy" /></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/ZL154/JellyfinSecurity/stargazers"><img src="https://img.shields.io/github/stars/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Stars&color=00a4dc&logo=github&logoColor=white" alt="Stars" /></a>
   <!-- Static last-commit badge — bump when pushing meaningful changes. img.shields.io/github/last-commit is the most rate-limited GitHub-API endpoint in the shields family and has been intermittently unavailable. Static avoids it. -->
-  <a href="https://github.com/ZL154/JellyfinSecurity/commits/main"><img src="https://img.shields.io/badge/Last%20commit-2026--05--29-2b2b2b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=github&logoColor=white" alt="Last commit" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/commits/main"><img src="https://img.shields.io/badge/Last%20commit-2026--05--30-2b2b2b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=github&logoColor=white" alt="Last commit" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/security/advisories"><img src="https://img.shields.io/github/issues-search/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Open%20advisories&query=is%3Aopen%20label%3Asecurity&color=00a4dc&logo=github&logoColor=white" alt="Open security advisories" /></a>
 </p>
 
@@ -48,10 +48,10 @@ Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email O
 You don't have to take my word for it. Every signal below is automated and
 visible to anyone, including you:
 
-- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (250 tests covering crypto, parsers, and middleware). Green = tests pass.
+- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (254 tests covering crypto, parsers, and middleware). Green = tests pass.
 - **[CodeQL badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml)** — GitHub's static security scanner runs the `security-extended` + `security-and-quality` C# query packs on every push, PR, and weekly. Green = no security findings.
 - **[OpenSSF Scorecard](https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity)** — the Linux Foundation's automated security-posture rating (0–10). Scores branch protection, CodeQL, dependency updates, pinned actions, signed releases, security policy, token permissions, and more. Click the badge to see the per-check breakdown.
-- **[Test suite](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — 250 xUnit tests covering the security-critical code paths (cookie HMAC, TOTP replay protection, recovery-code PBKDF2, CIDR parser, X-Forwarded-For trust-walk, refuse-LAN-bypass-when-XFF-missing guard, device-token binding, AES-GCM v2 AAD, HIBP k-anonymity hashing, atomic challenge consumption, OIDC redirect_uri proxy-header resolution, OIDC userinfo claim merge, SMTP port 465 socket-option mapping, step-up code verification, step-up action classification, ChallengeStore step-up tokens). Runs on every PR + push.
+- **[Test suite](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — 254 xUnit tests covering the security-critical code paths (cookie HMAC, TOTP replay protection, recovery-code PBKDF2, CIDR parser, X-Forwarded-For trust-walk, refuse-LAN-bypass-when-XFF-missing guard, device-token binding, AES-GCM v2 AAD, HIBP k-anonymity hashing, atomic challenge consumption, OIDC redirect_uri proxy-header resolution, OIDC userinfo claim merge, SMTP port 465 socket-option mapping, step-up code verification, step-up action classification, ChallengeStore step-up tokens). Runs on every PR + push.
 - **[Open security advisories](https://github.com/ZL154/JellyfinSecurity/security/advisories)** — historical vulnerabilities filed via [SECURITY.md](SECURITY.md), with patch versions, severity, and CVE references.
 - **[Dependabot PRs](https://github.com/ZL154/JellyfinSecurity/pulls?q=is%3Apr+author%3Aapp%2Fdependabot)** — security and version updates for every NuGet dependency. Frequent merges = vulnerabilities don't sit unpatched.
 - **[Pull request review history](https://github.com/ZL154/JellyfinSecurity/pulls?q=is%3Apr+is%3Aclosed)** — non-trivial changes go through review even when the maintainer is solo, and the diff is public.
@@ -73,7 +73,7 @@ visible trust signals is treated as a high-priority bug.
 - **Audit chain rebuild** — admin action (step-up gated) to repair a broken audit-log hash chain after disk corruption or manual edits.
 - **`RequireTwoFactorToDisable` hardening flag** — disabling 2FA self-service now requires a fresh 2FA challenge.
 - **Translatable score factor labels** — every score factor shows in the user's chosen language.
-- 250/250 tests pass. Clean build with `TreatWarningsAsErrors=true`. In-place upgrade — existing TOTP enrollments, passkeys, OIDC links, trusted browsers, paired devices, and audit history all carry over.
+- 254/254 tests pass. Clean build with `TreatWarningsAsErrors=true`. In-place upgrade — existing TOTP enrollments, passkeys, OIDC links, trusted browsers, paired devices, and audit history all carry over.
 
 ---
 
@@ -858,7 +858,7 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 - Admin enumeration uses `_userManager.Users.HasPermission(PermissionKind.IsAdministrator)` directly (typed extension method) — fixes the 0/0 admin count regression.
 - All dynamic JS-rendered content deferred behind `window.tfaI18n.ready` so it doesn't render in English before the translation bundle loads.
 
-**Tests**: 250/250 pass. Clean build with `TreatWarningsAsErrors=true`.
+**Tests**: 254/254 pass. Clean build with `TreatWarningsAsErrors=true`.
 
 **Upgrade**: in-place — existing TOTP enrollments, passkeys, OIDC links, trusted browsers, paired devices, and audit history all carry over.
 
