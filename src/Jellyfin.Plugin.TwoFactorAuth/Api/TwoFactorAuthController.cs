@@ -1199,6 +1199,32 @@ public class TwoFactorAuthController : ControllerBase
         }
     }
 
+    // v2.5.3 (issue #37 follow-up): same reflection shim applied to
+    // ISessionManager.Sessions. Jellyfin 10.11.9+ also changed the return
+    // type of this property — without this wrapper, the Overview dashboard
+    // KPI count, the active-sessions admin endpoint, and the MySessions
+    // device-enrichment endpoint would each throw MissingMethodException
+    // on a 10.11.9+ host. Empty enumeration on any failure so the dashboard
+    // / RevokeSession / MySessions endpoints degrade gracefully.
+    private IEnumerable<SessionInfo> EnumerateSessions()
+    {
+        IEnumerable? raw;
+        try
+        {
+            var prop = typeof(ISessionManager).GetProperty(nameof(ISessionManager.Sessions));
+            raw = prop?.GetValue(_sessionManager) as IEnumerable;
+        }
+        catch (Exception)
+        {
+            yield break;
+        }
+        if (raw is null) yield break;
+        foreach (var item in raw)
+        {
+            if (item is SessionInfo s) yield return s;
+        }
+    }
+
     private void UnblockAccessTokenFromPendingAuthResponse(string pendingAuthResponse, string username)
     {
         if (string.IsNullOrEmpty(pendingAuthResponse))
@@ -2339,7 +2365,7 @@ public class TwoFactorAuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> RevokeSession([FromRoute] string id)
     {
-        var sessions = _sessionManager.Sessions;
+        var sessions = EnumerateSessions();
         var session = sessions.FirstOrDefault(s => s.Id == id);
 
         if (session is null)
@@ -2793,7 +2819,7 @@ public class TwoFactorAuthController : ControllerBase
         var userId = GetCurrentUserId();
         var currentToken = HttpContext.Request.Headers["X-Emby-Token"].FirstOrDefault() ?? string.Empty;
         var result = _deviceManager.GetDevices(new DeviceQuery { UserId = userId });
-        var live = _sessionManager.Sessions
+        var live = EnumerateSessions()
             .Where(s => s.UserId == userId)
             .ToDictionary(s => s.DeviceId ?? string.Empty, s => s, StringComparer.OrdinalIgnoreCase);
 
@@ -3676,7 +3702,7 @@ public class TwoFactorAuthController : ControllerBase
             {
                 enrolledUsers = stats.EnrolledCount,
                 totalUsers = stats.TotalUsers,
-                activeSessions = _sessionManager.Sessions.Count(),
+                activeSessions = EnumerateSessions().Count(),
                 bannedIps = bans.Count,
                 auditEntries = audit.Count,
                 auditChainBroken = chainBroken
