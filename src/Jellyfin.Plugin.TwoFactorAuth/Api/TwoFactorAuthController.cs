@@ -3537,10 +3537,13 @@ public class TwoFactorAuthController : ControllerBase
         int adminsTotal = 0, adminsEnrolled = 0, regularTotal = 0, regularEnrolled = 0;
         // v2.5.0 fix #2: HasPermission is an EXTENSION METHOD on User, not an instance
         // method, so GetType().GetMethod("HasPermission") returns null and every user
-        // was being classified as non-admin. Use _userManager.Users directly with the
-        // typed extension-method call — _userManager is already injected and the
-        // plugin pins to Jellyfin.Controller 10.11.8 so there's no ABI risk.
-        foreach (var u in _userManager.Users)
+        // was being classified as non-admin. Use the typed extension-method call.
+        // v2.5.2 fix (issue #37): the previous direct `_userManager.Users` call threw
+        // System.MissingMethodException on Jellyfin 10.11.9+ because get_Users()'s
+        // return type changed between the ABI we compile against (10.11.8) and the
+        // ABI the user runs (10.11.10). Route through EnumerateAllUsers() which
+        // already wraps the property in a reflection shim that re-binds at runtime.
+        foreach (var u in EnumerateAllUsers())
         {
             var isAdmin = u.HasPermission(PermissionKind.IsAdministrator);
             var isEnrolled = enrolledIds.Contains(u.Id);

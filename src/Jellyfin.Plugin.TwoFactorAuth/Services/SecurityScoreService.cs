@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -348,13 +349,49 @@ public class SecurityScoreService : IDisposable
         var enrolledIds = new HashSet<Guid>(data
             .Where(d => d.TotpEnabled || d.Passkeys.Count > 0)
             .Select(d => d.UserId));
-        foreach (var u in _userManager.Users)
+        // v2.5.2 fix (issue #37): direct `_userManager.Users` access threw
+        // System.MissingMethodException on Jellyfin 10.11.9+ because get_Users()'s
+        // return type changed between the ABI we compile against (10.11.8) and the
+        // ABI users on newer Jellyfin run (10.11.10). EnumerateUsers() wraps the
+        // property in a reflection shim that re-binds at runtime, matching the
+        // pattern already used by TwoFactorAuthController.EnumerateAllUsers and
+        // StatsService.EnumerateUsers.
+        foreach (var u in EnumerateUsers())
         {
             if (!u.HasPermission(PermissionKind.IsAdministrator)) continue;
             if (!enrolledIds.Contains(u.Id)) return false;
         }
         // "No admins exist" still scores full credit (vacuous truth).
         return true;
+    }
+
+    /// <summary>
+    /// v2.5.2: ABI-compatible enumeration of <see cref="IUserManager.Users"/> across
+    /// Jellyfin 10.11.8 → 10.11.10+ where the property's return type differs.
+    /// Compiling against 10.11.8 emits a callvirt against the old signature, so a
+    /// direct call throws <see cref="MissingMethodException"/> at runtime on
+    /// newer hosts. Reflection re-binds against whatever is actually loaded.
+    /// Empty enumeration on any failure so downstream factors degrade gracefully
+    /// rather than 500-ing the whole score endpoint.
+    /// </summary>
+    private IEnumerable<User> EnumerateUsers()
+    {
+        if (_userManager is null) yield break;
+        IEnumerable? raw;
+        try
+        {
+            var prop = typeof(IUserManager).GetProperty(nameof(IUserManager.Users));
+            raw = prop?.GetValue(_userManager) as IEnumerable;
+        }
+        catch (Exception)
+        {
+            yield break;
+        }
+        if (raw is null) yield break;
+        foreach (var item in raw)
+        {
+            if (item is User u) yield return u;
+        }
     }
 
     /// <summary>
