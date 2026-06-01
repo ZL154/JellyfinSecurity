@@ -41,7 +41,7 @@
          port 465 (Implicit TLS / SMTPS) because EnableSsl=true sends EHLO in
          plaintext to a server expecting an SSL ClientHello. Microsoft has
          officially deprecated SmtpClient for SMTPS and recommends MailKit. -->
-    <PackageReference Include="MailKit" Version="4.16.0" />
+    <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Fido2" Version="4.0.1" />
     <PackageReference Include="MaxMind.Db" Version="5.0.0" />
     <PackageReference Include="QuestPDF" Version="2026.5.0" />
