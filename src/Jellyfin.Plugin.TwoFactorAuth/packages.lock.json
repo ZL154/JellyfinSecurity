@@ -43,12 +43,12 @@
       },
       "Jellyfin.Model": {
         "type": "Direct",
-        "requested": "[10.11.8, )",
-        "resolved": "10.11.8",
-        "contentHash": "IDMW4pyr3JyQ/2DJDQixNyWQhoJCkCdHTKbSaeivcL0/7NJ7eZoEoUIE376qVhENq4+i7eeuel185752xAoDlA==",
+        "requested": "[10.11.10, )",
+        "resolved": "10.11.10",
+        "contentHash": "86Ouy6awY1AwYBr11oKQKy3bQP7YWRWVYWeodaLJ4hwMt/LhJNiKCcOAcYwn7owXMmLxXizVDqDkamj2smFBNA==",
         "dependencies": {
-          "Jellyfin.Data": "10.11.8",
-          "Jellyfin.Extensions": "10.11.8",
+          "Jellyfin.Data": "10.11.10",
+          "Jellyfin.Extensions": "10.11.10",
           "Microsoft.Extensions.Logging.Abstractions": "9.0.11",
           "System.Globalization": "4.3.0",
           "System.Text.Json": "9.0.11"
@@ -179,17 +179,17 @@
       },
       "Jellyfin.Data": {
         "type": "Transitive",
-        "resolved": "10.11.8",
-        "contentHash": "PEKD8+zYl79OzdT5HCTOsPoSNCjGWjdPkj2EVROcKxGmIo2ynpJacE2CgmXjH7iSLU3H9vpn6LCKVcs0hv7u1Q==",
+        "resolved": "10.11.10",
+        "contentHash": "e0IDGPN7rK66EIdHcuFZjsaBydv3Ap00ZlnXn+lEMyTj9F3ueqX+EX2QkrR0ApBy/PdjYSS3Hb9330LMB3+Lhw==",
         "dependencies": {
-          "Jellyfin.Database.Implementations": "10.11.8",
+          "Jellyfin.Database.Implementations": "10.11.10",
           "Microsoft.Extensions.Logging": "9.0.11"
         }
       },
       "Jellyfin.Database.Implementations": {
         "type": "Transitive",
-        "resolved": "10.11.8",
-        "contentHash": "v8f/O0CQkjzGLZaKnwkUkh1p4SqEnZqWZHBAhU5rc+NgQLF9jKtWOA2wwTIhTEmm2pKGJz2wVcICfH8Q7Ao8aw==",
+        "resolved": "10.11.10",
+        "contentHash": "BvTFygdmtTX5V0ndJaqHsAYWa1VXlo9V+T61tmrBDVcPjScm6L+aGwR/8InJP8R2FgVc3TQXG5pDrE/CVQEB9A==",
         "dependencies": {
           "Microsoft.EntityFrameworkCore.Relational": "9.0.11",
           "Polly": "8.6.5"
@@ -197,8 +197,8 @@
       },
       "Jellyfin.Extensions": {
         "type": "Transitive",
-        "resolved": "10.11.8",
-        "contentHash": "eMD+eDSrlgj3RwYXTj4rniJ8VQGb1NouJ4X4HP40ZQSN8KxP1jcRamdVOYw8tRYUW7hnvt5gejRax54RM4WNgw==",
+        "resolved": "10.11.10",
+        "contentHash": "MiqMfETTvUu3mV0yjr62X8ET0Duh/6sazTh7UgDBmAd8QPeAKm4ymiI14EyMRR/oh2cpHkDiNOSupe7IjnNa3w==",
         "dependencies": {
           "Diacritics": "4.0.17",
           "ICU4N.Transliterator": "60.1.0-alpha.356"
