@@ -187,8 +187,8 @@
       },
       "MaxMind.Db": {
         "type": "Transitive",
-        "resolved": "5.0.0",
-        "contentHash": "7xRBQRdKy30oF+fQf6L/UIUF6IzPxUJe5yyjJ6U/qHmgPEZG9xlG1Q29wVPCoEhWGqwbgg6ZrBKraN9dBkQc+A=="
+        "resolved": "5.1.0",
+        "contentHash": "u4fynkxX0bNLYaz90N9m9FiaOX22WmEFKlHnvlqw8sswngH54oYvgynhT4GXZvqTy8l7D96/+E9OVzuu34ex9w=="
       },
       "Microsoft.Bcl.Memory": {
         "type": "Transitive",
@@ -538,7 +538,7 @@
           "Jellyfin.Controller": "[10.11.8, )",
           "Jellyfin.Model": "[10.11.8, )",
           "MailKit": "[4.17.0, )",
-          "MaxMind.Db": "[5.0.0, )",
+          "MaxMind.Db": "[5.1.0, )",
           "Microsoft.IdentityModel.Tokens": "[8.18.0, )",
           "Otp.NET": "[1.4.1, )",
           "QRCoder": "[1.8.0, )",
