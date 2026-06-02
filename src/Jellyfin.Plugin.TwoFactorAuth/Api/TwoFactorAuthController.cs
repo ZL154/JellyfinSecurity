@@ -1182,11 +1182,24 @@ public class TwoFactorAuthController : ControllerBase
     // Empty enumeration on any failure so admin endpoints degrade gracefully.
     private IEnumerable<User> EnumerateAllUsers()
     {
-        IEnumerable? raw;
+        // Jellyfin 10.11.10 renamed `IUserManager.Users` (property) →
+        // `GetUsers()` (method). Try the method first; fall back to the
+        // old property via string-named reflection for any older 10.11.x
+        // host. `nameof(IUserManager.Users)` was the previous shim but
+        // fails to COMPILE against 10.11.10 since the symbol is gone.
+        IEnumerable? raw = null;
         try
         {
-            var prop = typeof(IUserManager).GetProperty(nameof(IUserManager.Users));
-            raw = prop?.GetValue(_userManager) as IEnumerable;
+            var getUsersMethod = typeof(IUserManager).GetMethod("GetUsers", Type.EmptyTypes);
+            if (getUsersMethod is not null)
+            {
+                raw = getUsersMethod.Invoke(_userManager, null) as IEnumerable;
+            }
+            else
+            {
+                var prop = typeof(IUserManager).GetProperty("Users");
+                raw = prop?.GetValue(_userManager) as IEnumerable;
+            }
         }
         catch (Exception)
         {
