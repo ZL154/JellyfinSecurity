@@ -43,7 +43,7 @@
          officially deprecated SmtpClient for SMTPS and recommends MailKit. -->
     <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Fido2" Version="4.0.1" />
-    <PackageReference Include="MaxMind.Db" Version="5.0.0" />
+    <PackageReference Include="MaxMind.Db" Version="5.1.0" />
     <PackageReference Include="QuestPDF" Version="2026.5.0" />
     <PackageReference Include="IdentityModel.OidcClient" Version="6.0.0" />
     <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.18.0" />
