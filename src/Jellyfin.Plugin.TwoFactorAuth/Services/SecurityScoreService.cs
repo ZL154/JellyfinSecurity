@@ -377,11 +377,21 @@ public class SecurityScoreService : IDisposable
     private IEnumerable<User> EnumerateUsers()
     {
         if (_userManager is null) yield break;
-        IEnumerable? raw;
+        // Jellyfin 10.11.10 renamed `IUserManager.Users` → `GetUsers()`.
+        // See TwoFactorAuthController.EnumerateAllUsers for context.
+        IEnumerable? raw = null;
         try
         {
-            var prop = typeof(IUserManager).GetProperty(nameof(IUserManager.Users));
-            raw = prop?.GetValue(_userManager) as IEnumerable;
+            var getUsersMethod = typeof(IUserManager).GetMethod("GetUsers", Type.EmptyTypes);
+            if (getUsersMethod is not null)
+            {
+                raw = getUsersMethod.Invoke(_userManager, null) as IEnumerable;
+            }
+            else
+            {
+                var prop = typeof(IUserManager).GetProperty("Users");
+                raw = prop?.GetValue(_userManager) as IEnumerable;
+            }
         }
         catch (Exception)
         {
