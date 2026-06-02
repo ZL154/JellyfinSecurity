@@ -154,7 +154,15 @@ public class AuthenticationEventHandler : IHostedService
         if (_challengeStore.IsDevicePreVerified(info.UserId, info.DeviceId))
         {
             _logger.LogDebug("[2FA] {Name} within device-verified window — session allowed", info.UserName);
-            if (approvedToken is not null) _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
+            if (approvedToken is not null)
+            {
+                _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
+                // Mark verified so subsequent SessionStarted events (websocket
+                // reconnects, new tabs, idle-resume) don't re-block this token
+                // if conditions shift (e.g. Cloudflare Tunnel rotates the edge
+                // IP and BypassEvaluator returns a different result). Issue #35.
+                _challengeStore.MarkTokenVerified(approvedToken);
+            }
             await _store.AddAuditEntryAsync(new AuditEntry
             {
                 Timestamp = DateTime.UtcNow,
@@ -174,7 +182,13 @@ public class AuthenticationEventHandler : IHostedService
         if (_challengeStore.ConsumeQuickConnectPending(info.UserId))
         {
             _logger.LogDebug("[2FA] {Name} QuickConnect-pending consumed — session allowed", info.UserName);
-            if (approvedToken is not null) _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
+            if (approvedToken is not null)
+            {
+                _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
+                // See issue #35: subsequent SessionStarted events must not
+                // re-block this legitimately-bypassed token.
+                _challengeStore.MarkTokenVerified(approvedToken);
+            }
             await _store.AddAuditEntryAsync(new AuditEntry
             {
                 Timestamp = DateTime.UtcNow,
@@ -199,7 +213,13 @@ public class AuthenticationEventHandler : IHostedService
         {
             _logger.LogDebug("[2FA] {Name} paired device {Device} — session allowed",
                 info.UserName, userDataPaired.DeviceName);
-            if (approvedToken is not null) _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
+            if (approvedToken is not null)
+            {
+                _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
+                // See issue #35: subsequent SessionStarted events must not
+                // re-block this legitimately-bypassed token.
+                _challengeStore.MarkTokenVerified(approvedToken);
+            }
             await _store.MutateAsync(info.UserId, ud =>
             {
                 var p = ud.PairedDevices.FirstOrDefault(x =>
@@ -242,7 +262,19 @@ public class AuthenticationEventHandler : IHostedService
         {
             _logger.LogInformation("[2FA] Bypass applied for {Name} from {Ip} (reason={Reason})",
                 info.UserName, info.RemoteEndPoint, bypass.Reason);
-            if (approvedToken is not null) _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
+            if (approvedToken is not null)
+            {
+                _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
+                // CORE FIX FOR ISSUE #35: subsequent SessionStarted events
+                // (websocket reconnects, new tabs, idle-resume) must not
+                // re-block this legitimately-bypassed token. Critical for
+                // Cloudflare Tunnel / reverse-proxy setups where the
+                // RemoteIpAddress can shift between firings — making
+                // BypassEvaluator return "not bypassed" on the second hit
+                // and falling through to BlockToken at line 337, locking
+                // the user out 5-10 minutes after login.
+                _challengeStore.MarkTokenVerified(approvedToken);
+            }
             // Same physical browser often hits the server via both LAN (bypassed)
             // and public-IP routes (challenged) within seconds — same deviceId,
             // different IPs (Cloudflare split-horizon, Wi-Fi captive, VPN). To
