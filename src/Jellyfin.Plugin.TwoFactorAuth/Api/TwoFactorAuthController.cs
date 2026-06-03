@@ -2970,8 +2970,15 @@ public class TwoFactorAuthController : ControllerBase
         }
         catch (Exception ex)
         {
+            // SECURITY [v2.5.5]: do not echo ex.Message to the client.
+            // Fido2NetLib error messages frequently include internal
+            // implementation detail (expected RP ID, expected origin, raw
+            // credential ID, attestation format names) that are useful for
+            // fingerprinting the WebAuthn configuration. Full detail still
+            // goes to the warning log for admin diagnostics — generic
+            // message to the client.
             _logger.LogWarning(ex, "[2FA] Passkey registration failed");
-            return BadRequest(new { message = "Registration failed: " + ex.Message });
+            return BadRequest(new { message = "Registration failed — check your authenticator and try again." });
         }
     }
 
@@ -3923,7 +3930,17 @@ public class TwoFactorAuthController : ControllerBase
         if (!data.TotpEnabled || string.IsNullOrEmpty(data.EncryptedTotpSecret))
             return BadRequest(new { message = "TOTP not enabled" });
 
-        if (!_totpService.ValidateCode(data.EncryptedTotpSecret, req.CurrentCode, userId.ToString("N")))
+        // SECURITY [v2.5.5]: decrypt the stored AES-GCM ciphertext before
+        // passing it to ValidateCode. Prior versions passed data.EncryptedTotpSecret
+        // (the base64 ciphertext) directly, which Base32Encoding.ToBytes() then
+        // threw on (lowercase letters not in base32 alphabet), causing
+        // ValidateCode to return false for every legitimate rotation attempt.
+        // Effect was a functional DoS on /Setup/Totp/Rotate — users could not
+        // self-rotate their authenticator without admin intervention. The
+        // canonical decrypt-then-validate pattern is used in every other
+        // ValidateCode call site in this file (e.g. /Authenticate, /Verify).
+        var rotateSecret = _totpService.DecryptSecret(data.EncryptedTotpSecret, userId);
+        if (!_totpService.ValidateCode(rotateSecret, req.CurrentCode, userId.ToString("N")))
         {
             await _store.RecordFailedAttemptAsync(userId).ConfigureAwait(false);
             return Unauthorized(new { message = "Current TOTP code is invalid" });

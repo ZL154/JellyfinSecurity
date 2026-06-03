@@ -73,7 +73,8 @@ public class RecoveryCodeServiceTests
         Assert.StartsWith("v2$", hash);
         var parts = hash.Split('$');
         Assert.Equal(4, parts.Length);
-        Assert.Equal("100000", parts[1]); // PbkdfIterations
+        // v2.5.5: PbkdfIterations raised 100_000 -> 600_000 (OWASP 2023+ floor)
+        Assert.Equal("600000", parts[1]); // PbkdfIterations
     }
 
     [Fact]

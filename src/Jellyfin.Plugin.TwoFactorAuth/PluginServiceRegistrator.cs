@@ -40,6 +40,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<UserExportService>();
         serviceCollection.AddSingleton<RecoveryCodePdfService>();
         serviceCollection.AddHostedService<SelfIpDetector>();
+        // v2.5.5: scans all users at startup, warns about any with empty
+        // password hash. Read-only audit; the auth-time block in
+        // TwoFactorAuthProvider does the actual exploit mitigation.
+        serviceCollection.AddHostedService<EmptyPasswordAuditService>();
         // v2.0
         serviceCollection.AddSingleton<OidcService>();
         serviceCollection.AddSingleton<IpBanService>();

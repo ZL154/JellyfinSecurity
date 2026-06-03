@@ -319,8 +319,24 @@ public class SecurityController : ControllerBase
             providerId, code?.Length ?? 0, state?.Length ?? 0, error ?? "(none)");
         if (!string.IsNullOrEmpty(error))
         {
+            // SECURITY [v2.5.5]: do NOT echo the raw IdP-supplied `error`
+            // string into the redirect URL. The full value is logged server-
+            // side at Warning for diagnostics, but the user-facing redirect
+            // only carries a sanitized message mapped from the standard
+            // OIDC/OAuth2 error code set (RFC 6749 §4.1.2.1 + OIDC core
+            // §3.1.2.6). Unknown codes coerce to a generic message so a
+            // crafty IdP (or a replayed callback URL) can't inject arbitrary
+            // text into the login screen via the oidcError query parameter.
             _logger.LogWarning("[2FA] OIDC provider returned error: {Err}", error);
-            return Redirect(LoginErrorUrl("Provider returned: " + error));
+            var safeMsg = error.ToLowerInvariant() switch
+            {
+                "access_denied" => "Sign-in was cancelled.",
+                "login_required" or "interaction_required" or "consent_required" => "Sign-in requires interaction at the identity provider.",
+                "invalid_request" or "invalid_scope" or "unsupported_response_type" or "unauthorized_client" => "Sign-in request was rejected by the identity provider. Contact your administrator.",
+                "server_error" or "temporarily_unavailable" => "Identity provider is temporarily unavailable. Try again shortly.",
+                _ => "Sign-in failed at the identity provider.",
+            };
+            return Redirect(LoginErrorUrl(safeMsg));
         }
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
         {

@@ -234,17 +234,24 @@ public class TwoFactorEnforcementMiddleware
             // reports what the gate ACTUALLY checked — previously the log
             // used strict Ordinal which made "Has AccessToken: False"
             // ambiguous (could have been a casing mismatch).
+            // SECURITY [v2.5.5]: dropped the `First 100 chars: '{Preview}'`
+            // field from this log. Jellyfin's AuthenticationResult serializes
+            // AccessToken near the top of the JSON, so the first 100 chars
+            // routinely captured the JWT prefix — and this log fires at INFO
+            // level on every auth-path response that doesn't match our shape
+            // check, meaning live JWT prefixes were leaking into any log
+            // aggregator (Loki/Seq/Grafana/etc.) the admin had attached.
+            // The remaining fields (length, has-* booleans, first-8-byte hex,
+            // encoding/content-type) still give enough signal to diagnose
+            // issue #35-class shape-mismatch problems without leaking
+            // credential material.
             var firstBytes = bodyBytes.Length >= 8 ? bodyBytes[..8] : bodyBytes;
             var firstBytesHex = Convert.ToHexString(firstBytes);
-            var previewLen = Math.Min(bodyText.Length, 100);
-            var preview = bodyText[..previewLen]
-                .Replace('\n', ' ')
-                .Replace('\r', ' ');
             var contentEncoding = context.Response.Headers["Content-Encoding"].ToString();
             _logger.LogInformation(
                 "[2FA] Auth path {Path} matched but response body didn't look like a Jellyfin auth response — pass-through. " +
                 "Body length: {Len}. Has \"AccessToken\" (case-insensitive): {HasAT}. Has \"User\": {HasU}. Has \"SessionInfo\": {HasSI}. " +
-                "Content-Encoding: '{Enc}'. Content-Type: '{CT}'. First 8 bytes (hex): {Hex}. First 100 chars: '{Preview}'. " +
+                "Content-Encoding: '{Enc}'. Content-Type: '{CT}'. First 8 bytes (hex): {Hex}. " +
                 "If a 2FA-enabled user is stuck on login, see issue #35.",
                 path,
                 bodyText.Length,
@@ -253,8 +260,7 @@ public class TwoFactorEnforcementMiddleware
                 bodyText.Contains("\"SessionInfo\"", StringComparison.OrdinalIgnoreCase),
                 string.IsNullOrEmpty(contentEncoding) ? "(none)" : contentEncoding,
                 context.Response.ContentType ?? "(none)",
-                firstBytesHex,
-                preview);
+                firstBytesHex);
             await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
             return;
         }

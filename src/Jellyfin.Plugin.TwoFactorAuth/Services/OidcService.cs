@@ -406,7 +406,18 @@ public class OidcService : IDisposable
             try
             {
                 var u = await _userManager.CreateUserAsync(claims.Username).ConfigureAwait(false);
-                _logger.LogInformation("[2FA] Auto-created Jellyfin user '{Username}' from OIDC provider {Provider}",
+
+                // SECURITY [v2.5.5]: CreateUserAsync leaves the password hash
+                // null, which makes Jellyfin's DefaultAuthenticationProvider
+                // treat any submitted password (including empty) as valid for
+                // this user. Anyone who learns the UPN can then sign in via
+                // /Users/AuthenticateByName without ever going near the IdP.
+                // Set a high-entropy random password immediately so the only
+                // viable sign-in path for an OIDC-provisioned user is the
+                // OIDC flow itself.
+                await HardenNewUserPasswordAsync(u).ConfigureAwait(false);
+
+                _logger.LogInformation("[2FA] Auto-created Jellyfin user '{Username}' from OIDC provider {Provider} (password hardened)",
                     claims.Username, provider.Id);
                 return u;
             }
@@ -417,6 +428,43 @@ public class OidcService : IDisposable
         }
 
         return null;
+    }
+
+    /// <summary>Set a 256-bit random password on a freshly-created OIDC user
+    /// so the account is never in the "no stored hash" state that Jellyfin's
+    /// default auth provider treats as "empty password matches". The password
+    /// itself is never persisted by us and never returned to the IdP or the
+    /// user — only Jellyfin's PBKDF2 hash of it ends up in the user store. The
+    /// user signs in via OIDC going forward; if local password sign-in is
+    /// ever needed for this account, an admin must explicitly reset.</summary>
+    private async Task HardenNewUserPasswordAsync(Jellyfin.Database.Implementations.Entities.User u)
+    {
+        var entropy = new byte[32];
+        RandomNumberGenerator.Fill(entropy);
+        var pw = Convert.ToBase64String(entropy);
+
+        try
+        {
+            await _userManager.ChangePassword(u.Id, pw).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // If hardening fails, we must NOT leave a vulnerable user behind.
+            // Best effort: delete the just-created user so the OIDC flow
+            // surfaces a clean error and the next attempt re-runs cleanly.
+            _logger.LogError(ex, "[2FA] CRITICAL: failed to harden newly-created OIDC user {UserId} ({Username}) — deleting the account to avoid an empty-password backdoor. Admin should investigate.",
+                u.Id, u.Username);
+            try
+            {
+                await _userManager.DeleteUserAsync(u.Id).ConfigureAwait(false);
+            }
+            catch (Exception delEx)
+            {
+                _logger.LogCritical(delEx, "[2FA] CRITICAL: also failed to delete unhardened user {UserId} — MANUAL ADMIN ACTION REQUIRED: delete user '{Username}' or set a password on it immediately.",
+                    u.Id, u.Username);
+            }
+            throw;
+        }
     }
 
     private record ClaimsBundle(
@@ -446,6 +494,52 @@ public class OidcService : IDisposable
         catch { /* malformed — ValidateToken below will reject */ }
 
         var jwks = await GetJwksAsync(provider, disc, requiredKid).ConfigureAwait(false);
+
+        // SECURITY [v2.5.5]: explicit asymmetric-algorithm allowlist closes
+        // the RS256→HS256 algorithm-confusion attack class. Without an
+        // explicit list, Microsoft.IdentityModel.Tokens accepts any algorithm
+        // the token header declares as long as a matching key resolves —
+        // including HMAC variants where an attacker submits a token signed
+        // with the IdP's RSA *public* key as the HMAC secret. With this list,
+        // a token whose header says `alg: HS256` or `alg: none` is rejected
+        // before any signing-key lookup happens.
+        //
+        // Allowlist covers every algorithm an OpenID-conformant IdP would
+        // realistically issue (RFC 7518 §3 asymmetric set, no HS*, no none).
+        // Reject pre-validation when the unverified header asserts an
+        // algorithm outside the allowlist, so we don't even feed unsigned
+        // / HMAC tokens to ValidateToken in the first place.
+        var allowedAlgs = new[]
+        {
+            SecurityAlgorithms.RsaSha256, SecurityAlgorithms.RsaSha384, SecurityAlgorithms.RsaSha512,
+            SecurityAlgorithms.EcdsaSha256, SecurityAlgorithms.EcdsaSha384, SecurityAlgorithms.EcdsaSha512,
+            SecurityAlgorithms.RsaSsaPssSha256, SecurityAlgorithms.RsaSsaPssSha384, SecurityAlgorithms.RsaSsaPssSha512,
+        };
+        try
+        {
+            var peekHandler = new JwtSecurityTokenHandler();
+            if (peekHandler.CanReadToken(idToken))
+            {
+                var unverified = peekHandler.ReadJwtToken(idToken);
+                var declaredAlg = unverified.Header.Alg ?? string.Empty;
+                if (!allowedAlgs.Contains(declaredAlg, StringComparer.Ordinal))
+                {
+                    _logger.LogWarning("[2FA] OIDC token rejected: disallowed alg '{Alg}' from provider {Provider}",
+                        declaredAlg, provider.Id);
+                    throw new SecurityTokenInvalidAlgorithmException(
+                        $"Algorithm '{declaredAlg}' is not permitted. Only RS*, ES*, PS* are accepted.");
+                }
+            }
+        }
+        catch (SecurityTokenException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // malformed token — let ValidateToken below produce the canonical error
+        }
+
         var handler = new JwtSecurityTokenHandler();
         var validationParams = new TokenValidationParameters
         {
@@ -457,6 +551,7 @@ public class OidcService : IDisposable
             ValidateIssuerSigningKey = true,
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromMinutes(2),
+            ValidAlgorithms = allowedAlgs,
         };
         handler.ValidateToken(idToken, validationParams, out var validated);
         var jwt = (JwtSecurityToken)validated;

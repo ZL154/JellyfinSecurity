@@ -94,6 +94,60 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         }
 
         // ------------------------------------------------------------------
+        // SECURITY [v2.5.5] — Empty-password rejection (CVE pending).
+        //
+        // Jellyfin's DefaultAuthenticationProvider treats users with a null /
+        // empty stored password hash as "any submitted password matches",
+        // including the empty string. That behaviour exists for the in-product
+        // "first sign-in sets your password" flow, but it interacts badly with
+        // OIDC auto-provisioning (and any other path that creates users
+        // without immediately setting a password): a passive attacker who
+        // learns a UPN can POST that UPN with an empty Pw to
+        // /Users/AuthenticateByName and is logged in as that user.
+        //
+        // We close the door at the auth boundary regardless of how the
+        // upstream user got into that state. New OIDC users are also hardened
+        // at creation time (see OidcService.HardenNewUserPasswordAsync) —
+        // this is the defence-in-depth layer for any user provisioned before
+        // that fix or by a different code path.
+        //
+        // Bridge tokens are non-empty (LooksLikeBridgeToken requires a prefix
+        // + length) so this never blocks the OIDC bridge fast-path below.
+        // ------------------------------------------------------------------
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            _logger.LogWarning("[2FA] AUTH REJECTED: empty password for user '{User}' from {Ip}",
+                username, authIp ?? "(unknown)");
+            _ipBans.RecordFailure(authIp ?? string.Empty);
+
+            // Forensic audit entry — record the attempted UPN so admins can
+            // see empty-password probing in the audit log. Best-effort lookup
+            // of the user record so we get a UserId when possible.
+            try
+            {
+                var probedUser = UserManager.GetUserByName(username);
+                await _store.AddAuditEntryAsync(new AuditEntry
+                {
+                    Timestamp = DateTime.UtcNow,
+                    UserId = probedUser?.Id ?? Guid.Empty,
+                    Username = probedUser?.Username ?? username ?? string.Empty,
+                    RemoteIp = authIp ?? string.Empty,
+                    DeviceId = GetDeviceHeader("X-Emby-Device-Id", "DeviceId") ?? string.Empty,
+                    DeviceName = GetDeviceHeader("X-Emby-Device-Name", "Device") ?? string.Empty,
+                    Result = AuditResult.Failed,
+                    Method = "empty_password",
+                }).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[2FA] Empty-password audit entry write failed (non-fatal)");
+            }
+
+            // Generic message — never reveal whether the username exists.
+            throw new AuthenticationException("Invalid username or password.");
+        }
+
+        // ------------------------------------------------------------------
         // -1. OIDC BRIDGE TOKEN FAST PATH — when the password starts with the
         //     bridge prefix, this is a Jellyfin login form auto-submitted on
         //     behalf of an OIDC callback. The token was minted server-side

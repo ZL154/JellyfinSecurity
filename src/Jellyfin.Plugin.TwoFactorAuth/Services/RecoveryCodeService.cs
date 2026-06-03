@@ -18,7 +18,13 @@ public class RecoveryCodeService
 {
     private const int CodeCount = 10;
     private const int CodeLength = 10;
-    private const int PbkdfIterations = 100_000;
+    // SECURITY [v2.5.5]: raised from 100_000 -> 600_000 to match OWASP 2023+
+    // floor for PBKDF2-SHA256. The stored hash format embeds the iter count
+    // (v2$ITER$salt$hash) and Verify reads it back, so existing 100k records
+    // continue to verify unchanged — only newly-generated codes use the new
+    // floor. Cost: ~30ms per verify on a modern CPU (was ~5ms). Acceptable
+    // for recovery-code paths which are rare and rate-limited.
+    private const int PbkdfIterations = 600_000;
     private const int SaltBytes = 16;
     private const int HashBytes = 32;
 
