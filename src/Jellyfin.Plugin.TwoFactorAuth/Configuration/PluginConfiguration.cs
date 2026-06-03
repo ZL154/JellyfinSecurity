@@ -36,6 +36,28 @@ public class PluginConfiguration : BasePluginConfiguration
 {
     public bool Enabled { get; set; } = true;
 
+    /// <summary>v2.5.5 security: when true, /Users/AuthenticateByName attempts
+    /// carrying an empty / whitespace-only password are hard-rejected by
+    /// <see cref="Services.TwoFactorAuthProvider.Authenticate"/> before
+    /// reaching Jellyfin's default provider. Closes the
+    /// any-password-matches-empty-stored-hash exploit (Snerillinn / reddit
+    /// report, June 2026) at the auth boundary for ALL users regardless of
+    /// how their hash got into that state.
+    ///
+    /// Defaults to FALSE so v2.5.4-era installs that rely on the Jellyfin
+    /// kiosk-mode "tap a user tile to sign in with no password" flow keep
+    /// working on upgrade. Admins running shared / public / cloud Jellyfins
+    /// should set this TRUE in the plugin config — the startup audit log
+    /// surfaces every affected user so the impact is visible before flipping.
+    ///
+    /// Independent of this flag, NEW OIDC-provisioned users still get a
+    /// random 256-bit password set by <see cref="Services.OidcService"/>
+    /// at creation time, and the auth-time audit entries for empty-password
+    /// attempts are still written. Disabling this only restores Jellyfin's
+    /// default "no stored hash matches everything" behaviour for existing
+    /// users — the OIDC create-side hardening always runs.</summary>
+    public bool BlockEmptyPasswordLogin { get; set; } = false;
+
     /// <summary>Legacy v2.3-style global flag. Kept for backwards compat: if
     /// true, behaves identically to EnforcementScope=All. Set the v2.4
     /// EnforcementScope to opt into the per-role policy.</summary>

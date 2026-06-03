@@ -99,22 +99,28 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // Jellyfin's DefaultAuthenticationProvider treats users with a null /
         // empty stored password hash as "any submitted password matches",
         // including the empty string. That behaviour exists for the in-product
-        // "first sign-in sets your password" flow, but it interacts badly with
-        // OIDC auto-provisioning (and any other path that creates users
-        // without immediately setting a password): a passive attacker who
-        // learns a UPN can POST that UPN with an empty Pw to
-        // /Users/AuthenticateByName and is logged in as that user.
+        // "first sign-in sets your password" flow AND for the kiosk-style
+        // "tap a user tile to sign in" landing page used on family / shared
+        // Jellyfin installs. It also interacts badly with OIDC auto-
+        // provisioning: a passive attacker who learns a UPN can POST that
+        // UPN with an empty Pw to /Users/AuthenticateByName and is logged
+        // in as that user.
         //
-        // We close the door at the auth boundary regardless of how the
-        // upstream user got into that state. New OIDC users are also hardened
-        // at creation time (see OidcService.HardenNewUserPasswordAsync) —
-        // this is the defence-in-depth layer for any user provisioned before
-        // that fix or by a different code path.
+        // GATED ON Configuration.BlockEmptyPasswordLogin so admins running
+        // legitimate kiosk-mode installs (where empty-password tile-click
+        // login is the intended UX for family members / guests) are not
+        // surprise-broken on upgrade. Default is FALSE for v2.5.4 → v2.5.5
+        // upgrade compatibility; the startup EmptyPasswordAuditService
+        // log on every restart makes the impact visible so admins can
+        // flip the flag to TRUE once they've decided how to handle their
+        // passwordless users. New OIDC users are ALWAYS hardened at
+        // creation time (see OidcService.HardenNewUserPasswordAsync) —
+        // this gate is the layer that protects pre-existing accounts.
         //
         // Bridge tokens are non-empty (LooksLikeBridgeToken requires a prefix
         // + length) so this never blocks the OIDC bridge fast-path below.
         // ------------------------------------------------------------------
-        if (string.IsNullOrWhiteSpace(password))
+        if (config?.BlockEmptyPasswordLogin == true && string.IsNullOrWhiteSpace(password))
         {
             _logger.LogWarning("[2FA] AUTH REJECTED: empty password for user '{User}' from {Ip}",
                 username, authIp ?? "(unknown)");

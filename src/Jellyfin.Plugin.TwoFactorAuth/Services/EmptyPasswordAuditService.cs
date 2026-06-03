@@ -62,9 +62,14 @@ public class EmptyPasswordAuditService : IHostedService
                 return Task.CompletedTask;
             }
 
+            var blockOn = Plugin.Instance?.Configuration?.BlockEmptyPasswordLogin == true;
             _logger.LogWarning(
-                "[2FA] [SECURITY] Startup audit found {Count} user(s) with no password hash. These accounts are vulnerable to the v2.5.4-and-earlier empty-password sign-in flaw if a legacy auth provider bypasses the new empty-password rejection. The v2.5.5 auth gate already blocks /Users/AuthenticateByName for these users, but you should either (a) set a password on each from the admin UI, or (b) ensure they sign in via OIDC (which now hardens the account automatically).",
-                vulnerable.Count);
+                "[2FA] [SECURITY] Startup audit found {Count} user(s) with no password hash. These accounts are vulnerable to the empty-password sign-in flaw (anyone who knows the UPN can sign in as them via /Users/AuthenticateByName with an empty Pw). " +
+                "Empty-password auth gate is currently {GateState} (config: BlockEmptyPasswordLogin = {Flag}). " +
+                "Recommended actions: (a) set a password on each from the admin UI, (b) ensure they sign in via OIDC (which now hardens new accounts automatically), or (c) if these are intentional kiosk / family / guest accounts where passwordless tile-click login is the desired UX, leave BlockEmptyPasswordLogin=false and accept the tradeoff. To enable the gate, set BlockEmptyPasswordLogin=true in the Jellyfin Security plugin config.",
+                vulnerable.Count,
+                blockOn ? "ENABLED (these users CANNOT sign in via password)" : "DISABLED (these users CAN still sign in with empty password — exploitable)",
+                blockOn);
 
             foreach (var u in vulnerable)
             {
