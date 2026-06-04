@@ -190,6 +190,86 @@ public class TwoFactorAuthController : ControllerBase
         return null;
     }
 
+    /// <summary>SECURITY [v2.5.6] (ext review self-service-takeover, round-5
+    /// fix D): user-self step-up gate. Prevents a stolen logged-in session
+    /// from silently taking over the account by adding/replacing the
+    /// attacker's own 2FA factor. Honors the tri-state
+    /// <see cref="Configuration.SelfServiceStepUpMode"/>:
+    ///   * Off → allow (legacy, accepted risk).
+    ///   * UserChoice → enforce only if the user has opted in via
+    ///     <see cref="Models.UserTwoFactorData.RequireStepUpForChanges"/>.
+    ///   * Forced → always enforce when user has existing 2FA.
+    /// Users with no existing 2FA are exempt under every mode — first-time
+    /// enrollment has no prior factor to step up from.
+    /// Returns null when allowed, or a 403 ActionResult to short-circuit.</summary>
+    private async Task<ActionResult?> EnforceSelfServiceStepUpAsync(Guid userId, string? code, string? stepUpToken = null)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null) return null;
+
+        var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var hasExisting2fa = (userData.TotpEnabled && userData.TotpVerified)
+                             || userData.Passkeys.Count > 0;
+        if (!hasExisting2fa) return null;
+
+        var modeRequiresStepUp = config.SelfServiceStepUpMode switch
+        {
+            Configuration.SelfServiceStepUpMode.Off => false,
+            Configuration.SelfServiceStepUpMode.UserChoice => userData.RequireStepUpForChanges,
+            Configuration.SelfServiceStepUpMode.Forced => true,
+            _ => true,
+        };
+        if (!modeRequiresStepUp) return null;
+
+        // [v2.5.6] (round-5c): single-use step-up token path. The UI calls
+        // /StepUp/UserCodeVerify or /StepUp/UserPasskeyVerify to exchange a
+        // fresh factor proof for a 60-second token, then submits the token
+        // here. Lets the prompt offer "TOTP / recovery code / passkey" as
+        // alternative verification methods.
+        if (_challengeStore.ConsumeUserStepUpToken(stepUpToken, userId)) return null;
+
+        // [v2.5.6] (round-5d): also accept an email step-up code submitted
+        // directly in `code` after the UI clicked "Send code by email".
+        // EmailOtpService.ValidateStepUpCode does the single-use consume so
+        // an attacker can't replay the same email OTP.
+        var ok = !string.IsNullOrWhiteSpace(code)
+                 && (_stepUp.VerifyUserCode(userData, code!) || _emailOtpService.ValidateStepUpCode(userId, code!));
+        if (!ok)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "A current authenticator or recovery code is required to modify two-factor settings.",
+                stepUpRequired = true,
+                twoFactorRequired = true,
+            });
+        }
+
+        // VerifyUserCode may have marked a recovery code as Used on the
+        // local clone (and bumped LastUsedTotpStep). Persist atomically so
+        // a second concurrent step-up can't replay the same code.
+        await _store.MutateAsync(userId, ud =>
+        {
+            foreach (var cloneCode in userData.RecoveryCodes)
+            {
+                if (!cloneCode.Used) continue;
+                if (string.IsNullOrEmpty(cloneCode.Hash)) continue;
+                var match = ud.RecoveryCodes.FirstOrDefault(c =>
+                    string.Equals(c.Hash, cloneCode.Hash, StringComparison.Ordinal) && !c.Used);
+                if (match is not null)
+                {
+                    match.Used = true;
+                    match.UsedAt = cloneCode.UsedAt ?? DateTime.UtcNow;
+                }
+            }
+            if (userData.LastUsedTotpStep > ud.LastUsedTotpStep)
+            {
+                ud.LastUsedTotpStep = userData.LastUsedTotpStep;
+            }
+        }).ConfigureAwait(false);
+
+        return null;
+    }
+
     // -------------------------------------------------------------------------
     // GET /TwoFactorAuth/Challenge — serves the standalone challenge HTML page
     // -------------------------------------------------------------------------
@@ -744,7 +824,14 @@ public class TwoFactorAuthController : ControllerBase
 
             if (requiresPostPasswordChallenge)
             {
-                var enrollmentRequired = userData.Passkeys.Count == 0;
+                // [v2.5.6] (round-5 fix B): treat a configured email + email
+                // OTP globally enabled as a valid sole 2FA factor. Lets users
+                // who never want TOTP and don't have a passkey complete
+                // sign-in via email OTP instead of being forced into TOTP
+                // enrollment.
+                var hasEmailFactor = config?.EmailOtpEnabled == true
+                    && !string.IsNullOrEmpty(config?.GetUserEmail(user.Id.ToString("N")));
+                var enrollmentRequired = userData.Passkeys.Count == 0 && !hasEmailFactor;
                 var methods = new List<string>();
                 if (enrollmentRequired)
                 {
@@ -1063,6 +1150,22 @@ public class TwoFactorAuthController : ControllerBase
         bool valid;
         int consumedRecoveryIdx = -1;
 
+        // SECURITY [v2.5.6] (ext review #2): enforce challenge.AvailableMethods.
+        // The challenge issuer encodes which methods are valid for THIS
+        // challenge (e.g. TOTP-only when the user has only TOTP, or
+        // recovery+email when the user is locked-to-recovery). Prior code
+        // dispatched on request.Method without checking the allow-list,
+        // letting a user submit method="recovery" against a challenge that
+        // only offered "totp". This weakens recovery-only / enrollment-
+        // required states.
+        if (challenge.AvailableMethods is { Count: > 0 }
+            && !challenge.AvailableMethods.Any(m =>
+                string.Equals(m, request.Method, StringComparison.OrdinalIgnoreCase)))
+        {
+            _ipBans.RecordFailure(clientIp);
+            return Unauthorized(new { message = "Verification method is not available for this challenge." });
+        }
+
         // v1.4: ForceRecoveryOnNextLogin (set by emergency lockout) limits the
         // user to recovery / email until they consume one of those — block any
         // other method for this challenge.
@@ -1379,9 +1482,17 @@ public class TwoFactorAuthController : ControllerBase
     [HttpPost("Setup/Totp")]
     [Authorize]
     [ProducesResponseType(typeof(TotpSetupResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<TotpSetupResponse>> SetupTotp()
+    public async Task<ActionResult<TotpSetupResponse>> SetupTotp([FromBody] StepUpCodeRequest? request = null)
     {
         var userId = GetCurrentUserId();
+
+        // SECURITY [v2.5.6] (ext review self-service-takeover): a stolen
+        // session must not be able to silently swap the user's TOTP secret
+        // for the attacker's by calling this endpoint. If the user already
+        // has 2FA enrolled, require a fresh current-factor proof.
+        var stepUp = await EnforceSelfServiceStepUpAsync(userId, request?.Code, request?.StepUpToken).ConfigureAwait(false);
+        if (stepUp is not null) return stepUp;
+
         var jellyfinUser = _userManager.GetUserById(userId);
         var username = jellyfinUser?.Username ?? userId.ToString();
 
@@ -1485,9 +1596,14 @@ public class TwoFactorAuthController : ControllerBase
         if (config is { RequireTwoFactorToDisable: true })
         {
             var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
-            var ok = !string.IsNullOrWhiteSpace(request?.Code)
-                     && _stepUp.VerifyUserCode(userData, request!.Code!);
-            if (!ok)
+            // [v2.5.6] (round-5c): accept either a fresh code or a step-up
+            // token (issued by /StepUp/UserCodeVerify or
+            // /StepUp/UserPasskeyVerify). The token path lets the UI offer
+            // "use a passkey" as an alternative to typing a code.
+            var tokenOk = _challengeStore.ConsumeUserStepUpToken(request?.StepUpToken, userId);
+            var codeOk = !string.IsNullOrWhiteSpace(request?.Code)
+                         && _stepUp.VerifyUserCode(userData, request!.Code!);
+            if (!tokenOk && !codeOk)
             {
                 return StatusCode(StatusCodes.Status403Forbidden, new
                 {
@@ -1611,9 +1727,17 @@ public class TwoFactorAuthController : ControllerBase
 
     [HttpPost("RecoveryCodes/Generate")]
     [Authorize]
-    public async Task<IActionResult> GenerateRecoveryCodes()
+    public async Task<IActionResult> GenerateRecoveryCodes([FromBody] StepUpCodeRequest? request = null)
     {
         var userId = GetCurrentUserId();
+
+        // SECURITY [v2.5.6] (ext review self-service-takeover): regenerating
+        // recovery codes hands a fresh recovery factor to whoever calls
+        // this endpoint. A stolen session must prove ownership of the
+        // current factor first.
+        var stepUp = await EnforceSelfServiceStepUpAsync(userId, request?.Code, request?.StepUpToken).ConfigureAwait(false);
+        if (stepUp is not null) return stepUp;
+
         var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
 
         if (!userData.TotpEnabled || !userData.TotpVerified)
@@ -2138,6 +2262,7 @@ public class TwoFactorAuthController : ControllerBase
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
         var jellyfinUser = _userManager.GetUserById(userId);
         var isLockedOut = await _store.IsLockedOutAsync(userId).ConfigureAwait(false);
+        var cfg = Plugin.Instance?.Configuration;
         return Ok(new UserTwoFactorStatus
         {
             UserId = userId,
@@ -2148,6 +2273,11 @@ public class TwoFactorAuthController : ControllerBase
             RecoveryCodesRemaining = data.RecoveryCodes.Count(c => !c.Used),
             IsLockedOut = isLockedOut,
             PasskeyCount = data.Passkeys.Count,
+            // [v2.5.6] (round-5 fix D): surface the admin's mode + per-user
+            // opt-in so the Setup page can render the toggle and decide
+            // whether to prompt for the current code on each mutation.
+            SelfServiceStepUpMode = (cfg?.SelfServiceStepUpMode ?? Configuration.SelfServiceStepUpMode.Forced).ToString(),
+            RequireStepUpForChanges = data.RequireStepUpForChanges,
         });
     }
 
@@ -2243,6 +2373,37 @@ public class TwoFactorAuthController : ControllerBase
         var userId = GetCurrentUserId();
         var email = Plugin.Instance?.Configuration.GetUserEmail(userId.ToString("N")) ?? string.Empty;
         return Ok(new { email });
+    }
+
+    /// <summary>[v2.5.6] (round-5 fix D): per-user toggle for the
+    /// hardened-security step-up gate. Only meaningful when the admin's
+    /// SelfServiceStepUpMode is UserChoice — Forced overrides this on
+    /// the server side; Off ignores it. Honors the same step-up gate as
+    /// every other mutating endpoint so an attacker with a stolen session
+    /// can't silently flip it off.</summary>
+    public class StepUpPrefRequest
+    {
+        public bool Enabled { get; set; }
+        public string? Code { get; set; }
+        // [v2.5.6] (round-5c): step-up token alternative — see StepUpCodeRequest.
+        public string? StepUpToken { get; set; }
+    }
+
+    [HttpPost("MyStepUpPreference")]
+    [Authorize]
+    public async Task<IActionResult> SetMyStepUpPreference([FromBody, Required] StepUpPrefRequest req)
+    {
+        var userId = GetCurrentUserId();
+
+        // [v2.5.6] (round-5 fix D): changing this preference is itself a
+        // factor-mutating operation — a stolen session could otherwise flip
+        // it off and then mutate factors without any step-up. Gate via the
+        // same EnforceSelfServiceStepUpAsync helper.
+        var stepUp = await EnforceSelfServiceStepUpAsync(userId, req.Code, req.StepUpToken).ConfigureAwait(false);
+        if (stepUp is not null) return stepUp;
+
+        await _store.MutateAsync(userId, ud => { ud.RequireStepUpForChanges = req.Enabled; }).ConfigureAwait(false);
+        return Ok(new { requireStepUpForChanges = req.Enabled });
     }
 
     // -------------------------------------------------------------------------
@@ -2653,7 +2814,20 @@ public class TwoFactorAuthController : ControllerBase
     // App Passwords  (v1.3.0 — for native clients that submit a password)
     // =========================================================================
 
-    public class CreateAppPasswordBody { public string Label { get; set; } = string.Empty; }
+    public class CreateAppPasswordBody
+    {
+        public string Label { get; set; } = string.Empty;
+
+        // SECURITY [v2.5.6] (ext review self-service-takeover): step-up
+        // code accompanying a factor-mutation. Required when the user
+        // already has 2FA enrolled and the admin's SelfServiceStepUpMode
+        // requires it (Forced — or UserChoice + per-user opt-in). Validated
+        // by EnforceSelfServiceStepUpAsync.
+        public string? Code { get; set; }
+
+        // [v2.5.6] (round-5c): step-up token alternative — see StepUpCodeRequest.
+        public string? StepUpToken { get; set; }
+    }
 
     [HttpGet("AppPasswords")]
     [Authorize]
@@ -2677,6 +2851,14 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<IActionResult> CreateAppPassword([FromBody, Required] CreateAppPasswordBody req)
     {
         var userId = GetCurrentUserId();
+
+        // SECURITY [v2.5.6] (ext review self-service-takeover): an app
+        // password is a permanent password-replacement credential. A
+        // stolen session creating one establishes long-term persistence
+        // independent of the original password. Require step-up.
+        var stepUp = await EnforceSelfServiceStepUpAsync(userId, req.Code, req.StepUpToken).ConfigureAwait(false);
+        if (stepUp is not null) return stepUp;
+
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
         if (!data.TotpEnabled || !data.TotpVerified)
         {
@@ -3082,7 +3264,12 @@ public class TwoFactorAuthController : ControllerBase
         // through into the audit log.
         if (!IsValidDeviceId(req.DeviceId)) return BadRequest(new { message = "Invalid device id" });
         var pending = _pendingPairings.Get(userId, req.DeviceId);
-        _pendingPairings.Remove(userId, req.DeviceId);
+        // [v2.5.6] (round-5 fix A): use the new Deny() which also adds the
+        // device to a sticky denylist so the next auth retry from that device
+        // doesn't immediately re-create the pending entry (which made the
+        // Deny button appear broken in v2.5.5 — the entry would reappear
+        // within seconds).
+        _pendingPairings.Deny(userId, req.DeviceId);
 
         await _store.AddAuditEntryAsync(new AuditEntry
         {
@@ -3212,7 +3399,7 @@ public class TwoFactorAuthController : ControllerBase
     /// + a nonce that must be echoed on RegisterFinish.</summary>
     [HttpPost("Passkeys/RegisterBegin")]
     [Authorize]
-    public async Task<IActionResult> PasskeyRegisterBegin()
+    public async Task<IActionResult> PasskeyRegisterBegin([FromBody] StepUpCodeRequest? request = null)
     {
         var userId = GetCurrentUserId();
         var user = _userManager.GetUserById(userId);
@@ -3228,6 +3415,15 @@ public class TwoFactorAuthController : ControllerBase
             return StatusCode(StatusCodes.Status403Forbidden,
                 new { message = "Account is locked out — cannot modify passkeys until lockout expires." });
         }
+
+        // SECURITY [v2.5.6] (ext review self-service-takeover): adding a
+        // passkey grants an alternative permanent 2nd-factor. A stolen
+        // session registering a passkey establishes attacker-controlled
+        // ongoing access. Require step-up via current TOTP/recovery code.
+        // The RegisterFinish endpoint is paired with this one via the
+        // nonce returned here, so gating Begin gates the whole flow.
+        var stepUp = await EnforceSelfServiceStepUpAsync(userId, request?.Code, request?.StepUpToken).ConfigureAwait(false);
+        if (stepUp is not null) return stepUp;
 
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
 
@@ -3318,9 +3514,18 @@ public class TwoFactorAuthController : ControllerBase
 
     [HttpDelete("Passkeys/{id}")]
     [Authorize]
-    public async Task<IActionResult> DeletePasskey([FromRoute] string id)
+    public async Task<IActionResult> DeletePasskey([FromRoute] string id, [FromQuery] string? code = null, [FromQuery] string? stepUpToken = null)
     {
         var userId = GetCurrentUserId();
+
+        // SECURITY [v2.5.6] (ext review self-service-takeover): deleting a
+        // passkey weakens the user's 2FA posture (could be their only
+        // factor). A stolen session must prove ownership before tearing
+        // down factors. Code or step-up token arrives on query string
+        // since this is a DELETE with no body in the existing UI.
+        var stepUp = await EnforceSelfServiceStepUpAsync(userId, code, stepUpToken).ConfigureAwait(false);
+        if (stepUp is not null) return stepUp;
+
         var removed = false;
         await _store.MutateAsync(userId, ud =>
         {
@@ -3388,6 +3593,19 @@ public class TwoFactorAuthController : ControllerBase
             {
                 message = "Sign-in is not allowed from this network.",
             });
+        }
+
+        // SECURITY [v2.5.6] (ext review #2): enforce challenge.AvailableMethods.
+        // "passkey" must be in the allow-list for THIS challenge. Without
+        // this guard a user could call /Verify/Passkey/Begin against a
+        // challenge that the issuer scoped to TOTP-only (e.g. when in
+        // recovery mode).
+        if (challenge.AvailableMethods is { Count: > 0 }
+            && !challenge.AvailableMethods.Any(m =>
+                string.Equals(m, "passkey", StringComparison.OrdinalIgnoreCase)))
+        {
+            _ipBans.RecordFailure(clientIp);
+            return BadRequest(new { message = "Passkey verification is not available for this challenge." });
         }
 
         var data = await _store.GetUserDataAsync(challenge.UserId).ConfigureAwait(false);
@@ -3497,6 +3715,111 @@ public class TwoFactorAuthController : ControllerBase
         }
         UnblockAccessTokenFromPendingAuthResponse(stashed, challenge.Username);
         return Content(stashed, "application/json");
+    }
+
+    // =========================================================================
+    // [v2.5.6] (round-5c): User-self step-up — exchange a fresh factor proof
+    // (TOTP code, recovery code, OR a passkey assertion) for a single-use
+    // 60-second token that the next factor-mutation request can submit in
+    // lieu of a fresh code. Lets the prompt UI give the user a choice of
+    // verification methods ("Use TOTP" / "Use a passkey") instead of being
+    // hard-locked to typing a code.
+    // =========================================================================
+
+    [HttpPost("StepUp/UserPasskeyBegin")]
+    [Authorize]
+    public async Task<IActionResult> UserStepUpPasskeyBegin()
+    {
+        var userId = GetCurrentUserId();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (data.Passkeys.Count == 0)
+            return BadRequest(new { message = "No passkeys registered for this user." });
+        var optionsJson = _passkeys.BuildAssertionOptions(HttpContext, data.Passkeys);
+        var nonce = _passkeyChallenges.Begin(optionsJson, userId);
+        return Content("{\"nonce\":\"" + nonce + "\",\"options\":" + optionsJson + "}", "application/json");
+    }
+
+    [HttpPost("StepUp/UserPasskeyVerify")]
+    [Authorize]
+    public async Task<IActionResult> UserStepUpPasskeyVerify([FromBody, Required] PasskeyAssertFinishRequest req)
+    {
+        var userId = GetCurrentUserId();
+        var (optionsJson, ownerId) = _passkeyChallenges.Consume(req.Nonce);
+        if (optionsJson is null || ownerId != userId)
+            return BadRequest(new { message = "Step-up challenge expired or invalid." });
+        bool ok;
+        try
+        {
+            ok = await _passkeys.CompleteAssertionAsync(HttpContext, userId, optionsJson, req.Response).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            return Unauthorized(new { message = "Passkey assertion failed." });
+        }
+        if (!ok) return Unauthorized(new { message = "Passkey assertion failed." });
+        var token = _challengeStore.MintUserStepUpToken(userId);
+        return Ok(new { stepUpToken = token });
+    }
+
+    [HttpPost("StepUp/UserCodeVerify")]
+    [Authorize]
+    public async Task<IActionResult> UserStepUpCodeVerify([FromBody, Required] StepUpCodeRequest req)
+    {
+        var userId = GetCurrentUserId();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var code = req.Code ?? string.Empty;
+
+        // [v2.5.6] (round-5d): accept TOTP, recovery, OR an email step-up
+        // code. EmailOtpService.ValidateStepUpCode consumes single-use on
+        // success so we can call it freely.
+        if (_stepUp.VerifyUserCode(data, code))
+        {
+            // Persist consumed-recovery / replay-floor mutations atomically
+            // before returning the token. Matches the disable-2FA pattern.
+            await _store.MutateAsync(userId, ud =>
+            {
+                foreach (var c in data.RecoveryCodes)
+                {
+                    if (!c.Used) continue;
+                    if (string.IsNullOrEmpty(c.Hash)) continue;
+                    var match = ud.RecoveryCodes.FirstOrDefault(r =>
+                        string.Equals(r.Hash, c.Hash, StringComparison.Ordinal) && !r.Used);
+                    if (match is not null)
+                    {
+                        match.Used = true;
+                        match.UsedAt = c.UsedAt ?? DateTime.UtcNow;
+                    }
+                }
+                if (data.LastUsedTotpStep > ud.LastUsedTotpStep)
+                    ud.LastUsedTotpStep = data.LastUsedTotpStep;
+            }).ConfigureAwait(false);
+        }
+        else if (!_emailOtpService.ValidateStepUpCode(userId, code))
+        {
+            return Unauthorized(new { message = "Invalid code." });
+        }
+
+        var token = _challengeStore.MintUserStepUpToken(userId);
+        return Ok(new { stepUpToken = token });
+    }
+
+    [HttpPost("StepUp/UserEmailSend")]
+    [Authorize]
+    public async Task<IActionResult> UserStepUpEmailSend()
+    {
+        var userId = GetCurrentUserId();
+        var cfg = Plugin.Instance?.Configuration;
+        if (cfg is null || !cfg.EmailOtpEnabled)
+            return BadRequest(new { message = "Email OTP is disabled on this server." });
+        var email = cfg.GetUserEmail(userId.ToString("N"));
+        if (string.IsNullOrEmpty(email))
+            return BadRequest(new { message = "No email configured for your account." });
+        var jellyfinUser = _userManager.GetUserById(userId);
+        var username = jellyfinUser?.Username ?? userId.ToString();
+        var sent = await _emailOtpService.SendStepUpCodeAsync(userId, username, email).ConfigureAwait(false);
+        if (!sent)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Failed to send email. Check SMTP configuration." });
+        return Ok(new { sent = true });
     }
 
     // =========================================================================

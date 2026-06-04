@@ -81,6 +81,17 @@ public class UserTwoFactorStatus
 
     /// <summary>v1.4: count of registered passkey credentials.</summary>
     public int PasskeyCount { get; set; }
+
+    /// <summary>[v2.5.6] (round-5 fix D): admin-selected mode for the
+    /// self-service step-up gate. UI hides the toggle when Off, exposes a
+    /// user toggle when UserChoice, locks the prompt on when Forced.
+    /// Serialised as the enum name ("Off" / "UserChoice" / "Forced").</summary>
+    public string SelfServiceStepUpMode { get; set; } = "Forced";
+
+    /// <summary>[v2.5.6] (round-5 fix D): per-user opt-in. Read by the
+    /// Setup page to render the toggle's initial state and decide whether
+    /// to prompt for the current code on factor changes.</summary>
+    public bool RequireStepUpForChanges { get; set; }
 }
 
 public class TrustedDeviceWithUser

@@ -152,7 +152,15 @@ public class BypassEvaluator
         // 4. Registered device ID — use DeviceIdMatches so Jellyfin Web's
         // UA-hash IDs with per-session timestamp suffixes still match across
         // Tizen/SmartTV app restarts.
-        if (!string.IsNullOrWhiteSpace(deviceId)
+        //
+        // SECURITY [v2.5.6] (ext review bare-DeviceId): gated on
+        // BareDeviceIdBypassEnabled (default false). Bare DeviceId is
+        // client-supplied with no integrity binding — a stolen password
+        // plus a known/spoofed DeviceId would otherwise bypass 2FA here.
+        // Admins re-enable explicitly to keep TV / native-client UX.
+        var bareDevBypass = Plugin.Instance?.Configuration?.BareDeviceIdBypassEnabled ?? false;
+        if (bareDevBypass
+            && !string.IsNullOrWhiteSpace(deviceId)
             && registeredDeviceIds.Any(r => DeviceIdMatches(r, deviceId)))
         {
             _logger.LogDebug("Bypass granted via registered device ID {DeviceId}", deviceId);
@@ -231,11 +239,24 @@ public class BypassEvaluator
         {
             var networkStr = cidr[..slashIndex];
             var prefixLenStr = cidr[(slashIndex + 1)..];
-            if (int.TryParse(prefixLenStr, out var prefixLength)
+            if (int.TryParse(prefixLenStr, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var prefixLength)
                 && IPAddress.TryParse(networkStr, out var networkAddr))
             {
                 if (networkAddr.IsIPv4MappedToIPv6) networkAddr = networkAddr.MapToIPv4();
-                parsed = new ParsedCidr(networkAddr.GetAddressBytes(), prefixLength);
+                var maxBits = networkAddr.GetAddressBytes().Length * 8;
+                // SECURITY [v2.5.6] (ext review #5): reject out-of-range
+                // prefix lengths at runtime. Prior code accepted any int,
+                // and a value like "/-1" or "/9999" would make MaskedEquals
+                // skip ALL byte comparisons and return true — effectively
+                // turning a single malformed CIDR into a match-any wildcard.
+                // ConfigExportService.IsValidCidr already rejects these on
+                // import, but the runtime parser used by the hot path didn't
+                // — so a hand-edited PluginConfiguration.xml or a CIDR added
+                // before that validation existed could still slip through.
+                if (prefixLength >= 0 && prefixLength <= maxBits)
+                {
+                    parsed = new ParsedCidr(networkAddr.GetAddressBytes(), prefixLength);
+                }
             }
         }
 

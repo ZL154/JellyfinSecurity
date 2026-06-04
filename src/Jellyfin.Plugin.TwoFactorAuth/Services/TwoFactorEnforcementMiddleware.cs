@@ -512,7 +512,14 @@ public class TwoFactorEnforcementMiddleware
             // already approved (via QR pairing OR by approving a pending request).
             // DeviceIdMatches normalises UA-hash deviceIds so Tizen webview
             // pairings survive app restarts.
-            if (!string.IsNullOrWhiteSpace(deviceId))
+            //
+            // SECURITY [v2.5.6] (ext review bare-DeviceId): gated on
+            // BareDeviceIdBypassEnabled (default false). Same threat model as
+            // BypassEvaluator and TwoFactorAuthProvider — bare DeviceId is
+            // client-supplied with no integrity binding. The signed trusted-
+            // device cookie path (handled in BypassEvaluator above) is the
+            // secure equivalent and remains active regardless.
+            if (config.BareDeviceIdBypassEnabled && !string.IsNullOrWhiteSpace(deviceId))
             {
                 var paired = userData.PairedDevices.FirstOrDefault(p =>
                     BypassEvaluator.DeviceIdMatches(p.DeviceId, deviceId));
@@ -617,9 +624,17 @@ public class TwoFactorEnforcementMiddleware
             // v2.4: ShouldEnforceFor honors both the new EnforcementScope
             // (Optional / Admins / All) and the legacy RequireForAllUsers
             // flag. isAdmin was extracted from authResult.User.Policy above.
+            //
+            // [v2.5.6] (round-5 fix B): a configured email + globally-enabled
+            // email OTP counts as a valid sole factor. Users who never want
+            // TOTP/passkey can complete sign-in via email OTP without being
+            // forced into TOTP enrollment.
+            var hasEmailFactor = config.EmailOtpEnabled
+                && !string.IsNullOrEmpty(config.GetUserEmail(userGuid.ToString("N")));
             var enrollmentRequired = config.ShouldEnforceFor(isAdmin)
                 && !userData.TotpVerified
-                && userData.Passkeys.Count == 0;
+                && userData.Passkeys.Count == 0
+                && !hasEmailFactor;
             var methods = new List<string>();
             // v1.4: emergency lockout sets ForceRecoveryOnNextLogin to true.
             // Strip TOTP and passkey from the available methods until the user

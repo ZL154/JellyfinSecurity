@@ -56,6 +56,16 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddHttpClient<HibpService>();
         serviceCollection.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         serviceCollection.AddSingleton<IStartupFilter, TwoFactorStartupFilter>();
+
+        // SECURITY [v2.5.6] (ext review admin step-up incomplete): register a
+        // global MVC action filter that gates POSTs to Jellyfin's generic
+        // /Plugins/<our-guid>/Configuration endpoint via the existing
+        // StepUpService. The filter and the IConfigureOptions<MvcOptions>
+        // adapter are both DI-resolved.
+        serviceCollection.AddSingleton<PluginConfigStepUpFilter>();
+        serviceCollection.AddSingleton<
+            Microsoft.Extensions.Options.IConfigureOptions<Microsoft.AspNetCore.Mvc.MvcOptions>,
+            PluginMvcOptionsSetup>();
         serviceCollection.AddHostedService<AuthenticationEventHandler>();
 
         // CRITICAL: Jellyfin discovers auth providers through DI, not MEF.

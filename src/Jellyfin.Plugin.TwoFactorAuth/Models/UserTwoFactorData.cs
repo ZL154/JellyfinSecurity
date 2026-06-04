@@ -102,6 +102,14 @@ public class UserTwoFactorData
     /// Null means "use the admin DefaultLanguage". Validated against the bundled
     /// set on read.</summary>
     public string? Language { get; set; }
+
+    /// <summary>[v2.5.6] (round-5 fix D): per-user opt-in to the
+    /// "require a current code before any 2FA mutation" gate. Only
+    /// consulted when the admin's
+    /// <see cref="Configuration.PluginConfiguration.SelfServiceStepUpMode"/> is
+    /// <see cref="Configuration.SelfServiceStepUpMode.UserChoice"/>; ignored
+    /// (and irrelevant) when the mode is Off or Forced.</summary>
+    public bool RequireStepUpForChanges { get; set; }
 }
 
 /// <summary>SSO/OIDC link — ties a Jellyfin user to an external IdP identity.

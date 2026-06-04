@@ -218,7 +218,7 @@ public class PasskeyService
             PublicKeyCose = Convert.ToBase64String(result.PublicKey),
             SignatureCounter = result.SignCount,
             Aaguid = result.AaGuid.ToString(),
-            Label = string.IsNullOrWhiteSpace(label) ? "Passkey" : label.Trim(),
+            Label = SanitizePasskeyLabel(label),
             Transports = string.Empty,
             CreatedAt = DateTime.UtcNow,
         };
@@ -320,6 +320,28 @@ public class PasskeyService
         }).ConfigureAwait(false);
 
         return true;
+    }
+
+    /// <summary>SECURITY [v2.5.6] (ext review XSS): sanitize a user-supplied
+    /// passkey label before persisting. Defense-in-depth — the UI render
+    /// path escapes HTML, but a future audit / admin tool that reads the
+    /// label out of the JSON file directly should never see raw control
+    /// characters or HTML markup. Strips ASCII control chars (including
+    /// CR/LF that would break log lines), caps length at 80 chars (matches
+    /// the setup-page input limit), falls back to "Passkey" on empty.</summary>
+    private static string SanitizePasskeyLabel(string? label)
+    {
+        if (string.IsNullOrWhiteSpace(label)) return "Passkey";
+        var trimmed = label.Trim();
+        var sb = new System.Text.StringBuilder(Math.Min(trimmed.Length, 80));
+        foreach (var c in trimmed)
+        {
+            if (sb.Length >= 80) break;
+            if (c < 0x20 || c == 0x7F) continue; // ASCII control chars
+            sb.Append(c);
+        }
+        var cleaned = sb.ToString().Trim();
+        return cleaned.Length == 0 ? "Passkey" : cleaned;
     }
 
     private static string Base64UrlEncode(byte[] bytes)

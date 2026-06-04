@@ -120,6 +120,54 @@ public class ChallengeStore : IDisposable
     public void ClearStepUp(Guid userId)
         => _stepUpVerified.TryRemove($"stepup:{userId:N}", out _);
 
+    // [v2.5.6] (round-5c): user-self step-up tokens. Distinct from
+    // _stepUpVerified (which is admin-scope, set by MarkStepUpVerified)
+    // because user-self step-ups should NOT be reused across distinct
+    // factor mutations — they expire after one consume so a stolen
+    // session can't ride a single verification for multiple takeovers.
+    // Each token is single-use, 60s TTL, opaque random string keyed to
+    // its issuing user.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (Guid UserId, DateTime ExpiresAt)> _userStepUpTokens = new();
+
+    /// <summary>Mint a single-use 60-second user step-up token after the
+    /// user proved possession of a current factor (TOTP code, recovery
+    /// code, or passkey assertion). The token is consumed by
+    /// <see cref="ConsumeUserStepUpToken"/> on the subsequent factor-
+    /// mutation request.</summary>
+    public string MintUserStepUpToken(Guid userId)
+    {
+        var token = System.Convert.ToHexString(
+            System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));
+        _userStepUpTokens[token] = (userId, DateTime.UtcNow.AddSeconds(60));
+        // EnforceCap is typed for ConcurrentDictionary<string, DateTime> so it
+        // can't be reused here. Inline a small cap: if we drift over 4096
+        // outstanding tokens evict any already-expired entries (we don't pre-
+        // emptively evict valid ones — they expire on their own in <= 60s).
+        if (_userStepUpTokens.Count > 4096)
+        {
+            var now = DateTime.UtcNow;
+            foreach (var kv in _userStepUpTokens)
+            {
+                if (kv.Value.ExpiresAt <= now) _userStepUpTokens.TryRemove(kv.Key, out _);
+            }
+        }
+        return token;
+    }
+
+    /// <summary>Validate + consume a user step-up token. Returns true iff
+    /// the token exists, was minted for <paramref name="userId"/>, and is
+    /// not expired. TryRemove makes consumption atomic — a race between
+    /// two requests both submitting the same token will result in exactly
+    /// one win, matching the single-use semantic.</summary>
+    public bool ConsumeUserStepUpToken(string? token, Guid userId)
+    {
+        if (string.IsNullOrEmpty(token)) return false;
+        if (!_userStepUpTokens.TryRemove(token, out var entry)) return false;
+        if (entry.UserId != userId) return false;
+        if (entry.ExpiresAt <= DateTime.UtcNow) return false;
+        return true;
+    }
+
     /// <summary>Mark a pending cross-device Quick Connect acceptance. Single consume.</summary>
     public void MarkQuickConnectPending(Guid userId)
     {
@@ -496,6 +544,12 @@ public class ChallengeStore : IDisposable
         foreach (var kv in _stepUpVerified)
         {
             if (kv.Value <= now) _stepUpVerified.TryRemove(kv.Key, out _);
+        }
+        // [v2.5.6] (round-5c): also evict expired user step-up tokens so the
+        // dict doesn't grow unbounded if users mint without consuming.
+        foreach (var kv in _userStepUpTokens)
+        {
+            if (kv.Value.ExpiresAt <= now) _userStepUpTokens.TryRemove(kv.Key, out _);
         }
     }
 

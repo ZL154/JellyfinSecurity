@@ -184,6 +184,18 @@ public class TrustCookieMiddleware
                 // updated so theft is bounded. The new cookie's expiry is a fresh
                 // 30-day window (sliding session) — or ~100yr if IndefiniteTrust.
                 IssueTrustCookie(context, userId, trustRecord.Id, signedDeviceId, trustRecord.IndefiniteTrust);
+
+                // FUNCTIONAL FIX [v2.5.6]: continue the pipeline so the actual
+                // auth endpoint (/Users/AuthenticateByName, /TwoFactorAuth/
+                // Authenticate, /QuickConnect/Authorize) runs and signs the
+                // user in. Prior code returned here without calling _next,
+                // which set the Set-Cookie header + the in-memory pre-verify
+                // flag but never let the downstream auth happen — trusted
+                // sign-in was effectively broken when a valid trust cookie
+                // was present on an auth path request. The pre-verify mark
+                // is consulted by SessionStarted inside the downstream
+                // AuthenticateNewSession call.
+                await _next(context).ConfigureAwait(false);
                 return;
             }
 

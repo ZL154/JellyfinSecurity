@@ -108,7 +108,10 @@ public class SecurityController : ControllerBase
         public bool RequireIdpMfa { get; set; }
         public bool BypassPluginTwoFa { get; set; } = true;
         public bool Enabled { get; set; } = true;
-        public bool ForceHttps { get; set; }
+        // [v2.5.6] (issue #28): default true. Most Jellyfin servers sit behind
+        // a TLS-terminating reverse proxy; old default left users with a
+        // broken http:// redirect_uri and a confusing IdP error.
+        public bool ForceHttps { get; set; } = true;
     }
 
     [HttpGet("Oidc/Presets")]
@@ -628,6 +631,19 @@ public class SecurityController : ControllerBase
         var peer = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
         var trustedCidrs = (IReadOnlyList<string>?)cfg?.TrustedProxyCidrs ?? Array.Empty<string>();
 
+        // [v2.5.6] (issue #28): if the IdP's discovery URL is https, the
+        // callback MUST be https too — every real IdP rejects an http
+        // redirect_uri against a registered https origin. Infer ForceHttps
+        // when the provider's DiscoveryUrl starts with https://, so
+        // existing providers created on v2.5.4/v2.5.5 with ForceHttps=false
+        // also get the right scheme on upgrade without the admin having to
+        // flip a hidden toggle. The explicit ForceHttps=true setting
+        // still wins; this only adds a sane fallback when the admin left
+        // it false but the IdP is clearly https-only.
+        var inferHttps = provider.ForceHttps
+            || (!string.IsNullOrEmpty(provider.DiscoveryUrl)
+                && provider.DiscoveryUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+
         return OidcRedirectUriBuilder.Build(
             directScheme: Request.Scheme,
             directHost: Request.Host.ToString(),
@@ -636,7 +652,7 @@ public class SecurityController : ControllerBase
             peer: peer,
             trustedCidrs: trustedCidrs,
             providerId: provider.Id,
-            forceHttps: provider.ForceHttps);
+            forceHttps: inferHttps);
     }
 
     // =========================================================================

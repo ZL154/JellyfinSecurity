@@ -95,8 +95,14 @@ public class OidcProvider
     /// behind a TLS-terminating proxy (Cloudflare Tunnel, some Caddy / nginx
     /// configs) that doesn't propagate <c>X-Forwarded-Proto</c> reliably —
     /// without this, redirect_uri is built as http:// and the IdP refuses
-    /// the exchange. Default false; opt in per provider.</summary>
-    public bool ForceHttps { get; set; }
+    /// the exchange.
+    /// [v2.5.6] (issue #28): default flipped from false to true. The
+    /// overwhelming-majority deployment is "Jellyfin behind a reverse proxy
+    /// terminating TLS" — almost every IdP requires https redirect URIs,
+    /// and the old default left users hitting a confusing IdP error before
+    /// finding this toggle. New providers default to ForceHttps=true;
+    /// existing providers keep their stored value on upgrade.</summary>
+    public bool ForceHttps { get; set; } = true;
 
     public DateTime CreatedAt { get; set; }
 }

@@ -504,15 +504,57 @@ public class UserTwoFactorStore : IDisposable
             return new UserTwoFactorData { UserId = userId };
         }
 
+        string json;
         try
         {
-            var json = await File.ReadAllTextAsync(path).ConfigureAwait(false);
-            return JsonSerializer.Deserialize<UserTwoFactorData>(json, JsonOptions)
-                   ?? new UserTwoFactorData { UserId = userId };
+            json = await File.ReadAllTextAsync(path).ConfigureAwait(false);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            return new UserTwoFactorData { UserId = userId };
+            // SECURITY [v2.5.6] (ext review #4): treat I/O errors on an
+            // existing user file as fail-CLOSED. Prior code returned a
+            // blank UserTwoFactorData for any read failure, which silently
+            // disables TOTP / passkeys for that user and lets them sign in
+            // without 2FA — a bypass. Throwing here makes the auth path
+            // refuse the sign-in until the transient I/O issue clears or
+            // the admin investigates.
+            throw new InvalidOperationException(
+                $"Could not read 2FA data for user {userId} from disk; sign-in denied (fail-closed).",
+                ex);
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<UserTwoFactorData>(json, JsonOptions)
+                   ?? throw new JsonException("Deserializer returned null for non-empty 2FA data.");
+        }
+        catch (JsonException ex)
+        {
+            // SECURITY [v2.5.6] (ext review #4): the file exists but is
+            // not valid JSON. Returning blank data here would treat a user
+            // with TOTP / passkeys enabled as if they had no 2FA, which is
+            // a bypass — exactly what an attacker who can corrupt one byte
+            // of the user file would want. Fail closed instead.
+            //
+            // Quarantine the bad file so the admin can inspect it. We do
+            // NOT delete it (the user might have non-recoverable state in
+            // there). Quarantine renames to "<userId>.json.corrupt-<utc>";
+            // the on-disk file is gone after this, so subsequent reads
+            // return a fresh empty record. This deliberately surfaces the
+            // problem on the FIRST sign-in attempt rather than letting it
+            // silently disable 2FA forever.
+            try
+            {
+                var quarantined = $"{path}.corrupt-{DateTime.UtcNow:yyyyMMddHHmmss}";
+                File.Move(path, quarantined);
+            }
+            catch
+            {
+                // Quarantine itself failed — log via the exception we throw.
+            }
+            throw new InvalidOperationException(
+                $"2FA data for user {userId} is corrupt and cannot be parsed. Sign-in denied; admin must investigate. Original file quarantined alongside the user folder.",
+                ex);
         }
     }
 

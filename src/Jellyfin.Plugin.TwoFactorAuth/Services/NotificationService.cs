@@ -11,7 +11,10 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
 public class NotificationService
 {
-    private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
+    // SECURITY [v2.5.6] (ext review #7): the prior unpinned _httpClient was
+    // removed. All outbound notification HTTP now flows through
+    // _webhookHttpClient with per-call address pinning so ntfy / Gotify /
+    // webhook share the same SSRF guarantees.
     private readonly ILogger<NotificationService> _logger;
 
     // SEC-M2: list of pre-validated allowed IPs for the webhook send currently
@@ -208,17 +211,38 @@ public class NotificationService
 
         if (!string.IsNullOrWhiteSpace(config.NtfyUrl) && !string.IsNullOrWhiteSpace(config.NtfyTopic))
         {
-            try
+            // SECURITY [v2.5.6] (ext review #7): apply the same SSRF guard
+            // ntfy got NONE of before. Previously used the unpinned
+            // `_httpClient`, which would happily POST title+message to
+            // anything an admin (or attacker who compromised the admin
+            // config) pasted — including AWS IMDS, Docker host gateways,
+            // internal admin panels. Route through `_webhookHttpClient`
+            // with pinned, validated addresses so DNS rebinding cannot
+            // flip the destination between resolve and connect.
+            var ntfyAddrs = GetSafeWebhookAddresses(config.NtfyUrl);
+            if (ntfyAddrs is { Length: > 0 })
             {
-                using var request = new HttpRequestMessage(HttpMethod.Post, config.NtfyUrl);
-                request.Headers.TryAddWithoutValidation("X-Title", title);
-                request.Headers.TryAddWithoutValidation("X-Topic", config.NtfyTopic);
-                request.Content = new StringContent(message, Encoding.UTF8, "text/plain");
-                using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send Ntfy notification");
+                try
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Post, config.NtfyUrl);
+                    request.Headers.TryAddWithoutValidation("X-Title", title);
+                    request.Headers.TryAddWithoutValidation("X-Topic", config.NtfyTopic);
+                    request.Content = new StringContent(message, Encoding.UTF8, "text/plain");
+                    _pinnedAllowedAddresses.Value = ntfyAddrs;
+                    try
+                    {
+                        using var response = await _webhookHttpClient.SendAsync(request).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _pinnedAllowedAddresses.Value = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError("Failed to send Ntfy notification: {Type}: {Msg}",
+                        ex.GetType().Name, ex.Message);
+                }
             }
         }
 
@@ -228,23 +252,41 @@ public class NotificationService
             // header instead of embedding in the URL. URL form leaked the
             // token into HttpRequestException.Message on transport failure
             // and into any log sink the admin had attached.
+            // SECURITY [v2.5.6] (ext review #7): also apply SSRF guard +
+            // pinned HttpClient — Gotify had none. An admin who configured
+            // GotifyUrl pointing to a private/loopback address would
+            // exfiltrate the X-Gotify-Key header to that destination on
+            // every notification. Pinning to a public-only validated set
+            // closes the SSRF/DNS-rebind class.
             var gotifyBase = $"{config.GotifyUrl.TrimEnd('/')}/message";
-            try
+            var gotifyAddrs = GetSafeWebhookAddresses(gotifyBase);
+            if (gotifyAddrs is { Length: > 0 })
             {
-                var gotifyPayload = new { title, message, priority = 5 };
-                using var req = new HttpRequestMessage(HttpMethod.Post, gotifyBase)
+                try
                 {
-                    Content = JsonContent.Create(gotifyPayload),
-                };
-                req.Headers.Add("X-Gotify-Key", config.GotifyAppToken);
-                using var response = await _httpClient.SendAsync(req).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // Log type + message only; don't pass the exception object
-                // (which serialises the Request and could re-leak the URL).
-                _logger.LogError("Failed to send Gotify notification: {Type}: {Msg}",
-                    ex.GetType().Name, ex.Message);
+                    var gotifyPayload = new { title, message, priority = 5 };
+                    using var req = new HttpRequestMessage(HttpMethod.Post, gotifyBase)
+                    {
+                        Content = JsonContent.Create(gotifyPayload),
+                    };
+                    req.Headers.Add("X-Gotify-Key", config.GotifyAppToken);
+                    _pinnedAllowedAddresses.Value = gotifyAddrs;
+                    try
+                    {
+                        using var response = await _webhookHttpClient.SendAsync(req).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _pinnedAllowedAddresses.Value = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Log type + message only; don't pass the exception object
+                    // (which serialises the Request and could re-leak the URL).
+                    _logger.LogError("Failed to send Gotify notification: {Type}: {Msg}",
+                        ex.GetType().Name, ex.Message);
+                }
             }
         }
 

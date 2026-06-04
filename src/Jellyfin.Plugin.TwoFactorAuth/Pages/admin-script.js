@@ -1040,6 +1040,16 @@
                         page.querySelector('#cfgStepUpLevel').value = (c.StepUpLevel != null ? c.StepUpLevel : 0);
                         var indefEl = page.querySelector('#cfgAllowIndefiniteTrust');
                         if (indefEl) indefEl.checked = !!c.AllowIndefiniteTrust;
+                        // [v2.5.6] (round-5 fix D): tri-state hardened-security
+                        // control. Default to "Forced" when the server didn't
+                        // emit the property (older config XML).
+                        var ssSel = page.querySelector('#cfgSelfServiceStepUp');
+                        if (ssSel) ssSel.value = c.SelfServiceStepUpMode || 'Forced';
+
+                        // [v2.5.6] (round-5f): the "Force for all users"
+                        // shortcut button + its wiring were removed by user
+                        // request — the dropdown above is the single source
+                        // of truth for the SelfServiceStepUpMode setting.
                         // v2.5.0 Localization: server-wide default language
                         var dlSel = page.querySelector('#cfgDefaultLanguage');
                         if (dlSel) dlSel.value = c.DefaultLanguage || 'en';
@@ -1145,6 +1155,12 @@
                         c.ImpossibleTravelEnabled = page.querySelector('#cfgTravelEnabled').checked;
                         c.ImpossibleTravelMaxKmh = Math.max(100, parseInt(page.querySelector('#cfgTravelKmh').value) || 900);
                         c.GeoIpCityDbPath = page.querySelector('#cfgGeoCity').value.trim();
+                        // [v2.5.6] (round-5 fix D): persist the tri-state
+                        // SelfServiceStepUpMode. Server defaults to "Forced"
+                        // for safety when missing, so we explicitly send the
+                        // selected value here.
+                        var ssSel = page.querySelector('#cfgSelfServiceStepUp');
+                        c.SelfServiceStepUpMode = ssSel ? (ssSel.value || 'Forced') : 'Forced';
                         // v2.5.0: persist hardening toggles through the gated endpoint.
                         // Broader plugin config (other fields) still uses the built-in
                         // updatePluginConfiguration path. Store current config ref so the

@@ -160,6 +160,10 @@
                 </div>
                 <div id="enrollStep1">
                     <button class="btn-primary" id="btnStartSetup" data-i18n-key="tfa.setup.enroll.btn_begin">Begin Setup</button>
+                    <!-- [v2.5.6] (round-5): point users at the other factor options
+                         so they can choose passkey / email / OIDC instead of being
+                         funneled into TOTP. -->
+                    <p class="muted" style="font-size:13px;margin-top:14px;line-height:1.6;" data-i18n-key="tfa.setup.enroll.alt_factors">Prefer something else? You can use a passkey (Face ID / Windows Hello / hardware key), an email-only code (set your email below), or sign in with a linked OIDC account — see the cards further down this page.</p>
                 </div>
                 <div id="enrollStep2" style="display:none;">
                     <p class="muted" data-i18n-key="tfa.setup.scan_qr">1. Scan this QR code in your authenticator app:</p>
@@ -259,6 +263,22 @@
                 </div>
                 <div class="alert success" id="emailSuccess"></div>
                 <div class="alert error" id="emailError"></div>
+            </div>
+
+            <!-- =========== HARDENED SECURITY (round-5 fix D) =========== -->
+            <div class="card" id="cardStepUpPref" style="display:none;">
+                <div class="card-head">
+                    <div>
+                        <h2><span class="icon">🛡️</span> <span data-i18n-key="tfa.setup.stepup_pref.heading">Hardened Security</span></h2>
+                        <div class="desc" data-i18n-key="tfa.setup.stepup_pref.desc">Require your current TOTP / recovery code every time you add or change a 2FA factor (new TOTP, recovery codes, app password, passkey). Prevents a stolen logged-in session from silently taking over your account.</div>
+                    </div>
+                </div>
+                <label class="trust-row" style="margin-top:10px;">
+                    <input type="checkbox" id="stepUpPrefToggle" />
+                    <span data-i18n-key="tfa.setup.stepup_pref.toggle_label">Require a code before any 2FA change on my account</span>
+                </label>
+                <div class="alert success" id="stepUpPrefSuccess"></div>
+                <div class="alert error" id="stepUpPrefError"></div>
             </div>
 
             <!-- =========== PENDING PAIRINGS =========== -->
@@ -418,6 +438,11 @@
             return (window.tfaI18n && window.tfaI18n.tr) ? window.tfaI18n.tr(key, fallback) : fallback;
         }
 
+        // [v2.5.6] (round-5d): version stamp so when the user opens browser
+        // devtools we can tell whether they're on the new code or a cached
+        // older copy. If you don't see this line in console, hard-refresh.
+        try { console.log('[2FA] setup.html v2.5.6 round-5d loaded'); } catch (e) {}
+
         function getToken() {
             try {
                 var creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}');
@@ -486,6 +511,193 @@
                 setTimeout(function() { card.querySelector('[data-act="ok"]').focus(); }, 10);
             });
         }
+
+        // [v2.5.6] (round-5d): optimistic step-up. Always ATTEMPT the
+        // mutation first without a code. If the server responds 403 with
+        // stepUpRequired/twoFactorRequired, only THEN prompt the user and
+        // retry. This makes the server the single source of truth — no
+        // prompt appears unless the server actually demands one, fixing
+        // the stale-flag UX bug where the prompt fired even after the
+        // admin set hardened security to Off.
+        async function mutateWithStepUp(method, path, baseBody, opts) {
+            opts = opts || {};
+            try {
+                return await api(method, path, baseBody);
+            } catch (e) {
+                if (!(e && e.status === 403 && e.body && (e.body.stepUpRequired || e.body.twoFactorRequired))) throw e;
+                var step = await tfaPromptForCode({
+                    title: opts.title,
+                    message: opts.message || e.body.message
+                });
+                if (!step) { var err = new Error('cancelled'); err.cancelled = true; throw err; }
+                var body2 = Object.assign({}, baseBody || {}, step);
+                return await api(method, path, body2);
+            }
+        }
+
+        // DELETE-style: code/token must travel on the query string.
+        async function mutateWithStepUpUrl(method, urlBase, opts) {
+            opts = opts || {};
+            try {
+                return await api(method, urlBase);
+            } catch (e) {
+                if (!(e && e.status === 403 && e.body && (e.body.stepUpRequired || e.body.twoFactorRequired))) throw e;
+                var step = await tfaPromptForCode({
+                    title: opts.title,
+                    message: opts.message || e.body.message
+                });
+                if (!step) { var err = new Error('cancelled'); err.cancelled = true; throw err; }
+                var sep = urlBase.indexOf('?') >= 0 ? '&' : '?';
+                var withQuery = urlBase;
+                if (step.code) withQuery += sep + 'code=' + encodeURIComponent(step.code);
+                else if (step.stepUpToken) withQuery += sep + 'stepUpToken=' + encodeURIComponent(step.stepUpToken);
+                return await api(method, withQuery);
+            }
+        }
+
+        // SECURITY [v2.5.6] (ext review self-service-takeover, round-5c):
+        // prompt for the user's CURRENT factor proof before any factor
+        // mutation. Returns an object { code?, stepUpToken? } on confirm
+        // (exactly one populated), or null on cancel.
+        //
+        // Two paths:
+        //   1) User types a TOTP / recovery code in the input field and
+        //      clicks Continue → returns { code }.
+        //   2) User clicks "Use a passkey" → modal runs a WebAuthn
+        //      assertion via /StepUp/UserPasskeyBegin + /UserPasskeyVerify,
+        //      which mints a 60-second one-shot step-up token → returns
+        //      { stepUpToken }.
+        // The caller merges the returned object into its mutation-request
+        // body — server-side EnforceSelfServiceStepUpAsync accepts either
+        // field. The passkey button is only rendered when the current user
+        // actually has passkeys enrolled (window.__tfa_userPasskeyCount > 0).
+        // OIDC re-auth as a step-up factor isn't supported here yet because
+        // it requires a redirect that doesn't fit cleanly in a modal.
+        function tfaPromptForCode(opts) {
+            opts = opts || {};
+            var title = opts.title || _tr('tfa.setup.stepup.title', 'Confirm with your current code');
+            var message = opts.message || _tr('tfa.setup.stepup.msg', 'Enter your current TOTP or recovery code to make this change.');
+            var confirmText = opts.confirmText || _tr('tfa.setup.stepup.ok', 'Continue');
+            var cancelText = _tr('tfa.admin.common.cancel', 'Cancel');
+            var passkeyText = _tr('tfa.setup.stepup.use_passkey', 'Use a passkey instead');
+            var passkeyHint = _tr('tfa.setup.stepup.passkey_hint', 'You can also verify with one of your passkeys.');
+            var emailText = _tr('tfa.setup.stepup.send_email', 'Send code by email');
+            var emailSent = _tr('tfa.setup.stepup.email_sent', 'Email sent — check your inbox and enter the code above.');
+            var emailFailed = _tr('tfa.setup.stepup.email_failed', 'Failed to send email. Check SMTP / your account email.');
+            var hasPasskey = (window.__tfa_userPasskeyCount || 0) > 0;
+            var hasEmail = window.__tfa_userHasEmail === true;
+            return new Promise(function(resolve) {
+                var ov = document.createElement('div');
+                ov.setAttribute('role', 'dialog');
+                ov.setAttribute('aria-modal', 'true');
+                ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;backdrop-filter:blur(4px);';
+                var card = document.createElement('div');
+                card.style.cssText = 'background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:24px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.6);';
+                var altSection = '';
+                if (hasPasskey || hasEmail) {
+                    altSection += '<div style="border-top:1px solid #2a2a2a;margin-top:18px;padding-top:14px;display:flex;flex-direction:column;gap:8px;">';
+                    if (hasPasskey) {
+                        altSection +=
+                            '<p style="margin:0;color:#888;font-size:12px;line-height:1.5;">' + escapeHtml(passkeyHint) + '</p>' +
+                            '<button data-act="passkey" style="background:transparent;color:#00a4dc;border:1px solid #00a4dc;padding:9px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%;">🔑 ' + escapeHtml(passkeyText) + '</button>';
+                    }
+                    if (hasEmail) {
+                        altSection +=
+                            '<button data-act="email" style="background:transparent;color:#bbb;border:1px solid #444;padding:9px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%;">✉ ' + escapeHtml(emailText) + '</button>';
+                    }
+                    altSection += '</div>';
+                }
+                card.innerHTML =
+                    '<h3 style="margin:0 0 12px;color:#fff;font-size:17px;font-weight:600;">' + escapeHtml(title) + '</h3>' +
+                    '<p style="margin:0 0 14px;color:#ccc;font-size:13px;line-height:1.5;">' + escapeHtml(message) + '</p>' +
+                    '<input type="text" data-act="code" autocomplete="one-time-code" inputmode="text" placeholder="000000" maxlength="20" style="width:100%;background:#000;color:#fff;border:1px solid #444;border-radius:6px;padding:10px 12px;font-size:16px;letter-spacing:2px;font-family:monospace;" />' +
+                    '<div data-act="err" style="display:none;color:#ef5350;font-size:12px;margin-top:8px;"></div>' +
+                    '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">' +
+                        '<button data-act="cancel" style="background:transparent;color:#888;border:1px solid #333;padding:9px 16px;border-radius:6px;font-size:13px;cursor:pointer;">' + escapeHtml(cancelText) + '</button>' +
+                        '<button data-act="ok" style="background:#00a4dc;color:#fff;border:none;padding:9px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">' + escapeHtml(confirmText) + '</button>' +
+                    '</div>' +
+                    altSection;
+                ov.appendChild(card);
+                document.body.appendChild(ov);
+                var input = card.querySelector('[data-act="code"]');
+                var errBox = card.querySelector('[data-act="err"]');
+                function showErr(msg) { errBox.textContent = msg; errBox.style.display = 'block'; }
+                function close(result) {
+                    document.removeEventListener('keydown', onKey);
+                    ov.remove();
+                    resolve(result);
+                }
+                function submitCode() {
+                    var val = input.value.trim();
+                    if (!val) { input.focus(); return; }
+                    close({ code: val });
+                }
+                async function runPasskey() {
+                    if (!window.isSecureContext || !window.PublicKeyCredential) {
+                        showErr(_tr('tfa.setup.passkeys.err_https', 'Passkeys require HTTPS. Reload this page via your HTTPS URL and try again.'));
+                        return;
+                    }
+                    try {
+                        var begin = await api('POST', 'TwoFactorAuth/StepUp/UserPasskeyBegin');
+                        var pkOpts = begin.options;
+                        pkOpts.challenge = b64uToBytes(pkOpts.challenge);
+                        if (pkOpts.allowCredentials) pkOpts.allowCredentials.forEach(function(c){ c.id = b64uToBytes(c.id); });
+                        var assertion = await navigator.credentials.get({ publicKey: pkOpts });
+                        var response = {
+                            id: assertion.id,
+                            rawId: bytesToB64u(assertion.rawId),
+                            type: assertion.type,
+                            response: {
+                                clientDataJSON: bytesToB64u(assertion.response.clientDataJSON),
+                                authenticatorData: bytesToB64u(assertion.response.authenticatorData),
+                                signature: bytesToB64u(assertion.response.signature),
+                                userHandle: assertion.response.userHandle ? bytesToB64u(assertion.response.userHandle) : null,
+                            },
+                            extensions: assertion.getClientExtensionResults ? assertion.getClientExtensionResults() : {},
+                        };
+                        var verify = await api('POST', 'TwoFactorAuth/StepUp/UserPasskeyVerify', { nonce: begin.nonce, response: JSON.stringify(response) });
+                        if (verify && verify.stepUpToken) {
+                            close({ stepUpToken: verify.stepUpToken });
+                        } else {
+                            showErr(_tr('tfa.setup.stepup.passkey_failed', 'Passkey verification failed.'));
+                        }
+                    } catch (e) {
+                        showErr((e && e.message) || _tr('tfa.setup.stepup.passkey_failed', 'Passkey verification failed.'));
+                    }
+                }
+                function onKey(e) {
+                    if (e.key === 'Escape') close(null);
+                    if (e.key === 'Enter') submitCode();
+                }
+                card.querySelector('[data-act="ok"]').addEventListener('click', submitCode);
+                card.querySelector('[data-act="cancel"]').addEventListener('click', function() { close(null); });
+                var pkBtn = card.querySelector('[data-act="passkey"]');
+                if (pkBtn) pkBtn.addEventListener('click', runPasskey);
+                var emailBtn = card.querySelector('[data-act="email"]');
+                if (emailBtn) {
+                    emailBtn.addEventListener('click', async function() {
+                        emailBtn.disabled = true;
+                        emailBtn.textContent = '✉ ' + _tr('tfa.challenge.email_sending', 'Sending...');
+                        try {
+                            await api('POST', 'TwoFactorAuth/StepUp/UserEmailSend');
+                            errBox.style.color = '#a5d6a7';
+                            errBox.textContent = emailSent;
+                            errBox.style.display = 'block';
+                            emailBtn.textContent = '✉ ' + _tr('tfa.challenge.email_sent', 'Code sent — check your email');
+                            input.focus();
+                        } catch (e) {
+                            errBox.style.color = '#ef5350';
+                            showErr(emailFailed);
+                            emailBtn.disabled = false;
+                            emailBtn.textContent = '✉ ' + escapeHtml(emailText);
+                        }
+                    });
+                }
+                document.addEventListener('keydown', onKey);
+                setTimeout(function() { input.focus(); }, 10);
+            });
+        }
+
         function fmtRel(iso) {
             if (!iso) return _tr('tfa.setup.time.never', 'never');
             var d = new Date(iso);
@@ -550,6 +762,32 @@
                     return;
                 }
                 var totpOn = myStatus && (myStatus.totpEnabled || myStatus.TotpEnabled);
+                // SECURITY [v2.5.6] (ext review self-service-takeover, round-5
+                // fix D): the step-up prompt helper consults this flag.
+                // true ⇔ user has an existing 2FA factor AND the admin's
+                // SelfServiceStepUpMode (combined with the user's opt-in if
+                // UserChoice) requires the prompt. Off → never prompt;
+                // UserChoice → only when user opted in; Forced → always.
+                var passkeyCount = (myStatus && (myStatus.passkeyCount || myStatus.PasskeyCount)) || 0;
+                // [v2.5.6] (round-5c): expose passkey count to tfaPromptForCode
+                // so it can decide whether to render the "Use a passkey" button.
+                window.__tfa_userPasskeyCount = passkeyCount;
+                // [v2.5.6] (round-5d): expose email + email-OTP-enabled so the
+                // prompt can offer "Send code by email" as a step-up factor.
+                var emailRow = r[4] || {};
+                var userEmail = emailRow.email || emailRow.Email || '';
+                var publicCfg = window._tfaPublicConfig || {};
+                window.__tfa_userHasEmail = !!userEmail
+                    && (publicCfg.emailOtpEnabled !== false);
+                var hasFactor = !!totpOn || passkeyCount > 0;
+                var stepUpMode = (myStatus && (myStatus.selfServiceStepUpMode || myStatus.SelfServiceStepUpMode)) || 'Forced';
+                var userOptedIn = !!(myStatus && (myStatus.requireStepUpForChanges || myStatus.RequireStepUpForChanges));
+                window.__tfa_stepUpMode = stepUpMode;
+                window.__tfa_userOptedIn = userOptedIn;
+                var modeRequires = stepUpMode === 'Forced'
+                    || (stepUpMode === 'UserChoice' && userOptedIn);
+                window.__tfa_userHasFactor = hasFactor && modeRequires;
+                renderStepUpToggle(stepUpMode, userOptedIn);
                 renderStatus(me, totpOn);
                 renderEnroll(totpOn);
                 renderRecovery(totpOn, r[3]);
@@ -574,6 +812,9 @@
                 var links = r[0] || [];
                 var providers = r[1] || [];
                 var listBox = document.getElementById('ssoLinksList');
+                // [v2.5.6] (round-5e): strip data-i18n-key so applyTranslations
+                // doesn't reset our populated content back to "Loading…".
+                listBox.removeAttribute('data-i18n-key');
                 if (!links.length) {
                     listBox.innerHTML = '<p class="muted" style="margin:0;">' + _tr('tfa.setup.sso.empty', 'No external accounts linked yet.') + '</p>';
                 } else {
@@ -630,6 +871,9 @@
         });
         function renderStatus(me, totpOn) {
             var pill = document.getElementById('statusPill');
+            // [v2.5.6] (round-5e): strip data-i18n-key so applyTranslations
+            // doesn't reset the pill back to "Loading…".
+            pill.removeAttribute('data-i18n-key');
             pill.className = 'pill ' + (totpOn ? 'on' : 'off');
             pill.textContent = totpOn ? _tr('tfa.setup.status.pill_on', '2FA Enabled') : _tr('tfa.setup.status.pill_off', 'Not Set Up');
             document.getElementById('statusContent').innerHTML =
@@ -661,6 +905,23 @@
         }
         function renderEmail(r) {
             document.getElementById('emailInput').value = r.email || '';
+        }
+
+        // [v2.5.6] (round-5 fix D): render the user-facing "Hardened Security"
+        // toggle. Card is only visible when the admin's SelfServiceStepUpMode
+        // is UserChoice — Off hides the option entirely (admin said no
+        // prompts), Forced hides it because the user can't opt out (server
+        // enforces regardless).
+        function renderStepUpToggle(mode, optedIn) {
+            // [v2.5.6] (round-5e): log so the user can verify the server's
+            // reported mode in browser devtools.
+            try { console.log('[2FA] renderStepUpToggle mode=' + mode + ' optedIn=' + optedIn); } catch (e) {}
+            var card = document.getElementById('cardStepUpPref');
+            if (!card) return;
+            if (mode !== 'UserChoice') { card.style.display = 'none'; return; }
+            card.style.display = 'block';
+            var cb = document.getElementById('stepUpPrefToggle');
+            cb.checked = !!optedIn;
         }
         function renderPending(list) {
             var card = document.getElementById('cardPending');
@@ -899,14 +1160,26 @@
         }
 
         // ============ ENROLL HANDLERS ============
-        document.getElementById('btnStartSetup').addEventListener('click', function() {
-            api('POST', 'TwoFactorAuth/Setup/Totp').then(function(result) {
+        document.getElementById('btnStartSetup').addEventListener('click', async function() {
+            // [v2.5.6] (round-5d): optimistic step-up. Try without code first,
+            // server prompts only if hardened security says it's needed.
+            try {
+                var result = await mutateWithStepUp('POST', 'TwoFactorAuth/Setup/Totp', {}, {
+                    message: _tr('tfa.setup.stepup.totp_msg', 'Enter your current TOTP or recovery code to start a new TOTP enrollment.')
+                });
                 document.getElementById('qrImg').src = 'data:image/png;base64,' + (result.qrCodeBase64 || result.QrCodeBase64);
                 document.getElementById('secretKey').textContent = result.manualEntryKey || result.ManualEntryKey;
                 document.getElementById('enrollStep1').style.display = 'none';
                 document.getElementById('enrollStep2').style.display = 'block';
                 document.getElementById('confirmCode').focus();
-            }).catch(function() { alert(_tr('tfa.setup.enroll.start_failed', 'Failed to start TOTP setup.')); });
+            } catch (e) {
+                if (e && e.cancelled) return;
+                if (e && e.status === 403 && e.body && (e.body.stepUpRequired || e.body.twoFactorRequired)) {
+                    alert(_tr('tfa.setup.stepup.wrong_code', 'That code did not verify. Try again.'));
+                } else {
+                    alert(_tr('tfa.setup.enroll.start_failed', 'Failed to start TOTP setup.'));
+                }
+            }
         });
         document.getElementById('btnCancelSetup').addEventListener('click', function() {
             api('POST', 'TwoFactorAuth/Setup/Disable').then(function() {
@@ -941,13 +1214,22 @@
         // ============ RECOVERY HANDLERS ============
         document.getElementById('btnGenerateCodes').addEventListener('click', async function() {
             if (!(await tfaConfirm({ title: _tr('tfa.setup.recovery.confirm_title', 'Regenerate recovery codes?'), message: _tr('tfa.setup.recovery.confirm_msg', 'Any existing codes will stop working immediately. Make sure to save the new ones.'), confirmText: _tr('tfa.setup.recovery.confirm_ok', 'Generate'), danger: true }))) return;
-            api('POST', 'TwoFactorAuth/RecoveryCodes/Generate').then(function(result) {
+            // [v2.5.6] (round-5d): optimistic step-up.
+            try {
+                var result = await mutateWithStepUp('POST', 'TwoFactorAuth/RecoveryCodes/Generate', {}, {
+                    message: _tr('tfa.setup.stepup.recovery_msg', 'Enter your current TOTP or recovery code to regenerate.')
+                });
                 var grid = document.getElementById('recoveryGrid');
                 grid.innerHTML = (result.codes || []).map(function(c) { return '<div>' + escapeHtml(c) + '</div>'; }).join('');
                 document.getElementById('recoveryActions').style.display = 'none';
                 document.getElementById('recoveryDisplay').style.display = 'block';
                 window.__recoveryCodes = result.codes || [];
-            });
+            } catch (e) {
+                if (e && e.cancelled) return;
+                if (e && e.status === 403 && e.body && (e.body.stepUpRequired || e.body.twoFactorRequired)) {
+                    alert(_tr('tfa.setup.stepup.wrong_code', 'That code did not verify. Try again.'));
+                }
+            }
         });
         document.getElementById('btnHideCodes').addEventListener('click', function() {
             document.getElementById('recoveryDisplay').style.display = 'none';
@@ -1022,6 +1304,36 @@
             iframe.srcdoc = html;
         });
 
+        // ============ HARDENED SECURITY TOGGLE (round-5 fix D) ============
+        document.getElementById('stepUpPrefToggle').addEventListener('change', async function(e) {
+            var ok = document.getElementById('stepUpPrefSuccess'), err = document.getElementById('stepUpPrefError');
+            ok.classList.remove('show'); err.classList.remove('show');
+            var newVal = e.target.checked;
+            // [v2.5.6] (round-5d): optimistic step-up. Server gates the
+            // toggle change itself (so a stolen session can't silently
+            // turn it off); UI just retries with prompt on 403.
+            try {
+                await mutateWithStepUp('POST', 'TwoFactorAuth/MyStepUpPreference', { enabled: newVal }, {
+                    message: _tr('tfa.setup.stepup.pref_msg', 'Enter your current TOTP or recovery code to change this preference.')
+                });
+                ok.textContent = newVal
+                    ? _tr('tfa.setup.stepup_pref.on', 'Hardened security enabled for your account.')
+                    : _tr('tfa.setup.stepup_pref.off', 'Hardened security disabled for your account.');
+                ok.classList.add('show');
+                window.__tfa_userOptedIn = newVal;
+                window.__tfa_userHasFactor = (window.__tfa_stepUpMode === 'Forced') || (window.__tfa_stepUpMode === 'UserChoice' && newVal);
+            } catch (ex) {
+                e.target.checked = !newVal;
+                if (ex && ex.cancelled) return;
+                if (ex && ex.status === 403 && ex.body && (ex.body.stepUpRequired || ex.body.twoFactorRequired)) {
+                    err.textContent = _tr('tfa.setup.stepup.wrong_code', 'That code did not verify. Try again.');
+                } else {
+                    err.textContent = _tr('tfa.setup.stepup_pref.save_failed', 'Could not save preference.');
+                }
+                err.classList.add('show');
+            }
+        });
+
         // ============ EMAIL HANDLER ============
         document.getElementById('btnSaveEmail').addEventListener('click', function() {
             var ok = document.getElementById('emailSuccess'), err = document.getElementById('emailError');
@@ -1037,25 +1349,32 @@
         });
 
         // ============ APP PASSWORD HANDLER ============
-        document.getElementById('btnCreateAp').addEventListener('click', function() {
+        document.getElementById('btnCreateAp').addEventListener('click', async function() {
             var label = document.getElementById('apLabel').value.trim();
-            api('POST', 'TwoFactorAuth/AppPasswords', { label: label }).then(function(r) {
-                document.getElementById('apLabel').value = '';
-                var html =
-                    '<div class="new-password-display">' +
-                        '<div style="font-size:13px;color:#ffa726;margin-bottom:8px;">⚠ ' + _tr('tfa.setup.ap.copy_now', 'Copy this now — it won\'t be shown again') + '</div>' +
-                        '<code id="newAp">' + escapeHtml(r.password) + '</code>' +
-                        '<button class="btn-ghost btn-sm" id="btnCopyAp">' + _tr('tfa.setup.ap.btn_copy', 'Copy') + '</button>' +
-                    '</div>';
-                document.getElementById('apNewPasswordWrap').innerHTML = html;
-                document.getElementById('btnCopyAp').addEventListener('click', function() {
-                    navigator.clipboard.writeText(r.password);
-                    document.getElementById('btnCopyAp').textContent = '✓ ' + _tr('tfa.setup.common.copied', 'Copied');
+            // [v2.5.6] (round-5d): optimistic step-up.
+            var r;
+            try {
+                r = await mutateWithStepUp('POST', 'TwoFactorAuth/AppPasswords', { label: label }, {
+                    message: _tr('tfa.setup.stepup.app_pw_msg', 'Enter your current TOTP or recovery code to create an app password.')
                 });
-                loadAll();
-            }).catch(function(e) {
-                alert(e.message || _tr('tfa.setup.ap.create_failed', 'Failed to create app password.'));
+            } catch (e) {
+                if (e && e.cancelled) return;
+                alert((e && e.message) || _tr('tfa.setup.ap.create_failed', 'Failed to create app password.'));
+                return;
+            }
+            document.getElementById('apLabel').value = '';
+            var html =
+                '<div class="new-password-display">' +
+                    '<div style="font-size:13px;color:#ffa726;margin-bottom:8px;">⚠ ' + _tr('tfa.setup.ap.copy_now', 'Copy this now — it won\'t be shown again') + '</div>' +
+                    '<code id="newAp">' + escapeHtml(r.password) + '</code>' +
+                    '<button class="btn-ghost btn-sm" id="btnCopyAp">' + _tr('tfa.setup.ap.btn_copy', 'Copy') + '</button>' +
+                '</div>';
+            document.getElementById('apNewPasswordWrap').innerHTML = html;
+            document.getElementById('btnCopyAp').addEventListener('click', function() {
+                navigator.clipboard.writeText(r.password);
+                document.getElementById('btnCopyAp').textContent = '✓ ' + _tr('tfa.setup.common.copied', 'Copied');
             });
+            loadAll();
         });
 
         // ============ SESSIONS HANDLER ============
@@ -1090,7 +1409,22 @@
         // ============ DISABLE HANDLER ============
         document.getElementById('btnDisable').addEventListener('click', async function() {
             if (!(await tfaConfirm({ title: _tr('tfa.setup.disable.confirm_title', 'Disable 2FA?'), message: _tr('tfa.setup.disable.confirm_msg', 'This removes ALL recovery codes, paired devices, app passwords, and trusted browsers. Only your password will be required to sign in.'), confirmText: _tr('tfa.setup.disable.confirm_ok', 'Disable 2FA'), danger: true }))) return;
-            api('POST', 'TwoFactorAuth/Setup/Disable').then(loadAll);
+            // [v2.5.6] (round-5d): optimistic step-up. Disable endpoint gates
+            // when RequireTwoFactorToDisable is on (default true).
+            try {
+                await mutateWithStepUp('POST', 'TwoFactorAuth/Setup/Disable', {}, {
+                    title: _tr('tfa.setup.disable.confirm_title', 'Disable 2FA?'),
+                    message: _tr('tfa.setup.stepup.disable_msg', 'Enter your current TOTP or recovery code to disable 2FA.')
+                });
+                loadAll();
+            } catch (e) {
+                if (e && e.cancelled) return;
+                if (e && e.status === 403 && e.body && (e.body.twoFactorRequired || e.body.stepUpRequired)) {
+                    alert(_tr('tfa.setup.stepup.wrong_code', 'That code did not verify. Try again.'));
+                } else {
+                    alert(_tr('tfa.setup.disable.failed', 'Failed to disable 2FA.'));
+                }
+            }
         });
 
         // ============ v1.4: PASSKEYS ============
@@ -1129,25 +1463,78 @@
             });
         }
         function loadPasskeys() {
-            loadPasskeyDiag();
+            // [v2.5.6] (round-5 hardening): loadPasskeyDiag is admin-only and
+            // its failure must not block the user-facing passkey list. Run
+            // in its own try so any throw is isolated.
+            try { loadPasskeyDiag(); } catch (e) { try { console.error('[2FA] loadPasskeyDiag failed', e); } catch (e2) {} }
             var box = document.getElementById('passkeyList');
+            if (!box) return;
+            // [v2.5.6] (round-5e fix): strip the data-i18n-key attribute on
+            // the placeholder div BEFORE we populate it. The i18n script
+            // (tfa-i18n.js applyTranslations) walks all [data-i18n-key]
+            // elements and resets their textContent — so after we populate
+            // the passkey list, the next applyTranslations pass (fired on
+            // language-picker mount, or after the i18n bundle resolves)
+            // overwrites our populated content with the "Loading…"
+            // placeholder. Stripping the attribute makes the element
+            // invisible to future i18n passes. THIS IS WHY THE LIST
+            // FLASHED THEN REVERTED TO LOADING.
+            box.removeAttribute('data-i18n-key');
+            // [v2.5.6] (round-5c): if the fetch hasn't completed in 8 seconds,
+            // replace the "Loading…" placeholder with an actionable error.
+            // The user reports the GET hanging in production behind Cloudflare
+            // Tunnel; until we root-cause that we at least don't leave the
+            // UI silently stuck.
+            var didFinish = false;
+            setTimeout(function() {
+                if (didFinish) return;
+                try {
+                    if (box && box.textContent && box.textContent.toLowerCase().indexOf('loading') !== -1) {
+                        box.innerHTML = '<span class="muted">' + _tr('tfa.setup.passkeys.load_timeout', 'Passkey list timed out — refresh the page (Ctrl+F5) to retry.') + '</span>';
+                    }
+                } catch (e) {}
+            }, 8000);
             api('GET', 'TwoFactorAuth/Passkeys').then(function(rows) {
                 if (!rows || !rows.length) { box.innerHTML = '<span class="muted">' + _tr('tfa.setup.passkeys.empty', 'No passkeys yet. Add one below.') + '</span>'; return; }
                 box.innerHTML = rows.map(function(p){
                     var added = new Date(p.createdAt || p.CreatedAt).toLocaleDateString();
                     var lu = (p.lastUsedAt || p.LastUsedAt) ? new Date(p.lastUsedAt || p.LastUsedAt).toLocaleDateString() : _tr('tfa.setup.time.never', 'never');
+                    // SECURITY [v2.5.6] (ext review XSS): user-supplied passkey
+                    // label was rendered raw into innerHTML — a self-XSS
+                    // sink, but still risk for shared-admin views or audit
+                    // tools that render the passkey list. Escape on render.
+                    // Defense-in-depth is also applied in PasskeyService where
+                    // labels are stripped of control chars + capped before
+                    // persistence.
+                    var rawLabel = p.label || p.Label || _tr('tfa.setup.passkeys.default_label', 'Passkey');
+                    var rawId = p.id || p.Id || '';
                     return '<div class="row" style="justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.06);padding:8px 0;">' +
-                        '<div><strong>' + (p.label || p.Label || _tr('tfa.setup.passkeys.default_label', 'Passkey')) + '</strong><br><span class="muted" style="font-size:12px;">' + _tr('tfa.setup.passkeys.added_prefix', 'added') + ' ' + added + ' • ' + _tr('tfa.setup.common.last_used_prefix', 'last used') + ' ' + lu + '</span></div>' +
-                        '<button class="btn-ghost btn-sm tfa-passkey-del" data-id="' + (p.id || p.Id) + '">' + _tr('tfa.setup.passkeys.btn_remove', 'Remove') + '</button>' +
+                        '<div><strong>' + escapeHtml(rawLabel) + '</strong><br><span class="muted" style="font-size:12px;">' + _tr('tfa.setup.passkeys.added_prefix', 'added') + ' ' + added + ' • ' + _tr('tfa.setup.common.last_used_prefix', 'last used') + ' ' + lu + '</span></div>' +
+                        '<button class="btn-ghost btn-sm tfa-passkey-del" data-id="' + escapeHtml(rawId) + '">' + _tr('tfa.setup.passkeys.btn_remove', 'Remove') + '</button>' +
                         '</div>';
                 }).join('');
                 box.querySelectorAll('.tfa-passkey-del').forEach(function(b){
                     b.addEventListener('click', async function(){
                         if (!(await tfaConfirm(_tr('tfa.setup.passkeys.confirm_remove', 'Remove this passkey?')))) return;
-                        api('DELETE', 'TwoFactorAuth/Passkeys/' + b.dataset.id).then(loadPasskeys);
+                        // [v2.5.6] (round-5d): optimistic step-up via URL helper.
+                        var url = 'TwoFactorAuth/Passkeys/' + encodeURIComponent(b.dataset.id);
+                        try {
+                            await mutateWithStepUpUrl('DELETE', url, {
+                                message: _tr('tfa.setup.stepup.passkey_del_msg', 'Enter your current TOTP or recovery code to remove this passkey.')
+                            });
+                            loadPasskeys();
+                        } catch (e) {
+                            if (e && e.cancelled) return;
+                            if (e && e.status === 403 && e.body && (e.body.stepUpRequired || e.body.twoFactorRequired)) {
+                                alert(_tr('tfa.setup.stepup.wrong_code', 'That code did not verify. Try again.'));
+                            }
+                        }
                     });
                 });
-            }).catch(function(){ box.innerHTML = '<span class="muted">' + _tr('tfa.setup.passkeys.load_failed', 'Failed to load passkeys.') + '</span>'; });
+            }).then(function() { didFinish = true; }).catch(function(){
+                didFinish = true;
+                box.innerHTML = '<span class="muted">' + _tr('tfa.setup.passkeys.load_failed', 'Failed to load passkeys.') + '</span>';
+            });
         }
         document.getElementById('btnAddPasskey').addEventListener('click', async function() {
             var ok = document.getElementById('passkeySuccess'), err = document.getElementById('passkeyError');
@@ -1174,7 +1561,13 @@
                 }
             } catch (e) {}
             try {
-                var begin = await api('POST', 'TwoFactorAuth/Passkeys/RegisterBegin');
+                // [v2.5.6] (round-5d): optimistic step-up for RegisterBegin.
+                // Try without code first — server gates only when hardened
+                // security is configured. On 403 stepUpRequired, prompt and
+                // retry once.
+                var begin = await mutateWithStepUp('POST', 'TwoFactorAuth/Passkeys/RegisterBegin', {}, {
+                    message: _tr('tfa.setup.stepup.passkey_add_msg', 'Enter your current TOTP or recovery code to add a passkey.')
+                });
                 var opts = begin.options;
                 opts.challenge = b64uToBytes(opts.challenge);
                 opts.user.id = b64uToBytes(opts.user.id);
@@ -1196,6 +1589,9 @@
                 document.getElementById('passkeyLabel').value = '';
                 loadPasskeys();
             } catch (e) {
+                // [v2.5.6] (round-5d): user-cancelled the step-up prompt is
+                // a normal flow, not an error.
+                if (e && e.cancelled) return;
                 // Surface DOMException name (NotAllowedError, SecurityError,
                 // NotSupportedError, InvalidStateError) — Apple's blanket
                 // "request is not allowed" message hides the real cause.
@@ -1234,14 +1630,19 @@
             var box = document.getElementById('qrPairOut');
             box.innerHTML = '<span class="muted">' + _tr('tfa.setup.qrpair.generating', 'Generating…') + '</span>';
             api('GET', 'TwoFactorAuth/Setup/QrPair/Begin').then(function(r) {
-                // SECURITY [v2.5.6] (U6): prefer server-rendered QR PNG
-                // returned inline as base64 data: URL — no third-party
-                // service sees the pairing token. Fall back to the legacy
-                // api.qrserver.com URL only if the server didn't include
-                // qrPng (rolling-upgrade window).
-                var qrSrc = r.qrPng
-                    || ('https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=' + encodeURIComponent(r.url));
-                box.innerHTML = '<img src="' + qrSrc + '" alt="QR" style="background:#fff;padding:8px;border-radius:8px;width:240px;height:240px;" /><br><span class="muted" style="font-size:12px;">' + _tr('tfa.setup.qrpair.open_on_phone_prefix', 'Open this on a signed-in phone — link expires at') + ' ' + new Date(r.expiresAt).toLocaleTimeString() + '</span>';
+                // SECURITY [v2.5.6] (ext review #8): always use the
+                // server-rendered QR PNG (data: URL). The earlier rolling-
+                // upgrade fallback to api.qrserver.com leaked the pairing
+                // token to a third-party origin, which is an account-
+                // takeover-grade leak (anyone with the URL completes the
+                // pair). The server endpoint has emitted qrPng since v2.5.6
+                // — if it's missing we treat it as a failure rather than
+                // falling back to the third-party encoder.
+                if (!r.qrPng) {
+                    box.innerHTML = '<span class="muted">' + _tr('tfa.setup.qrpair.failed', 'Failed to generate QR.') + '</span>';
+                    return;
+                }
+                box.innerHTML = '<img src="' + r.qrPng + '" alt="QR" style="background:#fff;padding:8px;border-radius:8px;width:240px;height:240px;" /><br><span class="muted" style="font-size:12px;">' + _tr('tfa.setup.qrpair.open_on_phone_prefix', 'Open this on a signed-in phone — link expires at') + ' ' + new Date(r.expiresAt).toLocaleTimeString() + '</span>';
             }).catch(function() { box.innerHTML = '<span class="muted">' + _tr('tfa.setup.qrpair.failed', 'Failed to generate QR.') + '</span>'; });
         });
         // Show the QR-pair card only once a TOTP enrolment exists.
@@ -1264,13 +1665,20 @@
         // Show the QR-pair card once TOTP is enrolled (loadAll runs first).
         var origLoadAll = loadAll;
         loadAll = function() {
-            origLoadAll();
+            // [v2.5.6] (round-5 hardening): wrap origLoadAll in try so any
+            // synchronous failure in its setup doesn't prevent loadPasskeys
+            // from running and replacing the placeholder "Loading…" text.
+            try { origLoadAll(); } catch (e) { try { console.error('[2FA] loadAll failed', e); } catch (e2) {} }
             api('GET', 'TwoFactorAuth/Setup/Status').then(function(s) {
                 var enabled = s && (s.totpEnabled || s.TotpEnabled);
                 document.getElementById('cardQrPair').style.display = enabled ? '' : 'none';
                 document.getElementById('cardTotpRotate').style.display = enabled ? '' : 'none';
             }).catch(function(){});
-            loadPasskeys();
+            try { loadPasskeys(); } catch (e) {
+                try { console.error('[2FA] loadPasskeys failed', e); } catch (e2) {}
+                var box = document.getElementById('passkeyList');
+                if (box) box.innerHTML = '<span class="muted">' + _tr('tfa.setup.passkeys.load_failed', 'Failed to load passkeys.') + '</span>';
+            }
         };
 
         // v2.5.0: fetch the anonymous public-config so renderers know whether

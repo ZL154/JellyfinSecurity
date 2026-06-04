@@ -159,9 +159,12 @@ public class BypassEvaluatorIntegrationTests
     }
 
     // ---- Registered device ID bypass (native client pairing) ---------------
+    // v2.5.6: default-off bypass behavior is the secure baseline. The
+    // opt-in path (admin sets BareDeviceIdBypassEnabled=true) is covered by
+    // integration testing against a running server, not these unit tests.
 
     [Fact]
-    public void Evaluate_returns_registered_device_bypass_for_paired_deviceId()
+    public void Evaluate_no_registered_device_bypass_for_matching_id_when_default_off()
     {
         var evaluator = NewEvaluator();
 
@@ -175,17 +178,23 @@ public class BypassEvaluatorIntegrationTests
             registeredDeviceIds: new List<string> { "swiftfin-uuid-12345" },
             apiKeys: new List<ApiKeyEntry>());
 
-        Assert.True(result.IsBypassed);
-        Assert.Equal("registered_device", result.Reason);
+        // SECURITY [v2.5.6] (ext review bare-DeviceId): the registered-device
+        // bypass is now gated on PluginConfiguration.BareDeviceIdBypassEnabled
+        // (default false). In tests Plugin.Instance is null so the gate
+        // resolves to false-by-default — bypass no longer fires. Bare
+        // DeviceId is client-supplied and lacks integrity binding; admins
+        // re-enable explicitly to opt into the legacy convenience.
+        Assert.False(result.IsBypassed);
+        Assert.Null(result.Reason);
     }
 
     [Fact]
-    public void Evaluate_returns_registered_device_bypass_across_tizen_session_restart()
+    public void Evaluate_no_registered_device_bypass_when_bareDeviceId_default_off()
     {
         // Tizen webview deviceId pattern: stable base64 prefix + "|<millis>".
-        // The user paired with "...prefix|1700000000000". After the app
-        // restarts the prefix is still stable but the suffix changed. Bypass
-        // must still fire — exact bug v1.4.1 fixed.
+        // Even with a matching prefix-normalised id in registered list, the
+        // v2.5.6 default closes the bypass — clients must re-prove via
+        // signed trusted-device cookie or use the opt-in flag.
         var evaluator = NewEvaluator();
 
         var result = evaluator.Evaluate(
@@ -201,8 +210,8 @@ public class BypassEvaluatorIntegrationTests
             },
             apiKeys: new List<ApiKeyEntry>());
 
-        Assert.True(result.IsBypassed);
-        Assert.Equal("registered_device", result.Reason);
+        Assert.False(result.IsBypassed);
+        Assert.Null(result.Reason);
     }
 
     [Fact]

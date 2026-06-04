@@ -81,6 +81,54 @@ public class EmailOtpService
         return (code, sent);
     }
 
+    // [v2.5.6] (round-5d): user-self step-up email codes. Distinct dict from
+    // _pendingCodes (which is keyed by challenge-token for the login flow)
+    // because step-up codes are issued OUTSIDE a login challenge — when a
+    // signed-in user wants to verify a factor mutation via email. Keyed by
+    // userId, single-entry per user (a new send overwrites). 5-minute TTL.
+    private readonly ConcurrentDictionary<Guid, EmailOtpEntry> _stepUpCodes = new();
+
+    /// <summary>[v2.5.6] (round-5d): generate + send an email step-up code
+    /// to the user's configured email. Returns true on successful send,
+    /// false if SMTP isn't configured / send failed / rate-limited.</summary>
+    public async Task<bool> SendStepUpCodeAsync(Guid userId, string username, string email)
+    {
+        CleanupExpired();
+        if (!CheckRateLimit(userId))
+        {
+            _logger.LogWarning("Email step-up rate limit exceeded for {Username}", username);
+            return false;
+        }
+        if (string.IsNullOrEmpty(email)) return false;
+        var code = RandomNumberGenerator.GetInt32(10_000_000, 100_000_000).ToString("D8", CultureInfo.InvariantCulture);
+        var ttlSeconds = Plugin.Instance?.Configuration.EmailOtpTtlSeconds ?? 300;
+        var now = DateTime.UtcNow;
+        _stepUpCodes[userId] = new EmailOtpEntry
+        {
+            CodeHash = HashOtp(code),
+            UserId = userId,
+            CreatedAt = now,
+            ExpiresAt = now.AddSeconds(ttlSeconds),
+            IsUsed = false,
+        };
+        RecordSend(userId, now);
+        return await TrySendEmailAsync(email, username, code, ttlSeconds).ConfigureAwait(false);
+    }
+
+    /// <summary>[v2.5.6] (round-5d): validate + consume the user's step-up
+    /// email code. Returns true on match (and removes the entry); false on
+    /// no-match / expired / not-found. Same constant-time-compare and
+    /// single-use semantics as the login flow's ValidateCode.</summary>
+    public bool ValidateStepUpCode(Guid userId, string code)
+    {
+        if (!_stepUpCodes.TryGetValue(userId, out var entry)) return false;
+        if (entry.IsUsed || DateTime.UtcNow > entry.ExpiresAt) return false;
+        var submitted = HashOtp(code ?? string.Empty);
+        if (!CryptographicOperations.FixedTimeEquals(entry.CodeHash, submitted)) return false;
+        // Atomic single-use removal — same pattern as ValidateCode (N-A1).
+        return _stepUpCodes.TryRemove(userId, out _);
+    }
+
     /// <summary>
     /// Public test method — sends a "Hello from Jellyfin 2FA" mail using current SMTP config.
     /// Throws on failure so callers can surface the error.

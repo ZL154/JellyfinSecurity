@@ -94,6 +94,27 @@ public class InitiatePairingRequest
 public class DisableRequest
 {
     public string? Code { get; set; }
+
+    // [v2.5.6] (round-5c): step-up token alternative — see StepUpCodeRequest.
+    public string? StepUpToken { get; set; }
+}
+
+/// <summary>SECURITY [v2.5.6] (ext review self-service-takeover): generic body
+/// carrying the fresh TOTP/recovery code for user-self step-up. Used by
+/// endpoints whose only client input is the step-up proof (e.g. starting
+/// a fresh TOTP enrollment, generating recovery codes, beginning passkey
+/// registration). When the user has no existing 2FA this is ignored.</summary>
+public class StepUpCodeRequest
+{
+    public string? Code { get; set; }
+
+    // [v2.5.6] (round-5c): single-use 60-second token issued by
+    // /TwoFactorAuth/StepUp/UserCodeVerify or
+    // /TwoFactorAuth/StepUp/UserPasskeyVerify. Submitted as an
+    // alternative to Code so the UI can give the user a choice of
+    // verification methods (TOTP / recovery code / passkey assertion)
+    // without each mutation endpoint having to re-verify directly.
+    public string? StepUpToken { get; set; }
 }
 
 /// <summary>v2.5.0: body for exchanging a fresh 2FA code for a short-lived

@@ -543,6 +543,19 @@
                                 </label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.hardening.allow_indefinite_trust_help">When enabled, users can mark individual trusted browsers and paired devices to stay signed in indefinitely (no 30-day re-auth). Default OFF for safety — anyone with physical access to the device retains access until the user manually revokes.</div>
                             </div>
+                            <!-- [v2.5.6] (round-5 fix D): hardened-security tri-state.
+                                 Round-5f removed the "Force for all users"
+                                 shortcut callout — admins use the dropdown
+                                 below directly. -->
+                            <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
+                                <label for="cfgSelfServiceStepUp" style="font-weight:500;" data-i18n-key="tfa.admin.hardening.lbl_selfservice_stepup">Hardened security for users (factor changes)</label>
+                                <select id="cfgSelfServiceStepUp" class="tfa-input" style="width:100%;max-width:640px;">
+                                    <option value="Off" data-i18n-key="tfa.admin.hardening.selfservice_off">Off — users can change 2FA factors without a current code</option>
+                                    <option value="UserChoice" data-i18n-key="tfa.admin.hardening.selfservice_userchoice">User choice — show a per-user toggle on the Setup page</option>
+                                    <option value="Forced" data-i18n-key="tfa.admin.hardening.selfservice_forced">Forced — every user must submit a current code to change a factor</option>
+                                </select>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.hardening.selfservice_stepup_help">Controls whether users must submit a current TOTP / recovery code (or passkey / email step-up) before adding or replacing a 2FA factor (new TOTP, recovery-code regen, app-password create, passkey add/remove). Default "Forced" closes the stolen-session-takeover path — a logged-in attacker can't silently enroll their own factor. "User choice" exposes the option on each Setup page so individual users can opt in.</div>
+                            </div>
                         </div>
 
                         <div class="tfa-section">
@@ -723,7 +736,10 @@
                         <button type="button" class="tfa-btn tfa-btn-primary" id="btnSaveSettings" style="margin-top:8px;padding:11px 32px;font-size:15px;" data-i18n-key="tfa.admin.settings.btn_save">Save Settings</button>
                         <span id="saveStatus" style="margin-left:14px;color:#4caf50;font-size:13px;"></span>
 
-                        <div class="tfa-section">
+                        <!-- [v2.5.6] (round-5g): extra breathing room between the
+                             Save Settings button and the Backup & Restore section
+                             so they don't visually merge. -->
+                        <div class="tfa-section" style="margin-top:36px;">
                             <h2 data-i18n-key="tfa.admin.backup_restore_heading">Backup & Restore (v2.5.0)</h2>
                             <p style="font-size:13px;color:#888;margin-bottom:12px;" data-i18n-key="tfa.admin.backup_explainer">Download a snapshot of your plugin configuration so you can restore it on another server or roll back after a misconfiguration.</p>
 

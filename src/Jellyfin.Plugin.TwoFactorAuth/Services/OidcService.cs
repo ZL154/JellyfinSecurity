@@ -172,6 +172,14 @@ public class OidcService : IDisposable
             ["client_secret"] = provider.ClientSecret,
             ["code_verifier"] = pending.CodeVerifier,
         });
+        // SECURITY [v2.5.6] (ext review #6): re-validate the token endpoint
+        // before every use, not just at discovery time. The discovery cache
+        // holds the URL string for up to _discoveryTtl; in that window an
+        // attacker controlling DNS for the IdP host could flip A records to
+        // 127.0.0.1 / 169.254.169.254 / a private IP and the cached URL would
+        // happily POST credentials there. GetJwksAsync already does this; the
+        // token + userinfo paths were the gap.
+        await EnsureSafeOutboundAsync(disc.TokenEndpoint).ConfigureAwait(false);
         var tokenResp = await _http.PostAsync(disc.TokenEndpoint, tokenForm).ConfigureAwait(false);
 
         if (!tokenResp.IsSuccessStatusCode)
@@ -260,6 +268,10 @@ public class OidcService : IDisposable
         {
             try
             {
+                // SECURITY [v2.5.6] (ext review #6): re-validate userinfo
+                // endpoint before each fetch — same DNS-rebind window as the
+                // token endpoint. See GetJwksAsync for the same pattern.
+                await EnsureSafeOutboundAsync(disc.UserInfoEndpoint).ConfigureAwait(false);
                 var extra = await FetchUserInfoClaimsAsync(disc.UserInfoEndpoint, accessToken).ConfigureAwait(false);
                 if (extra.Groups.Length > 0)
                 {
@@ -420,6 +432,42 @@ public class OidcService : IDisposable
                     var u = _userManager.GetUserById(uid);
                     if (u is not null) return u;
                 }
+            }
+        }
+
+        // 2b. Link-on-first-use for a pre-existing Jellyfin user (Issue #48).
+        // If a Jellyfin user with this preferred_username already exists but
+        // has no SsoLink yet (typical when the plugin was installed AFTER
+        // the user was created, or when the admin is just enabling OIDC for
+        // existing accounts), CreateUserAsync would throw "user already
+        // exists" and the sign-in would dead-end. Treat the username match
+        // as an implicit link request, subject to two guardrails:
+        //   (a) Provider.AutoCreateUsers must be enabled — admin has already
+        //       opted into trusting IdP-asserted usernames for provisioning.
+        //   (b) The pre-existing Jellyfin user must NOT already have an
+        //       SsoLink for THIS provider with a different subject. That
+        //       case means another IdP identity already claimed this user
+        //       and we're seeing a second IdP account trying to take over.
+        //       Refuse and let the admin reconcile.
+        if (provider.AutoCreateUsers && !string.IsNullOrEmpty(claims.Username))
+        {
+            var existing = _userManager.GetUserByName(claims.Username);
+            if (existing is not null)
+            {
+                var existingData = allUsers.FirstOrDefault(d => d.UserId == existing.Id);
+                var conflicting = existingData?.SsoLinks
+                    .Any(l => l.ProviderId == provider.Id && l.Subject != claims.Subject) == true;
+                if (conflicting)
+                {
+                    _logger.LogWarning(
+                        "[2FA] OIDC sign-in refused: Jellyfin user '{User}' already linked to a different {Provider} identity. Possible takeover attempt — admin must reconcile.",
+                        claims.Username, provider.Id);
+                    return null;
+                }
+                _logger.LogInformation(
+                    "[2FA] OIDC linking pre-existing Jellyfin user '{User}' to provider {Provider} (sub={Sub})",
+                    claims.Username, provider.Id, claims.Subject);
+                return existing;
             }
         }
 

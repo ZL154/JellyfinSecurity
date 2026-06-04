@@ -352,16 +352,20 @@
                 input.value = '';
                 if (hint) hint.textContent = _tr('tfa.challenge.hint_recovery', 'Each recovery code works once. Save the others somewhere safe.');
             } else {
-                label.textContent = method === 'email'
-                    ? _tr('tfa.challenge.email_input_label', 'Enter the 6-digit code sent to your email')
+                // Issue #50: email OTPs are 8 digits (raised in v2.5.5 from 6
+                // for brute-force resistance), TOTP stays at 6. Switch the
+                // input + label per method instead of hard-coding 6 for both.
+                var isEmail = method === 'email';
+                label.textContent = isEmail
+                    ? _tr('tfa.challenge.email_input_label', 'Enter the 8-digit code sent to your email')
                     : _tr('tfa.challenge.totp_input_label', 'Enter the 6-digit code from your authenticator app');
                 input.classList.remove('recovery');
                 input.setAttribute('inputmode', 'numeric');
-                input.setAttribute('maxlength', '6');
-                input.setAttribute('placeholder', '000000');
-                input.setAttribute('pattern', '[0-9]{6}');
+                input.setAttribute('maxlength', isEmail ? '8' : '6');
+                input.setAttribute('placeholder', isEmail ? '00000000' : '000000');
+                input.setAttribute('pattern', isEmail ? '[0-9]{8}' : '[0-9]{6}');
                 input.value = '';
-                if (hint) hint.textContent = method === 'email'
+                if (hint) hint.textContent = isEmail
                     ? _tr('tfa.challenge.hint_email', 'Email codes expire 5 minutes after they are sent.')
                     : _tr('tfa.challenge.hint_rotate', 'Codes rotate every 30 seconds.');
             }
@@ -377,7 +381,9 @@
                 // Allow A-Z, 0-9, dash; uppercase as user types.
                 e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 11);
             } else {
-                e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+                // Issue #50: email OTPs are 8 digits, TOTP is 6.
+                var maxDigits = currentMethod === 'email' ? 8 : 6;
+                e.target.value = e.target.value.replace(/\D/g, '').slice(0, maxDigits);
             }
             clearError();
         });
@@ -507,9 +513,17 @@
                     return;
                 }
             } else {
-                if (!/^\d{6}$/.test(code)) {
-                    showError(_tr('tfa.challenge.validation_enter_6_digit', 'Enter the 6-digit code.'));
-                    return;
+                // Issue #50: email OTP is 8 digits, TOTP is 6.
+                if (currentMethod === 'email') {
+                    if (!/^\d{8}$/.test(code)) {
+                        showError(_tr('tfa.challenge.validation_enter_8_digit', 'Enter the 8-digit code.'));
+                        return;
+                    }
+                } else {
+                    if (!/^\d{6}$/.test(code)) {
+                        showError(_tr('tfa.challenge.validation_enter_6_digit', 'Enter the 6-digit code.'));
+                        return;
+                    }
                 }
             }
             clearError();

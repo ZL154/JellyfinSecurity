@@ -504,7 +504,12 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         }
 
         // Paired-device bypass: user has explicitly approved this device ID before.
-        if (!string.IsNullOrEmpty(deviceId))
+        // SECURITY [v2.5.6] (ext review bare-DeviceId): gated on
+        // BareDeviceIdBypassEnabled (default false). The paired-device entry
+        // stores only a DeviceId (no signed token), so a stolen password
+        // + a known DeviceId would otherwise bypass 2FA here. Admins re-enable
+        // for TV/native-client convenience when the trade-off is acceptable.
+        if (config.BareDeviceIdBypassEnabled && !string.IsNullOrEmpty(deviceId))
         {
             var paired = userData.PairedDevices.FirstOrDefault(p =>
                 BypassEvaluator.DeviceIdMatches(p.DeviceId, deviceId));
@@ -553,9 +558,19 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // ------------------------------------------------------------------
         // v2.4.1: use ShouldEnforceFor so per-role policy (Admins-only) is
         // honored in this provider too, not just in the middleware.
+        //
+        // [v2.5.6] (round-5 fix B): a configured email + globally-enabled
+        // email OTP counts as a valid sole factor — matches the path in
+        // TwoFactorEnforcementMiddleware so the two enforcement entry points
+        // stay consistent. Lets a passkey-less / TOTP-less user with email
+        // configured complete sign-in via email OTP instead of being forced
+        // into TOTP enrollment.
+        var providerHasEmailFactor = config.EmailOtpEnabled
+            && !string.IsNullOrEmpty(config.GetUserEmail(userId.ToString("N")));
         var enrollmentRequired = config.ShouldEnforceFor(providerIsAdmin)
             && !userData.TotpVerified
-            && userData.Passkeys.Count == 0;
+            && userData.Passkeys.Count == 0
+            && !providerHasEmailFactor;
         var methods = new List<string>();
 
         if (enrollmentRequired)

@@ -14,10 +14,13 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Tests;
 public class StepUpServiceTests
 {
     [Fact]
-    public void Config_defaults_are_opt_in_off()
+    public void Config_defaults_are_secure_by_default_v2_5_6()
     {
         var cfg = new PluginConfiguration();
-        Assert.False(cfg.RequireTwoFactorToDisable);
+        // [v2.5.6] (round-5 fix C): RequireTwoFactorToDisable default flipped
+        // from false to true. Letting a stolen session disable 2FA without
+        // proof of the current factor was a free account-takeover path.
+        Assert.True(cfg.RequireTwoFactorToDisable);
         Assert.Equal(StepUpLevel.Off, cfg.StepUpLevel);
         Assert.Equal(300, cfg.StepUpWindowSeconds);
     }

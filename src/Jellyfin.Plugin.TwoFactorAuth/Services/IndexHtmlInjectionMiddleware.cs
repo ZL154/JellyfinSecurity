@@ -11,7 +11,15 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// </summary>
 public class IndexHtmlInjectionMiddleware
 {
-    private const string ScriptTag = "<script src=\"/TwoFactorAuth/inject.js\" defer></script>";
+    // Issue #49: dropped `defer`. With defer, inject.js ran AFTER Jellyfin's
+    // own bundles in <head> had already captured references to the original
+    // window.fetch / XMLHttpRequest.prototype.open/send. The browser saw 401
+    // + TwoFactorRequired but the un-wrapped fetch returned it straight to
+    // Jellyfin Web, which rendered "incorrect username or password". A
+    // synchronous script tag placed as the first child of <head> executes
+    // BEFORE Jellyfin's bundle, so our fetch/XHR wraps are in place when the
+    // bundle captures them.
+    private const string ScriptTag = "<script src=\"/TwoFactorAuth/inject.js\"></script>";
     private const string InjectionMarker = "<!-- twofactor-inject -->";
 
     private readonly RequestDelegate _next;
@@ -148,14 +156,48 @@ public class IndexHtmlInjectionMiddleware
                 return;
             }
 
-            var bodyCloseIndex = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
-            if (bodyCloseIndex < 0)
+            // Issue #49: inject as the FIRST child of <head> so the script
+            // executes BEFORE Jellyfin's own bundles capture references to
+            // window.fetch / XMLHttpRequest. Locate the end of the <head>
+            // opening tag (handles attributes / whitespace via a regex) and
+            // insert immediately after it.
+            //
+            // Fallback chain:
+            //   1. After <head ...>  — preferred, runs before all Jellyfin scripts.
+            //   2. After <body ...>  — still earlier than </body> + defer was.
+            //   3. Before </body>    — last resort, matches the legacy behavior.
+            var headOpen = System.Text.RegularExpressions.Regex.Match(
+                html,
+                @"<head\b[^>]*>",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            int insertAt;
+            if (headOpen.Success)
             {
-                await originalBody.WriteAsync(upstream).ConfigureAwait(false);
-                return;
+                insertAt = headOpen.Index + headOpen.Length;
+            }
+            else
+            {
+                var bodyOpen = System.Text.RegularExpressions.Regex.Match(
+                    html,
+                    @"<body\b[^>]*>",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (bodyOpen.Success)
+                {
+                    insertAt = bodyOpen.Index + bodyOpen.Length;
+                }
+                else
+                {
+                    var bodyCloseIndex = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+                    if (bodyCloseIndex < 0)
+                    {
+                        await originalBody.WriteAsync(upstream).ConfigureAwait(false);
+                        return;
+                    }
+                    insertAt = bodyCloseIndex;
+                }
             }
 
-            var patched = html.Insert(bodyCloseIndex, InjectionMarker + ScriptTag);
+            var patched = html.Insert(insertAt, InjectionMarker + ScriptTag);
             var patchedBytes = Encoding.UTF8.GetBytes(patched);
 
             // PERF-P6: store in cache for the next request.

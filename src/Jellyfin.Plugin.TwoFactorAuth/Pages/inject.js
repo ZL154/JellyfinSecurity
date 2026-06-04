@@ -99,10 +99,17 @@
 
     function isAuthPath(url) {
         if (!url) return false;
+        // Issue #49: also accept URLs without a leading slash. Jellyfin's
+        // ApiClient sometimes constructs auth calls as relative paths
+        // ("Users/AuthenticateByName") rather than absolute ("/Users/...").
+        // The prior strict leading-slash substring check missed the relative
+        // form, the response slipped through unhandled, and Jellyfin Web
+        // showed the generic "incorrect username or password" error instead
+        // of redirecting to the challenge page.
         var u = String(url).toLowerCase();
-        return u.indexOf('/users/authenticatebyname') >= 0
-            || u.indexOf('/users/authenticatewithquickconnect') >= 0
-            || /\/users\/[0-9a-f-]+\/authenticate(\?|$)/i.test(u);
+        return /(?:^|\/)users\/authenticatebyname(?:\?|\/|$)/.test(u)
+            || /(?:^|\/)users\/authenticatewithquickconnect(?:\?|\/|$)/.test(u)
+            || /(?:^|\/)users\/[0-9a-f-]+\/authenticate(?:\?|\/|$)/.test(u);
     }
     function handleTwoFactorBody(body) {
         if (!body || typeof body !== 'object') return false;

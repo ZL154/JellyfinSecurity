@@ -16,6 +16,29 @@ public class UserEmailEntry
 /// RequireForAllUsers flag with a 3-state policy. RequireForAllUsers is
 /// kept as a backwards-compat shim — setting it to true still works the
 /// same as EnforcementScope=All.</summary>
+/// <summary>[v2.5.6] (round-5 fix D): tri-state policy for whether
+/// self-service 2FA mutations (enroll/replace TOTP, generate recovery
+/// codes, create app password, add/delete passkey) require a fresh
+/// current-factor code from the user. Designed to balance security
+/// (default Forced) against UX flexibility for trusted households or
+/// kiosk setups.</summary>
+public enum SelfServiceStepUpMode
+{
+    /// <summary>No prompt. Any authenticated user can mutate their own 2FA
+    /// state without a current code. Equivalent to v2.5.5 behaviour.</summary>
+    Off = 0,
+
+    /// <summary>Per-user opt-in. Admin exposes a toggle on each user's
+    /// Setup page; opted-in users get the same prompt as Forced, opted-out
+    /// users behave like Off. New per-user data starts opted-out.</summary>
+    UserChoice = 1,
+
+    /// <summary>Server-side mandatory. Every user with existing 2FA must
+    /// submit a current TOTP/recovery code before mutating factors. No
+    /// per-user opt-out. This is the secure default for v2.5.6.</summary>
+    Forced = 2,
+}
+
 public enum EnforcementScope
 {
     /// <summary>Default. Each user opts in to 2FA from the Setup page.
@@ -79,14 +102,46 @@ public class PluginConfiguration : BasePluginConfiguration
     /// expired — admins must re-register or clear to migrate them.</summary>
     public int RegisteredDeviceMaxAgeDays { get; set; } = 0;
 
+    // SECURITY [v2.5.6] (ext review bare-DeviceId): bare client-supplied
+    // DeviceId is a weak factor — a stolen password + a known/guessed/spoofed
+    // DeviceId would skip 2FA via the "registered_device" or "paired_device"
+    // bypass paths. We default this flag to FALSE so new and upgrading
+    // installs close the gap. Admins who depend on the bare-DeviceId bypass
+    // for TV / native-client convenience (Tizen, AppleTV, Findroid, etc.)
+    // can re-enable explicitly. The signed trusted-device cookie path
+    // (TokenHash + DeviceId) remains active regardless — that's still a
+    // secure factor and isn't affected by this flag.
+    public bool BareDeviceIdBypassEnabled { get; set; } = false;
+
     /// <summary>Legacy v2.3-style global flag. Kept for backwards compat: if
     /// true, behaves identically to EnforcementScope=All. Set the v2.4
     /// EnforcementScope to opt into the per-role policy.</summary>
     public bool RequireForAllUsers { get; set; } = false;
 
     /// <summary>v2.5.0: require a fresh TOTP/recovery code before a user can
-    /// disable their own 2FA. OFF by default (opt-in). Recommended.</summary>
-    public bool RequireTwoFactorToDisable { get; set; } = false;
+    /// disable their own 2FA.
+    /// [v2.5.6] (round-5 fix C): default changed to TRUE. Letting a stolen
+    /// session disable 2FA without proof of the current factor was a free
+    /// account-takeover path. Admins can override to false for kiosk / lab
+    /// setups where the UX cost outweighs the risk.</summary>
+    public bool RequireTwoFactorToDisable { get; set; } = true;
+
+    /// <summary>SECURITY [v2.5.6] (round-5 fix D): tri-state hardened-security
+    /// policy for self-service 2FA mutations (TOTP enroll/replace, recovery-
+    /// code generate, app-password create, passkey add/delete). Replaces the
+    /// older boolean <c>RequireStepUpForSelfServiceChanges</c>.
+    ///   * <see cref="SelfServiceStepUpMode.Off"/> — never prompt the user
+    ///     for a current-factor code. Legacy behaviour, accepted risk.
+    ///   * <see cref="SelfServiceStepUpMode.UserChoice"/> — admin lets each
+    ///     user opt in via their own Setup page toggle. Users who opt in
+    ///     get the same code-on-change prompt as Forced; users who don't
+    ///     can mutate without a code (same as Off for them).
+    ///   * <see cref="SelfServiceStepUpMode.Forced"/> — every user must
+    ///     submit a current TOTP / recovery code before any 2FA mutation.
+    ///     No per-user opt-out. This is the secure default.
+    /// First-time setup on a no-2FA account is exempt under every mode —
+    /// there's no current factor to step up from yet.</summary>
+    public SelfServiceStepUpMode SelfServiceStepUpMode { get; set; } = SelfServiceStepUpMode.Forced;
 
     /// <summary>v2.5.0: how aggressively to require step-up re-auth for
     /// sensitive admin actions. Off by default (opt-in).</summary>
@@ -120,7 +175,18 @@ public class PluginConfiguration : BasePluginConfiguration
         };
     }
 
-    public bool LanBypassEnabled { get; set; } = true;
+    // SECURITY [v2.5.6] (ext review #3): default changed from true → false.
+    // Prior default + the default LanBypassCidrs (192.168/16, 10/8, 172.16/12)
+    // + TrustForwardedFor=false combination created a real risk for any
+    // Jellyfin running behind Docker / reverse-proxy / overlay-network where
+    // the apparent client IP is the container/proxy gateway (often a
+    // 172.16/12 or 10/8 address). External attackers would then look "LAN"
+    // to the plugin and bypass 2FA entirely. Admins who actually want LAN
+    // bypass must now (a) enable the flag, AND (b) configure
+    // TrustedProxyCidrs + TrustForwardedFor=true so the proxy-walked
+    // client IP is what's compared. Existing installs that opted in are
+    // unaffected — only new installs get the safer default.
+    public bool LanBypassEnabled { get; set; } = false;
 
     public string[] LanBypassCidrs { get; set; } = new[]
     {
