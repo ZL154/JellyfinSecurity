@@ -56,7 +56,16 @@ public class OidcProvider
     public string AllowedGroups { get; set; } = string.Empty;
 
     /// <summary>If non-empty, the `groups` claim is checked against this list
-    /// to grant Jellyfin admin. Comma-separated. Otherwise no admin elevation.</summary>
+    /// to grant Jellyfin admin. Comma-separated. Otherwise no admin elevation.
+    ///
+    /// SECURITY [v2.5.5] (N-A13): as of v2.5.5 this field is CONFIGURED but
+    /// NOT CONSUMED by the sign-in pipeline. The OIDC flow does not elevate
+    /// Jellyfin users to admin based on this list. Future implementer:
+    /// before wiring this up, REQUIRE a fresh TOTP / passkey step-up
+    /// challenge BEFORE applying admin elevation, and log every elevation
+    /// at WARN with the source claim. Without that guard, a malicious or
+    /// compromised IdP that controls the `groups` claim can elevate any
+    /// claimed user to Jellyfin administrator silently.</summary>
     public string AdminGroups { get; set; } = string.Empty;
 
     /// <summary>Auto-create a new Jellyfin user on first sign-in if the

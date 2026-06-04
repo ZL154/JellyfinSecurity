@@ -275,6 +275,20 @@ public class OidcService : IDisposable
                 // them here, the ResolveUserAsync email-match path can never
                 // find an existing Jellyfin user, and the flow falls through to
                 // auto-create which collides with same-named existing users.
+                //
+                // SECURITY [v2.5.5] (N-A20): the userinfo email is trusted on
+                // the strength of (1) a valid OIDC access_token from the
+                // token-exchange path that was bound to a signed id_token,
+                // and (2) the HTTPS+IP-validated userinfo_endpoint URL
+                // (EnsureSafeOutboundAsync). Implicit threat model: a fully
+                // compromised IdP (one that can return arbitrary userinfo
+                // for any access_token) can claim any email for the
+                // authenticated user, and that email is then used for
+                // UserEmails mapping. This is the standard OIDC trust
+                // boundary — the IdP is the source of truth for identity.
+                // If a future feature uses the email for elevation rather
+                // than lookup, re-verification at Jellyfin level should be
+                // added.
                 if (string.IsNullOrEmpty(claims.Email) && !string.IsNullOrEmpty(extra.Email))
                 {
                     claims = claims with { Email = extra.Email, EmailVerified = extra.EmailVerified };

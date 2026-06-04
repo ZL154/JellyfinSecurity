@@ -69,6 +69,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// deployments should turn this ON.</summary>
     public bool RequireChallengeIpMatch { get; set; } = false;
 
+    /// <summary>v2.5.5 (F12): days after which a registered-device-ID entry
+    /// expires and stops granting 2FA bypass. 0 = no expiry (legacy behaviour
+    /// preserved on upgrade). Recommend 90 days for a balance between
+    /// convenience (don't re-prompt long-trusted devices) and security
+    /// (compromise of a long-dormant device-id rotates out automatically).
+    /// Only affects entries in <see cref="Models.UserTwoFactorData.RegisteredDeviceEntries"/>;
+    /// legacy entries (only in RegisteredDeviceIds, no timestamp) are not
+    /// expired — admins must re-register or clear to migrate them.</summary>
+    public int RegisteredDeviceMaxAgeDays { get; set; } = 0;
+
     /// <summary>Legacy v2.3-style global flag. Kept for backwards compat: if
     /// true, behaves identically to EnforcementScope=All. Set the v2.4
     /// EnforcementScope to opt into the per-role policy.</summary>

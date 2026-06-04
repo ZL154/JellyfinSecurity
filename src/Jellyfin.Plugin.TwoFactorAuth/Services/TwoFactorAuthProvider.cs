@@ -132,11 +132,17 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             try
             {
                 var probedUser = UserManager.GetUserByName(username);
+                // SECURITY [v2.5.5] (N-A4): cap username at 256 chars before
+                // persisting. /Users/AuthenticateByName's model-binder cap
+                // is upstream; without our own cap, a 10MB username inflates
+                // the audit JSON on every probe.
+                var loggedUsername = probedUser?.Username ?? username ?? string.Empty;
+                if (loggedUsername.Length > 256) loggedUsername = loggedUsername[..256];
                 await _store.AddAuditEntryAsync(new AuditEntry
                 {
                     Timestamp = DateTime.UtcNow,
                     UserId = probedUser?.Id ?? Guid.Empty,
-                    Username = probedUser?.Username ?? username ?? string.Empty,
+                    Username = loggedUsername,
                     RemoteIp = authIp ?? string.Empty,
                     DeviceId = GetDeviceHeader("X-Emby-Device-Id", "DeviceId") ?? string.Empty,
                     DeviceName = GetDeviceHeader("X-Emby-Device-Name", "Device") ?? string.Empty,

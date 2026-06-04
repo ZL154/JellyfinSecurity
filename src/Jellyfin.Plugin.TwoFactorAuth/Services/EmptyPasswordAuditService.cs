@@ -71,9 +71,14 @@ public class EmptyPasswordAuditService : IHostedService
                 blockOn ? "ENABLED (these users CANNOT sign in via password)" : "DISABLED (these users CAN still sign in with empty password — exploitable)",
                 blockOn);
 
+            // SECURITY [v2.5.5] (N-A8): per-user detail at DEBUG so external
+            // log aggregators (Loki / Splunk / Datadog) shipping logs at
+            // INFO+ don't broadcast the username list. Summary count stays
+            // at WARN. Admins read the detail via DEBUG logs or the
+            // dashboard endpoint that reads VulnerableUserIds.
             foreach (var u in vulnerable)
             {
-                _logger.LogWarning(
+                _logger.LogDebug(
                     "[2FA] [SECURITY] Empty-password user: id={UserId} name='{Username}' isAdmin={IsAdmin}",
                     u.Id, u.Username, IsAdmin(u));
             }

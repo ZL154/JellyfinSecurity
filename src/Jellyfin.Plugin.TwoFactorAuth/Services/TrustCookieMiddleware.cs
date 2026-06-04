@@ -143,11 +143,32 @@ public class TrustCookieMiddleware
                     return;
                 }
 
+                // SECURITY [v2.5.5] (F16): persist LastUsedAt FIRST, then mark
+                // pre-verified, then issue the rotated cookie. If any step
+                // throws, the user is left in a state where the request
+                // either completes the existing 2FA challenge naturally or
+                // retries — never a "pre-verified but no cookie issued"
+                // window where the in-memory bypass exists but the cookie
+                // has not yet been sent to the client. Defense in depth:
+                // not exploitable (the legitimate user's retry just re-runs
+                // through this same path) but eliminates the inconsistency
+                // window flagged by the audit.
+                trustRecord.LastUsedAt = DateTime.UtcNow;
+                try
+                {
+                    await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // Save failed — do NOT pre-verify. Let the request fall
+                    // through to the normal 2FA challenge path; the user
+                    // retries with a fresh cookie next round.
+                    _logger.LogWarning(ex, "[2FA] Trust cookie save failed; falling through to challenge for {UserId}", userId);
+                    await _next(context).ConfigureAwait(false);
+                    return;
+                }
                 _challengeStore.MarkDevicePreVerified(userId, signedDeviceId);
                 _challengeStore.UnblockDevice(userId, signedDeviceId);
-
-                trustRecord.LastUsedAt = DateTime.UtcNow;
-                await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
 
                 // Rotate cookie on use — short grace via overlapping expiry, old
                 // cookie's HMAC still valid until TTL but LastUsedAt was just

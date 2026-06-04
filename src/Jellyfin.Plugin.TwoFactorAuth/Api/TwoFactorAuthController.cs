@@ -1721,8 +1721,26 @@ public class TwoFactorAuthController : ControllerBase
 
         if (!userData.RegisteredDeviceIds.Contains(request.DeviceId))
         {
-            userData.RegisteredDeviceIds.Add(request.DeviceId);
-            await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+            // SECURITY [v2.5.5] (F12): MutateAsync for atomic add + populate
+            // the new timestamped entries list. The legacy string list is
+            // still populated so existing read paths and admin tooling keep
+            // working unchanged; the new list is what the bypass evaluator
+            // checks when RegisteredDeviceMaxAgeDays > 0.
+            await _store.MutateAsync(userId, ud =>
+            {
+                if (!ud.RegisteredDeviceIds.Contains(request.DeviceId))
+                {
+                    ud.RegisteredDeviceIds.Add(request.DeviceId);
+                }
+                if (!ud.RegisteredDeviceEntries.Any(e => string.Equals(e.DeviceId, request.DeviceId, StringComparison.Ordinal)))
+                {
+                    ud.RegisteredDeviceEntries.Add(new RegisteredDeviceEntry
+                    {
+                        DeviceId = request.DeviceId,
+                        RegisteredAt = DateTime.UtcNow,
+                    });
+                }
+            }).ConfigureAwait(false);
         }
 
         return Ok();

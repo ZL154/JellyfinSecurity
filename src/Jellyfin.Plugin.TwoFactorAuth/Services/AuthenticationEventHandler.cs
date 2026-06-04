@@ -245,6 +245,19 @@ public class AuthenticationEventHandler : IHostedService
         }
 
         var apiKeys = await _store.GetApiKeysAsync().ConfigureAwait(false);
+        // SECURITY [v2.5.5] (F12): apply registered-device expiry filter
+        // before passing the list to BypassEvaluator. When
+        // RegisteredDeviceMaxAgeDays > 0, an entry is "active" only if it
+        // exists in RegisteredDeviceEntries with a RegisteredAt timestamp
+        // newer than the cutoff. Entries that exist only in the legacy
+        // RegisteredDeviceIds list (no timestamped sibling) are passed
+        // through unchanged for backwards compatibility — admins clearing
+        // the list and re-registering after the v2.5.5 upgrade get fresh
+        // timestamped entries automatically.
+        var maxAgeDays = Plugin.Instance?.Configuration?.RegisteredDeviceMaxAgeDays ?? 0;
+        var activeRegisteredIds = maxAgeDays > 0
+            ? FilterActiveRegisteredDeviceIds(userData.RegisteredDeviceIds, userData.RegisteredDeviceEntries, maxAgeDays)
+            : userData.RegisteredDeviceIds;
         // forwardedFor was captured synchronously in OnSessionStarted (see
         // there) so BypassEvaluator can walk X-Forwarded-For right-to-left
         // and resolve the real client IP behind a trusted reverse proxy.
@@ -255,7 +268,7 @@ public class AuthenticationEventHandler : IHostedService
             info.DeviceId,
             null,
             userData.TrustedDevices,
-            userData.RegisteredDeviceIds,
+            activeRegisteredIds,
             apiKeys);
 
         if (bypass.IsBypassed)
@@ -297,6 +310,18 @@ public class AuthenticationEventHandler : IHostedService
                             && !ud.RegisteredDeviceIds.Contains(info.DeviceId!))
                         {
                             ud.RegisteredDeviceIds.Add(info.DeviceId!);
+                        }
+                        // SECURITY [v2.5.5] (F12): also populate the
+                        // timestamped entry list so RegisteredDeviceMaxAgeDays
+                        // can expire this entry later.
+                        if (!ud.RegisteredDeviceEntries.Any(e =>
+                                string.Equals(e.DeviceId, info.DeviceId!, StringComparison.Ordinal)))
+                        {
+                            ud.RegisteredDeviceEntries.Add(new Models.RegisteredDeviceEntry
+                            {
+                                DeviceId = info.DeviceId!,
+                                RegisteredAt = DateTime.UtcNow,
+                            });
                         }
                     }).ConfigureAwait(false);
                 }
@@ -403,5 +428,40 @@ public class AuthenticationEventHandler : IHostedService
         {
             _logger.LogWarning(ex, "[2FA] Failed to end session for {Name}", info.UserName);
         }
+    }
+
+    /// <summary>SECURITY [v2.5.5] (F12): filter registered-device IDs by
+    /// expiry. Returns the subset of <paramref name="legacyIds"/> that
+    /// either (a) has no parallel <see cref="Models.RegisteredDeviceEntry"/>
+    /// (legacy entry, treated as indefinite for back-compat) or (b) has a
+    /// parallel entry whose RegisteredAt is within <paramref name="maxAgeDays"/>
+    /// of now. Expired entries are skipped — the user re-registers naturally
+    /// on the next sign-in via the LAN-auto-register path.</summary>
+    private static List<string> FilterActiveRegisteredDeviceIds(
+        List<string> legacyIds,
+        List<Models.RegisteredDeviceEntry> entries,
+        int maxAgeDays)
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-maxAgeDays);
+        var entryById = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        foreach (var e in entries)
+        {
+            if (!string.IsNullOrEmpty(e.DeviceId)) entryById[e.DeviceId] = e.RegisteredAt;
+        }
+        var result = new List<string>(legacyIds.Count);
+        foreach (var id in legacyIds)
+        {
+            if (entryById.TryGetValue(id, out var registeredAt))
+            {
+                if (registeredAt >= cutoff) result.Add(id);
+                // else: expired, skip
+            }
+            else
+            {
+                // No timestamp — legacy entry, allow.
+                result.Add(id);
+            }
+        }
+        return result;
     }
 }

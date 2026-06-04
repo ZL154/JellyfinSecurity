@@ -120,6 +120,15 @@ public class TwoFactorEnforcementMiddleware
         // (only matters for AuthenticateByName-style endpoints; harmless elsewhere).
         // EnableBuffering lets ASP.NET re-read the body downstream after we peek.
         // Handles both Content-Length and chunked-encoded bodies up to 64KB.
+        // SECURITY [v2.5.5] (N-A5, defense-in-depth note): submittedPassword
+        // lives on the managed heap (string, immutable) across async awaits
+        // until the request completes. .NET strings can't be zeroed in
+        // place — short of refactoring this whole hot path to use
+        // Span<char>/SecureString (which interops poorly with JSON
+        // deserialization and the HIBP HTTP client) we can't reduce the
+        // exposure further. Acceptable trade-off given the value is needed
+        // for HIBP and the app-password fast-path. Marking as known
+        // limitation; not a new finding for v2.5.6.
         string? submittedPassword = null;
         var isJsonPost = context.Request.ContentType?.Contains("application/json", StringComparison.OrdinalIgnoreCase) ?? false;
         var knownLength = context.Request.ContentLength;

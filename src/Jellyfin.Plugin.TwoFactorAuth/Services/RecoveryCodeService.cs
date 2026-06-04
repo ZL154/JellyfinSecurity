@@ -124,4 +124,16 @@ public class RecoveryCodeService
         if (legacyStored.Length != legacyComputed.Length) return false;
         return CryptographicOperations.FixedTimeEquals(legacyComputed, legacyStored);
     }
+
+    /// <summary>SECURITY [v2.5.5] (N-A15): true when a stored hash is in the
+    /// legacy v1 format (unsalted SHA-256, brute-forceable offline at GPU
+    /// speeds against the 31^10 ≈ 8×10^14 search space). Callers should
+    /// upgrade to v2 (PBKDF2-600k) on successful verify by calling
+    /// <see cref="HashCodeV2"/> with the plaintext and persisting the new
+    /// hash so the at-rest user store no longer carries v1 material.</summary>
+    public static bool IsLegacyHash(string? storedHash)
+    {
+        if (string.IsNullOrEmpty(storedHash)) return false;
+        return !storedHash.StartsWith("v2$", StringComparison.Ordinal);
+    }
 }

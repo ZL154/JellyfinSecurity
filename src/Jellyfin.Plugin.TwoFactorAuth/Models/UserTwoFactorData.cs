@@ -19,6 +19,16 @@ public class UserTwoFactorData
 
     public List<string> RegisteredDeviceIds { get; set; } = new();
 
+    /// <summary>v2.5.5 (F12): timestamped registered devices. Populated in
+    /// parallel with <see cref="RegisteredDeviceIds"/> from v2.5.5 onward.
+    /// When PluginConfiguration.RegisteredDeviceMaxAgeDays &gt; 0, only entries
+    /// whose RegisteredAt is within that window grant 2FA bypass. Entries
+    /// that exist only in legacy RegisteredDeviceIds (no parallel timestamp)
+    /// are treated as "indefinite trust" for backward compatibility — admins
+    /// clearing the list during the v2.5.5 upgrade will get fresh timestamped
+    /// entries on the next sign-in.</summary>
+    public List<RegisteredDeviceEntry> RegisteredDeviceEntries { get; set; } = new();
+
     public int FailedAttemptCount { get; set; }
 
     public DateTime? LockoutEnd { get; set; }
@@ -136,6 +146,15 @@ public class RecoveryCode
     public bool Used { get; set; }
 
     public DateTime? UsedAt { get; set; }
+}
+
+/// <summary>v2.5.5 (F12): timestamped device-id entry for the registered-
+/// devices bypass list. Parallel to the legacy <c>RegisteredDeviceIds</c>
+/// string list (which is still populated for backwards compat).</summary>
+public class RegisteredDeviceEntry
+{
+    public string DeviceId { get; set; } = string.Empty;
+    public DateTime RegisteredAt { get; set; }
 }
 
 public class TrustedDevice
