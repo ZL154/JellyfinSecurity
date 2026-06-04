@@ -3,8 +3,10 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -55,7 +57,14 @@ public class OidcService : IDisposable
     // forces a refresh when the requested kid is missing from the cache.
     private record JwksCacheEntry(JsonWebKeySet Keys, DateTime FetchedAt);
 
-    private static readonly TimeSpan _jwksTtl = TimeSpan.FromHours(1);
+    // SECURITY [v2.5.5] (N-A2): shorter cache TTLs to narrow the DNS-rebind
+    // window. A 1h cache let an attacker who passed the initial
+    // EnsureSafeOutboundAsync DNS check then re-point DNS at private IPs for
+    // up to 1h. Shorter TTL forces re-validation more often. 5min for JWKs
+    // and 10min for discovery is a sane production trade-off — IdP key
+    // rotation is rare enough that the extra fetches are negligible.
+    private static readonly TimeSpan _jwksTtl = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan _discoveryTtl = TimeSpan.FromMinutes(10);
 
     private readonly ConcurrentDictionary<string, Discovery> _discoveryCache = new();
     private readonly ConcurrentDictionary<string, JwksCacheEntry> _jwksCache = new();
@@ -691,10 +700,18 @@ public class OidcService : IDisposable
     private async Task<Discovery> GetDiscoveryAsync(OidcProvider provider)
     {
         if (_discoveryCache.TryGetValue(provider.Id, out var cached)
-            && (DateTime.UtcNow - cached.CachedAt) < TimeSpan.FromHours(1))
+            && (DateTime.UtcNow - cached.CachedAt) < _discoveryTtl)
         {
             return cached;
         }
+        // SECURITY [v2.5.5] (Finding 3): validate outbound URL is HTTPS to a
+        // public host before issuing the request. Closes SSRF: an admin (or
+        // an attacker who compromised the admin) could otherwise point
+        // DiscoveryUrl at http://169.254.169.254/latest/meta-data (AWS IMDS)
+        // or http://10.0.0.1:8080/internal-api or file:// and exfiltrate
+        // those targets via the Discovery response shape.
+        await EnsureSafeOutboundAsync(provider.DiscoveryUrl).ConfigureAwait(false);
+
         var resp = await _http.GetFromJsonAsync<JsonElement>(provider.DiscoveryUrl).ConfigureAwait(false);
         var disc = new Discovery(
             resp.GetProperty("authorization_endpoint").GetString()!,
@@ -703,8 +720,120 @@ public class OidcService : IDisposable
             resp.GetProperty("jwks_uri").GetString()!,
             resp.GetProperty("issuer").GetString()!,
             DateTime.UtcNow);
+
+        // Also validate the IdP-supplied endpoint URLs from the discovery
+        // response. The DiscoveryUrl could be a perfectly fine public IdP
+        // (e.g. accounts.google.com/.well-known/openid-configuration) but
+        // a malicious or compromised IdP could still return jwks_uri /
+        // token_endpoint pointing at private IPs to pivot SSRF.
+        await EnsureSafeOutboundAsync(disc.AuthorizationEndpoint).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.TokenEndpoint).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.JwksUri).ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(disc.UserInfoEndpoint))
+        {
+            await EnsureSafeOutboundAsync(disc.UserInfoEndpoint).ConfigureAwait(false);
+        }
+
         _discoveryCache[provider.Id] = disc;
         return disc;
+    }
+
+    /// <summary>SECURITY [v2.5.5] (Finding 3): refuse to fetch a URL unless
+    /// it is HTTPS and resolves to a public unicast IP address. Blocks the
+    /// SSRF class: private RFC1918, loopback, link-local (incl. AWS IMDS
+    /// 169.254.169.254), multicast, and IPv6 equivalents. Caller is
+    /// responsible for handling the OidcDiscoveryException by surfacing a
+    /// useful error to the admin (the discovery cache stays unpopulated so
+    /// subsequent retries will re-validate when config changes).</summary>
+    private async Task EnsureSafeOutboundAsync(string urlString)
+    {
+        if (string.IsNullOrWhiteSpace(urlString))
+        {
+            throw new InvalidOperationException("Outbound URL is empty.");
+        }
+        if (!Uri.TryCreate(urlString, UriKind.Absolute, out var uri))
+        {
+            throw new InvalidOperationException($"Outbound URL is malformed: {urlString}");
+        }
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            // HTTPS only. OIDC IdPs in production are always HTTPS; the only
+            // legitimate http:// case would be local dev, which we don't
+            // serve in this plugin. Refusing http:// also closes the cleartext
+            // discovery hijack class on hostile networks.
+            throw new InvalidOperationException(
+                $"Outbound URL must use HTTPS, got '{uri.Scheme}' for host '{uri.Host}'.");
+        }
+        // If the host is a literal IP, validate directly without DNS.
+        if (IPAddress.TryParse(uri.Host, out var literal))
+        {
+            EnsurePublicIp(literal, uri.Host);
+            return;
+        }
+        // Resolve all A/AAAA records and refuse if any is private. This
+        // doesn't fully close DNS-rebind (the underlying HttpClient will
+        // re-resolve at connect time) but it raises the bar substantially
+        // and rejects the obvious mis-/mal-configurations.
+        IPAddress[] addresses;
+        try
+        {
+            addresses = await Dns.GetHostAddressesAsync(uri.Host).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Outbound URL host '{uri.Host}' did not resolve: {ex.GetType().Name}.", ex);
+        }
+        if (addresses.Length == 0)
+        {
+            throw new InvalidOperationException($"Outbound URL host '{uri.Host}' has no DNS records.");
+        }
+        foreach (var addr in addresses)
+        {
+            EnsurePublicIp(addr, uri.Host);
+        }
+    }
+
+    private static void EnsurePublicIp(IPAddress addr, string host)
+    {
+        // Map IPv4-mapped-IPv6 (::ffff:10.0.0.1) down so the v4 checks apply.
+        if (addr.IsIPv4MappedToIPv6) addr = addr.MapToIPv4();
+
+        if (IPAddress.IsLoopback(addr))
+        {
+            throw new InvalidOperationException($"Outbound URL host '{host}' resolves to loopback.");
+        }
+
+        if (addr.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = addr.GetAddressBytes();
+            // RFC 1918 private
+            if (b[0] == 10) Reject(host, addr, "RFC1918 10/8");
+            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) Reject(host, addr, "RFC1918 172.16/12");
+            if (b[0] == 192 && b[1] == 168) Reject(host, addr, "RFC1918 192.168/16");
+            // Link-local / AWS IMDS / Azure IMDS
+            if (b[0] == 169 && b[1] == 254) Reject(host, addr, "link-local / IMDS 169.254/16");
+            // CGN
+            if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) Reject(host, addr, "CGN 100.64/10");
+            // Multicast / reserved
+            if (b[0] >= 224) Reject(host, addr, "multicast/reserved");
+            // 0.0.0.0/8
+            if (b[0] == 0) Reject(host, addr, "0.0.0.0/8");
+        }
+        else if (addr.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            // ::, ::1 already caught by IsLoopback. Reject ULA fc00::/7 and link-local fe80::/10
+            var b = addr.GetAddressBytes();
+            if ((b[0] & 0xfe) == 0xfc) Reject(host, addr, "IPv6 ULA fc00::/7");
+            if (b[0] == 0xfe && (b[1] & 0xc0) == 0x80) Reject(host, addr, "IPv6 link-local fe80::/10");
+            if (addr.IsIPv6Multicast) Reject(host, addr, "IPv6 multicast");
+        }
+    }
+
+    private static void Reject(string host, IPAddress addr, string reason)
+    {
+        throw new InvalidOperationException(
+            $"Outbound URL host '{host}' resolved to non-public address {addr} ({reason}). Refusing to fetch.");
     }
 
     private async Task<JsonWebKeySet> GetJwksAsync(OidcProvider provider, Discovery disc, string? requiredKid = null)
@@ -720,6 +849,10 @@ public class OidcService : IDisposable
         {
             return cached.Keys;
         }
+        // SECURITY [v2.5.5] (Finding 3): re-validate even though Discovery
+        // also validated — DNS could have changed between cache populate
+        // and now, and the cache TTL on Discovery (1h) is independent.
+        await EnsureSafeOutboundAsync(disc.JwksUri).ConfigureAwait(false);
         var json = await _http.GetStringAsync(disc.JwksUri).ConfigureAwait(false);
         var jwks = new JsonWebKeySet(json);
         _jwksCache[provider.Id] = new JwksCacheEntry(jwks, DateTime.UtcNow);

@@ -53,8 +53,20 @@ public class StepUpService
             try
             {
                 var secret = _totp.DecryptSecret(userData.EncryptedTotpSecret, userData.UserId);
-                if (_totp.ValidateCode(secret, code, userData.UserId.ToString()))
+                // SECURITY [v2.5.5] (Finding 23): use the 4-arg ValidateCode
+                // overload so the matched time-step gets persisted as the
+                // replay floor. Prior versions used the 3-arg convenience
+                // with persistedFloor=0 — an attacker who observed a step-up
+                // code (shoulder-surf, screen share) could replay it within
+                // the same 30s window from another session, or across a
+                // process restart that flushed the in-memory dedup.
+                if (_totp.ValidateCode(secret, code, userData.UserId.ToString(),
+                        persistedFloor: userData.LastUsedTotpStep, out var matchedStep))
                 {
+                    if (matchedStep > userData.LastUsedTotpStep)
+                    {
+                        userData.LastUsedTotpStep = matchedStep;
+                    }
                     return true;
                 }
             }

@@ -509,6 +509,12 @@ public class TwoFactorAuthController : ControllerBase
             var user = _userManager.GetUserByName(req.Username);
             if (user is null)
             {
+                // SECURITY [v2.5.5] (Finding 20): equalize timing so an
+                // attacker can't enumerate which usernames exist by measuring
+                // response time. Perform an equivalent GetUserDataAsync call
+                // with Guid.Empty so the no-user path costs the same as the
+                // user-exists-but-wrong-code path.
+                _ = await _store.GetUserDataAsync(Guid.Empty).ConfigureAwait(false);
                 _ipBans.RecordFailure(clientIp);
                 return Unauthorized(new { message = "Invalid username or password." });
             }
@@ -952,6 +958,29 @@ public class TwoFactorAuthController : ControllerBase
         if (challenge is null)
         {
             return BadRequest(new { message = "Invalid or expired challenge." });
+        }
+
+        // SECURITY [v2.5.5] (Finding 7): when RequireChallengeIpMatch is on,
+        // reject /Verify if the submitting client is on a different /24
+        // (IPv4) or /48 (IPv6) than the original challenge IP. Defence vs
+        // challenge-token replay from a captured token. Defaults off because
+        // reverse-proxy / CF Tunnel setups legitimately see the apparent
+        // client IP shift between Authenticate and Verify even within one
+        // valid user session.
+        var requireIp = Plugin.Instance?.Configuration?.RequireChallengeIpMatch == true;
+        if (requireIp && !string.IsNullOrEmpty(challenge.RemoteIp) && !string.IsNullOrEmpty(clientIp))
+        {
+            if (!SameIpPrefix(challenge.RemoteIp, clientIp))
+            {
+                _logger.LogWarning(
+                    "[2FA] /Verify rejected: challenge issued from {ChIp} but verify came from {ClIp} (RequireChallengeIpMatch=ON)",
+                    challenge.RemoteIp, clientIp);
+                _ipBans.RecordFailure(clientIp);
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    message = "Challenge token cannot be verified from a different network.",
+                });
+            }
         }
 
         if (!await _allowlist.IsAllowedAsync(challenge.UserId, clientIp).ConfigureAwait(false))
@@ -1446,9 +1475,26 @@ public class TwoFactorAuthController : ControllerBase
 
         // Persist any consumed recovery code (VerifyUserCode marks it Used),
         // then grant the step-up token.
+        // SECURITY [v2.5.5] (N-A18): apply only the diff (which entries went
+        // from Used=false to Used=true on the clone) instead of replacing
+        // the whole RecoveryCodes list. Prior code overwrote any concurrent
+        // mutation (e.g. an admin regenerating the user's recovery codes
+        // mid-step-up). We match by Hash so even if the canonical list was
+        // reordered or extended, we touch the right entry.
         await _store.MutateAsync(userId, ud =>
         {
-            ud.RecoveryCodes = userData.RecoveryCodes;
+            foreach (var cloneCode in userData.RecoveryCodes)
+            {
+                if (!cloneCode.Used) continue;
+                if (string.IsNullOrEmpty(cloneCode.Hash)) continue;
+                var match = ud.RecoveryCodes.FirstOrDefault(c =>
+                    string.Equals(c.Hash, cloneCode.Hash, StringComparison.Ordinal) && !c.Used);
+                if (match is not null)
+                {
+                    match.Used = true;
+                    match.UsedAt = cloneCode.UsedAt ?? DateTime.UtcNow;
+                }
+            }
         }).ConfigureAwait(false);
         _challengeStore.MarkStepUpVerified(userId);
         return Ok(new { verified = true });
@@ -1746,6 +1792,35 @@ public class TwoFactorAuthController : ControllerBase
             pollToken = pairing.PollToken,
             expiresAt = pairing.ExpiresAt,
         });
+    }
+
+    // SECURITY [v2.5.5] (Finding 7): same-IP-prefix check for the optional
+    // challenge-token IP binding. /24 (IPv4) tolerates NAT and corporate
+    // proxy egress; /48 (IPv6) tolerates standard SLAAC subnet allocations.
+    // Both sides are best-effort parsed — unparseable strings return false
+    // (i.e. mismatch) so a malformed IP can't accidentally pass the check.
+    private static bool SameIpPrefix(string a, string b)
+    {
+        if (!System.Net.IPAddress.TryParse(a, out var ipA)) return false;
+        if (!System.Net.IPAddress.TryParse(b, out var ipB)) return false;
+        if (ipA.AddressFamily != ipB.AddressFamily) return false;
+        var bytesA = ipA.GetAddressBytes();
+        var bytesB = ipB.GetAddressBytes();
+        if (ipA.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            // /24: first 3 octets must match
+            return bytesA[0] == bytesB[0] && bytesA[1] == bytesB[1] && bytesA[2] == bytesB[2];
+        }
+        if (ipA.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            // /48: first 6 bytes must match
+            for (int i = 0; i < 6; i++)
+            {
+                if (bytesA[i] != bytesB[i]) return false;
+            }
+            return true;
+        }
+        return false;
     }
 
     private static string SanitizeDisplay(string? input, int maxLen)
@@ -2068,9 +2143,17 @@ public class TwoFactorAuthController : ControllerBase
     [Authorize(Policy = "RequiresElevation")]
     public async Task<IActionResult> AdminRevokeDevice([FromRoute] Guid userId, [FromRoute] string deviceRecordId)
     {
-        var ud = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
-        ud.TrustedDevices.RemoveAll(d => d.Id == deviceRecordId);
-        await _store.SaveUserDataAsync(ud).ConfigureAwait(false);
+        // SECURITY [v2.5.5] (N-A11): use MutateAsync so the read-modify-write
+        // happens under the per-user semaphore. Prior code did a clone-read,
+        // mutated the clone, then SaveUserDataAsync — racing with any
+        // concurrent write to the same user (a parallel auth bypass updating
+        // TrustedDevices[].LastUsedAt, or the user's own /Devices/{id}
+        // DELETE) silently overwrote those updates. MutateAsync is the
+        // canonical pattern used by every other writer in the codebase.
+        await _store.MutateAsync(userId, ud =>
+        {
+            ud.TrustedDevices.RemoveAll(d => d.Id == deviceRecordId);
+        }).ConfigureAwait(false);
         return Ok();
     }
 
@@ -2180,6 +2263,15 @@ public class TwoFactorAuthController : ControllerBase
     [ProducesResponseType(typeof(IReadOnlyList<AuditEntry>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<AuditEntry>>> GetAuditLog([FromQuery] int? limit = null)
     {
+        // SECURITY [v2.5.5] (N-A6): apply step-up guard. StepUpAction.ViewAuditLog
+        // is classified as StepUpLevel.Everything in StepUpService — the
+        // classification existed but was never enforced. The audit log
+        // contains usernames, IPs, device IDs, and auth-method strings;
+        // a hijacked admin session token shouldn't be enough to read it,
+        // re-verification of a TOTP / recovery code is required.
+        var guard = StepUpGuard(StepUpAction.ViewAuditLog);
+        if (guard is not null) return guard;
+
         var entries = await _store.GetAuditLogAsync(limit).ConfigureAwait(false);
         return Ok(entries);
     }
@@ -2668,7 +2760,11 @@ public class TwoFactorAuthController : ControllerBase
         var token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(payload + "." + sig))
             .Replace('+', '-').Replace('/', '_').TrimEnd('=');
 
-        var scheme = HttpContext.Request.IsHttps ? "https" : "http";
+        // SECURITY [v2.5.5] (Finding 19): use proxy-aware scheme resolution.
+        // Behind a TLS-terminating reverse proxy, HttpContext.Request.IsHttps
+        // is always false; BypassEvaluator.ResolveScheme honours
+        // X-Forwarded-Proto from trusted proxies.
+        var scheme = BypassEvaluator.ResolveScheme(HttpContext);
         var host = HttpContext.Request.Host.Value;
         var url = $"{scheme}://{host}/TwoFactorAuth/PairConfirm?token={Uri.EscapeDataString(token)}";
 
@@ -3940,7 +4036,14 @@ public class TwoFactorAuthController : ControllerBase
         // canonical decrypt-then-validate pattern is used in every other
         // ValidateCode call site in this file (e.g. /Authenticate, /Verify).
         var rotateSecret = _totpService.DecryptSecret(data.EncryptedTotpSecret, userId);
-        if (!_totpService.ValidateCode(rotateSecret, req.CurrentCode, userId.ToString("N")))
+        // SECURITY [v2.5.5] (N-A17): use the 4-arg ValidateCode overload with
+        // the persisted replay floor so a recorded rotation code can't be
+        // replayed within its 30s window across the in-memory dedup boundary
+        // (e.g. across a restart, or by a parallel session that bypasses
+        // the per-process _usedTimeSteps cache). Match the floor up-front,
+        // advance it on success.
+        if (!_totpService.ValidateCode(rotateSecret, req.CurrentCode, userId.ToString("N"),
+                persistedFloor: data.LastUsedTotpStep, out var rotateMatchedStep))
         {
             await _store.RecordFailedAttemptAsync(userId).ConfigureAwait(false);
             return Unauthorized(new { message = "Current TOTP code is invalid" });
@@ -3953,9 +4056,25 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         var (newSecret, newQr, newManual) = _totpService.GenerateSecret(user.Username);
+        // SECURITY [v2.5.5] (N-A10, CRITICAL regression fix): encrypt the new
+        // base32 secret BEFORE persisting. Prior batch-2 build stored the raw
+        // base32 plaintext in EncryptedTotpSecret, which (a) leaked the live
+        // TOTP seed to anyone with filesystem read access on the user store
+        // and (b) broke the next sign-in because DecryptSecret would fail on
+        // a non-ciphertext input. The bug was technically present pre-v2.5.5
+        // too, but unreachable because the F1 ciphertext-as-base32 bug made
+        // ValidateCode always return false, preventing this code path from
+        // executing. Fixing F1 made this path live, surfacing the latent
+        // miss-encrypt. Matches the SetupTotp / ConfirmForcedTotpEnrollment
+        // pattern that every other rotate-style path already uses.
+        var newEncrypted = _totpService.EncryptSecret(newSecret, userId);
         await _store.MutateAsync(userId, ud =>
         {
-            ud.EncryptedTotpSecret = newSecret;
+            ud.EncryptedTotpSecret = newEncrypted;
+            if (rotateMatchedStep > ud.LastUsedTotpStep)
+            {
+                ud.LastUsedTotpStep = rotateMatchedStep;
+            }
             // Mark the recovery code we used as consumed so the same one
             // can't be replayed.
             if (rIdx < ud.RecoveryCodes.Count) ud.RecoveryCodes[rIdx].Used = true;
@@ -4021,7 +4140,11 @@ public class TwoFactorAuthController : ControllerBase
         var combined = payload + "." + sig;
         var b64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(combined))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        var scheme = HttpContext.Request.IsHttps ? "https" : "http";
+        // SECURITY [v2.5.5] (Finding 19): use proxy-aware scheme resolution.
+        // Behind a TLS-terminating reverse proxy, HttpContext.Request.IsHttps
+        // is always false; BypassEvaluator.ResolveScheme honours
+        // X-Forwarded-Proto from trusted proxies.
+        var scheme = BypassEvaluator.ResolveScheme(HttpContext);
         var host = HttpContext.Request.Host.Value;
         var url = $"{scheme}://{host}/TwoFactorAuth/PairConfirm?token={Uri.EscapeDataString(b64)}";
         return Ok(new { url, expiresAt = DateTimeOffset.FromUnixTimeSeconds(expiry) });

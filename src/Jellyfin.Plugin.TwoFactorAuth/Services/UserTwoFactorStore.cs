@@ -269,22 +269,44 @@ public class UserTwoFactorStore : IDisposable
 
     /// <summary>Canonical hash for audit entries. Includes every persisted field
     /// EXCEPT EntryHash itself (otherwise the value would depend on itself).
-    /// PreviousHash IS included so tampering with one entry cascades.</summary>
+    /// PreviousHash IS included so tampering with one entry cascades.
+    ///
+    /// SECURITY [v2.5.5] (Finding 22): length-prefix each field instead of
+    /// joining on \x1F. Prior versions used a unit-separator join, which
+    /// meant a field containing 0x1F could shift segment boundaries and
+    /// collide with a different entry whose fields were laid out
+    /// differently. Length-prefixing makes the encoding unambiguous
+    /// regardless of field content. NOTE: this changes the hash output for
+    /// every existing entry, so the chain validity reset happens on the
+    /// first read after upgrade. Admins can run /Admin/RebuildAuditChain
+    /// once to re-anchor.</summary>
     internal static string ComputeAuditEntryHash(AuditEntry e)
     {
-        var canonical = string.Join("\x1F",
-            e.PreviousHash,
-            e.Timestamp.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture),
-            e.UserId.ToString("N"),
-            e.Username ?? string.Empty,
-            e.RemoteIp ?? string.Empty,
-            e.DeviceId ?? string.Empty,
-            e.DeviceName ?? string.Empty,
-            ((int)e.Result).ToString(System.Globalization.CultureInfo.InvariantCulture),
-            e.Method ?? string.Empty,
-            e.Details ?? string.Empty);
-        var bytes = System.Text.Encoding.UTF8.GetBytes(canonical);
+        var sb = new System.Text.StringBuilder();
+        AppendField(sb, e.PreviousHash);
+        AppendField(sb, e.Timestamp.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+        AppendField(sb, e.UserId.ToString("N"));
+        AppendField(sb, e.Username);
+        AppendField(sb, e.RemoteIp);
+        AppendField(sb, e.DeviceId);
+        AppendField(sb, e.DeviceName);
+        AppendField(sb, ((int)e.Result).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        AppendField(sb, e.Method);
+        AppendField(sb, e.Details);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
         return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+    }
+
+    private static void AppendField(System.Text.StringBuilder sb, string? value)
+    {
+        var v = value ?? string.Empty;
+        // Length-prefixed encoding: <len>:<value>: — unambiguously decodable
+        // regardless of what characters the value contains. Closes the
+        // \x1F-injection collision class the prior canonical join had.
+        sb.Append(v.Length.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        sb.Append(':');
+        sb.Append(v);
+        sb.Append(':');
     }
 
     public async Task<IReadOnlyList<AuditEntry>> GetAuditLogAsync(int? limit = null)

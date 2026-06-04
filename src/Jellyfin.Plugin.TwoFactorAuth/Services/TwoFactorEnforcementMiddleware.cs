@@ -679,17 +679,31 @@ public class TwoFactorEnforcementMiddleware
     /// 200 JSON response that happens to contain the substrings would otherwise
     /// get routed into the 2FA challenge flow.
     /// </summary>
+    // SECURITY [v2.5.5] (Finding 13): compile the auth-path regex once with a
+    // bounded execution timeout. Previously the inline IsMatch call rebuilt
+    // the NFA on every request, and the alternation could exhibit quadratic
+    // backtracking on a crafted long input. Compiled + timeout-guarded
+    // hands DoS-resilience to the regex engine.
+    private static readonly System.Text.RegularExpressions.Regex _authPathRegex =
+        new(@"(?:^|/+)Users/(AuthenticateByName|AuthenticateWithQuickConnect|[0-9a-fA-F-]{32,36}/Authenticate)(\?|/|$)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                | System.Text.RegularExpressions.RegexOptions.Compiled
+                | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+            TimeSpan.FromMilliseconds(50));
+
     private static bool IsAuthPath(string path)
     {
         if (string.IsNullOrEmpty(path)) return false;
-        // Anchor match to the path ROOT — previously used `Contains` which
-        // matched any nested path segment containing /Users/AuthenticateByName
-        // (e.g. a third-party plugin's /Plugins/X/PassThrough/Users/AuthenticateByName
-        // would trigger challenge injection on an unrelated response).
-        return System.Text.RegularExpressions.Regex.IsMatch(
-            path,
-            @"(?:^|/+)Users/(AuthenticateByName|AuthenticateWithQuickConnect|[0-9a-fA-F-]{32,36}/Authenticate)(\?|/|$)",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        // Cheap length cap: any auth path we care about is under 256 chars.
+        if (path.Length > 256) return false;
+        try
+        {
+            return _authPathRegex.IsMatch(path);
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+        {
+            return false;
+        }
     }
 
     /// <summary>SEC v2.4 L5: sanitize a user-supplied label before it's

@@ -23,14 +23,28 @@ public class EmailOtpService
     private const int MaxSendsPerWindow = 3;
     private static readonly TimeSpan RateLimitWindow = TimeSpan.FromMinutes(10);
 
+    // SECURITY [v2.5.5] (Finding 5): per-process random HMAC key.
+    // Restarts invalidate pending OTPs (5-min TTL anyway, acceptable) and
+    // a memory dump can no longer surface usable codes — only the HMAC
+    // output is stored, not the plaintext digits.
+    private static readonly byte[] _otpHmacKey = RandomNumberGenerator.GetBytes(32);
+
+    private static byte[] HashOtp(string code)
+    {
+        return HMACSHA256.HashData(_otpHmacKey, Encoding.UTF8.GetBytes(code));
+    }
+
     public EmailOtpService(ILogger<EmailOtpService> logger)
     {
         _logger = logger;
     }
 
     /// <summary>
-    /// Generates a 6-digit OTP, stores it against the challenge token, and sends it via SMTP.
-    /// Returns (code, sent). If SMTP isn't configured, code is generated but only logged.
+    /// Generates an 8-digit OTP (v2.5.5: raised from 6 digits — 10^6 space was
+    /// brute-forceable at ~8 hours under the existing rate limits per audit
+    /// Finding 5), HMAC-hashes it for in-memory storage, and sends the
+    /// plaintext via SMTP. Returns (code, sent). If SMTP isn't configured,
+    /// code is generated but only logged.
     /// </summary>
     public async Task<(string code, bool sent)> GenerateAndSendCodeAsync(Guid userId, string username, string? email, string challengeToken)
     {
@@ -42,13 +56,19 @@ public class EmailOtpService
             return (string.Empty, false);
         }
 
-        var code = RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6", CultureInfo.InvariantCulture);
+        // SECURITY [v2.5.5] (Finding 5): 8 digits, code space 10^8 = 100M.
+        // At the existing 10/min/IP + 15/15min/user rate limit a full-space
+        // brute force now takes weeks instead of hours.
+        var code = RandomNumberGenerator.GetInt32(10_000_000, 100_000_000).ToString("D8", CultureInfo.InvariantCulture);
         var ttlSeconds = Plugin.Instance?.Configuration.EmailOtpTtlSeconds ?? 300;
         var now = DateTime.UtcNow;
 
         _pendingCodes[challengeToken] = new EmailOtpEntry
         {
-            Code = code,
+            // SECURITY [v2.5.5] (Finding 5): never store plaintext in memory.
+            // Only the HMAC-SHA256 is retained — a heap dump yields nothing
+            // useful even mid-flight.
+            CodeHash = HashOtp(code),
             UserId = userId,
             CreatedAt = now,
             ExpiresAt = now.AddSeconds(ttlSeconds),
@@ -222,15 +242,27 @@ public class EmailOtpService
             return false;
         }
 
-        var storedBytes = Encoding.UTF8.GetBytes(entry.Code);
-        var submittedBytes = Encoding.UTF8.GetBytes(code);
-
-        if (!CryptographicOperations.FixedTimeEquals(storedBytes, submittedBytes))
+        // SECURITY [v2.5.5] (Finding 5): hash the submitted code with the
+        // same per-process HMAC key and constant-time-compare against the
+        // stored hash. Plaintext never leaves the email body.
+        var submittedHash = HashOtp(code ?? string.Empty);
+        if (!CryptographicOperations.FixedTimeEquals(entry.CodeHash, submittedHash))
         {
             return false;
         }
 
-        entry.IsUsed = true;
+        // SECURITY [v2.5.5] (N-A1): atomically consume via TryRemove instead
+        // of setting IsUsed=true on the shared entry. Two concurrent
+        // ValidateCode calls with the same token both passed the
+        // FixedTimeEquals check above (the mutation was non-atomic), and
+        // both returned true. TryRemove returns true exactly once; the
+        // losing call returns false even though it had the right code,
+        // and ConsumeChallenge / the upstream auth flow correctly handles
+        // the single-use semantic.
+        if (!_pendingCodes.TryRemove(challengeToken, out _))
+        {
+            return false;
+        }
         return true;
     }
 
@@ -273,7 +305,9 @@ public class EmailOtpService
 
     private sealed class EmailOtpEntry
     {
-        public string Code { get; set; } = string.Empty;
+        // SECURITY [v2.5.5] (Finding 5): renamed Code -> CodeHash. Now stores
+        // a 32-byte HMAC-SHA256(plaintext) instead of plaintext digits.
+        public byte[] CodeHash { get; set; } = Array.Empty<byte>();
         public Guid UserId { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime ExpiresAt { get; set; }

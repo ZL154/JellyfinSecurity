@@ -266,13 +266,16 @@ public class SecurityController : ControllerBase
         if (provider is null) return NotFound(new { message = "Provider not found or disabled." });
 
         // returnUrl must be a same-origin relative path. Block absolute URLs,
-        // protocol-relative, and anything that isn't a plain path — otherwise
-        // we could get used as an open redirect.
+        // protocol-relative, control chars (CR/LF/NUL), percent-encoded
+        // variants of the same, backslash variants used to confuse browser-
+        // side URL parsers, and anything that isn't a plain path. Defence-
+        // in-depth: even though the current consumer only echoes the value
+        // into a redirect-uri stored in PendingFlow, a future refactor that
+        // surfaces it in a Location:/Refresh: header or a templated HTML
+        // attribute would otherwise be header-injection / open-redirect.
+        // SECURITY [v2.5.5] hardening (Finding 2).
         var safeReturn = "/web/";
-        if (!string.IsNullOrEmpty(returnUrl)
-            && returnUrl.StartsWith('/')
-            && !returnUrl.StartsWith("//", StringComparison.Ordinal)
-            && !returnUrl.Contains(':'))
+        if (!string.IsNullOrEmpty(returnUrl) && IsSafeRelativePath(returnUrl))
         {
             safeReturn = returnUrl;
         }
@@ -356,8 +359,23 @@ public class SecurityController : ControllerBase
         var result = await _oidc.CompleteAsync(provider, code, state, redirectUri).ConfigureAwait(false);
         if (!result.Success || result.UserId is null || result.Username is null)
         {
+            // SECURITY [v2.5.5] (N-A9): do NOT echo the raw internal error
+            // message into the redirect URL. CompleteAsync's error strings
+            // can include token-validation library detail
+            // ("Token verification failed: IDX10501: …") that fingerprints
+            // the JWK matching logic / library version / configured issuer.
+            // Log the full message server-side, surface a generic one-of-a-few
+            // user-facing message to the browser.
             _logger.LogWarning("[2FA] OIDC sign-in failed: {Err}", result.Error);
-            return Redirect(LoginErrorUrl(result.Error ?? "Sign-in failed"));
+            var lower = (result.Error ?? string.Empty).ToLowerInvariant();
+            var safeMsg = lower.Contains("state token", StringComparison.Ordinal)
+                ? "Your sign-in session expired. Try again."
+                : lower.Contains("token exchange", StringComparison.Ordinal)
+                    ? "The identity provider rejected the sign-in. Contact your administrator if this persists."
+                    : lower.Contains("verification", StringComparison.Ordinal) || lower.Contains("signature", StringComparison.Ordinal)
+                        ? "Sign-in token could not be verified."
+                        : "Sign-in failed.";
+            return Redirect(LoginErrorUrl(safeMsg));
         }
 
         _logger.LogInformation("[2FA] OIDC success for user {User} ({UserId}) via {Pid}",
@@ -729,13 +747,16 @@ public class SecurityController : ControllerBase
             });
         }
 
+        // SECURITY [v2.5.5] (Finding 11): equalize timing for the user-
+        // does-not-exist vs user-exists-but-no-passkey paths so a low-
+        // and-slow probe can't enumerate which usernames have passkeys
+        // by measuring response time. Both paths now perform an equivalent
+        // GetUserDataAsync(...) call (dummy GUID for the no-user case) and
+        // return the same 404 response body.
         var user = _userManager.GetUserByName(req.Username);
-        if (user is null)
-        {
-            return NotFound(new { message = "No passkey registered for this user." });
-        }
-        var data = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
-        if (data.Passkeys.Count == 0)
+        var lookupId = user?.Id ?? Guid.Empty;
+        var data = await _store.GetUserDataAsync(lookupId).ConfigureAwait(false);
+        if (user is null || data.Passkeys.Count == 0)
         {
             return NotFound(new { message = "No passkey registered for this user." });
         }
@@ -771,6 +792,23 @@ public class SecurityController : ControllerBase
             });
         }
 
+        // SECURITY [v2.5.5] (Finding 15): explicit per-IP rate limit on the
+        // verify endpoint. The Begin endpoint already enforces 20/5min/IP
+        // (which constrains the nonce-mint rate), but each minted nonce
+        // could only be burned by one call to Complete — without this
+        // explicit limiter a misconfigured Begin (or a client retry loop)
+        // could land more assertion-verify attempts than expected on the
+        // PasskeyService.CompleteAssertionAsync code path.
+        var rl = _rateLimiter.CheckAndRecord("passkey_complete:" + ip, 20, TimeSpan.FromMinutes(5));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many attempts. Try again in {rl.retryAfterSeconds}s.",
+            });
+        }
+
         var user = _userManager.GetUserByName(req.Username);
         if (user is null)
         {
@@ -793,6 +831,12 @@ public class SecurityController : ControllerBase
         {
             _logger.LogWarning("[2FA] Passkey login: nonce mismatch for {User}", req.Username);
             _bans.RecordFailure(clientIp);
+            // SECURITY [v2.5.5] (Finding 15): also record per-user failure
+            // so the existing per-user lockout machinery picks this up. An
+            // attacker rotating source IPs to evade the IP-bucket still hits
+            // the per-user bucket and gets the account locked after the
+            // configured threshold.
+            await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
             return Unauthorized(new { message = "Passkey verification failed." });
         }
 
@@ -805,11 +849,13 @@ public class SecurityController : ControllerBase
         {
             _logger.LogWarning(ex, "[2FA] Passkey assertion verify threw");
             _bans.RecordFailure(clientIp);
+            await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
             return Unauthorized(new { message = "Passkey verification failed." });
         }
         if (!ok)
         {
             _bans.RecordFailure(clientIp);
+            await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
             return Unauthorized(new { message = "Passkey verification failed." });
         }
 
@@ -849,6 +895,52 @@ public class SecurityController : ControllerBase
         if (!int.TryParse(parts[1], out var prefix)) return false;
         var max = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128;
         return prefix >= 0 && prefix <= max;
+    }
+
+    // SECURITY [v2.5.5] (Finding 2): strict validator for the OIDC returnUrl
+    // query parameter. Rejects anything that isn't a same-origin relative
+    // path. The encoded-control-character check catches `%0d`, `%0a`, `%00`,
+    // `%5c` (backslash), and their uppercase variants — closing the
+    // header-injection / open-redirect class even if the value is later
+    // surfaced in a `Location:` / `Refresh:` header by a future refactor.
+    // Backslash is also blocked literally (some browser URL parsers treat
+    // `\\evil.com` as an absolute URL when concatenated after `https:`).
+    private static readonly System.Text.RegularExpressions.Regex _safeRelativePathRegex =
+        new(@"^/[A-Za-z0-9/_\-.~?=&%+@!$',;:()*]*$",
+            System.Text.RegularExpressions.RegexOptions.Compiled,
+            TimeSpan.FromMilliseconds(50));
+
+    private static bool IsSafeRelativePath(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return false;
+        if (value.Length > 1024) return false;
+        if (!value.StartsWith('/')) return false;
+        if (value.StartsWith("//", StringComparison.Ordinal)) return false; // protocol-relative
+        if (value.Contains('\\', StringComparison.Ordinal)) return false;   // backslash variants
+        // Reject any control character (CR/LF/NUL/TAB/etc.)
+        foreach (var ch in value)
+        {
+            if (char.IsControl(ch)) return false;
+        }
+        // Reject percent-encoded control / backslash sequences
+        var lower = value.ToLowerInvariant();
+        if (lower.Contains("%0a", StringComparison.Ordinal)
+            || lower.Contains("%0d", StringComparison.Ordinal)
+            || lower.Contains("%00", StringComparison.Ordinal)
+            || lower.Contains("%09", StringComparison.Ordinal)
+            || lower.Contains("%5c", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        // Final strict allowlist match (covers query, fragment, common path chars).
+        try
+        {
+            return _safeRelativePathRegex.IsMatch(value);
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+        {
+            return false;
+        }
     }
 
     private static string SlugifyId(string s)

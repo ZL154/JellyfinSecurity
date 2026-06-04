@@ -23,7 +23,11 @@ public class UserExportService
     {
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
         var user = _userManager.GetUserById(userId);
-        var audit = await _store.GetAuditLogAsync(limit: null).ConfigureAwait(false);
+        // SECURITY [v2.5.5] (Finding 18): hard-cap the audit-log fetch so a
+        // very large configured AuditLogMaxEntries (or a long-running install
+        // with deep history) doesn't load an unbounded JSON blob per export
+        // call.
+        var audit = await _store.GetAuditLogAsync(limit: 10_000).ConfigureAwait(false);
         var auditForUser = audit.Where(e => e.UserId == userId).ToList();
         var email = Plugin.Instance?.Configuration?.GetUserEmail(userId.ToString("N"));
 

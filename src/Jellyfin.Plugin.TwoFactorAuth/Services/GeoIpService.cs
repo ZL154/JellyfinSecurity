@@ -102,7 +102,7 @@ public class GeoIpService : IDisposable
             _asnReader?.Dispose();
             _asnReader = null;
             _loadedAsnPath = asnPath;
-            if (!string.IsNullOrWhiteSpace(asnPath) && File.Exists(asnPath))
+            if (!string.IsNullOrWhiteSpace(asnPath) && IsSafeGeoIpPath(asnPath) && File.Exists(asnPath))
             {
                 try
                 {
@@ -122,7 +122,7 @@ public class GeoIpService : IDisposable
             _countryReader?.Dispose();
             _countryReader = null;
             _loadedCountryPath = countryPath;
-            if (!string.IsNullOrWhiteSpace(countryPath) && File.Exists(countryPath))
+            if (!string.IsNullOrWhiteSpace(countryPath) && IsSafeGeoIpPath(countryPath) && File.Exists(countryPath))
             {
                 try
                 {
@@ -135,6 +135,91 @@ public class GeoIpService : IDisposable
                     _logger.LogWarning(ex, "[2FA] Failed to open GeoLite2-Country at {Path}", countryPath);
                 }
             }
+        }
+    }
+
+    /// <summary>SECURITY [v2.5.5] (Finding 8): only accept GeoIP DB paths that
+    /// are absolute, end with `.mmdb`, do not traverse via `..`, and (on
+    /// Windows) are not UNC paths. Reject sensitive Unix system paths
+    /// outright. Failing the check leaves the reader null = GeoIP inactive,
+    /// which degrades gracefully.</summary>
+    private bool IsSafeGeoIpPath(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            if (path.Contains("..", StringComparison.Ordinal))
+            {
+                _logger.LogWarning("[2FA] GeoIP path rejected (contains '..'): {Path}", path);
+                return false;
+            }
+            if (path.StartsWith("\\\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal))
+            {
+                _logger.LogWarning("[2FA] GeoIP path rejected (UNC/network path): {Path}", path);
+                return false;
+            }
+            if (!Path.IsPathFullyQualified(path))
+            {
+                _logger.LogWarning("[2FA] GeoIP path rejected (not absolute): {Path}", path);
+                return false;
+            }
+            if (!path.EndsWith(".mmdb", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("[2FA] GeoIP path rejected (must end with .mmdb): {Path}", path);
+                return false;
+            }
+            var lower = path.Replace('\\', '/').ToLowerInvariant();
+            foreach (var bad in new[] { "/etc/", "/proc/", "/sys/", "/dev/", "/root/.ssh", "/run/secrets" })
+            {
+                if (lower.StartsWith(bad, StringComparison.Ordinal))
+                {
+                    _logger.LogWarning("[2FA] GeoIP path rejected (sensitive system path '{Bad}'): {Path}", bad, path);
+                    return false;
+                }
+            }
+
+            // SECURITY [v2.5.5] (N-A3): resolve symlinks. The string-level
+            // check above can be bypassed by `ln -s /etc/shadow legit.mmdb`
+            // — the path string starts with /opt/, the suffix is .mmdb, but
+            // the actual file the loader will mmap is /etc/shadow. Re-apply
+            // the sensitive-path blocklist against the resolved target.
+            try
+            {
+                var info = new FileInfo(path);
+                var resolved = info.ResolveLinkTarget(returnFinalTarget: true) is { } target
+                    ? target.FullName
+                    : info.FullName;
+                if (!string.Equals(resolved, info.FullName, StringComparison.Ordinal))
+                {
+                    var resolvedLower = resolved.Replace('\\', '/').ToLowerInvariant();
+                    foreach (var bad in new[] { "/etc/", "/proc/", "/sys/", "/dev/", "/root/.ssh", "/run/secrets" })
+                    {
+                        if (resolvedLower.StartsWith(bad, StringComparison.Ordinal))
+                        {
+                            _logger.LogWarning("[2FA] GeoIP path rejected: symlink {Path} resolves to sensitive {Resolved}", path, resolved);
+                            return false;
+                        }
+                    }
+                    if (!resolved.EndsWith(".mmdb", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogWarning("[2FA] GeoIP path rejected: symlink {Path} resolves to non-mmdb {Resolved}", path, resolved);
+                        return false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[2FA] GeoIP symlink resolution non-fatal for {Path}", path);
+                // Fall through — the file may not exist yet, which is handled
+                // by the caller's File.Exists check.
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] GeoIP path validation threw, treating as unsafe: {Path}", path);
+            return false;
         }
     }
 

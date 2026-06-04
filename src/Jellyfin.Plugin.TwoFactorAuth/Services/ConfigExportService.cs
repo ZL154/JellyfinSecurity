@@ -294,6 +294,14 @@ public class ConfigExportService
         var clone = System.Text.Json.JsonSerializer.Deserialize<PluginConfiguration>(json);
         if (clone is null) throw new InvalidOperationException("Failed to materialize imported configuration");
 
+        // SECURITY [v2.5.5] (Finding 14): validate untrusted import payload
+        // BEFORE applying. A crafted export could otherwise set arbitrary
+        // CIDRs (granting LAN-bypass to an attacker IP), point GeoIP DB
+        // paths at sensitive files, switch OIDC DiscoveryUrl to http://,
+        // or zero out numeric thresholds. We sanitize each field rather
+        // than reject the whole import.
+        SanitizeImportedConfig(clone);
+
         // Mutate the live config in place via reflection so any held reference to
         // Plugin.Instance.Configuration sees the new values immediately.
         foreach (var prop in typeof(PluginConfiguration).GetProperties(
@@ -305,5 +313,88 @@ public class ConfigExportService
 
         Plugin.Instance?.SaveConfiguration();
         _logger.LogInformation("Plugin configuration applied from import");
+    }
+
+    private void SanitizeImportedConfig(PluginConfiguration c)
+    {
+        c.TrustedProxyCidrs = SanitizeCidrArray(c.TrustedProxyCidrs, "TrustedProxyCidrs");
+        c.LanBypassCidrs = SanitizeCidrArray(c.LanBypassCidrs, "LanBypassCidrs");
+
+        if (c.OidcProviders is { Count: > 0 })
+        {
+            foreach (var p in c.OidcProviders)
+            {
+                if (!string.IsNullOrEmpty(p.DiscoveryUrl)
+                    && !p.DiscoveryUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning("[2FA] Import sanitize: stripped non-HTTPS DiscoveryUrl on provider {Pid}: {Url}", p.Id, p.DiscoveryUrl);
+                    p.DiscoveryUrl = string.Empty;
+                    p.Enabled = false;
+                }
+            }
+        }
+
+        c.GeoIpAsnDbPath = SanitizePathOrClear(c.GeoIpAsnDbPath, "GeoIpAsnDbPath");
+        c.GeoIpCountryDbPath = SanitizePathOrClear(c.GeoIpCountryDbPath, "GeoIpCountryDbPath");
+        c.GeoIpCityDbPath = SanitizePathOrClear(c.GeoIpCityDbPath, "GeoIpCityDbPath");
+
+        c.StepUpWindowSeconds = Math.Clamp(c.StepUpWindowSeconds, 60, 900);
+        c.EmailOtpTtlSeconds = Math.Clamp(c.EmailOtpTtlSeconds, 60, 3600);
+    }
+
+    private string[] SanitizeCidrArray(string[]? src, string fieldName)
+    {
+        if (src is null || src.Length == 0) return Array.Empty<string>();
+        var kept = new List<string>(src.Length);
+        foreach (var cidr in src)
+        {
+            if (IsValidCidr(cidr)) kept.Add(cidr);
+            else _logger.LogWarning("[2FA] Import sanitize: dropped invalid CIDR from {Field}: {Cidr}", fieldName, cidr);
+        }
+        return kept.ToArray();
+    }
+
+    private string SanitizePathOrClear(string? path, string fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+        if (path.Contains("..", StringComparison.Ordinal)
+            || path.StartsWith("\\\\", StringComparison.Ordinal)
+            || path.StartsWith("//", StringComparison.Ordinal)
+            || !System.IO.Path.IsPathFullyQualified(path)
+            || !path.EndsWith(".mmdb", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("[2FA] Import sanitize: cleared unsafe path on {Field}: {Path}", fieldName, path);
+            return string.Empty;
+        }
+        var lower = path.Replace('\\', '/').ToLowerInvariant();
+        foreach (var bad in new[] { "/etc/", "/proc/", "/sys/", "/dev/", "/root/.ssh", "/run/secrets" })
+        {
+            if (lower.StartsWith(bad, StringComparison.Ordinal))
+            {
+                _logger.LogWarning("[2FA] Import sanitize: cleared sensitive path on {Field}: {Path}", fieldName, path);
+                return string.Empty;
+            }
+        }
+        return path;
+    }
+
+    private static bool IsValidCidr(string cidr)
+    {
+        if (string.IsNullOrWhiteSpace(cidr)) return false;
+        var parts = cidr.Trim().Split('/');
+        if (parts.Length != 2) return false;
+        if (!System.Net.IPAddress.TryParse(parts[0], out var ip)) return false;
+        if (!int.TryParse(parts[1], out var prefix)) return false;
+        var max = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128;
+        if (prefix < 0 || prefix > max) return false;
+        // SECURITY [v2.5.5] (N-A7): reject overly-broad CIDRs on import. A
+        // crafted export with LanBypassCidrs:["0.0.0.0/0"] would otherwise
+        // grant 2FA-bypass / trusted-proxy treatment to every IP on the
+        // internet. /8 IPv4 minimum (covers /16, /24 etc.); /16 IPv6 minimum
+        // (covers /48 etc.). Anything broader is a misconfiguration or an
+        // attack.
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && prefix < 8) return false;
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 && prefix < 16) return false;
+        return true;
     }
 }

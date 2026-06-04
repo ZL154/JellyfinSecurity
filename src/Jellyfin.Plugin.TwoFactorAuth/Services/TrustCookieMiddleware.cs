@@ -43,8 +43,14 @@ public class TrustCookieMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         var path = context.Request.Path.Value ?? string.Empty;
+        // SECURITY [v2.5.5] (N-A16): include the plugin's own /Authenticate
+        // endpoint. Without it, a "Trust this device" cookie issued on the
+        // plugin's /Authenticate flow was never honored — the middleware
+        // skipped because the path predicate only matched Jellyfin's native
+        // auth endpoints.
         var isAuthPath = path.EndsWith("/AuthenticateByName", StringComparison.OrdinalIgnoreCase)
             || path.EndsWith("/AuthenticateWithQuickConnect", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith("/TwoFactorAuth/Authenticate", StringComparison.OrdinalIgnoreCase)
             || path.Contains("/QuickConnect/Authorize", StringComparison.OrdinalIgnoreCase);
 
         if (!isAuthPath)

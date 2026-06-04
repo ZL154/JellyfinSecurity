@@ -35,13 +35,14 @@ public class IndexHtmlInjectionMiddleware
 
     private static byte[] ComputeFingerprint(byte[] upstream)
     {
-        // 8-byte length + up to 64 bytes of head. Distinctive enough for
-        // "did the index change"; collisions only mean we serve identical-
-        // looking output.
-        var fp = new byte[8 + Math.Min(64, upstream.Length)];
-        BitConverter.GetBytes((long)upstream.Length).CopyTo(fp, 0);
-        Array.Copy(upstream, 0, fp, 8, fp.Length - 8);
-        return fp;
+        // SECURITY [v2.5.5] (Finding 21): full SHA-256 of the upstream bytes.
+        // Previously the fingerprint was 8-byte length + 64 bytes of head;
+        // if Jellyfin's index.html ever served two different bodies with
+        // identical length + identical first 64 bytes (partial deploy,
+        // A/B rollout, attacker-influenced file write), stale patched bytes
+        // could be served indefinitely even after the upstream changed.
+        // SHA-256 makes collisions cryptographically infeasible.
+        return System.Security.Cryptography.SHA256.HashData(upstream);
     }
 
     private static bool FingerprintMatches(byte[]? a, byte[]? b)

@@ -58,6 +58,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// users — the OIDC create-side hardening always runs.</summary>
     public bool BlockEmptyPasswordLogin { get; set; } = false;
 
+    /// <summary>v2.5.5 (Finding 7): when true, /Verify rejects challenge
+    /// tokens whose original challenge was issued from a different /24
+    /// (IPv4) or /48 (IPv6) than the verifying client. Defends against an
+    /// attacker who captures the challenge token from one network and
+    /// replays it from another. Defaults to FALSE because reverse-proxy /
+    /// Cloudflare-Tunnel deployments routinely see the apparent client IP
+    /// shift between the initial Authenticate and the subsequent Verify
+    /// even within one legitimate user session. Admins on direct / static
+    /// deployments should turn this ON.</summary>
+    public bool RequireChallengeIpMatch { get; set; } = false;
+
     /// <summary>Legacy v2.3-style global flag. Kept for backwards compat: if
     /// true, behaves identically to EnforcementScope=All. Set the v2.4
     /// EnforcementScope to opt into the per-role policy.</summary>
