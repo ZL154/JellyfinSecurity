@@ -279,10 +279,14 @@ public class TwoFactorAuthController : ControllerBase
         // the middleware treat them as enrolled, but TotpVerified=false
         // means "totp" isn't offered as a method — so on next sign-in they
         // get an email-only challenge with no way to actually use it.
-        userData.TotpVerified = false;
-        userData.EncryptedTotpSecret = _totpService.EncryptSecret(secret, challenge.UserId);
-        userData.LastUsedTotpStep = 0;
-        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+        // SECURITY [v2.5.6] (F4): MutateAsync for atomic enrollment-stash.
+        var encryptedSecretForced = _totpService.EncryptSecret(secret, challenge.UserId);
+        await _store.MutateAsync(challenge.UserId, ud =>
+        {
+            ud.TotpVerified = false;
+            ud.EncryptedTotpSecret = encryptedSecretForced;
+            ud.LastUsedTotpStep = 0;
+        }).ConfigureAwait(false);
         _totpService.ResetReplayCache(challenge.UserId.ToString());
 
         return Ok(new TotpSetupResponse
@@ -368,16 +372,37 @@ public class TwoFactorAuthController : ControllerBase
             out var acceptedStep);
         if (!valid)
         {
-            challenge.AttemptCount++;
+            challenge.IncrementAttempt();
             await _store.RecordFailedAttemptAsync(challenge.UserId).ConfigureAwait(false);
             _ipBans.RecordFailure(clientIp);
             return Unauthorized(new { message = "Invalid authenticator code." });
         }
 
-        userData.TotpEnabled = true;
-        userData.TotpVerified = true;
-        userData.LastUsedTotpStep = acceptedStep;
-        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+        // SECURITY [v2.5.6] (F4): atomic enrollment-confirm. Combines the
+        // TOTP flip + the optional TrustDevice insert into a single
+        // MutateAsync so two concurrent /Enroll/Confirm with TrustDevice
+        // can't both insert and lose one.
+        string? deviceToken = null;
+        Models.TrustedDevice? newTrust = null;
+        string? rawTokenLocal = null;
+        if (request.TrustDevice && !string.IsNullOrEmpty(challenge.DeviceId))
+        {
+            (rawTokenLocal, newTrust) = _deviceTokenService.CreateDeviceToken(
+                challenge.DeviceId,
+                challenge.DeviceName ?? challenge.DeviceId);
+        }
+        await _store.MutateAsync(challenge.UserId, ud =>
+        {
+            ud.TotpEnabled = true;
+            ud.TotpVerified = true;
+            if (acceptedStep > ud.LastUsedTotpStep) ud.LastUsedTotpStep = acceptedStep;
+            if (newTrust is not null)
+            {
+                ud.TrustedDevices.Add(newTrust);
+                EnforceTrustedDeviceCap(ud);
+            }
+        }).ConfigureAwait(false);
+        if (rawTokenLocal is not null) deviceToken = rawTokenLocal;
 
         _challengeStore.ConsumeChallenge(request.ChallengeToken);
         await _store.ResetFailedAttemptsAsync(challenge.UserId).ConfigureAwait(false);
@@ -388,18 +413,6 @@ public class TwoFactorAuthController : ControllerBase
         {
             _challengeStore.MarkDevicePreVerified(challenge.UserId, challenge.DeviceId);
             _pendingPairings.Remove(challenge.UserId, challenge.DeviceId);
-        }
-
-        string? deviceToken = null;
-        if (request.TrustDevice && !string.IsNullOrEmpty(challenge.DeviceId))
-        {
-            var (rawToken, trustedDevice) = _deviceTokenService.CreateDeviceToken(
-                challenge.DeviceId,
-                challenge.DeviceName ?? challenge.DeviceId);
-            userData.TrustedDevices.Add(trustedDevice);
-            EnforceTrustedDeviceCap(userData);
-            await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
-            deviceToken = rawToken;
         }
 
         await _store.AddAuditEntryAsync(new AuditEntry
@@ -542,8 +555,34 @@ public class TwoFactorAuthController : ControllerBase
             }
 
             var totpEnabled = userData.TotpEnabled && userData.TotpVerified;
+            var hasPasskey = userData.Passkeys.Count > 0;
+            var isAdmin = user.HasPermission(PermissionKind.IsAdministrator);
             var config = Plugin.Instance?.Configuration;
-            var requiresPostPasswordChallenge = !totpEnabled && config?.RequireForAllUsers == true;
+
+            // SECURITY [v2.5.6]: passkey-only users (passkey enrolled, no
+            // TOTP) cannot sign in via this endpoint with just a password.
+            // The endpoint only verifies TOTP / recovery / email-OTP as the
+            // second factor; passkey assertions go through
+            // /TwoFactorAuth/Passkey/LoginBegin + /LoginComplete. Without
+            // this guard, a passkey-only account was bypassable with just a
+            // password — the prior `requiresPostPasswordChallenge` formula
+            // treated "no TOTP" as "no 2FA" and skipped the challenge.
+            if (!totpEnabled && hasPasskey)
+            {
+                _ipBans.RecordFailure(clientIp);
+                return Unauthorized(new
+                {
+                    message = "This account is configured for passkey sign-in. Use the passkey flow.",
+                });
+            }
+
+            // SECURITY [v2.5.6]: use the modern `ShouldEnforceFor(isAdmin)`
+            // helper which honours both the legacy `RequireForAllUsers`
+            // (true ⇒ All) AND the v2.4+ `EnforcementScope` (Admins / All).
+            // Prior code only checked the legacy flag, leaving a bypass for
+            // installations that opted into the per-role policy with the
+            // legacy flag unset.
+            var requiresPostPasswordChallenge = !totpEnabled && (config?.ShouldEnforceFor(isAdmin) == true);
 
             var codeConsumedRecoveryIndex = -1;
 
@@ -1053,7 +1092,7 @@ public class TwoFactorAuthController : ControllerBase
         {
             if (string.IsNullOrEmpty(userData.EncryptedTotpSecret))
             {
-                challenge.AttemptCount++;
+                challenge.IncrementAttempt();
                 await _store.RecordFailedAttemptAsync(challenge.UserId).ConfigureAwait(false);
                 _ipBans.RecordFailure(clientIp);
                 return Unauthorized(new { message = "No TOTP secret configured." });
@@ -1096,18 +1135,48 @@ public class TwoFactorAuthController : ControllerBase
         {
             userData.ForceRecoveryOnNextLogin = false;
         }
+        // SECURITY [v2.5.6] (U5): persist via MutateAsync diff-apply so two
+        // concurrent /Verify requests using the same unused recovery code
+        // can't both mark it Used on separate clones before either persists.
+        // Match by Hash and only flip entries that the canonical store
+        // still sees as unused — the loser-thread sees Used=true already
+        // and the recovery code is consumed exactly once on disk.
         if (valid && consumedRecoveryIdx >= 0)
         {
-            await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+            await _store.MutateAsync(challenge.UserId, ud =>
+            {
+                foreach (var cloneCode in userData.RecoveryCodes)
+                {
+                    if (!cloneCode.Used) continue;
+                    if (string.IsNullOrEmpty(cloneCode.Hash)) continue;
+                    var match = ud.RecoveryCodes.FirstOrDefault(c =>
+                        string.Equals(c.Hash, cloneCode.Hash, StringComparison.Ordinal) && !c.Used);
+                    if (match is not null)
+                    {
+                        match.Used = true;
+                        match.UsedAt = cloneCode.UsedAt ?? DateTime.UtcNow;
+                    }
+                }
+                if (userData.ForceRecoveryOnNextLogin == false)
+                {
+                    ud.ForceRecoveryOnNextLogin = false;
+                }
+            }).ConfigureAwait(false);
         }
         else if (valid && lockedToRecovery)
         {
-            await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+            await _store.MutateAsync(challenge.UserId, ud =>
+            {
+                if (userData.ForceRecoveryOnNextLogin == false)
+                {
+                    ud.ForceRecoveryOnNextLogin = false;
+                }
+            }).ConfigureAwait(false);
         }
 
         if (!valid)
         {
-            challenge.AttemptCount++;
+            challenge.IncrementAttempt();
             await _store.RecordFailedAttemptAsync(challenge.UserId).ConfigureAwait(false);
             _ipBans.RecordFailure(clientIp);
             await _store.AddAuditEntryAsync(new AuditEntry
@@ -1119,7 +1188,9 @@ public class TwoFactorAuthController : ControllerBase
                 DeviceId = challenge.DeviceId ?? string.Empty,
                 DeviceName = challenge.DeviceName ?? string.Empty,
                 Result = AuditResult.Failed,
-                Method = request.Method,
+                Method = (request.Method ?? string.Empty).Length > 32
+                    ? (request.Method ?? string.Empty)[..32]
+                    : (request.Method ?? string.Empty),
             }).ConfigureAwait(false);
 
             return Unauthorized(new { message = "Invalid 2FA code." });
@@ -1159,7 +1230,9 @@ public class TwoFactorAuthController : ControllerBase
             DeviceId = challenge.DeviceId ?? string.Empty,
             DeviceName = challenge.DeviceName ?? string.Empty,
             Result = AuditResult.Success,
-            Method = request.Method,
+            Method = (request.Method ?? string.Empty).Length > 32
+                ? (request.Method ?? string.Empty)[..32]
+                : (request.Method ?? string.Empty),
         }).ConfigureAwait(false);
 
         string? deviceToken = null;
@@ -1317,17 +1390,17 @@ public class TwoFactorAuthController : ControllerBase
         // file-system write access can't swap blobs across user records.
         var encryptedSecret = _totpService.EncryptSecret(secret, userId);
 
-        var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        // SECURITY [v2.5.6] (F4): MutateAsync for atomic enrollment-stash.
         // v2.4.1: stash the secret only. TotpEnabled flips to true on Confirm
         // (see ConfirmTotp). Otherwise a user who backs out of setup leaves
-        // the account half-enrolled — TotpEnabled=true tricks the auth gate
-        // into demanding 2FA, but TotpVerified=false means no TOTP method
-        // is offered, so they're locked out via an email-only challenge.
-        userData.TotpVerified = false;
-        userData.EncryptedTotpSecret = encryptedSecret;
-        // SEC-M4: reset replay floor on new secret — future codes start fresh.
-        userData.LastUsedTotpStep = 0;
-        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+        // the account half-enrolled.
+        await _store.MutateAsync(userId, ud =>
+        {
+            ud.TotpVerified = false;
+            ud.EncryptedTotpSecret = encryptedSecret;
+            // SEC-M4: reset replay floor on new secret.
+            ud.LastUsedTotpStep = 0;
+        }).ConfigureAwait(false);
 
         // New secret ⇒ old replay cache entries can collide with codes the
         // authenticator is about to show. See TotpService.ResetReplayCache.
@@ -1374,10 +1447,13 @@ public class TwoFactorAuthController : ControllerBase
         // v2.4.1: flip both flags here. SetupTotp stopped pre-setting
         // TotpEnabled to avoid the half-enrollment lockout, so Confirm is
         // the one place where TOTP is genuinely turned on.
-        userData.TotpEnabled = true;
-        userData.TotpVerified = true;
-        userData.LastUsedTotpStep = acceptedStep;
-        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+        // SECURITY [v2.5.6] (F4): MutateAsync for atomic flip.
+        await _store.MutateAsync(userId, ud =>
+        {
+            ud.TotpEnabled = true;
+            ud.TotpVerified = true;
+            if (acceptedStep > ud.LastUsedTotpStep) ud.LastUsedTotpStep = acceptedStep;
+        }).ConfigureAwait(false);
 
         return Ok();
     }
@@ -1395,9 +1471,16 @@ public class TwoFactorAuthController : ControllerBase
         var userId = GetCurrentUserId();
 
         // v2.5.0: optional re-auth guard. When on, require a fresh TOTP/recovery
-        // code before wiping. Verified against current user data; the wipe below
-        // clears RecoveryCodes anyway so no separate persist of the Used flag is
-        // needed on this path.
+        // code before wiping. Verified against current user data.
+        //
+        // SECURITY [v2.5.6] (F2): although the wipe below clears RecoveryCodes
+        // making reuse moot in the happy path, persist VerifyUserCode's
+        // mutations (matched recovery-code Used + LastUsedTotpStep advance)
+        // inside an atomic MutateAsync BEFORE the wipe runs. Closes the
+        // narrow window where an exception between verify and wipe leaves
+        // the recovery code re-usable, and also closes a parallel
+        // concurrent-disable race where two threads both verify the same
+        // code before either wipes.
         var config = Plugin.Instance?.Configuration;
         if (config is { RequireTwoFactorToDisable: true })
         {
@@ -1412,6 +1495,27 @@ public class TwoFactorAuthController : ControllerBase
                     twoFactorRequired = true,
                 });
             }
+            // Persist VerifyUserCode's mutations atomically (matches the
+            // N-A18 diff-apply pattern in StepUpVerify).
+            await _store.MutateAsync(userId, ud =>
+            {
+                foreach (var cloneCode in userData.RecoveryCodes)
+                {
+                    if (!cloneCode.Used) continue;
+                    if (string.IsNullOrEmpty(cloneCode.Hash)) continue;
+                    var match = ud.RecoveryCodes.FirstOrDefault(c =>
+                        string.Equals(c.Hash, cloneCode.Hash, StringComparison.Ordinal) && !c.Used);
+                    if (match is not null)
+                    {
+                        match.Used = true;
+                        match.UsedAt = cloneCode.UsedAt ?? DateTime.UtcNow;
+                    }
+                }
+                if (userData.LastUsedTotpStep > ud.LastUsedTotpStep)
+                {
+                    ud.LastUsedTotpStep = userData.LastUsedTotpStep;
+                }
+            }).ConfigureAwait(false);
         }
 
         await _store.MutateAsync(userId, ud =>
@@ -1518,14 +1622,21 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         var (plaintext, records) = _recoveryCodes.GenerateCodes();
-        userData.RecoveryCodes = records;
-        userData.RecoveryCodesGeneratedAt = DateTime.UtcNow;
-        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+        var generatedAt = DateTime.UtcNow;
+        // SECURITY [v2.5.6] (F3): MutateAsync for atomic write under the
+        // per-user semaphore. Prior Get→Save raced with any concurrent
+        // mutation (e.g. concurrent /Disable, /Verify that consumes a
+        // code).
+        await _store.MutateAsync(userId, ud =>
+        {
+            ud.RecoveryCodes = records;
+            ud.RecoveryCodesGeneratedAt = generatedAt;
+        }).ConfigureAwait(false);
 
         return Ok(new
         {
             codes = plaintext,
-            generatedAt = userData.RecoveryCodesGeneratedAt,
+            generatedAt,
             warning = "These codes are shown ONCE. Save them in a password manager. Each code works for one login.",
         });
     }
@@ -1586,16 +1697,22 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<ActionResult> DeleteDevice([FromRoute] string id)
     {
         var userId = GetCurrentUserId();
-        var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
 
-        var device = userData.TrustedDevices.FirstOrDefault(d => d.Id == id);
+        // SECURITY [v2.5.6] (F1): MutateAsync for atomic find+remove under
+        // the per-user semaphore. Prior code did Get→Save outside the lock
+        // — a concurrent device-add or auth-handler LastUsedAt update could
+        // silently drop one of the changes.
+        Models.TrustedDevice? device = null;
+        await _store.MutateAsync(userId, ud =>
+        {
+            device = ud.TrustedDevices.FirstOrDefault(d => d.Id == id);
+            if (device is not null) ud.TrustedDevices.Remove(device);
+        }).ConfigureAwait(false);
+
         if (device is null)
         {
             return NotFound();
         }
-
-        userData.TrustedDevices.Remove(device);
-        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
 
         // Wipe in-memory pre-verify state for this device — otherwise a user
         // who just revoked would be in a ~2-minute window where the device
@@ -1963,10 +2080,17 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         // Create a trusted device for the user
+        // SECURITY [v2.5.6] (A1): MutateAsync for atomic add under the
+        // per-user semaphore. Prior code did Get→Save outside the lock —
+        // a concurrent TrustedDevices mutation (user-side revoke, LastUsedAt
+        // update from auth handler) could silently drop the just-created
+        // record, leaving the TV device token issued to the user with no
+        // matching server-side hash (TV permanently fails to bypass 2FA).
         var (rawToken, trustedDevice) = _deviceTokenService.CreateDeviceToken(pairing.DeviceId, pairing.DeviceName);
-        var userData = await _store.GetUserDataAsync(pairing.UserId).ConfigureAwait(false);
-        userData.TrustedDevices.Add(trustedDevice);
-        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+        await _store.MutateAsync(pairing.UserId, ud =>
+        {
+            ud.TrustedDevices.Add(trustedDevice);
+        }).ConfigureAwait(false);
 
         await _notificationService.NotifyPairingCompletedAsync(pairing.Username, pairing.DeviceName, approved: true).ConfigureAwait(false);
 
@@ -2233,7 +2357,13 @@ public class TwoFactorAuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult> ToggleUser([FromRoute] Guid id, [FromBody, Required] ToggleUserRequest request)
     {
-        var userData = await _store.GetUserDataAsync(id).ConfigureAwait(false);
+        // SECURITY [v2.5.6] (U3): require step-up. Admin disabling another
+        // user's 2FA is a destructive action that an attacker holding a
+        // hijacked admin cookie should not be able to invoke without
+        // re-verification. Same classification as ResetOtherUser2fa.
+        var guard = StepUpGuard(StepUpAction.ResetOtherUser2fa);
+        if (guard is not null) return guard;
+
         var ju = _userManager.GetUserById(id);
 
         if (request.Enabled)
@@ -2245,16 +2375,20 @@ public class TwoFactorAuthController : ControllerBase
         }
         else
         {
-            // Admin disable: wipe all 2FA state. User can re-enroll fresh.
-            userData.TotpEnabled = false;
-            userData.TotpVerified = false;
-            userData.EncryptedTotpSecret = null;
-            userData.RecoveryCodes.Clear();
-            userData.RecoveryCodesGeneratedAt = null;
-            userData.TrustedDevices.Clear();
-            userData.PairedDevices.Clear();
-            userData.AppPasswords.Clear();
-            await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+            // SECURITY [v2.5.6] (A2): admin disable now runs under MutateAsync
+            // for atomic wipe. Prior code did Get→Save outside the lock —
+            // racing concurrent auth-side mutations could lose updates.
+            await _store.MutateAsync(id, ud =>
+            {
+                ud.TotpEnabled = false;
+                ud.TotpVerified = false;
+                ud.EncryptedTotpSecret = null;
+                ud.RecoveryCodes.Clear();
+                ud.RecoveryCodesGeneratedAt = null;
+                ud.TrustedDevices.Clear();
+                ud.PairedDevices.Clear();
+                ud.AppPasswords.Clear();
+            }).ConfigureAwait(false);
             _challengeStore.WipeAllForUser(id);
             _pendingPairings.RemoveAllForUser(id);
         }
@@ -2327,6 +2461,14 @@ public class TwoFactorAuthController : ControllerBase
     [ProducesResponseType(typeof(ApiKeyEntry), StatusCodes.Status200OK)]
     public async Task<ActionResult<object>> CreateApiKey([FromBody, Required] CreateApiKeyRequest request)
     {
+        // SECURITY [v2.5.6] (U3): require step-up to mint an API key.
+        // Minting a credential without fresh re-verification means a
+        // hijacked admin session can quietly persist access. ConfigChange
+        // classification gates this with a TOTP / passkey / recovery
+        // re-prompt in the step-up window.
+        var apiKeyGuard = StepUpGuard(StepUpAction.ConfigChange);
+        if (apiKeyGuard is not null) return apiKeyGuard;
+
         var rawKeyBytes = RandomNumberGenerator.GetBytes(32);
         var rawKey = Convert.ToBase64String(rawKeyBytes)
             .Replace('+', '-')
@@ -2370,6 +2512,12 @@ public class TwoFactorAuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> DeleteApiKey([FromRoute] string id)
     {
+        // SECURITY [v2.5.6] (U3): require step-up. Revoking an API key is
+        // destructive (breaks integrations); requiring step-up prevents a
+        // hijacked admin session from silently disabling automation.
+        var delApiKeyGuard = StepUpGuard(StepUpAction.ConfigChange);
+        if (delApiKeyGuard is not null) return delApiKeyGuard;
+
         var keys = await _store.GetApiKeysAsync().ConfigureAwait(false);
         var mutableKeys = keys.ToList();
         var entry = mutableKeys.FirstOrDefault(k => k.Id == id);
@@ -2552,8 +2700,22 @@ public class TwoFactorAuthController : ControllerBase
             PasswordHash = hash,
             CreatedAt = DateTime.UtcNow,
         };
-        data.AppPasswords.Add(entry);
-        await _store.SaveUserDataAsync(data).ConfigureAwait(false);
+        // SECURITY [v2.5.6] (A10): atomic add via MutateAsync. Re-checks
+        // the cap inside the lock so two concurrent requests can't both
+        // see count=19 and push to 21.
+        var added = false;
+        await _store.MutateAsync(userId, ud =>
+        {
+            if (ud.AppPasswords.Count < 20)
+            {
+                ud.AppPasswords.Add(entry);
+                added = true;
+            }
+        }).ConfigureAwait(false);
+        if (!added)
+        {
+            return BadRequest(new { message = "Limit reached. Revoke an existing app password first." });
+        }
 
         await _store.AddAuditEntryAsync(new AuditEntry
         {
@@ -2579,10 +2741,13 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<IActionResult> RevokeAppPassword([FromRoute] string id)
     {
         var userId = GetCurrentUserId();
-        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
-        var removed = data.AppPasswords.RemoveAll(p => p.Id == id);
+        // SECURITY [v2.5.6] (A9): atomic remove via MutateAsync.
+        var removed = 0;
+        await _store.MutateAsync(userId, ud =>
+        {
+            removed = ud.AppPasswords.RemoveAll(p => p.Id == id);
+        }).ConfigureAwait(false);
         if (removed == 0) return NotFound();
-        await _store.SaveUserDataAsync(data).ConfigureAwait(false);
 
         await _store.AddAuditEntryAsync(new AuditEntry
         {
@@ -2911,7 +3076,11 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<IActionResult> DenyPending([FromBody, Required] DenyPendingBody req)
     {
         var userId = GetCurrentUserId();
-        if (string.IsNullOrEmpty(req.DeviceId)) return BadRequest();
+        // SECURITY [v2.5.6] (fourth-audit A13): validate DeviceId length
+        // and shape via the same IsValidDeviceId guard as /Devices/Register.
+        // Prior code only checked non-empty, letting a 100KB DeviceId
+        // through into the audit log.
+        if (!IsValidDeviceId(req.DeviceId)) return BadRequest(new { message = "Invalid device id" });
         var pending = _pendingPairings.Get(userId, req.DeviceId);
         _pendingPairings.Remove(userId, req.DeviceId);
 
@@ -3048,6 +3217,18 @@ public class TwoFactorAuthController : ControllerBase
         var userId = GetCurrentUserId();
         var user = _userManager.GetUserById(userId);
         if (user is null) return Unauthorized();
+
+        // SECURITY [v2.5.6] (F5-A6): block passkey registration while the
+        // account is locked out. A user with a still-valid session token
+        // that was issued before the lockout fired shouldn't be able to
+        // modify their security configuration mid-lockout. Same posture
+        // as every other state-mutating user endpoint.
+        if (await _store.IsLockedOutAsync(userId).ConfigureAwait(false))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { message = "Account is locked out — cannot modify passkeys until lockout expires." });
+        }
+
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
 
         var optionsJson = _passkeys.BuildRegistrationOptions(HttpContext, userId, user.Username, data.Passkeys);
@@ -3673,13 +3854,29 @@ public class TwoFactorAuthController : ControllerBase
     [Authorize(Policy = "RequiresElevation")]
     public async Task<IActionResult> GetDashboardOverview([FromQuery] string range = "1m")
     {
-        var cacheKey = (range ?? "1m").ToLowerInvariant();
+        // SECURITY [v2.5.6] (A5): normalise the cache key to a small set of
+        // accepted values BEFORE indexing the cache. Prior code keyed on
+        // raw user input (`range.ToLowerInvariant()`) — any distinct value
+        // an admin sent created a new cache entry. With unknown values
+        // all normalising to the same body downstream, this just bloated
+        // memory permanently.
+        var preNormalizedRange = (range ?? "1m").ToLowerInvariant();
+        var cacheKey = preNormalizedRange switch
+        {
+            "1m" or "5m" or "1h" or "24h" or "7d" or "30d" => preNormalizedRange,
+            _ => "1m",
+        };
         lock (_overviewCacheLock)
         {
             if (_overviewCache.TryGetValue(cacheKey, out var entry) &&
                 (DateTime.UtcNow - entry.At) < _overviewCacheTtl)
             {
                 return Ok(entry.Body);
+            }
+            // Also cap the cache to those known keys — bound on growth.
+            if (_overviewCache.Count > 16)
+            {
+                _overviewCache.Clear();
             }
         }
 
@@ -4165,7 +4362,24 @@ public class TwoFactorAuthController : ControllerBase
         var scheme = BypassEvaluator.ResolveScheme(HttpContext);
         var host = HttpContext.Request.Host.Value;
         var url = $"{scheme}://{host}/TwoFactorAuth/PairConfirm?token={Uri.EscapeDataString(b64)}";
-        return Ok(new { url, expiresAt = DateTimeOffset.FromUnixTimeSeconds(expiry) });
+
+        // SECURITY [v2.5.6] (U6): generate the QR PNG server-side instead of
+        // letting the browser build a third-party URL (api.qrserver.com).
+        // The pairing URL contains a 5-minute signed token; even though the
+        // confirm step requires the receiving device to be signed-in,
+        // there's no need to leak the URL to a third-party QR service.
+        using var qrGenU6 = new QRCoder.QRCodeGenerator();
+        using var qrDataU6 = qrGenU6.CreateQrCode(url, QRCoder.QRCodeGenerator.ECCLevel.M);
+        using var qrPngU6 = new QRCoder.PngByteQRCode(qrDataU6);
+        var qrBytesU6 = qrPngU6.GetGraphic(8);
+        var qrBase64U6 = Convert.ToBase64String(qrBytesU6);
+
+        return Ok(new
+        {
+            url,
+            expiresAt = DateTimeOffset.FromUnixTimeSeconds(expiry),
+            qrPng = "data:image/png;base64," + qrBase64U6,
+        });
     }
 
     // =========================================================================

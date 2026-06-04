@@ -45,7 +45,17 @@ public class ChallengeData
     internal bool TryConsume()
         => System.Threading.Interlocked.CompareExchange(ref _consumed, 1, 0) == 0;
 
-    public int AttemptCount { get; set; }
+    // SECURITY [v2.5.6] (A11): atomic increment to close the race where
+    // two concurrent /Verify (or /Enroll/Confirm) requests against the
+    // same challenge could both read the same count and increment in
+    // lockstep, defeating the per-challenge attempt cap.
+    private int _attemptCount;
+    public int AttemptCount
+    {
+        get => System.Threading.Volatile.Read(ref _attemptCount);
+        set => System.Threading.Volatile.Write(ref _attemptCount, value);
+    }
+    public int IncrementAttempt() => System.Threading.Interlocked.Increment(ref _attemptCount);
 
     public string? PendingAuthResponse { get; set; }
 }

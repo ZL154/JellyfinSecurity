@@ -20,6 +20,16 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// </summary>
 public class TrustCookieMiddleware
 {
+    // SECURITY [v2.5.6] (A8): compiled regex with 50ms timeout for the
+    // auth-path predicate. Anchored on a / boundary so nested paths like
+    // /Admin/Proxy/AuthenticateByName don't accidentally match.
+    private static readonly System.Text.RegularExpressions.Regex _trustAuthPathRegex =
+        new(@"(?:^|/+)(?:Users/(?:AuthenticateByName|AuthenticateWithQuickConnect)|TwoFactorAuth/Authenticate|QuickConnect/Authorize)(?:/|$|\?)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                | System.Text.RegularExpressions.RegexOptions.Compiled
+                | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+            TimeSpan.FromMilliseconds(50));
+
     private readonly RequestDelegate _next;
     private readonly UserTwoFactorStore _store;
     private readonly ChallengeStore _challengeStore;
@@ -43,15 +53,14 @@ public class TrustCookieMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         var path = context.Request.Path.Value ?? string.Empty;
-        // SECURITY [v2.5.5] (N-A16): include the plugin's own /Authenticate
-        // endpoint. Without it, a "Trust this device" cookie issued on the
-        // plugin's /Authenticate flow was never honored — the middleware
-        // skipped because the path predicate only matched Jellyfin's native
-        // auth endpoints.
-        var isAuthPath = path.EndsWith("/AuthenticateByName", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith("/AuthenticateWithQuickConnect", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith("/TwoFactorAuth/Authenticate", StringComparison.OrdinalIgnoreCase)
-            || path.Contains("/QuickConnect/Authorize", StringComparison.OrdinalIgnoreCase);
+        // SECURITY [v2.5.6] (A8): tighten the path predicate via compiled
+        // regex with anchoring. Prior EndsWith form would match a
+        // hypothetical nested path like /Admin/Proxy/AuthenticateByName
+        // which Jellyfin might one day add. Compiled regex with a leading
+        // / anchor + length cap matches the TwoFactorEnforcementMiddleware
+        // pattern.
+        if (path.Length > 256) { await _next(context).ConfigureAwait(false); return; }
+        var isAuthPath = _trustAuthPathRegex.IsMatch(path);
 
         if (!isAuthPath)
         {

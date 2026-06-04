@@ -451,6 +451,18 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // ------------------------------------------------------------------
         var apiKeys = await _store.GetApiKeysAsync().ConfigureAwait(false);
 
+        // SECURITY [v2.5.6] (third-audit F6): apply registered-device
+        // expiry filter before passing the list to BypassEvaluator. The
+        // v2.5.5 batch-3 release added the expiry feature in
+        // AuthenticationEventHandler only — this provider's auth path
+        // was passing the raw unfiltered list, silently disabling the
+        // feature on this enforcement codepath.
+        var maxAgeDaysProv = config.RegisteredDeviceMaxAgeDays;
+        var activeRegisteredIdsProv = maxAgeDaysProv > 0
+            ? AuthenticationEventHandler.FilterActiveRegisteredDeviceIds(
+                userData.RegisteredDeviceIds, userData.RegisteredDeviceEntries, maxAgeDaysProv)
+            : userData.RegisteredDeviceIds;
+
         var bypassResult = _bypassEvaluator.Evaluate(
             remoteIp,
             forwardedFor,
@@ -458,7 +470,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             deviceId,
             embyToken,
             userData.TrustedDevices,
-            userData.RegisteredDeviceIds,
+            activeRegisteredIdsProv,
             apiKeys);
 
         if (bypassResult.IsBypassed)

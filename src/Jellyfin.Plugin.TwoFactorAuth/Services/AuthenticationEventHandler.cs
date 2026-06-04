@@ -142,7 +142,25 @@ public class AuthenticationEventHandler : IHostedService
         _logger.LogDebug("[2FA] User {Name} TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
             info.UserName, userData.TotpEnabled, userData.TotpVerified, config.RequireForAllUsers);
 
-        if (!userData.TotpEnabled && !config.RequireForAllUsers)
+        // SECURITY [v2.5.6]: align fail-safe gate with the modern policy.
+        // Prior version only checked TotpEnabled + the legacy
+        // RequireForAllUsers flag, ignoring (a) passkey enrolment and (b)
+        // the v2.4+ EnforcementScope (Admins / All). A passkey-only user
+        // signing in via Jellyfin's native /Users/AuthenticateByName would
+        // hit this handler with TotpEnabled=false and (under modern
+        // EnforcementScope.All but legacy flag false) get an early-return,
+        // bypassing 2FA on the SessionStarted fail-safe.
+        //
+        // We don't have IUserManager here to check isAdmin, so we use a
+        // conservative gate: don't early-return if scope is anything other
+        // than Optional. For Admins/All scopes, the downstream
+        // TwoFactorAuthProvider.Authenticate path does the precise
+        // per-user policy check; we just don't want this fail-safe to
+        // short-circuit the bypass evaluator before that runs.
+        var hasPasskey = userData.Passkeys.Count > 0;
+        var has2fa = userData.TotpEnabled || hasPasskey;
+        var policyActive = config.EnforcementScope != Configuration.EnforcementScope.Optional || config.RequireForAllUsers;
+        if (!has2fa && !policyActive)
         {
             return;
         }
@@ -430,14 +448,21 @@ public class AuthenticationEventHandler : IHostedService
         }
     }
 
-    /// <summary>SECURITY [v2.5.5] (F12): filter registered-device IDs by
-    /// expiry. Returns the subset of <paramref name="legacyIds"/> that
-    /// either (a) has no parallel <see cref="Models.RegisteredDeviceEntry"/>
-    /// (legacy entry, treated as indefinite for back-compat) or (b) has a
-    /// parallel entry whose RegisteredAt is within <paramref name="maxAgeDays"/>
-    /// of now. Expired entries are skipped — the user re-registers naturally
-    /// on the next sign-in via the LAN-auto-register path.</summary>
-    private static List<string> FilterActiveRegisteredDeviceIds(
+    /// <summary>SECURITY [v2.5.5] (F12) + [v2.5.6] (third-audit F5+F6):
+    /// filter registered-device IDs by expiry. Returns the subset of
+    /// <paramref name="legacyIds"/> that either (a) has no parallel
+    /// <see cref="Models.RegisteredDeviceEntry"/> (legacy entry, treated
+    /// as indefinite for back-compat) or (b) has a parallel entry whose
+    /// RegisteredAt is within <paramref name="maxAgeDays"/> of now.
+    /// Expired entries are skipped — the user re-registers naturally on
+    /// the next sign-in via the LAN-auto-register path.
+    /// Promoted to <c>internal static</c> in v2.5.6 so that
+    /// <see cref="TwoFactorAuthProvider"/> and
+    /// <see cref="TwoFactorEnforcementMiddleware"/> can apply the same
+    /// filter before passing the list to <see cref="BypassEvaluator"/> —
+    /// the v2.5.5 batch-3 release only filtered in this handler, leaving
+    /// the feature half-broken on the other two enforcement paths.</summary>
+    internal static List<string> FilterActiveRegisteredDeviceIds(
         List<string> legacyIds,
         List<Models.RegisteredDeviceEntry> entries,
         int maxAgeDays)

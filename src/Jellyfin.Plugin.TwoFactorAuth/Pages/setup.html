@@ -1234,8 +1234,14 @@
             var box = document.getElementById('qrPairOut');
             box.innerHTML = '<span class="muted">' + _tr('tfa.setup.qrpair.generating', 'Generating…') + '</span>';
             api('GET', 'TwoFactorAuth/Setup/QrPair/Begin').then(function(r) {
-                var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=' + encodeURIComponent(r.url);
-                box.innerHTML = '<img src="' + qrUrl + '" alt="QR" style="background:#fff;padding:8px;border-radius:8px;" /><br><span class="muted" style="font-size:12px;">' + _tr('tfa.setup.qrpair.open_on_phone_prefix', 'Open this on a signed-in phone — link expires at') + ' ' + new Date(r.expiresAt).toLocaleTimeString() + '</span>';
+                // SECURITY [v2.5.6] (U6): prefer server-rendered QR PNG
+                // returned inline as base64 data: URL — no third-party
+                // service sees the pairing token. Fall back to the legacy
+                // api.qrserver.com URL only if the server didn't include
+                // qrPng (rolling-upgrade window).
+                var qrSrc = r.qrPng
+                    || ('https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=' + encodeURIComponent(r.url));
+                box.innerHTML = '<img src="' + qrSrc + '" alt="QR" style="background:#fff;padding:8px;border-radius:8px;width:240px;height:240px;" /><br><span class="muted" style="font-size:12px;">' + _tr('tfa.setup.qrpair.open_on_phone_prefix', 'Open this on a signed-in phone — link expires at') + ' ' + new Date(r.expiresAt).toLocaleTimeString() + '</span>';
             }).catch(function() { box.innerHTML = '<span class="muted">' + _tr('tfa.setup.qrpair.failed', 'Failed to generate QR.') + '</span>'; });
         });
         // Show the QR-pair card only once a TOTP enrolment exists.

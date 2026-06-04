@@ -483,8 +483,29 @@ public class OidcService : IDisposable
             }
             catch (Exception delEx)
             {
-                _logger.LogCritical(delEx, "[2FA] CRITICAL: also failed to delete unhardened user {UserId} — MANUAL ADMIN ACTION REQUIRED: delete user '{Username}' or set a password on it immediately.",
+                // SECURITY [v2.5.6] (F5-A3): if BOTH ChangePassword AND
+                // DeleteUserAsync fail, the prior code left a ghost user
+                // with null password hash — exploitable via the empty-
+                // password path on installations where BlockEmptyPasswordLogin
+                // is off (default). Last-ditch attempt: try ChangePassword
+                // ONE more time with a fresh random password before
+                // giving up. Even an unencrypted retry beats leaving
+                // the null-hash backdoor open.
+                _logger.LogCritical(delEx, "[2FA] CRITICAL: also failed to delete unhardened user {UserId} ({Username}) — attempting last-ditch password set as fallback before giving up.",
                     u.Id, u.Username);
+                try
+                {
+                    var fallbackEntropy = new byte[32];
+                    RandomNumberGenerator.Fill(fallbackEntropy);
+                    await _userManager.ChangePassword(u.Id, Convert.ToBase64String(fallbackEntropy)).ConfigureAwait(false);
+                    _logger.LogWarning("[2FA] Last-ditch password set succeeded for user {UserId} after hardening + deletion failures. Account is no longer null-hash-vulnerable but may be otherwise broken — admin should review.",
+                        u.Id);
+                }
+                catch (Exception lastEx)
+                {
+                    _logger.LogCritical(lastEx, "[2FA] CRITICAL: last-ditch password set ALSO failed for user {UserId} ({Username}). MANUAL ADMIN ACTION REQUIRED: delete user or set a password on it immediately to close the empty-password backdoor.",
+                        u.Id, u.Username);
+                }
             }
             throw;
         }
@@ -578,6 +599,32 @@ public class OidcService : IDisposable
         };
         handler.ValidateToken(idToken, validationParams, out var validated);
         var jwt = (JwtSecurityToken)validated;
+
+        // SECURITY [v2.5.6] (A7): explicit `iat` validation in addition to
+        // the framework's `exp` check. ValidateLifetime checks exp + nbf
+        // but NOT iat — a very long-lived id_token with a far-past iat
+        // would still pass under the lifetime check alone. Reject tokens
+        // issued more than 10 minutes ago to bound the token-age window
+        // independently of exp. Especially relevant on the token-exchange
+        // path (native clients), where the IdP-issued token may carry a
+        // much longer exp than browser-flow tokens.
+        var iatClaim = jwt.Claims.FirstOrDefault(c => c.Type == "iat")?.Value;
+        if (long.TryParse(iatClaim, out var iatUnix))
+        {
+            var iat = DateTimeOffset.FromUnixTimeSeconds(iatUnix).UtcDateTime;
+            var maxAge = TimeSpan.FromMinutes(10);
+            var skew = TimeSpan.FromMinutes(2);
+            if (iat > DateTime.UtcNow + skew)
+            {
+                throw new SecurityTokenInvalidLifetimeException(
+                    $"id_token iat ({iat:O}) is in the future beyond clock skew tolerance.");
+            }
+            if (iat < DateTime.UtcNow - maxAge - skew)
+            {
+                throw new SecurityTokenInvalidLifetimeException(
+                    $"id_token iat ({iat:O}) is older than {maxAge.TotalMinutes} minutes.");
+            }
+        }
 
         // Nonce check — protects against replayed callbacks in the
         // browser-redirect flow. v2.5.1: skipped when expectedNonce is null,

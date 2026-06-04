@@ -405,6 +405,29 @@ public class UserTwoFactorStore : IDisposable
             await AtomicWriteAsync(_auditFilePath, json).ConfigureAwait(false);
             _auditDirty = false;
 
+            // SECURITY [v2.5.6] (F5-A1): append a side-channel rebuild
+            // record to audit_rebuild_meta.json — outside the chain that
+            // gets rebuilt — so SIEM tools / future forensic review can
+            // detect "the chain was rebuilt" events even if the main file
+            // looks intact. Append-only on the meta file so a subsequent
+            // RebuildAuditChain can't silence its own prior entries.
+            try
+            {
+                var metaPath = Path.Combine(Path.GetDirectoryName(_auditFilePath) ?? string.Empty, "audit_rebuild_meta.json");
+                var metaLine = JsonSerializer.Serialize(new
+                {
+                    rebuiltAt = DateTime.UtcNow,
+                    entryCount = _auditEntries.Count,
+                    firstHash = _auditEntries.Count > 0 ? _auditEntries[0].EntryHash : null,
+                    lastHash = _auditEntries.Count > 0 ? _auditEntries[^1].EntryHash : null,
+                });
+                await File.AppendAllTextAsync(metaPath, metaLine + Environment.NewLine).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Meta-log failure is non-fatal — rebuild itself succeeded.
+            }
+
             return _auditEntries.Count;
         }
         finally

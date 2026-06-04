@@ -14,6 +14,15 @@ public class RateLimiter
 {
     private readonly ConcurrentDictionary<string, List<DateTime>> _hits = new();
 
+    // SECURITY [v2.5.6] (A4 / F5-A11): periodic sweep so _hits doesn't
+    // accumulate stale buckets indefinitely. Triggered probabilistically
+    // inside CheckAndRecord — no dedicated timer needed. Caps total keys
+    // at MaxHitsKeys (LRU-ish by last-touch via the timestamp tail).
+    private long _writesSinceSweep;
+    private const int SweepEveryN = 1024;
+    private const int MaxHitsKeys = 100_000;
+    private static readonly TimeSpan _staleThreshold = TimeSpan.FromHours(1);
+
     // v1.4 observability: bounded list of recent rate-limit trips so admins
     // can see when buckets are firing and tune limits / spot abuse. Bounded
     // at 200 — anything beyond that is recurring noise that an admin should
@@ -48,7 +57,36 @@ public class RateLimiter
             }
 
             bucket.Add(now);
-            return (true, 0);
+        }
+        // SECURITY [v2.5.6] (A4): probabilistic sweep to evict stale buckets.
+        if (System.Threading.Interlocked.Increment(ref _writesSinceSweep) % SweepEveryN == 0)
+        {
+            SweepStale();
+        }
+        return (true, 0);
+    }
+
+    private void SweepStale()
+    {
+        var cutoff = DateTime.UtcNow - _staleThreshold;
+        foreach (var kvp in _hits)
+        {
+            lock (kvp.Value)
+            {
+                kvp.Value.RemoveAll(t => t < cutoff);
+                if (kvp.Value.Count == 0) _hits.TryRemove(kvp.Key, out _);
+            }
+        }
+        // Hard cap on total keys — if we still exceed after the stale sweep,
+        // a flood of distinct IPs is filling the dict. Drop the oldest-touched
+        // half to bound memory. Conservative; would only trigger under attack.
+        if (_hits.Count > MaxHitsKeys)
+        {
+            var toEvict = _hits.Count - (MaxHitsKeys / 2);
+            foreach (var k in _hits.Keys.Take(toEvict))
+            {
+                _hits.TryRemove(k, out _);
+            }
         }
     }
 

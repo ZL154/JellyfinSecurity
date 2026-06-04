@@ -40,8 +40,13 @@ public class EmptyPasswordAuditService : IHostedService
     /// startup audit. Read by the admin dashboard and security-score factor.
     /// Stored as a snapshot — does NOT update on subsequent user changes;
     /// admin must restart Jellyfin to re-audit (or call the planned
-    /// /Admin/RescanEmptyPasswordUsers endpoint).</summary>
-    public static IReadOnlySet<Guid> VulnerableUserIds { get; private set; } = new HashSet<Guid>();
+    /// /Admin/RescanEmptyPasswordUsers endpoint).
+    /// SECURITY [v2.5.6] (F5-A5): backed by a private volatile field so the
+    /// public surface is read-only. The prior `private set` auto-property
+    /// was effectively the same but a reflection-using co-loaded plugin
+    /// could mutate the backing field via PropertyInfo.SetValue.</summary>
+    private static volatile IReadOnlySet<Guid> _vulnerableUserIds = new HashSet<Guid>();
+    public static IReadOnlySet<Guid> VulnerableUserIds => _vulnerableUserIds;
 
     public EmptyPasswordAuditService(IUserManager userManager, ILogger<EmptyPasswordAuditService> logger)
     {
@@ -54,7 +59,7 @@ public class EmptyPasswordAuditService : IHostedService
         try
         {
             var vulnerable = ScanForEmptyPasswordUsers();
-            VulnerableUserIds = vulnerable.Select(u => u.Id).ToHashSet();
+            _vulnerableUserIds = vulnerable.Select(u => u.Id).ToHashSet();
 
             if (vulnerable.Count == 0)
             {

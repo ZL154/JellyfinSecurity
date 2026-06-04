@@ -280,6 +280,25 @@ public class EmailOtpService
                 _pendingCodes.TryRemove(kvp.Key, out _);
             }
         }
+
+        // SECURITY [v2.5.6] (third-audit Finding 8): also purge stale
+        // _sendHistory entries. Prior versions only cleaned _pendingCodes,
+        // leaving per-user List<DateTime> entries accumulated indefinitely
+        // for any user who ever requested one email OTP. At scale this is
+        // unbounded growth. Remove timestamps older than the rate-limit
+        // window, drop the entry entirely if empty.
+        var historyCutoff = now - RateLimitWindow;
+        foreach (var kvp in _sendHistory)
+        {
+            lock (kvp.Value)
+            {
+                kvp.Value.RemoveAll(t => t < historyCutoff);
+                if (kvp.Value.Count == 0)
+                {
+                    _sendHistory.TryRemove(kvp.Key, out _);
+                }
+            }
+        }
     }
 
     private bool CheckRateLimit(Guid userId)

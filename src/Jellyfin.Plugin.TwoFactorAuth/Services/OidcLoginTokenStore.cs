@@ -61,7 +61,11 @@ public class OidcLoginTokenStore : IDisposable
         if (!token.StartsWith(TokenPrefix, StringComparison.Ordinal)) return null;
         if (!_tokens.TryRemove(token, out var entry)) return null;
         if (entry.ExpiresAt <= DateTime.UtcNow) return null;
-        if (!string.Equals(entry.Username, username, StringComparison.OrdinalIgnoreCase)) return null;
+        // SECURITY [v2.5.6] (third-audit F7): Ordinal not OrdinalIgnoreCase.
+        // Mint stores the IdP-resolved username case-sensitively; case-
+        // insensitive match would let `ADMIN` consume a token minted for
+        // `admin` if both existed as distinct Jellyfin users.
+        if (!string.Equals(entry.Username, username, StringComparison.Ordinal)) return null;
         return (entry.UserId, entry.ProviderId, entry.BypassPluginTwoFa);
     }
 

@@ -224,15 +224,27 @@ public class NotificationService
 
         if (!string.IsNullOrWhiteSpace(config.GotifyUrl) && !string.IsNullOrWhiteSpace(config.GotifyAppToken))
         {
+            // SECURITY [v2.5.6] (F5-A7): pass the token via X-Gotify-Key
+            // header instead of embedding in the URL. URL form leaked the
+            // token into HttpRequestException.Message on transport failure
+            // and into any log sink the admin had attached.
+            var gotifyBase = $"{config.GotifyUrl.TrimEnd('/')}/message";
             try
             {
-                var url = $"{config.GotifyUrl.TrimEnd('/')}/message?token={config.GotifyAppToken}";
                 var gotifyPayload = new { title, message, priority = 5 };
-                using var response = await _httpClient.PostAsJsonAsync(url, gotifyPayload).ConfigureAwait(false);
+                using var req = new HttpRequestMessage(HttpMethod.Post, gotifyBase)
+                {
+                    Content = JsonContent.Create(gotifyPayload),
+                };
+                req.Headers.Add("X-Gotify-Key", config.GotifyAppToken);
+                using var response = await _httpClient.SendAsync(req).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to send Gotify notification");
+                // Log type + message only; don't pass the exception object
+                // (which serialises the Request and could re-leak the URL).
+                _logger.LogError("Failed to send Gotify notification: {Type}: {Msg}",
+                    ex.GetType().Name, ex.Message);
             }
         }
 

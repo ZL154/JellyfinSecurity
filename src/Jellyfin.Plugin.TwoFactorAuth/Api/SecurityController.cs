@@ -33,6 +33,9 @@ public class SecurityController : ControllerBase
     private readonly PasskeyChallengeStore _passkeyChallenges;
     private readonly IUserManager _userManager;
     private readonly RateLimiter _rateLimiter;
+    // SECURITY [v2.5.6] (U3): step-up service for gating destructive admin
+    // mutations on OIDC provider configuration.
+    private readonly StepUpService _stepUp;
     private readonly ILogger<SecurityController> _logger;
 
     public SecurityController(
@@ -45,6 +48,7 @@ public class SecurityController : ControllerBase
         PasskeyChallengeStore passkeyChallenges,
         IUserManager userManager,
         RateLimiter rateLimiter,
+        StepUpService stepUp,
         ILogger<SecurityController> logger)
     {
         _oidc = oidc;
@@ -56,7 +60,25 @@ public class SecurityController : ControllerBase
         _passkeyChallenges = passkeyChallenges;
         _userManager = userManager;
         _rateLimiter = rateLimiter;
+        _stepUp = stepUp;
         _logger = logger;
+    }
+
+    // SECURITY [v2.5.6] (U3): inline step-up guard mirroring the helper in
+    // TwoFactorAuthController. Returns a 403 with stepUpRequired=true when
+    // the current admin needs a fresh step-up before proceeding.
+    private ActionResult? StepUpGuard(StepUpAction action)
+    {
+        if (!Guid.TryParse(User.FindFirst("Jellyfin-UserId")?.Value, out var adminId))
+        {
+            return Unauthorized();
+        }
+        if (_stepUp.NeedsStepUpToken(adminId, action))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { message = "Step-up authentication required.", stepUpRequired = true });
+        }
+        return null;
     }
 
     private Guid GetCurrentUserId()
@@ -150,6 +172,13 @@ public class SecurityController : ControllerBase
     [Authorize(Policy = "RequiresElevation")]
     public ActionResult<object> CreateProvider([FromBody, Required] OidcProviderUpsertRequest req)
     {
+        // SECURITY [v2.5.6] (U3): require step-up. Adding an OIDC provider
+        // wires a new identity-issuer trust path into the plugin and could
+        // be used to silently redirect future sign-ins to an attacker IdP.
+        // ConfigChange-classified step-up.
+        var guardCreate = StepUpGuard(StepUpAction.ConfigChange);
+        if (guardCreate is not null) return guardCreate;
+
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin not initialized");
         var config = plugin.Configuration;
         var id = SlugifyId(req.DisplayName);
@@ -187,6 +216,12 @@ public class SecurityController : ControllerBase
     [Authorize(Policy = "RequiresElevation")]
     public ActionResult UpdateProvider([FromRoute] string id, [FromBody, Required] OidcProviderUpsertRequest req)
     {
+        // SECURITY [v2.5.6] (U3): require step-up before mutating an OIDC
+        // provider. Editing the DiscoveryUrl or ClientSecret silently
+        // redirects future sign-ins to an attacker IdP.
+        var guardUpd = StepUpGuard(StepUpAction.ConfigChange);
+        if (guardUpd is not null) return guardUpd;
+
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin not initialized");
         var existing = plugin.Configuration.OidcProviders.FirstOrDefault(p => p.Id == id);
         if (existing is null) return NotFound();
@@ -217,6 +252,12 @@ public class SecurityController : ControllerBase
     [Authorize(Policy = "RequiresElevation")]
     public ActionResult DeleteProvider([FromRoute] string id)
     {
+        // SECURITY [v2.5.6] (U3): require step-up. Deleting an IdP locks
+        // users out of OIDC sign-in; not catastrophic but still admin-
+        // sensitive enough to gate.
+        var guardDel = StepUpGuard(StepUpAction.ConfigChange);
+        if (guardDel is not null) return guardDel;
+
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin not initialized");
         var removed = plugin.Configuration.OidcProviders.RemoveAll(p => p.Id == id);
         if (removed == 0) return NotFound();
@@ -438,10 +479,16 @@ public class SecurityController : ControllerBase
         Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
         Response.Headers.Pragma = "no-cache";
         Response.Headers["X-Content-Type-Options"] = "nosniff";
+        // SECURITY [v2.5.6] (F5-A9): defence-in-depth headers for the
+        // bridge HTML — the token is embedded in inline JS so anti-clickjack
+        // (X-Frame-Options) and no-referrer (Referrer-Policy) close edge
+        // exposure paths even though the bridge auto-submits immediately.
+        Response.Headers["X-Frame-Options"] = "DENY";
+        Response.Headers["Referrer-Policy"] = "no-referrer";
         // CSP limits fetch/XHR/img/script to same origin so even if an injection
         // slipped past JSON encoding, it couldn't exfiltrate the bridge token.
         Response.Headers["Content-Security-Policy"] =
-            "default-src 'self'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self'";
+            "default-src 'self'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self'; frame-ancestors 'none'";
         return Content(html, "text/html; charset=utf-8");
     }
 
@@ -513,7 +560,22 @@ public class SecurityController : ControllerBase
         {
             _bans.RecordFailure(clientIp);
             _logger.LogWarning("[2FA] OIDC token-exchange failed for {Pid}: {Err}", providerId, result.Error);
-            return BadRequest(new { message = result.Error ?? "Token exchange failed." });
+            // SECURITY [v2.5.6] (U4): map internal error to a safe user-
+            // facing message instead of echoing result.Error directly.
+            // result.Error can include Microsoft.IdentityModel exception
+            // text (IDX10501 ..., JWK lookup detail, configured issuer)
+            // which fingerprints the deployment for an attacker. Same
+            // pattern N-A9 applied to the browser callback path; this
+            // is the native /Exchange sibling that was missed.
+            var exchangeLower = (result.Error ?? string.Empty).ToLowerInvariant();
+            var exchangeSafeMsg = exchangeLower.Contains("state token", StringComparison.Ordinal)
+                ? "Your sign-in session expired. Try again."
+                : exchangeLower.Contains("token exchange", StringComparison.Ordinal)
+                    ? "The identity provider rejected the sign-in. Contact your administrator if this persists."
+                    : exchangeLower.Contains("verification", StringComparison.Ordinal) || exchangeLower.Contains("signature", StringComparison.Ordinal)
+                        ? "Sign-in token could not be verified."
+                        : "Sign-in failed.";
+            return BadRequest(new { message = exchangeSafeMsg });
         }
 
         // Per-user IP allowlist (same gate as the browser callback).
@@ -922,13 +984,17 @@ public class SecurityController : ControllerBase
         {
             if (char.IsControl(ch)) return false;
         }
-        // Reject percent-encoded control / backslash sequences
+        // Reject percent-encoded control / backslash / fragment sequences
+        // SECURITY [v2.5.6] (third-audit Finding 9 / fourth-audit A6):
+        // added %23 (#) — fragment-confusion if the value ever reaches a
+        // Location header. Older builds blocked %0a/%0d/%00/%09/%5c only.
         var lower = value.ToLowerInvariant();
         if (lower.Contains("%0a", StringComparison.Ordinal)
             || lower.Contains("%0d", StringComparison.Ordinal)
             || lower.Contains("%00", StringComparison.Ordinal)
             || lower.Contains("%09", StringComparison.Ordinal)
-            || lower.Contains("%5c", StringComparison.Ordinal))
+            || lower.Contains("%5c", StringComparison.Ordinal)
+            || lower.Contains("%23", StringComparison.Ordinal))
         {
             return false;
         }

@@ -467,6 +467,17 @@ public class TwoFactorEnforcementMiddleware
             }
             var apiKeys = await _store.GetApiKeysAsync().ConfigureAwait(false);
 
+            // SECURITY [v2.5.6] (third-audit F5): apply registered-device
+            // expiry filter. v2.5.5 batch-3 added the expiry feature in
+            // AuthenticationEventHandler only, leaving this middleware path
+            // silently unfiltered. Now consistent across all three
+            // enforcement paths (handler + provider + this middleware).
+            var middlewareMaxAgeDays = config.RegisteredDeviceMaxAgeDays;
+            var activeRegisteredIds = middlewareMaxAgeDays > 0
+                ? AuthenticationEventHandler.FilterActiveRegisteredDeviceIds(
+                    userData.RegisteredDeviceIds, userData.RegisteredDeviceEntries, middlewareMaxAgeDays)
+                : userData.RegisteredDeviceIds;
+
             var bypass = _bypassEvaluator.Evaluate(
                 remoteIp,
                 forwardedFor,
@@ -474,7 +485,7 @@ public class TwoFactorEnforcementMiddleware
                 deviceId,
                 null,
                 userData.TrustedDevices,
-                userData.RegisteredDeviceIds,
+                activeRegisteredIds,
                 apiKeys);
 
             if (bypass.IsBypassed)
