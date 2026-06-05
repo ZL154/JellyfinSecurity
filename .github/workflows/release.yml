@@ -129,11 +129,32 @@ jobs:
           elif [ -f "docs/release-notes/${TAG}.md" ]; then
             NOTES_FILE="docs/release-notes/${TAG}.md"
           fi
-          if [ -z "$NOTES_FILE" ]; then
-            echo "Automated release for Jellyfin Security ${VERSION}. Sigstore-signed zip - verify with cosign verify-blob." > "$RUNNER_TEMP/notes.md"
-            NOTES_FILE="$RUNNER_TEMP/notes.md"
+          # Decide whether the release already exists. Splitting this out
+          # so we NEVER clobber a populated body.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            RELEASE_EXISTS=1
+          else
+            RELEASE_EXISTS=0
           fi
-          gh release view "$TAG" >/dev/null 2>&1 \
-            && gh release edit "$TAG" --notes-file "$NOTES_FILE" \
-            || gh release create "$TAG" --title "$TAG" --notes-file "$NOTES_FILE"
+          if [ -z "$NOTES_FILE" ]; then
+            if [ "$RELEASE_EXISTS" = "1" ]; then
+              # Re-run / backfill against an existing release with no notes
+              # file at this tag — leave the existing body alone. Prior
+              # behaviour overwrote rich release bodies with a generic
+              # "Automated release..." placeholder when the workflow was
+              # re-dispatched against older tags that pre-date the
+              # docs/release-notes/ convention.
+              echo "No release-notes file checked into this tag and the release already exists. Preserving the existing body."
+            else
+              echo "Automated release for Jellyfin Security ${VERSION}. Sigstore-signed zip - verify with cosign verify-blob." > "$RUNNER_TEMP/notes.md"
+              NOTES_FILE="$RUNNER_TEMP/notes.md"
+            fi
+          fi
+          if [ "$RELEASE_EXISTS" = "1" ]; then
+            if [ -n "$NOTES_FILE" ]; then
+              gh release edit "$TAG" --notes-file "$NOTES_FILE"
+            fi
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file "$NOTES_FILE"
+          fi
           gh release upload "$TAG" "$ZIP" "$MD5" "$SHA256" "$SIG" "$PEM" "$ATTESTATION" --clobber
