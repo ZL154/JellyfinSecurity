@@ -38,8 +38,17 @@ public class GeoIpService : IDisposable
         _logger = logger;
     }
 
-    public bool AsnAvailable => _asnReader is not null;
-    public bool CountryAvailable => _countryReader is not null;
+    // [v2.5.7] (issue #51): trigger ReloadIfConfigChanged from both
+    // availability getters. Without this, the readers were only ever
+    // initialised by a Resolve() call; DiagnosticsService and
+    // SuspiciousLoginDetector both check AsnAvailable / CountryAvailable
+    // *before* Resolve runs, so the diagnostic showed "Fail" forever and
+    // the suspicious-login detector short-circuited before doing any
+    // lookups. Now any caller that checks availability also gets the
+    // first-touch load. ReloadIfConfigChanged is no-op when paths haven't
+    // changed, so the per-read cost is negligible in steady state.
+    public bool AsnAvailable { get { ReloadIfConfigChanged(); return _asnReader is not null; } }
+    public bool CountryAvailable { get { ReloadIfConfigChanged(); return _countryReader is not null; } }
 
     public Lookup Resolve(string? ip)
     {
