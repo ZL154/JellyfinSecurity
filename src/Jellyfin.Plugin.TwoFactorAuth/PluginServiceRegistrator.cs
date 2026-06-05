@@ -15,6 +15,9 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddSingleton<UserTwoFactorStore>();
+        // [v2.5.7] (issue #52): persistent verified-token hash store must
+        // register BEFORE ChallengeStore so DI can inject it via the ctor.
+        serviceCollection.AddSingleton<VerifiedTokenPersistence>();
         serviceCollection.AddSingleton<ChallengeStore>();
         serviceCollection.AddSingleton<StepUpService>();
         serviceCollection.AddSingleton<SecurityScoreService>();

@@ -276,6 +276,9 @@ public class ChallengeStore : IDisposable
         if (string.IsNullOrEmpty(token)) return;
         _verifiedTokens[token] = DateTime.UtcNow.AddDays(30);
         EnforceCap(_verifiedTokens);
+        // [v2.5.7] (issue #52): also persist a SHA-256 hash so the verified
+        // state survives a Jellyfin restart. See VerifiedTokenPersistence.
+        _verifiedTokenPersistence?.MarkVerified(token);
     }
 
     public bool IsTokenVerified(string token)
@@ -285,6 +288,16 @@ public class ChallengeStore : IDisposable
         {
             if (exp > DateTime.UtcNow) return true;
             _verifiedTokens.TryRemove(token, out _);
+        }
+        // [v2.5.7] (issue #52): fall back to the persistent hash store. On a
+        // fresh process the in-memory dict is empty for every existing token,
+        // so without this check the failsafe BlockToken would re-block every
+        // already-verified session. Re-hydrate the in-memory dict on hit so
+        // subsequent checks stay on the fast path.
+        if (_verifiedTokenPersistence?.IsVerified(token) == true)
+        {
+            _verifiedTokens[token] = DateTime.UtcNow.AddDays(30);
+            return true;
         }
         return false;
     }
@@ -421,8 +434,19 @@ public class ChallengeStore : IDisposable
         }
     }
 
+    // [v2.5.7] (issue #52, derpacco): optional persistence layer for the
+    // verified-token set. Injected by DI when available; null is tolerated
+    // so the parameterless ctor (tests / fuzz harness) still works.
+    private readonly VerifiedTokenPersistence? _verifiedTokenPersistence;
+
     public ChallengeStore()
+        : this(null)
     {
+    }
+
+    public ChallengeStore(VerifiedTokenPersistence? verifiedTokenPersistence)
+    {
+        _verifiedTokenPersistence = verifiedTokenPersistence;
         // Run cleanup every 60 seconds
         _cleanupTimer = new Timer(
             _ => RemoveExpiredChallenges(),
