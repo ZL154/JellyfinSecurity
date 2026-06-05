@@ -130,6 +130,18 @@ public class UserTwoFactorStore : IDisposable
     /// </summary>
     public async Task MutateAsync(Guid userId, Action<UserTwoFactorData> mutator)
     {
+        // [v2.5.7] (issue #55, Dasnap): refuse to mutate the empty-Guid slot.
+        // Some failure-recording call site (likely a brute-force path during
+        // Dasnap's testing) was reaching us with Guid.Empty and creating
+        // 2faData_00000000-0000-0000-0000-000000000000.json. That file then
+        // crashed the entire /TwoFactorAuth/Users listing because
+        // UserManager.GetUserById throws ArgumentException on empty ids.
+        // Refusing the write at the store boundary stops new corruption;
+        // the GetUsers loop also skips any preexisting junk row.
+        if (userId == Guid.Empty)
+        {
+            return;
+        }
         var sem = GetUserLock(userId);
         await sem.WaitAsync().ConfigureAwait(false);
         try

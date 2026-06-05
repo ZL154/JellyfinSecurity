@@ -159,12 +159,17 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>[v2.5.7] (issue #48 feature request, Gaarindor): when true,
     /// inject.js skips injecting the "Sign in with Two-Factor Authentication"
-    /// and "Sign in with passkey" buttons on Jellyfin's main login page.
-    /// Designed for OIDC-only deployments where the admin wants users to
-    /// only see their IdP sign-in buttons. The plugin's own login flow at
-    /// /TwoFactorAuth/Login still works for admins / fallback. Default
-    /// false — existing installs keep the buttons visible.</summary>
-    public bool HideBuiltInLoginButtons { get; set; } = false;
+    /// button on Jellyfin's main login page. Independent of the passkey
+    /// toggle below so admins can pick the OIDC-only / passkey-only / 2FA-only
+    /// shape they want. The plugin's own /TwoFactorAuth/Login still works
+    /// directly for admins / fallback access regardless of this flag.</summary>
+    public bool HideBuiltInTwoFactorButton { get; set; }
+
+    /// <summary>[v2.5.7] (issue #48 feature request, Gaarindor): when true,
+    /// inject.js skips injecting the "Sign in with passkey" button on the
+    /// main login page. Set both this and HideBuiltInTwoFactorButton to true
+    /// for OIDC-only mode where only IdP provider buttons remain.</summary>
+    public bool HideBuiltInPasskeyButton { get; set; }
 
     /// <summary>v2.4: granular 2FA enforcement scope. Optional (per-user
     /// opt-in), Admins (only admins must have 2FA), or All (everyone).</summary>

@@ -553,35 +553,53 @@
 
     function addLoginButton() {
         if (!isLoginPage()) return;
-        if (document.getElementById(BUTTON_ID)) return;
-        // [v2.5.7] (issue #48 feature, Gaarindor): respect
-        // HideBuiltInLoginButtons. While the public-config fetch is in
-        // flight (_tfaPublicCfg === null) skip injecting — the next
-        // polling tick will re-enter once the response arrives. Once
-        // resolved, the flag decides render-vs-skip permanently.
+        // [v2.5.7] (issue #48 feature, Gaarindor): while the public-config
+        // fetch is in flight (_tfaPublicCfg === null) skip injecting — the
+        // next polling tick will re-enter once the response arrives.
         if (_tfaPublicCfg === null) { fetchTfaPublicConfig(); return; }
-        if (_tfaPublicCfg.hideBuiltInLoginButtons) return;
+        var hideTwoFa = !!_tfaPublicCfg.hideBuiltInTwoFactorButton;
+        var hidePasskey = !!_tfaPublicCfg.hideBuiltInPasskeyButton;
         var signInBtn = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
         if (!signInBtn) return;
-        addStyles();
-        var btn = document.createElement('a');
-        btn.id = BUTTON_ID;
-        btn.setAttribute('is', 'emby-linkbutton');
-        btn.className = (signInBtn.className || 'raised block').replace(/button-submit|button-cancel|emby-button/g, '').trim();
-        btn.innerHTML = '<span class="tfa-icon">🔐</span>Sign in with Two-Factor Authentication';
-        btn.href = '/TwoFactorAuth/Login';
-        function updateHref() {
-            var u = findUsername();
-            btn.href = u ? '/TwoFactorAuth/Login?username=' + encodeURIComponent(u) : '/TwoFactorAuth/Login';
-        }
-        btn.addEventListener('click', function (e) { e.preventDefault(); updateHref(); window.location.assign(btn.href); });
-        var userInput = document.querySelector('input#txtManualName, input[name="username"], input#username');
-        if (userInput) ['input', 'change', 'blur'].forEach(function (ev) { userInput.addEventListener(ev, updateHref); });
-        var parent = signInBtn.parentNode;
-        if (signInBtn.nextSibling) parent.insertBefore(btn, signInBtn.nextSibling);
-        else parent.appendChild(btn);
+        // [v2.5.7] (issue #48): if the admin re-enabled a button on a page
+        // that already rendered with it hidden (or vice versa) the existing
+        // node needs to be torn down before we re-evaluate. Cheap idempotent
+        // cleanup — removes only if present.
+        var existingTwoFa = document.getElementById(BUTTON_ID);
+        var existingPasskey = document.getElementById('__twofactor_passkey_btn');
+        if (hideTwoFa && existingTwoFa) existingTwoFa.remove();
+        if (hidePasskey && existingPasskey) existingPasskey.remove();
 
-        addPasskeyButton(signInBtn, btn);
+        if (!hideTwoFa && !existingTwoFa) {
+            addStyles();
+            var btn = document.createElement('a');
+            btn.id = BUTTON_ID;
+            btn.setAttribute('is', 'emby-linkbutton');
+            btn.className = (signInBtn.className || 'raised block').replace(/button-submit|button-cancel|emby-button/g, '').trim();
+            btn.innerHTML = '<span class="tfa-icon">🔐</span>Sign in with Two-Factor Authentication';
+            btn.href = '/TwoFactorAuth/Login';
+            (function () {
+                function updateHref() {
+                    var u = findUsername();
+                    btn.href = u ? '/TwoFactorAuth/Login?username=' + encodeURIComponent(u) : '/TwoFactorAuth/Login';
+                }
+                btn.addEventListener('click', function (e) { e.preventDefault(); updateHref(); window.location.assign(btn.href); });
+                var userInput = document.querySelector('input#txtManualName, input[name="username"], input#username');
+                if (userInput) ['input', 'change', 'blur'].forEach(function (ev) { userInput.addEventListener(ev, updateHref); });
+            })();
+            var parent = signInBtn.parentNode;
+            if (signInBtn.nextSibling) parent.insertBefore(btn, signInBtn.nextSibling);
+            else parent.appendChild(btn);
+        }
+
+        // Passkey button: anchor below the 2FA button when present, else
+        // below the Jellyfin sign-in button directly. addPasskeyButton
+        // returns early if the existing node is already present.
+        if (!hidePasskey) {
+            var anchorAbove = document.getElementById(BUTTON_ID) || signInBtn;
+            addStyles();
+            addPasskeyButton(signInBtn, anchorAbove);
+        }
     }
 
     // v2.1: passkey primary login button — sits below the 2FA button. Click

@@ -1040,9 +1040,11 @@
                         page.querySelector('#cfgStepUpLevel').value = (c.StepUpLevel != null ? c.StepUpLevel : 0);
                         var indefEl = page.querySelector('#cfgAllowIndefiniteTrust');
                         if (indefEl) indefEl.checked = !!c.AllowIndefiniteTrust;
-                        // [v2.5.7] (issue #48 feature, Gaarindor): OIDC-only login mode.
-                        var hideEl = page.querySelector('#cfgHideBuiltInLoginButtons');
-                        if (hideEl) hideEl.checked = !!c.HideBuiltInLoginButtons;
+                        // [v2.5.7] (issue #48 feature, Gaarindor): per-button login-page visibility.
+                        var hideTwoFaEl = page.querySelector('#cfgHideBuiltInTwoFactorButton');
+                        if (hideTwoFaEl) hideTwoFaEl.checked = !!c.HideBuiltInTwoFactorButton;
+                        var hidePasskeyEl = page.querySelector('#cfgHideBuiltInPasskeyButton');
+                        if (hidePasskeyEl) hidePasskeyEl.checked = !!c.HideBuiltInPasskeyButton;
                         // [v2.5.6] (round-5 fix D): tri-state hardened-security
                         // control. Default to "Forced" when the server didn't
                         // emit the property (older config XML).
@@ -1164,13 +1166,13 @@
                         // selected value here.
                         var ssSel = page.querySelector('#cfgSelfServiceStepUp');
                         c.SelfServiceStepUpMode = ssSel ? (ssSel.value || 'Forced') : 'Forced';
-                        // [v2.5.7] (issue #48 feature, Gaarindor): OIDC-only login mode.
-                        // Persisted via the standard plugin config endpoint — no
-                        // step-up gate needed because it's a purely cosmetic UI
-                        // toggle (the server-side /TwoFactorAuth/Login flow still
-                        // works regardless of this flag).
-                        var hideEl = page.querySelector('#cfgHideBuiltInLoginButtons');
-                        c.HideBuiltInLoginButtons = hideEl ? hideEl.checked : false;
+                        // [v2.5.7] (issue #48 feature, Gaarindor): per-button login-page
+                        // visibility. Persisted via the standard plugin config endpoint —
+                        // no step-up gate needed because it's a purely cosmetic UI toggle.
+                        var hideTwoFaSaveEl = page.querySelector('#cfgHideBuiltInTwoFactorButton');
+                        c.HideBuiltInTwoFactorButton = hideTwoFaSaveEl ? hideTwoFaSaveEl.checked : false;
+                        var hidePasskeySaveEl = page.querySelector('#cfgHideBuiltInPasskeyButton');
+                        c.HideBuiltInPasskeyButton = hidePasskeySaveEl ? hidePasskeySaveEl.checked : false;
                         // v2.5.0: persist hardening toggles through the gated endpoint.
                         // Broader plugin config (other fields) still uses the built-in
                         // updatePluginConfiguration path. Store current config ref so the

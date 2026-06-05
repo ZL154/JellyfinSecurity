@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -44,12 +45,22 @@ public class VerifiedTokenPersistence : IDisposable
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private DateTime _nextWriteAt = DateTime.MinValue;
 
-    public VerifiedTokenPersistence(ILogger<VerifiedTokenPersistence> logger)
+    public VerifiedTokenPersistence(IApplicationPaths paths, ILogger<VerifiedTokenPersistence> logger)
     {
         _logger = logger;
-        var dataFolder = Plugin.Instance?.DataFolderPath
-            ?? Path.Combine(Path.GetTempPath(), "JellyfinSecurity");
-        _path = Path.Combine(dataFolder, "verified_tokens.json");
+        // [v2.5.7] (issue #52 followup): mirror IpBanService's pattern.
+        // Plugin.Instance?.DataFolderPath was unreliable during DI startup
+        // (the singleton resolves before the plugin constructor sets
+        // Plugin.Instance), so we were falling back to Path.GetTempPath()
+        // — which inside Docker means /tmp, which is wiped by
+        // `docker compose down/up`. That's exactly derpacco's reproduction,
+        // so the persistence appeared to work for `docker restart` but
+        // wouldn't survive his actual case. Using IApplicationPaths puts
+        // us at /config/plugins/configurations/TwoFactorAuth/ which is
+        // bind-mounted and persistent.
+        var dataDir = Path.Combine(paths.PluginConfigurationsPath, "TwoFactorAuth");
+        Directory.CreateDirectory(dataDir);
+        _path = Path.Combine(dataDir, "verified_tokens.json");
         Load();
     }
 

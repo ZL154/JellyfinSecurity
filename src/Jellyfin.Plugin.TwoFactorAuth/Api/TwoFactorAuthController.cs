@@ -2295,6 +2295,18 @@ public class TwoFactorAuthController : ControllerBase
 
         foreach (var data in allUserData)
         {
+            // [v2.5.7] (issue #55, Dasnap): a corrupt store entry with
+            // UserId == Guid.Empty (created during failed-lockout bookkeeping
+            // for non-existent usernames during brute-force testing) threw
+            // ArgumentException out of UserManager.GetUserById and bricked the
+            // whole user listing. Skip junk rows; the dashboard renders the
+            // real users instead of a 500. Root-cause cleanup happens
+            // separately — this is the listing-resilience half.
+            if (data.UserId == Guid.Empty)
+            {
+                _logger.LogWarning("[2FA] Skipping UserTwoFactorData with empty UserId — likely stale brute-force entry; will be purged by housekeeping");
+                continue;
+            }
             var jellyfinUser = _userManager.GetUserById(data.UserId);
             var isLockedOut = await _store.IsLockedOutAsync(data.UserId).ConfigureAwait(false);
 
@@ -4407,11 +4419,13 @@ public class TwoFactorAuthController : ControllerBase
             // indefinite-trust toggle. The server-side endpoints also enforce
             // this — the public-config flag is purely a UI gate.
             allowIndefiniteTrust = cfg.AllowIndefiniteTrust,
-            // [v2.5.7] (issue #48 feature): inject.js reads this to decide
-            // whether to render the built-in 2FA + Passkey login buttons.
-            // OIDC-only deployments hide them. Purely a UI gate — the
-            // /TwoFactorAuth/Login plugin login page still works regardless.
-            hideBuiltInLoginButtons = cfg.HideBuiltInLoginButtons,
+            // [v2.5.7] (issue #48 feature): inject.js reads these to decide
+            // whether to render the built-in 2FA / Passkey login buttons.
+            // Independent toggles so admins can pick the shape they want.
+            // Purely a UI gate — the /TwoFactorAuth/Login plugin login page
+            // still works regardless of these flags.
+            hideBuiltInTwoFactorButton = cfg.HideBuiltInTwoFactorButton,
+            hideBuiltInPasskeyButton = cfg.HideBuiltInPasskeyButton,
         });
     }
 
