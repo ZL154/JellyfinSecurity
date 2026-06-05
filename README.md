@@ -121,6 +121,11 @@ visible trust signals is treated as a high-priority bug.
 - [Security score & admin overview (v2.5)](#-security-score--admin-overview-v25)
 - [Internationalization (v2.5)](#-internationalization-v25)
 - [Indefinite device trust (v2.5)](#-indefinite-device-trust-v25)
+- [Hardened self-service factor changes (v2.5.6)](#-hardened-self-service-factor-changes-v256)
+- [OIDC step-up factor for users (v2.5.7)](#-oidc-step-up-factor-for-users-v257)
+- [Hide built-in 2FA / Passkey login buttons (v2.5.7)](#-hide-built-in-2fa--passkey-login-buttons-v257)
+- [OIDC private / VPN / LAN endpoints (v2.5.7)](#-oidc-private--vpn--lan-endpoints-v257)
+- [Verified-token persistence (v2.5.7)](#-verified-token-persistence-v257)
 - [SMTP setup (email OTP)](#-smtp-setup-email-otp)
 - [Recovery — locked out](#-recovery--locked-out)
 - [Troubleshooting](#%EF%B8%8F-troubleshooting)
@@ -647,6 +652,95 @@ Lets a user mark a specific trusted browser or paired device as "trusted forever
 **Revoke / undo**: same toggle off. Or revoke the device entirely from Setup → Trusted Devices.
 
 ⚠ **Tradeoff** — an indefinite-trust device is your weakest link. If someone steals the laptop, that browser is signed in until *you* revoke it. Don't enable on shared / borrowed machines, and revoke immediately on device loss. The admin gate exists so org admins can keep this off entirely if their threat model doesn't tolerate the tradeoff.
+
+---
+
+## 🔐 Hardened self-service factor changes (v2.5.6)
+
+Closes the stolen-session takeover path. Before v2.5.6, an attacker who hijacked an authenticated browser cookie could silently enroll their own authenticator (add a passkey, generate a new TOTP secret, regenerate recovery codes) without ever proving they were the legitimate user — the original 2FA only gated *login*, not *factor changes*. v2.5.6 closes that.
+
+**Setting**: Jellyfin Security → **Settings → Hardening → Hardened security for users (factor changes)**. Tri-state:
+
+- **Off** — users can change 2FA factors without a current code (legacy behaviour, ≤ v2.5.5).
+- **User choice** — exposes a per-user toggle on the Setup page; each user opts in individually.
+- **Forced** (default) — every user must submit a current factor before adding/replacing any 2FA factor.
+
+**Covered mutations** — adding/replacing TOTP, regenerating recovery codes, creating an app password, adding/removing a passkey, enabling/disabling email OTP. All gated.
+
+**Proof of factor** — the step-up prompt accepts any of:
+- A current TOTP code from the user's authenticator app
+- An unused recovery code
+- A passkey assertion (when the user has at least one passkey enrolled)
+- An emailed 8-digit step-up code (when the user has a configured email + SMTP is set up)
+- An OIDC re-auth via a linked IdP (v2.5.7 — see below)
+
+Step-up tokens are single-use, 60-second TTL, and bound to the requesting user — they can't be replayed or reused for a second mutation.
+
+---
+
+## 🔑 OIDC step-up factor for users (v2.5.7)
+
+Lets a user satisfy the hardened self-service step-up by re-authenticating to a linked OIDC provider, instead of needing a TOTP / passkey / recovery code. Useful for users whose only configured factor is OIDC (common in OIDC-only deployments — see "Hide built-in login buttons" below).
+
+**How it works**:
+1. Step-up modal renders a "🌐 Verify with *ProviderName*" button per IdP the user has linked (data from `GET /TwoFactorAuth/Oidc/MyLinks`).
+2. Click opens the IdP in a popup window (520×720) with `prompt=login` so the IdP must actually re-authenticate the user — silent SSO confirmation is rejected.
+3. The IdP redirects to the standard `/TwoFactorAuth/Oidc/Callback/{providerId}` endpoint. The state token marks this as a step-up flow.
+4. Callback validates: the state token is bound to the current user; the IdP-returned `sub` matches the user's stored `SsoLink` for that provider. Both must match. Signing into a *different* IdP account doesn't grant step-up.
+5. On match, the server mints a step-up token, returns an HTML page that `postMessage`s it back to the opener (same-origin only), and closes the popup.
+6. The modal stores the token and proceeds with the factor mutation.
+
+**Security guards**:
+- `prompt=login` defeats a hijacked-session attacker who clicks "Sign in with X" hoping for a silent confirmation.
+- Subject-match against `SsoLink` defeats a hijacked-session attacker who happens to have their own account at the same IdP.
+- State token is single-use, 10-minute TTL, bound to the requesting user id and provider id.
+- Popup `postMessage` target is restricted to `window.location.origin`, never `'*'`.
+
+The "Verify with X" buttons only appear in the step-up modal when the user has at least one OIDC link; they don't add UI for users who don't use OIDC.
+
+---
+
+## 🙈 Hide built-in 2FA / Passkey login buttons (v2.5.7)
+
+For OIDC-only deployments where every user signs in through your IdP and the plugin's injected sign-in shortcuts add noise. Two independent admin toggles in **Settings → Hardening**:
+
+- **Hide the "Sign in with Two-Factor Authentication" button** — removes the 2FA shortcut `inject.js` adds to Jellyfin's main login page.
+- **Hide the "Sign in with passkey" button** — removes the passkey shortcut.
+
+Each is independent — pick any combination. Configured OIDC provider buttons stay visible regardless of these flags.
+
+⚠ **The `/TwoFactorAuth/Login` page still works directly** even when both toggles are on. Admins/fallback users can always reach it by URL, so you don't lock yourself out of the plugin's login flow if your IdP becomes unreachable.
+
+---
+
+## 🌐 OIDC private / VPN / LAN endpoints (v2.5.7)
+
+Lets you point the plugin at an IdP that lives on a private network (Tailscale, Wireguard, LAN-only Authentik / Authelia / Pocket ID, etc.). Without this toggle, v2.5.5's SSRF guard rejects any OIDC discovery URL that resolves to an RFC1918 / loopback / link-local address, or that uses plain `http`.
+
+**Setting**: per-provider, in the OIDC provider edit form → **Allow private / VPN / LAN endpoints** (marked **Advanced**, default off).
+
+**Granularity**: per-provider. A public Google + a private Authentik can coexist — Google keeps the strict SSRF guard, Authentik gets the bypass. The toggle scopes to ONE provider's discovery / token / userinfo / jwks fetches; other providers are unaffected.
+
+⚠ **Trade-off** — enabling this for a provider whose discovery URL gets tampered with would let an attacker pivot the plugin into your internal services (e.g. AWS IMDS at 169.254.169.254, internal admin APIs, the Docker daemon socket via host networking). Only enable for IdPs you intentionally host on private networks where the network boundary IS the security boundary.
+
+The OIDC spec doesn't let admins mix-and-match per-endpoint — the IdP's discovery document dictates which token / userinfo / jwks URLs the plugin fetches, and they all live in the same network as discovery. So per-provider is the natural granularity.
+
+---
+
+## 💾 Verified-token persistence (v2.5.7)
+
+Closes the "session permanently 403'd after restart" issue (#52). Before v2.5.7, the plugin tracked which access tokens had completed 2FA in an in-memory dictionary. After a `docker compose down/up` (or any process restart), that dictionary was empty — but the user's Jellyfin auth token was still valid in Jellyfin's DB. The failsafe `BlockToken` then triggered on every `SessionStarted` reconnect, and `RequestBlockerMiddleware` 403'd every API call. The user couldn't even reach `/Users/Me/Logout` — they had to wipe local storage.
+
+**Fix**: SHA-256 hashes of verified tokens persist to `{plugin-data}/verified_tokens.json`. On every restart, the hashes are loaded back into the in-memory set, so already-verified sessions stay verified.
+
+**What's stored**:
+- 64-char hex SHA-256 hash of each verified token (one-way, leak-resistant — a stolen sidecar yields no usable tokens).
+- ISO-8601 UTC expiry timestamp (30-day TTL per entry).
+- Cap at 5000 most-recent entries to bound disk usage.
+
+**What's NOT stored** — never the plaintext token, never user ids, never device ids. Just hash + expiry.
+
+**Operational signal** — after the first restart following a successful login, the log emits `[2FA] Loaded N verified-token hashes from /config/plugins/configurations/TwoFactorAuth/verified_tokens.json`. That confirms persistence is active.
 
 ---
 
