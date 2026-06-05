@@ -1260,7 +1260,7 @@ public class TwoFactorAuthController : ControllerBase
                         match.UsedAt = cloneCode.UsedAt ?? DateTime.UtcNow;
                     }
                 }
-                if (userData.ForceRecoveryOnNextLogin == false)
+                if (!userData.ForceRecoveryOnNextLogin)
                 {
                     ud.ForceRecoveryOnNextLogin = false;
                 }
@@ -1270,7 +1270,7 @@ public class TwoFactorAuthController : ControllerBase
         {
             await _store.MutateAsync(challenge.UserId, ud =>
             {
-                if (userData.ForceRecoveryOnNextLogin == false)
+                if (!userData.ForceRecoveryOnNextLogin)
                 {
                     ud.ForceRecoveryOnNextLogin = false;
                 }

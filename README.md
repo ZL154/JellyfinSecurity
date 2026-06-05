@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <!-- Static version badge — bump on each release. Switched from img.shields.io/github/v/release because that endpoint periodically returns 'unable to select next GitHub token from pool'. -->
-  <img src="https://img.shields.io/badge/Version-v2.5.3-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-v2.5.7-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -63,17 +63,44 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.5.0
+## 🆕 What's new in v2.5.7
 
-- **[Step-up authentication](#-step-up-authentication-v25)** — destructive admin actions (disable plugin, delete user, rebuild audit chain) now re-prompt for 2FA. Four levels: `Off`, `Destructive`, `AllConfigChanges`, `Everything`.
-- **[Encrypted configuration exports](#-encrypted-configuration-exports-v25)** — back up plugin config with a passphrase. AES-256-GCM, PBKDF2-SHA256 600k iterations, versioned envelope.
-- **[Admin Dashboard Overview](#-security-score--admin-overview-v25)** — auth-activity time series with 1w / 1m / 1y range selector, hover tooltips, and 12-factor security score (expanded from 5).
-- **[Internationalization](#-internationalization-v25)** — 8 languages (English, Deutsch, Español, Français, Italiano, 日本語, Português, 中文) at full key parity. Native-name picker. Per-user preference + server-wide default.
-- **[Indefinite device trust](#-indefinite-device-trust-v25)** — admin-gated opt-in for users who want a device signed in until they explicitly log out. Off by default.
-- **Audit chain rebuild** — admin action (step-up gated) to repair a broken audit-log hash chain after disk corruption or manual edits.
-- **`RequireTwoFactorToDisable` hardening flag** — disabling 2FA self-service now requires a fresh 2FA challenge.
-- **Translatable score factor labels** — every score factor shows in the user's chosen language.
-- 254/254 tests pass. Clean build with `TreatWarningsAsErrors=true`. In-place upgrade — existing TOTP enrollments, passkeys, OIDC links, trusted browsers, paired devices, and audit history all carry over.
+- **OIDC step-up for users** — users who only have an IdP linked (no TOTP / passkey / recovery code / email OTP) can now satisfy `SelfServiceStepUpMode=Forced` by re-authenticating to that IdP in a popup. Subject match against the stored `SsoLink` is enforced, so signing into a different IdP account doesn't grant step-up.
+- **Verified-session state survives restart** *(fix #52)* — `/Users/Foo` getting 403'd by `RequestBlockerMiddleware` after `docker compose down/up` is gone. The plugin now persists SHA-256 hashes of verified tokens to a sidecar JSON, so the in-memory verified-set is rehydrated on every restart instead of locking out every active session.
+- **OIDC private / VPN / LAN endpoints** *(fix #54)* — new per-provider toggle lets you point the plugin at a LAN-only Authentik / Authelia / Pocket ID / etc. without the v2.5.5 SSRF guard rejecting it. Public-Internet IdPs keep the strict guard.
+- **Hide built-in 2FA / Passkey login buttons** *(feature #48)* — two independent admin toggles for OIDC-only deployments. Pick any combination of "show 2FA", "show passkey", "show neither" — your configured IdP buttons stay visible regardless.
+- **User-listing crash fix** *(fix #55)* — junk `Guid.Empty` lockout entries from brute-force testing no longer 500 the Users tab. Two layers: defensive skip in the listing + write-refuse at the store boundary.
+- **Login-page 8-digit OTP fix** *(fix #50)* — the embedded login page now accepts 8-digit email OTP codes; the v2.5.5 brute-force hardening changed the digit count but `login.html` was missed. Thanks to **@duongynhi000005-oss** for the PR.
+- **Better error feedback on pending-pair actions** — Approve / Deny / QR buttons now show a spinner during the request and surface server errors via alert + `console.error`, instead of silently looking dead.
+- 254/254 tests pass. Clean build with `TreatWarningsAsErrors=true`. In-place upgrade — every persisted record (TOTP, passkeys, OIDC links, trusted browsers, paired devices, audit history) carries over.
+
+---
+
+## 🆕 What was new in v2.5.6
+
+- **Critical: bare DeviceId can no longer bypass 2FA.** New `BareDeviceIdBypassEnabled` flag (default off). The signed trusted-device cookie path is unchanged.
+- **Issue #28 — OIDC redirect_uri behind TLS-terminating proxies.** New providers default to `ForceHttps=true`; existing providers also get https automatically.
+- **Issue #48 — OIDC pre-existing-user link.** No more duplicate-user errors when a Jellyfin user with the matching username already exists.
+- **Issue #49 — login showed "incorrect username or password" instead of 2FA.** Race between `inject.js` and Jellyfin's bundled scripts fixed.
+- **Issue #50 — Email OTP digit-count UI mismatch.** Server-side fix (login.html caught up in v2.5.7).
+- **Hardened self-service** (`SelfServiceStepUpMode`, default `Forced`) — adding/replacing TOTP, recovery codes, app password, or passkey now requires proof of an existing factor.
+- **Email step-up** — for users who don't have TOTP/passkey but do have email, the step-up modal can mail them an 8-digit code.
+
+---
+
+## 🆕 What was new in v2.5.5
+
+- **OIDC empty-password sign-in path** closed. Auto-provisioned OIDC users now get a 256-bit random password at creation so Jellyfin's default auth provider stops treating them as accepting any password.
+- **TOTP rotate endpoint** fixed — earlier versions rejected the current code unconditionally.
+- **General security hardening**: OIDC token algorithm allowlist, OIDC discovery URL validation, recovery-code PBKDF2 iteration bump, email-OTP storage hardening, GeoIP path validation, log scrubbing, and a handful of small race fixes.
+- **`BlockEmptyPasswordLogin`** (default off) — when true, the plugin refuses empty/whitespace passwords for all users.
+
+---
+
+## 🆕 What was new in v2.5.4
+
+- **Issue #35 — Cloudflare Tunnel re-block after legit login.** All four legitimate-bypass branches now call `MarkTokenVerified` so the 30-day verified flag short-circuits later `SessionStarted` re-evaluations regardless of proxy IP rotation.
+- **Jellyfin 10.11.10 SDK bump** with the `IUserManager.Users` property → `GetUsers()` method rename handled via reflection so the same DLL still loads on 10.11.0–10.11.9.
 
 ---
 
@@ -121,6 +148,16 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ---
 
 ## 🧩 Features
+
+### Added in v2.5.4 – v2.5.7
+- **OIDC step-up factor** — re-authenticate to a linked IdP in a popup to satisfy hardened-security step-up, with subject-match against the stored `SsoLink`.
+- **Hardened self-service** (`SelfServiceStepUpMode` — `Off` / `UserChoice` / `Forced`, default `Forced`) — proof of an existing factor is required before adding/replacing TOTP, recovery codes, app password, or passkey.
+- **Email step-up codes** — users with email but no TOTP/passkey can request an 8-digit code by mail to clear the step-up gate.
+- **OIDC private / VPN / LAN endpoints** — per-provider toggle to allow private-IP IdPs without weakening the v2.5.5 SSRF guard for the public-Internet ones.
+- **Hide built-in 2FA / Passkey login buttons** — independent admin toggles for OIDC-only deployments.
+- **`BlockEmptyPasswordLogin`** — when true, refuses empty/whitespace passwords for all users.
+- **`BareDeviceIdBypassEnabled` flag** — gates the registered/paired-device-without-cookie fallback (default off; signed trusted-device cookies unaffected).
+- **Verified-session persistence** — SHA-256 hashes of verified tokens survive process restart so active sessions don't get re-blocked.
 
 ### New in v2.5
 - **Step-up authentication** — configurable level (`Off` / `Destructive` / `AllConfigChanges` / `Everything`) re-prompts for 2FA on sensitive admin actions.
