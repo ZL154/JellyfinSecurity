@@ -157,6 +157,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// default — admins must explicitly enable.</summary>
     public bool AllowIndefiniteTrust { get; set; } = false;
 
+    /// <summary>[v2.5.7] (issue #48 feature request, Gaarindor): when true,
+    /// inject.js skips injecting the "Sign in with Two-Factor Authentication"
+    /// and "Sign in with passkey" buttons on Jellyfin's main login page.
+    /// Designed for OIDC-only deployments where the admin wants users to
+    /// only see their IdP sign-in buttons. The plugin's own login flow at
+    /// /TwoFactorAuth/Login still works for admins / fallback. Default
+    /// false — existing installs keep the buttons visible.</summary>
+    public bool HideBuiltInLoginButtons { get; set; } = false;
+
     /// <summary>v2.4: granular 2FA enforcement scope. Optional (per-user
     /// opt-in), Admins (only admins must have 2FA), or All (everyone).</summary>
     public EnforcementScope EnforcementScope { get; set; } = EnforcementScope.Optional;

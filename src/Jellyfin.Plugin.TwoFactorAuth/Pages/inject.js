@@ -535,9 +535,32 @@
         var input = document.querySelector('input#txtManualName, input[name="username"], input#username, .manualLoginForm input[type="text"]:not([type="password"])');
         return input && input.value ? input.value.trim() : '';
     }
+    // [v2.5.7] (issue #48 feature, Gaarindor): lazy-fetch the anonymous
+    // public-config so addLoginButton can honour HideBuiltInLoginButtons.
+    // First call kicks off the fetch and returns early; subsequent polling
+    // ticks (tryInject runs every ~250ms) re-enter and either render or
+    // skip based on the flag.
+    var _tfaPublicCfg = null;
+    var _tfaPublicCfgPromise = null;
+    function fetchTfaPublicConfig() {
+        if (_tfaPublicCfgPromise) return _tfaPublicCfgPromise;
+        _tfaPublicCfgPromise = fetch('/TwoFactorAuth/public-config', { credentials: 'omit' })
+            .then(function (r) { return r.ok ? r.json() : {}; })
+            .then(function (j) { _tfaPublicCfg = j || {}; return _tfaPublicCfg; })
+            .catch(function () { _tfaPublicCfg = {}; return _tfaPublicCfg; });
+        return _tfaPublicCfgPromise;
+    }
+
     function addLoginButton() {
         if (!isLoginPage()) return;
         if (document.getElementById(BUTTON_ID)) return;
+        // [v2.5.7] (issue #48 feature, Gaarindor): respect
+        // HideBuiltInLoginButtons. While the public-config fetch is in
+        // flight (_tfaPublicCfg === null) skip injecting — the next
+        // polling tick will re-enter once the response arrives. Once
+        // resolved, the flag decides render-vs-skip permanently.
+        if (_tfaPublicCfg === null) { fetchTfaPublicConfig(); return; }
+        if (_tfaPublicCfg.hideBuiltInLoginButtons) return;
         var signInBtn = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
         if (!signInBtn) return;
         addStyles();

@@ -4407,6 +4407,11 @@ public class TwoFactorAuthController : ControllerBase
             // indefinite-trust toggle. The server-side endpoints also enforce
             // this — the public-config flag is purely a UI gate.
             allowIndefiniteTrust = cfg.AllowIndefiniteTrust,
+            // [v2.5.7] (issue #48 feature): inject.js reads this to decide
+            // whether to render the built-in 2FA + Passkey login buttons.
+            // OIDC-only deployments hide them. Purely a UI gate — the
+            // /TwoFactorAuth/Login plugin login page still works regardless.
+            hideBuiltInLoginButtons = cfg.HideBuiltInLoginButtons,
         });
     }
 

@@ -686,6 +686,8 @@
   "tfa.admin.hardening.selfservice_userchoice": "User choice - show a per-user toggle on the Setup page",
   "tfa.admin.hardening.selfservice_forced": "Forced - every user must submit a current code to change a factor",
   "tfa.admin.hardening.selfservice_stepup_help": "Controls whether users must submit a current TOTP recovery code before adding or replacing a 2FA factor.",
+  "tfa.admin.hardening.hide_builtin_login_label": "Hide built-in 2FA & Passkey buttons on the Jellyfin login page (OIDC-only mode)",
+  "tfa.admin.hardening.hide_builtin_login_help": "When enabled, the standard Jellyfin login page only shows your configured OIDC provider buttons. The Sign in with Two-Factor Authentication and Sign in with passkey buttons that this plugin normally injects are hidden. Use this when every user signs in via your IdP and the in-app prompts add noise. The /TwoFactorAuth/Login page still works for admins or fallback access. Default off.",
   "tfa.setup.enroll.alt_factors": "Prefer something else? You can use a passkey (Face ID, Windows Hello, hardware key), an email-only code (set your email below), or sign in with a linked OIDC account - see the cards further down this page.",
   "tfa.setup.stepup.disable_msg": "Enter your current TOTP or recovery code to disable 2FA.",
   "tfa.setup.disable.failed": "Failed to disable 2FA.",

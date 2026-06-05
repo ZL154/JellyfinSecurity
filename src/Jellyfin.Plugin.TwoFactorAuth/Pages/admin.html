@@ -556,6 +556,14 @@
                                 </select>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.hardening.selfservice_stepup_help">Controls whether users must submit a current TOTP / recovery code (or passkey / email step-up) before adding or replacing a 2FA factor (new TOTP, recovery-code regen, app-password create, passkey add/remove). Default "Forced" closes the stolen-session-takeover path — a logged-in attacker can't silently enroll their own factor. "User choice" exposes the option on each Setup page so individual users can opt in.</div>
                             </div>
+                            <!-- [v2.5.7] (issue #48 feature, Gaarindor): OIDC-only login mode -->
+                            <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
+                                <label class="tfa-check-label">
+                                    <input type="checkbox" id="cfgHideBuiltInLoginButtons" is="emby-checkbox" />
+                                    <span data-i18n-key="tfa.admin.hardening.hide_builtin_login_label">Hide built-in 2FA &amp; Passkey buttons on the Jellyfin login page (OIDC-only mode)</span>
+                                </label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.hardening.hide_builtin_login_help">When enabled, the standard Jellyfin login page only shows your configured OIDC provider buttons. The "Sign in with Two-Factor Authentication" and "Sign in with passkey" buttons that this plugin normally injects are hidden. Use this when every user signs in via your IdP and the in-app prompts add noise. The /TwoFactorAuth/Login page still works for admins or fallback access. Default off.</div>
+                            </div>
                         </div>
 
                         <div class="tfa-section">
