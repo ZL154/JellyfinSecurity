@@ -586,6 +586,12 @@
             var emailFailed = _tr('tfa.setup.stepup.email_failed', 'Failed to send email. Check SMTP / your account email.');
             var hasPasskey = (window.__tfa_userPasskeyCount || 0) > 0;
             var hasEmail = window.__tfa_userHasEmail === true;
+            // [v2.5.7] OIDC step-up: list of linked providers from
+            // /Oidc/MyLinks, each renders a "Sign in with X" button that
+            // opens the IdP in a popup and listens for the postMessage
+            // success handoff.
+            var oidcLinks = Array.isArray(window.__tfa_userOidcLinks) ? window.__tfa_userOidcLinks : [];
+            var hasOidc = oidcLinks.length > 0;
             return new Promise(function(resolve) {
                 var ov = document.createElement('div');
                 ov.setAttribute('role', 'dialog');
@@ -594,7 +600,7 @@
                 var card = document.createElement('div');
                 card.style.cssText = 'background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:24px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.6);';
                 var altSection = '';
-                if (hasPasskey || hasEmail) {
+                if (hasPasskey || hasEmail || hasOidc) {
                     altSection += '<div style="border-top:1px solid #2a2a2a;margin-top:18px;padding-top:14px;display:flex;flex-direction:column;gap:8px;">';
                     if (hasPasskey) {
                         altSection +=
@@ -604,6 +610,19 @@
                     if (hasEmail) {
                         altSection +=
                             '<button data-act="email" style="background:transparent;color:#bbb;border:1px solid #444;padding:9px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%;">✉ ' + escapeHtml(emailText) + '</button>';
+                    }
+                    // [v2.5.7] OIDC step-up buttons — one per linked provider.
+                    if (hasOidc) {
+                        var oidcPrefix = _tr('tfa.setup.stepup.use_oidc', 'Verify with');
+                        oidcLinks.forEach(function (link) {
+                            var pid = link.providerId || link.ProviderId || '';
+                            var disp = link.providerDisplay || link.ProviderDisplay || pid;
+                            if (!pid) return;
+                            altSection +=
+                                '<button data-act="oidc" data-provider="' + escapeHtml(pid) + '" '
+                                + 'style="background:transparent;color:#bbb;border:1px solid #444;padding:9px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%;">'
+                                + '🌐 ' + escapeHtml(oidcPrefix) + ' ' + escapeHtml(disp) + '</button>';
+                        });
                     }
                     altSection += '</div>';
                 }
@@ -673,6 +692,60 @@
                 card.querySelector('[data-act="cancel"]').addEventListener('click', function() { close(null); });
                 var pkBtn = card.querySelector('[data-act="passkey"]');
                 if (pkBtn) pkBtn.addEventListener('click', runPasskey);
+                // [v2.5.7] OIDC step-up: each per-provider button opens the
+                // IdP authorize URL in a popup. The /Oidc/Callback handler
+                // detects step-up state, mints a stepUpToken, and renders an
+                // HTML page that postMessages the result back. We listen on
+                // the same-origin message channel and close the modal with
+                // the token on success.
+                Array.prototype.forEach.call(card.querySelectorAll('[data-act="oidc"]'), function (oBtn) {
+                    oBtn.addEventListener('click', function () {
+                        var pid = oBtn.getAttribute('data-provider') || '';
+                        if (!pid) return;
+                        oBtn.disabled = true;
+                        var origLabel = oBtn.textContent;
+                        oBtn.textContent = '🌐 ' + _tr('tfa.setup.stepup.opening', 'Opening sign-in window…');
+                        var popup = null;
+                        function onMsg(ev) {
+                            if (ev.origin !== window.location.origin) return;
+                            var d = ev.data || {};
+                            if (d.type !== 'tfa-stepup-oidc') return;
+                            window.removeEventListener('message', onMsg);
+                            if (d.success && d.stepUpToken) {
+                                if (popup) { try { popup.close(); } catch (e) {} }
+                                close({ stepUpToken: d.stepUpToken });
+                            } else {
+                                oBtn.disabled = false;
+                                oBtn.textContent = origLabel;
+                                showErr(d.message || _tr('tfa.setup.stepup.oidc_failed', 'OIDC sign-in failed.'));
+                            }
+                        }
+                        window.addEventListener('message', onMsg);
+                        api('POST', 'TwoFactorAuth/Oidc/StepUpBegin/' + encodeURIComponent(pid))
+                            .then(function (resp) {
+                                if (!resp || !resp.authUrl) {
+                                    window.removeEventListener('message', onMsg);
+                                    oBtn.disabled = false;
+                                    oBtn.textContent = origLabel;
+                                    showErr(_tr('tfa.setup.stepup.oidc_failed', 'OIDC sign-in failed.'));
+                                    return;
+                                }
+                                popup = window.open(resp.authUrl, 'tfa-stepup-oidc', 'width=520,height=720,menubar=no,toolbar=no,location=no');
+                                if (!popup) {
+                                    window.removeEventListener('message', onMsg);
+                                    oBtn.disabled = false;
+                                    oBtn.textContent = origLabel;
+                                    showErr(_tr('tfa.setup.stepup.popup_blocked', 'Popup blocked. Allow popups for this site and retry.'));
+                                }
+                            })
+                            .catch(function (e) {
+                                window.removeEventListener('message', onMsg);
+                                oBtn.disabled = false;
+                                oBtn.textContent = origLabel;
+                                showErr((e && e.message) || _tr('tfa.setup.stepup.oidc_failed', 'OIDC sign-in failed.'));
+                            });
+                    });
+                });
                 var emailBtn = card.querySelector('[data-act="email"]');
                 if (emailBtn) {
                     emailBtn.addEventListener('click', async function() {
@@ -743,6 +816,9 @@
                 api('GET', 'TwoFactorAuth/PairedDevices').catch(function() { return []; }),
                 api('GET', 'TwoFactorAuth/PendingPairings').catch(function() { return []; }),
                 api('GET', 'TwoFactorAuth/MySessions').catch(function() { return []; }),
+                // [v2.5.7] OIDC step-up: surface linked providers so the
+                // step-up modal can render per-provider sign-in buttons.
+                api('GET', 'TwoFactorAuth/Oidc/MyLinks').catch(function() { return []; }),
             ]).then(function(r) {
                 var myStatus = r[0], me = r[1];
                 if (me && (me.Id || me.id)) _myUserId = me.Id || me.id;
@@ -772,6 +848,10 @@
                 // [v2.5.6] (round-5c): expose passkey count to tfaPromptForCode
                 // so it can decide whether to render the "Use a passkey" button.
                 window.__tfa_userPasskeyCount = passkeyCount;
+                // [v2.5.7] OIDC step-up: expose linked-provider list to the
+                // step-up modal so it can render per-provider "Sign in with X"
+                // buttons. Each entry has { providerId, providerDisplay, ... }.
+                window.__tfa_userOidcLinks = Array.isArray(r[9]) ? r[9] : [];
                 // [v2.5.6] (round-5d): expose email + email-OTP-enabled so the
                 // prompt can offer "Send code by email" as a step-up factor.
                 var emailRow = r[4] || {};

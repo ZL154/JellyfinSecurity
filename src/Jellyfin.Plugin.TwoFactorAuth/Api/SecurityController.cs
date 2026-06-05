@@ -36,6 +36,9 @@ public class SecurityController : ControllerBase
     // SECURITY [v2.5.6] (U3): step-up service for gating destructive admin
     // mutations on OIDC provider configuration.
     private readonly StepUpService _stepUp;
+    // [v2.5.7] OIDC step-up: needed to mint user step-up tokens from the
+    // callback handler.
+    private readonly ChallengeStore _challenges;
     private readonly ILogger<SecurityController> _logger;
 
     public SecurityController(
@@ -49,6 +52,7 @@ public class SecurityController : ControllerBase
         IUserManager userManager,
         RateLimiter rateLimiter,
         StepUpService stepUp,
+        ChallengeStore challenges,
         ILogger<SecurityController> logger)
     {
         _oidc = oidc;
@@ -61,6 +65,7 @@ public class SecurityController : ControllerBase
         _userManager = userManager;
         _rateLimiter = rateLimiter;
         _stepUp = stepUp;
+        _challenges = challenges;
         _logger = logger;
     }
 
@@ -352,6 +357,74 @@ public class SecurityController : ControllerBase
         }
     }
 
+    /// <summary>[v2.5.7] OIDC step-up — begin flow for an already-signed-in
+    /// user who wants to satisfy a factor-change step-up gate via their
+    /// linked IdP. Returns the IdP authorize URL for the client to open in
+    /// a popup; the standard /Oidc/Callback/{providerId} endpoint routes
+    /// step-up state to <see cref="OidcService.CompleteUserStepUpAsync"/>.</summary>
+    [HttpPost("Oidc/StepUpBegin/{providerId}")]
+    [Authorize]
+    public async Task<IActionResult> OidcStepUpBegin([FromRoute] string providerId)
+    {
+        if (!Guid.TryParse(User.FindFirst("Jellyfin-UserId")?.Value, out var userId))
+        {
+            return Unauthorized();
+        }
+        var provider = Plugin.Instance?.Configuration.OidcProviders
+            .FirstOrDefault(p => p.Id == providerId && p.Enabled);
+        if (provider is null)
+        {
+            return NotFound(new { message = "Provider not found or disabled." });
+        }
+        // Require an existing SsoLink so an attacker who hijacks an
+        // authenticated session can't "step-up" through an arbitrary IdP
+        // they happen to have an account at.
+        var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (!userData.SsoLinks.Any(l => string.Equals(l.ProviderId, providerId, StringComparison.Ordinal)))
+        {
+            return BadRequest(new { message = "You don't have this provider linked to your account." });
+        }
+        var redirectUri = BuildRedirectUri(provider);
+        try
+        {
+            var (authUrl, _) = await _oidc.BeginUserStepUpAsync(provider, userId, redirectUri).ConfigureAwait(false);
+            return Ok(new { authUrl });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[2FA] OIDC step-up begin failed for {Provider}", providerId);
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                message = "Failed to start OIDC step-up — check server logs.",
+            });
+        }
+    }
+
+    /// <summary>[v2.5.7] HTML response served to the OIDC step-up popup so
+    /// it can postMessage the result back to the opener and close itself.
+    /// Strict-mode JS, opener-relative origin check, no inline interactivity
+    /// beyond what's needed for the handoff.</summary>
+    private static string BuildStepUpPopupHtml(bool success, string? stepUpToken, string? message)
+    {
+        // Token + message are both server-controlled in the success path
+        // (mint output / static strings); even so we escape defensively.
+        var tokenJs = success && !string.IsNullOrEmpty(stepUpToken)
+            ? System.Text.Json.JsonSerializer.Serialize(stepUpToken)
+            : "null";
+        var msgJs = System.Text.Json.JsonSerializer.Serialize(message ?? string.Empty);
+        var successJs = success ? "true" : "false";
+        return "<!doctype html><html><head><meta charset=\"utf-8\"><title>Sign-in complete</title>"
+            + "<style>body{background:#111;color:#eee;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:20px;}"
+            + ".card{max-width:380px;}h1{font-size:18px;margin:0 0 8px;}p{margin:0;color:#aaa;font-size:14px;}</style>"
+            + "</head><body><div class=\"card\"><h1 id=\"h\"></h1><p id=\"p\"></p></div><script>(function(){"
+            + "var ok=" + successJs + ",t=" + tokenJs + ",m=" + msgJs + ";"
+            + "document.getElementById('h').textContent=ok?'Signed in':'Sign-in failed';"
+            + "document.getElementById('p').textContent=ok?'You can close this window.':(m||'Try again.');"
+            + "try{if(window.opener){window.opener.postMessage({type:'tfa-stepup-oidc',success:ok,stepUpToken:t,message:m},window.location.origin);}}catch(e){}"
+            + "setTimeout(function(){try{window.close();}catch(e){}},800);"
+            + "})();</script></body></html>";
+    }
+
     [HttpGet("Oidc/Callback/{providerId}")]
     [AllowAnonymous]
     public async Task<IActionResult> Callback(
@@ -409,6 +482,28 @@ public class SecurityController : ControllerBase
 
         var redirectUri = BuildRedirectUri(provider);
         _logger.LogInformation("[2FA] OIDC token exchange redirect_uri={Uri}", redirectUri);
+
+        // [v2.5.7] OIDC step-up: if the state was minted by a step-up Begin
+        // (rather than a regular login Begin), run the step-up completion
+        // and return a popup-friendly HTML that postMessages success back to
+        // the opener instead of redirecting the whole window. Non-consuming
+        // peek so a state for the OTHER path still routes correctly.
+        if (_oidc.IsUserStepUpState(state))
+        {
+            var su = await _oidc.CompleteUserStepUpAsync(provider, code, state, redirectUri).ConfigureAwait(false);
+            if (!su.Success || su.UserId is null)
+            {
+                _bans.RecordFailure(callbackIp);
+                _logger.LogWarning("[2FA] OIDC step-up failed: {Err}", su.Error ?? "(unknown)");
+                return Content(BuildStepUpPopupHtml(success: false, stepUpToken: null,
+                    message: "Step-up sign-in failed. You can close this window and try again."),
+                    "text/html; charset=utf-8");
+            }
+            var stepUpToken = _challenges.MintUserStepUpToken(su.UserId.Value);
+            return Content(BuildStepUpPopupHtml(success: true, stepUpToken: stepUpToken, message: null),
+                "text/html; charset=utf-8");
+        }
+
         var result = await _oidc.CompleteAsync(provider, code, state, redirectUri).ConfigureAwait(false);
         if (!result.Success || result.UserId is null || result.Username is null)
         {

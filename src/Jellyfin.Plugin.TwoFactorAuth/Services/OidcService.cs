@@ -45,6 +45,18 @@ public class OidcService : IDisposable
         string ReturnUrl,
         DateTime ExpiresAt);
 
+    // [v2.5.7] (deferred OIDC step-up): parallel to PendingFlow but for the
+    // user-step-up modal. Carries the user id that the IdP-returned subject
+    // must match; the popup callback enforces that match before minting the
+    // step-up token. Separated from _pendingFlows so a regular login state
+    // can't accidentally satisfy a step-up callback and vice versa.
+    private record PendingUserStepUp(
+        string ProviderId,
+        Guid UserId,
+        string CodeVerifier,
+        string Nonce,
+        DateTime ExpiresAt);
+
     private readonly UserTwoFactorStore _store;
     private readonly IUserManager _userManager;
     private readonly ILogger<OidcService> _logger;
@@ -69,6 +81,7 @@ public class OidcService : IDisposable
     private readonly ConcurrentDictionary<string, Discovery> _discoveryCache = new();
     private readonly ConcurrentDictionary<string, JwksCacheEntry> _jwksCache = new();
     private readonly ConcurrentDictionary<string, PendingFlow> _pendingFlows = new();
+    private readonly ConcurrentDictionary<string, PendingUserStepUp> _pendingUserStepUps = new();
     private readonly Timer _cleanupTimer;
     private bool _disposed;
 
@@ -216,6 +229,151 @@ public class OidcService : IDisposable
         }
 
         return await FinalizeSignInAsync(provider, disc, claims, accessToken, pending.ReturnUrl).ConfigureAwait(false);
+    }
+
+    // ---------------------------------------------------------------------
+    // [v2.5.7] OIDC step-up: a user already signed in via this plugin can
+    // re-authenticate to an IdP they have linked, and the matching subject
+    // mints a user step-up token. Used when the user has no TOTP / passkey
+    // / recovery code / email OTP to satisfy SelfServiceStepUpMode=Forced.
+    // ---------------------------------------------------------------------
+
+    /// <summary>Non-consuming peek so the shared /Oidc/Callback endpoint can
+    /// route a callback to <see cref="CompleteUserStepUpAsync"/> vs the
+    /// regular login completion without burning the state token on the
+    /// wrong path.</summary>
+    public bool IsUserStepUpState(string state)
+        => !string.IsNullOrEmpty(state) && _pendingUserStepUps.ContainsKey(state);
+
+    /// <summary>Begin an OIDC step-up flow. The returned authorize URL is
+    /// opened in a popup. State is single-use and bound to <paramref name="userId"/>;
+    /// the callback enforces the subject match before minting a token.</summary>
+    public async Task<(string AuthUrl, string State)> BeginUserStepUpAsync(
+        OidcProvider provider, Guid userId, string redirectUri)
+    {
+        var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
+
+        var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var codeChallenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier)));
+        var state = Base64Url(RandomNumberGenerator.GetBytes(24));
+        var nonce = Base64Url(RandomNumberGenerator.GetBytes(24));
+
+        _pendingUserStepUps[state] = new PendingUserStepUp(
+            provider.Id, userId, codeVerifier, nonce,
+            DateTime.UtcNow.AddMinutes(10));
+
+        var qs = new List<(string, string)>
+        {
+            ("client_id", provider.ClientId),
+            ("response_type", "code"),
+            ("scope", provider.Scopes),
+            ("redirect_uri", redirectUri),
+            ("state", state),
+            ("nonce", nonce),
+            ("code_challenge", codeChallenge),
+            ("code_challenge_method", "S256"),
+            // Force the IdP to actually re-authenticate even if there's an
+            // active SSO session. Without prompt=login a clever attacker
+            // who hijacked a browser session could click "Sign in with X"
+            // and have the IdP silently confirm. prompt=login closes that.
+            ("prompt", "login"),
+        };
+        if (!string.IsNullOrWhiteSpace(provider.AcrValues))
+            qs.Add(("acr_values", provider.AcrValues));
+
+        var url = disc.AuthorizationEndpoint + "?" +
+            string.Join("&", qs.Select(kv => $"{Uri.EscapeDataString(kv.Item1)}={Uri.EscapeDataString(kv.Item2)}"));
+        return (url, state);
+    }
+
+    public record StepUpResult(bool Success, string? Error, Guid? UserId);
+
+    /// <summary>Process the OIDC step-up callback. Validates state + nonce,
+    /// exchanges the code, verifies the id_token, and confirms the returned
+    /// subject matches the user's stored <c>SsoLink</c> for this provider.
+    /// Does NOT sign anyone in — the caller is already authenticated; this
+    /// is purely a fresh-factor proof to gate a sensitive action.</summary>
+    public async Task<StepUpResult> CompleteUserStepUpAsync(
+        OidcProvider provider, string code, string state, string redirectUri)
+    {
+        if (!_pendingUserStepUps.TryRemove(state, out var pending))
+        {
+            return new StepUpResult(false, "Step-up state token not found or expired", null);
+        }
+        if (pending.ProviderId != provider.Id)
+        {
+            return new StepUpResult(false, "Step-up state belongs to a different provider", null);
+        }
+        if (pending.ExpiresAt <= DateTime.UtcNow)
+        {
+            return new StepUpResult(false, "Step-up flow timed out — try again", null);
+        }
+
+        var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
+
+        using var tokenForm = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "authorization_code",
+            ["code"] = code,
+            ["redirect_uri"] = redirectUri,
+            ["client_id"] = provider.ClientId,
+            ["client_secret"] = provider.ClientSecret,
+            ["code_verifier"] = pending.CodeVerifier,
+        });
+        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
+        var tokenResp = await _http.PostAsync(disc.TokenEndpoint, tokenForm).ConfigureAwait(false);
+        if (!tokenResp.IsSuccessStatusCode)
+        {
+            var body = await tokenResp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            _logger.LogWarning("[2FA] OIDC step-up token exchange failed: {Status} {Body}", tokenResp.StatusCode, body);
+            return new StepUpResult(false, "IdP token exchange failed", null);
+        }
+
+        using var tokenStream = await tokenResp.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        var tokenJson = await JsonSerializer.DeserializeAsync<JsonElement>(tokenStream).ConfigureAwait(false);
+        if (!tokenJson.TryGetProperty("id_token", out var idTokenEl))
+        {
+            return new StepUpResult(false, "IdP response missing id_token", null);
+        }
+        var idToken = idTokenEl.GetString() ?? string.Empty;
+
+        ClaimsBundle claims;
+        try
+        {
+            claims = await VerifyIdTokenAsync(provider, disc, idToken, pending.Nonce).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] OIDC step-up id_token verification failed");
+            return new StepUpResult(false, "Token verification failed: " + ex.Message, null);
+        }
+
+        // Subject-match check. The current Jellyfin user must have an
+        // SsoLink for this provider whose Subject == the IdP-returned sub.
+        // Without this, signing into Google as ANY account would step-up
+        // ANY plugin user — the entire point of step-up is gone.
+        var userData = await _store.GetUserDataAsync(pending.UserId).ConfigureAwait(false);
+        var link = userData.SsoLinks.FirstOrDefault(l =>
+            string.Equals(l.ProviderId, provider.Id, StringComparison.Ordinal)
+            && string.Equals(l.Subject, claims.Subject, StringComparison.Ordinal));
+        if (link is null)
+        {
+            _logger.LogWarning(
+                "[2FA] OIDC step-up subject mismatch: user {UserId} has no link to {ProviderId} subject {Subject}",
+                pending.UserId, provider.Id, claims.Subject);
+            return new StepUpResult(false, "This IdP account is not linked to your Jellyfin user", null);
+        }
+
+        // Update LastUsedAt for audit/UI display.
+        await _store.MutateAsync(pending.UserId, ud =>
+        {
+            var l = ud.SsoLinks.FirstOrDefault(x =>
+                string.Equals(x.ProviderId, provider.Id, StringComparison.Ordinal)
+                && string.Equals(x.Subject, claims.Subject, StringComparison.Ordinal));
+            if (l is not null) l.LastUsedAt = DateTime.UtcNow;
+        }).ConfigureAwait(false);
+
+        return new StepUpResult(true, null, pending.UserId);
     }
 
     /// <summary>v2.5.1: RFC 8693-style token-exchange entry point for native
@@ -1006,6 +1164,11 @@ public class OidcService : IDisposable
         foreach (var kv in _pendingFlows)
         {
             if (kv.Value.ExpiresAt <= now) _pendingFlows.TryRemove(kv.Key, out _);
+        }
+        // [v2.5.7] OIDC step-up: matching cleanup for the step-up flow map.
+        foreach (var kv in _pendingUserStepUps)
+        {
+            if (kv.Value.ExpiresAt <= now) _pendingUserStepUps.TryRemove(kv.Key, out _);
         }
     }
 
