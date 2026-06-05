@@ -104,5 +104,18 @@ public class OidcProvider
     /// existing providers keep their stored value on upgrade.</summary>
     public bool ForceHttps { get; set; } = true;
 
+    /// <summary>[v2.5.7] (issue #54, cwildfoerster): bypass the v2.5.5 SSRF
+    /// guard's HTTPS-only + public-unicast-IP check for THIS provider's
+    /// outbound endpoint fetches (discovery / token / userinfo / jwks).
+    /// Default false — keep the strict default for the public-Internet IdP
+    /// case. Enable ONLY for IdPs that are intentionally reachable on
+    /// private networks (LAN-only Authentik, Tailscale / Wireguard-fronted
+    /// Authelia, etc.) where the boundary is the VPN/LAN and the SSRF
+    /// vector — admin tricked into pointing the plugin at AWS IMDS or an
+    /// internal HTTP service — is mitigated by the admin explicitly
+    /// flipping this toggle. Per-provider so a public Google + a private
+    /// Authentik can coexist without weakening Google's guard.</summary>
+    public bool AllowPrivateNetworks { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }

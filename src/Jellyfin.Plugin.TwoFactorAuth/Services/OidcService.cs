@@ -179,7 +179,7 @@ public class OidcService : IDisposable
         // 127.0.0.1 / 169.254.169.254 / a private IP and the cached URL would
         // happily POST credentials there. GetJwksAsync already does this; the
         // token + userinfo paths were the gap.
-        await EnsureSafeOutboundAsync(disc.TokenEndpoint).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
         var tokenResp = await _http.PostAsync(disc.TokenEndpoint, tokenForm).ConfigureAwait(false);
 
         if (!tokenResp.IsSuccessStatusCode)
@@ -271,7 +271,7 @@ public class OidcService : IDisposable
                 // SECURITY [v2.5.6] (ext review #6): re-validate userinfo
                 // endpoint before each fetch — same DNS-rebind window as the
                 // token endpoint. See GetJwksAsync for the same pattern.
-                await EnsureSafeOutboundAsync(disc.UserInfoEndpoint).ConfigureAwait(false);
+                await EnsureSafeOutboundAsync(disc.UserInfoEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
                 var extra = await FetchUserInfoClaimsAsync(disc.UserInfoEndpoint, accessToken).ConfigureAwait(false);
                 if (extra.Groups.Length > 0)
                 {
@@ -819,7 +819,7 @@ public class OidcService : IDisposable
         // DiscoveryUrl at http://169.254.169.254/latest/meta-data (AWS IMDS)
         // or http://10.0.0.1:8080/internal-api or file:// and exfiltrate
         // those targets via the Discovery response shape.
-        await EnsureSafeOutboundAsync(provider.DiscoveryUrl).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(provider.DiscoveryUrl, provider.AllowPrivateNetworks).ConfigureAwait(false);
 
         var resp = await _http.GetFromJsonAsync<JsonElement>(provider.DiscoveryUrl).ConfigureAwait(false);
         var disc = new Discovery(
@@ -835,12 +835,12 @@ public class OidcService : IDisposable
         // (e.g. accounts.google.com/.well-known/openid-configuration) but
         // a malicious or compromised IdP could still return jwks_uri /
         // token_endpoint pointing at private IPs to pivot SSRF.
-        await EnsureSafeOutboundAsync(disc.AuthorizationEndpoint).ConfigureAwait(false);
-        await EnsureSafeOutboundAsync(disc.TokenEndpoint).ConfigureAwait(false);
-        await EnsureSafeOutboundAsync(disc.JwksUri).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.AuthorizationEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.JwksUri, provider.AllowPrivateNetworks).ConfigureAwait(false);
         if (!string.IsNullOrEmpty(disc.UserInfoEndpoint))
         {
-            await EnsureSafeOutboundAsync(disc.UserInfoEndpoint).ConfigureAwait(false);
+            await EnsureSafeOutboundAsync(disc.UserInfoEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
         }
 
         _discoveryCache[provider.Id] = disc;
@@ -853,8 +853,12 @@ public class OidcService : IDisposable
     /// 169.254.169.254), multicast, and IPv6 equivalents. Caller is
     /// responsible for handling the OidcDiscoveryException by surfacing a
     /// useful error to the admin (the discovery cache stays unpopulated so
-    /// subsequent retries will re-validate when config changes).</summary>
-    private async Task EnsureSafeOutboundAsync(string urlString)
+    /// subsequent retries will re-validate when config changes).
+    /// [v2.5.7] (issue #54): callers may pass <paramref name="allowPrivate"/>
+    /// = true to opt out of the HTTPS-only + public-unicast-IP checks for
+    /// providers whose <c>AllowPrivateNetworks</c> is set (LAN/VPN IdPs).
+    /// The URL syntax check still runs; the safety filters are skipped.</summary>
+    private async Task EnsureSafeOutboundAsync(string urlString, bool allowPrivate = false)
     {
         if (string.IsNullOrWhiteSpace(urlString))
         {
@@ -863,6 +867,19 @@ public class OidcService : IDisposable
         if (!Uri.TryCreate(urlString, UriKind.Absolute, out var uri))
         {
             throw new InvalidOperationException($"Outbound URL is malformed: {urlString}");
+        }
+        // [v2.5.7] (issue #54): when the provider opts into private networks,
+        // skip the HTTPS-only + public-IP checks. Still require http or https
+        // as the only valid OIDC transports.
+        if (allowPrivate)
+        {
+            if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Outbound URL scheme must be http or https, got '{uri.Scheme}' for host '{uri.Host}'.");
+            }
+            return;
         }
         if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
@@ -961,7 +978,7 @@ public class OidcService : IDisposable
         // SECURITY [v2.5.5] (Finding 3): re-validate even though Discovery
         // also validated — DNS could have changed between cache populate
         // and now, and the cache TTL on Discovery (1h) is independent.
-        await EnsureSafeOutboundAsync(disc.JwksUri).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.JwksUri, provider.AllowPrivateNetworks).ConfigureAwait(false);
         var json = await _http.GetStringAsync(disc.JwksUri).ConfigureAwait(false);
         var jwks = new JsonWebKeySet(json);
         _jwksCache[provider.Id] = new JwksCacheEntry(jwks, DateTime.UtcNow);

@@ -1333,6 +1333,9 @@
                     page.querySelector('#ssoBypass2fa').checked = prov ? prov.bypassPluginTwoFa !== false : true;
                     page.querySelector('#ssoEnabled').checked = prov ? prov.enabled !== false : true;
                     page.querySelector('#ssoForceHttps').checked = prov ? !!prov.forceHttps : false;
+                    // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
+                    var allowPrivEl = page.querySelector('#ssoAllowPrivate');
+                    if (allowPrivEl) allowPrivEl.checked = prov ? !!prov.allowPrivateNetworks : false;
                     ssoEditingId = prov ? prov.id : null;
                     updateSsoHint();
                 }
@@ -1381,6 +1384,8 @@
                         BypassPluginTwoFa: page.querySelector('#ssoBypass2fa').checked,
                         Enabled: page.querySelector('#ssoEnabled').checked,
                         ForceHttps: page.querySelector('#ssoForceHttps').checked,
+                        // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
+                        AllowPrivateNetworks: (page.querySelector('#ssoAllowPrivate') || {}).checked === true,
                     };
                     if (!body.DisplayName) { alert(_tr('tfa.admin.sso.alert_display_required', 'Display name is required.')); return; }
                     if (!body.ClientId) { alert(_tr('tfa.admin.sso.alert_client_id_required', 'Client ID is required.')); return; }

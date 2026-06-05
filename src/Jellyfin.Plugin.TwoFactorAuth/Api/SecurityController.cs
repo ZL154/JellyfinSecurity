@@ -112,6 +112,9 @@ public class SecurityController : ControllerBase
         // a TLS-terminating reverse proxy; old default left users with a
         // broken http:// redirect_uri and a confusing IdP error.
         public bool ForceHttps { get; set; } = true;
+        // [v2.5.7] (issue #54, cwildfoerster): per-provider opt-in to bypass
+        // the v2.5.5 SSRF guard for LAN/VPN IdPs. Default false.
+        public bool AllowPrivateNetworks { get; set; }
     }
 
     [HttpGet("Oidc/Presets")]
@@ -166,6 +169,8 @@ public class SecurityController : ControllerBase
             requireIdpMfa = p.RequireIdpMfa,
             bypassPluginTwoFa = p.BypassPluginTwoFa,
             enabled = p.Enabled,
+            forceHttps = p.ForceHttps,
+            allowPrivateNetworks = p.AllowPrivateNetworks,
             createdAt = p.CreatedAt,
         }).ToList<object>();
         return Ok(safe);
@@ -208,6 +213,8 @@ public class SecurityController : ControllerBase
             BypassPluginTwoFa = req.BypassPluginTwoFa,
             Enabled = req.Enabled,
             ForceHttps = req.ForceHttps,
+            // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
+            AllowPrivateNetworks = req.AllowPrivateNetworks,
             CreatedAt = DateTime.UtcNow,
         };
         config.OidcProviders.Add(provider);
@@ -246,6 +253,8 @@ public class SecurityController : ControllerBase
         existing.BypassPluginTwoFa = req.BypassPluginTwoFa;
         existing.Enabled = req.Enabled;
         existing.ForceHttps = req.ForceHttps;
+        // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
+        existing.AllowPrivateNetworks = req.AllowPrivateNetworks;
         plugin.SaveConfiguration();
         _oidc.InvalidateCache(id);
         return Ok();
