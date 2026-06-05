@@ -1020,19 +1020,43 @@
                     '<button class="btn-ghost btn-sm tfa-deny" data-did="' + escapeHtml(p.deviceId) + '">' + _tr('tfa.setup.pending.btn_deny', 'Deny') + '</button>' +
                     '</div>';
             }).join('');
-            box.querySelectorAll('.tfa-approve').forEach(function(b) {
-                b.addEventListener('click', function() {
-                    api('POST', 'TwoFactorAuth/PendingPairings/Approve', { deviceId: b.dataset.did, label: b.dataset.name }).then(loadAll);
+            // [v2.5.7] surface server errors instead of silently swallowing
+            // — previously a 4xx from /Approve, /Deny, or /PairingQr left
+            // the button looking dead (no spinner, no error). Now show a
+            // disable+spinner during the request and alert + console.error
+            // on rejection so failures are visible.
+            function bindPendingAction(selector, fn) {
+                box.querySelectorAll(selector).forEach(function(b) {
+                    b.addEventListener('click', function() {
+                        var orig = b.textContent;
+                        b.disabled = true;
+                        b.textContent = '…';
+                        Promise.resolve(fn(b)).then(function() {
+                            loadAll();
+                        }).catch(function(err) {
+                            b.disabled = false;
+                            b.textContent = orig;
+                            var msg = (err && err.message) || _tr('tfa.setup.pending.action_failed', 'Action failed. Try again.');
+                            console.error('[2FA] pending action failed', err);
+                            alert(msg);
+                        });
+                    });
                 });
+            }
+            bindPendingAction('.tfa-approve', function(b) {
+                return api('POST', 'TwoFactorAuth/PendingPairings/Approve', { deviceId: b.dataset.did, label: b.dataset.name });
             });
-            box.querySelectorAll('.tfa-deny').forEach(function(b) {
-                b.addEventListener('click', function() {
-                    api('POST', 'TwoFactorAuth/PendingPairings/Deny', { deviceId: b.dataset.did }).then(loadAll);
-                });
+            bindPendingAction('.tfa-deny', function(b) {
+                return api('POST', 'TwoFactorAuth/PendingPairings/Deny', { deviceId: b.dataset.did });
             });
             box.querySelectorAll('.tfa-qr').forEach(function(b) {
                 b.addEventListener('click', function() {
-                    api('POST', 'TwoFactorAuth/PairingQr', { deviceId: b.dataset.did }).then(showQrModal);
+                    api('POST', 'TwoFactorAuth/PairingQr', { deviceId: b.dataset.did })
+                        .then(showQrModal)
+                        .catch(function(err) {
+                            console.error('[2FA] PairingQr failed', err);
+                            alert((err && err.message) || _tr('tfa.setup.pending.action_failed', 'Action failed. Try again.'));
+                        });
                 });
             });
         }
