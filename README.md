@@ -450,12 +450,13 @@ Lets users sign in with Google / Microsoft / Authelia / Authentik / Keycloak / P
 1. Go to [Google Cloud Console](https://console.cloud.google.com) → create a project (or pick existing)
 2. **OAuth consent screen** → External → fill App name / support email → add your Gmail as a test user → Finish
 3. **Credentials** → **+ Create credentials** → **OAuth client ID** → **Web application**
-4. **Authorised redirect URIs** → add exactly: `https://YOUR-JELLYFIN-HOSTNAME/TwoFactorAuth/Oidc/Callback/google`
+4. **Authorised redirect URIs** — leave this open for now, we'll fill it in step 2c with the exact URL the plugin shows you.
 5. Save. Copy the **Client ID** + **Client secret** from the dialog.
 
 **2. Add the provider in Jellyfin**
 1. Jellyfin admin → Plugins → **Jellyfin Security** → **Sign-in Methods** tab → "Add provider…"
 2. Preset: **Google**. Paste Client ID + Secret. **Username claim:** `email`. Save.
+3. After save, the provider list shows the **exact `redirect_uri` to register at the IdP** — it's `https://YOUR-JELLYFIN-HOSTNAME/TwoFactorAuth/Oidc/Callback/<slug>`, where `<slug>` is derived from the **Display name** you chose (e.g. *Google* → `google`, *Login with Google* → `login-with-google`). **Go back to Google Cloud Console → Credentials → your OAuth client → add this exact URL to Authorised redirect URIs** and save. If the slug doesn't match what's registered, the IdP returns `redirect_uri_mismatch` and sign-in fails (issue #28).
 
 **3. Make sure each Jellyfin user has their Gmail configured**
 - Either: each user sets their email on the Setup page (`/TwoFactorAuth/Setup`), **or**
