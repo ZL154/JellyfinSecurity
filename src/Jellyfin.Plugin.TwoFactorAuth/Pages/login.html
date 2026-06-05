@@ -118,7 +118,7 @@
         <input type="password" id="password" autocomplete="current-password" />
 
         <label id="codeLabel"><span data-i18n-key="tfa.login.code_label_main">6-digit Code</span> <span style="color:#555;text-transform:none;" data-i18n-key="tfa.login.code_label_hint">(leave blank if 2FA isn't set up)</span></label>
-        <input type="text" id="code" class="code-input" maxlength="6" inputmode="numeric" placeholder="000000" autocomplete="one-time-code" />
+        <input type="text" id="code" class="code-input" maxlength="8" inputmode="numeric" placeholder="000000" autocomplete="one-time-code" />
 
         <a class="toggle-link" id="toggleRecovery" data-i18n-key="tfa.challenge.recovery_label">Use a recovery code instead</a>
 
@@ -195,7 +195,7 @@
                 toggle.textContent = _tr('tfa.login.toggle_use_code', 'Use 6-digit code instead');
             } else {
                 input.classList.remove('recovery');
-                input.setAttribute('maxlength', '6');
+                input.setAttribute('maxlength', '8');
                 input.setAttribute('placeholder', '000000');
                 input.setAttribute('autocomplete', 'one-time-code');
                 label.innerHTML = _tr('tfa.login.code_label_main', '6-digit Code') + ' <span style="color:#555;text-transform:none;">' + _tr('tfa.login.code_label_hint', '(leave blank if 2FA isn\'t set up)') + '</span>';
@@ -215,7 +215,7 @@
                 // Allow letters/digits/dash, uppercase
                 e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 14);
             } else {
-                e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+                e.target.value = e.target.value.replace(/\D/g, '').slice(0, 8);
             }
         });
 
