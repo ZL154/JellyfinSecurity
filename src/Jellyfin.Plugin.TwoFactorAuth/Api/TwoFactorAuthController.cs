@@ -2290,30 +2290,53 @@ public class TwoFactorAuthController : ControllerBase
     [ProducesResponseType(typeof(IReadOnlyList<UserTwoFactorStatus>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<UserTwoFactorStatus>>> GetUsers()
     {
-        var allUserData = await _store.GetAllUsersAsync().ConfigureAwait(false);
-        var result = new List<UserTwoFactorStatus>(allUserData.Count);
+        // [v2.5.8] (issue #55 followup, Dasnap): enumerate from Jellyfin's
+        // user table, not from the plugin's per-user data files. The old
+        // path missed any Jellyfin user who had never triggered plugin-side
+        // data creation, so the Users tab silently dropped them until they
+        // next signed in (whereupon AuthenticationEventHandler wrote a
+        // record and they "reappeared"). Looking up plugin data per user
+        // via the store returns an empty default when no file exists, so
+        // users with no 2FA enrollment now show with all-zero counts
+        // instead of being invisible.
+        var jellyfinUsers = EnumerateAllUsers().ToList();
+        var result = new List<UserTwoFactorStatus>(jellyfinUsers.Count);
 
-        foreach (var data in allUserData)
+        foreach (var ju in jellyfinUsers)
         {
-            // [v2.5.7] (issue #55, Dasnap): a corrupt store entry with
-            // UserId == Guid.Empty (created during failed-lockout bookkeeping
-            // for non-existent usernames during brute-force testing) threw
-            // ArgumentException out of UserManager.GetUserById and bricked the
-            // whole user listing. Skip junk rows; the dashboard renders the
-            // real users instead of a 500. Root-cause cleanup happens
-            // separately — this is the listing-resilience half.
-            if (data.UserId == Guid.Empty)
+            if (ju.Id == Guid.Empty) continue;
+
+            UserTwoFactorData data;
+            try
             {
-                _logger.LogWarning("[2FA] Skipping UserTwoFactorData with empty UserId — likely stale brute-force entry; will be purged by housekeeping");
-                continue;
+                data = await _store.GetUserDataAsync(ju.Id).ConfigureAwait(false);
             }
-            var jellyfinUser = _userManager.GetUserById(data.UserId);
-            var isLockedOut = await _store.IsLockedOutAsync(data.UserId).ConfigureAwait(false);
+            catch (Exception ex)
+            {
+                // SECURITY [v2.5.6]: store reads fail CLOSED on I/O errors.
+                // For the LISTING (read-only, no auth decision) surface a
+                // best-effort row with zero counts rather than 500'ing the
+                // whole dashboard — admins still see the user and can
+                // investigate the missing record from logs.
+                _logger.LogWarning(ex, "[2FA] User {UserId} ({Username}) data unreadable; rendering with zeroes",
+                    ju.Id, ju.Username);
+                data = new UserTwoFactorData { UserId = ju.Id };
+            }
+
+            bool isLockedOut;
+            try
+            {
+                isLockedOut = await _store.IsLockedOutAsync(ju.Id).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                isLockedOut = false;
+            }
 
             result.Add(new UserTwoFactorStatus
             {
-                UserId = data.UserId,
-                Username = jellyfinUser?.Username ?? data.UserId.ToString(),
+                UserId = ju.Id,
+                Username = ju.Username ?? ju.Id.ToString(),
                 TotpEnabled = data.TotpEnabled && data.TotpVerified,
                 EmailOtpEnabled = data.EmailOtpPreferred,
                 TrustedDeviceCount = data.TrustedDevices.Count,
