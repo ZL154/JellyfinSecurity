@@ -481,6 +481,7 @@
                             <div style="margin-top:12px;">
                                 <label style="font-size:13px;color:#888;" data-i18n-key="tfa.admin.settings.lbl_proxy_cidrs">Trusted proxy CIDRs (one per line)</label>
                                 <textarea id="cfgProxyCidrs" class="tfa-input"></textarea>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.proxy_cidrs_help">Put ONLY the IPs of your actual reverse-proxy hosts here — e.g. <code>127.0.0.1/32</code> + <code>::1/128</code> for a same-host nginx, or the specific LAN IPs of separate proxy hosts. Do NOT enter broad ranges like <code>10.0.0.0/8</code> or <code>192.168.0.0/16</code>: when a LAN client's IP falls inside one of these CIDRs and the request arrives without an X-Forwarded-For header, the plugin conservatively refuses LAN bypass (it can't distinguish a direct LAN client from a proxy that lost its XFF). Issue #56 was this misconfiguration. Leave empty if you don't have a reverse proxy in front of Jellyfin.</div>
                             </div>
                         </div>
 

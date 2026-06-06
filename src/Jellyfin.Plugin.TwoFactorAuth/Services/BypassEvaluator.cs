@@ -19,6 +19,14 @@ public class BypassEvaluator
 {
     private readonly ILogger<BypassEvaluator> _logger;
 
+    // [v2.5.8] (issue #56): track which peer IPs have already been logged
+    // at Information when SEC-H3 refused their LAN bypass. First hit per IP
+    // logs loudly so admins can self-diagnose; subsequent hits stay at Debug
+    // to avoid log spam from steady-state traffic against a misconfig.
+    // Cleared on plugin restart, which is fine — re-emitting the diagnostic
+    // after a restart is helpful, not noisy.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _secH3LoggedIps = new();
+
     public BypassEvaluator(ILogger<BypassEvaluator> logger)
     {
         _logger = logger;
@@ -100,9 +108,28 @@ public class BypassEvaluator
                      && ShouldRefuseLanBypassWhenXffMissing(forwardedFor, remoteIp, config.TrustedProxyCidrs))
             {
                 refuseLanBypass = true;
-                _logger.LogDebug(
-                    "Refusing LAN bypass: peer {Ip} is a trusted proxy but no X-Forwarded-For was visible — cannot safely resolve real client IP",
-                    remoteIp);
+                // [v2.5.8] (issue #56, derpacco): the original log was at Debug
+                // with no detail beyond "peer is a trusted proxy". When this
+                // fires for an admin whose TrustedProxyCidrs is too broad
+                // (covers their entire LAN), every direct LAN client looks
+                // like a stale-XFF proxy and silently gets a 2FA challenge
+                // — they had no diagnostic in the logs without a debug-level
+                // filter. Promote to Information on the FIRST hit per peer
+                // IP (subsequent hits stay at Debug to avoid log spam),
+                // include the matched CIDR, and spell out the fix.
+                var matchedCidr = FindMatchingProxyCidr(remoteIp, config.TrustedProxyCidrs);
+                if (!string.IsNullOrEmpty(remoteIp) && _secH3LoggedIps.TryAdd(remoteIp, 0))
+                {
+                    _logger.LogInformation(
+                        "[2FA] Refusing LAN bypass: peer {Ip} matched TrustedProxyCidr {Cidr} but no X-Forwarded-For was present. If {Ip} is actually a direct LAN client (not a reverse proxy), narrow TrustedProxyCidrs to the SPECIFIC IPs of your real proxies — broad ranges like 10.0.0.0/8 or 192.168.0.0/16 trigger this guard for every LAN client. See issue #56.",
+                        remoteIp, matchedCidr ?? "(unknown)", remoteIp);
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "Refusing LAN bypass: peer {Ip} matched TrustedProxyCidr {Cidr} but no XFF",
+                        remoteIp, matchedCidr ?? "(unknown)");
+                }
             }
 
             if (!refuseLanBypass && !string.IsNullOrWhiteSpace(ipToCheck))
@@ -360,6 +387,23 @@ public class BypassEvaluator
             if (IsIpInCidr(remoteIp, proxyCidr)) return true;
         }
         return false;
+    }
+
+    /// <summary>[v2.5.8] (issue #56): return the first TrustedProxyCidr that
+    /// matches <paramref name="remoteIp"/>, or null if none. Used by the
+    /// SEC-H3 refusal log to spell out exactly which CIDR matched so the
+    /// admin can narrow it. Mirrors ShouldRefuseLanBypassWhenXffMissing's
+    /// walk; kept separate so the boolean path stays O(1)-on-first-match
+    /// without the string allocation cost.</summary>
+    internal static string? FindMatchingProxyCidr(string? remoteIp, string[] trustedProxyCidrs)
+    {
+        if (string.IsNullOrWhiteSpace(remoteIp)) return null;
+        if (trustedProxyCidrs is null) return null;
+        foreach (var proxyCidr in trustedProxyCidrs)
+        {
+            if (IsIpInCidr(remoteIp, proxyCidr)) return proxyCidr;
+        }
+        return null;
     }
 
     /// <summary>SEC-H2: walk a comma-separated X-Forwarded-For value right-to-left
