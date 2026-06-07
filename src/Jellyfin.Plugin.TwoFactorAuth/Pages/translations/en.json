@@ -306,6 +306,7 @@
   "tfa.admin.settings.opt_trust_fwd": "Trust X-Forwarded-For (for reverse proxies)",
   "tfa.admin.settings.lbl_proxy_cidrs": "Trusted proxy CIDRs (one per line)",
   "tfa.admin.settings.proxy_cidrs_help": "Put ONLY the IPs of your actual reverse-proxy hosts here — e.g. 127.0.0.1/32 + ::1/128 for a same-host nginx, or the specific LAN IPs of separate proxy hosts. Do NOT enter broad ranges like 10.0.0.0/8 or 192.168.0.0/16: when a LAN client's IP falls inside one of these CIDRs and the request arrives without an X-Forwarded-For header, the plugin conservatively refuses LAN bypass (it cannot distinguish a direct LAN client from a proxy that lost its XFF). Issue #56 was this misconfiguration. Leave empty if you do not have a reverse proxy in front of Jellyfin.",
+  "tfa.admin.settings.save_failed": "Save failed (HTTP ",
   "tfa.admin.settings.security_heading": "Security",
   "tfa.admin.settings.lbl_max_fail": "Max failed attempts before lockout",
   "tfa.admin.settings.lbl_lockout_min": "Lockout duration (minutes)",

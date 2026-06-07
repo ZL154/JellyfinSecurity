@@ -1174,11 +1174,34 @@
                         var hidePasskeySaveEl = page.querySelector('#cfgHideBuiltInPasskeyButton');
                         c.HideBuiltInPasskeyButton = hidePasskeySaveEl ? hidePasskeySaveEl.checked : false;
                         // v2.5.0: persist hardening toggles through the gated endpoint.
-                        // Broader plugin config (other fields) still uses the built-in
-                        // updatePluginConfiguration path. Store current config ref so the
-                        // HardeningConfig POST can pass StepUpWindowSeconds through unchanged.
+                        // Broader plugin config (other fields) still posts to the
+                        // standard /Plugins/{guid}/Configuration endpoint. Store
+                        // current config ref so the HardeningConfig POST can pass
+                        // StepUpWindowSeconds through unchanged.
                         _currentConfig = c;
-                        return ApiClient.updatePluginConfiguration(pluginId, c);
+                        // [v2.5.8] (issue #57, lorenatkin): route the main config
+                        // POST through stepUpFetch so the v2.5.6
+                        // PluginConfigStepUpFilter's 403 + stepUpRequired response
+                        // triggers the existing step-up modal. Previously this
+                        // call used ApiClient.updatePluginConfiguration, which is
+                        // Jellyfin's built-in wrapped fetch — it doesn't know
+                        // about stepUpRequired and silently rejected, so admins
+                        // who'd enabled StepUpLevel saw "save" do nothing with
+                        // no UI prompt to verify. stepUpFetch hits the same URL
+                        // Jellyfin's ApiClient would; the filter installed on
+                        // that route fires identically.
+                        return stepUpFetch('Plugins/' + pluginId + '/Configuration', {
+                            method: 'POST',
+                            body: JSON.stringify(c),
+                        }).then(function(r) {
+                            if (!r.ok) {
+                                var s = page.querySelector('#saveStatus');
+                                s.style.color = '#f44336';
+                                s.textContent = '✗ ' + _tr('tfa.admin.settings.save_failed', 'Save failed (HTTP ') + r.status + ')';
+                                setTimeout(function() { s.style.color = ''; s.textContent = ''; }, 5000);
+                                throw new Error('updatePluginConfiguration failed: ' + r.status);
+                            }
+                        });
                     }).then(function() {
                         // v2.5.0: also persist hardening fields via the gated endpoint.
                         // This lets the server enforce a step-up gate on these specific fields.
