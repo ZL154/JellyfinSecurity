@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <!-- Static version badge — bump on each release. Switched from img.shields.io/github/v/release because that endpoint periodically returns 'unable to select next GitHub token from pool'. -->
-  <img src="https://img.shields.io/badge/Version-v2.5.7-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-v2.5.8-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -63,7 +63,20 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.5.7
+## 🆕 What's new in v2.5.8
+
+- **Admin Save Settings now triggers the step-up modal** *(fix #57)* — when `StepUpLevel` is set to `AllConfigChanges` or above, clicking Save in the admin UI used to silently fail with no UI prompt because the main config save call went through Jellyfin's built-in ApiClient helper, which doesn't know about the plugin's `stepUpRequired` response. Re-wired through the existing step-up-aware fetch wrapper so the same TOTP modal that gates every other admin action now also gates plugin-config saves.
+- **`StepUpLevel` dropdown persists across saves** — enum-serialization mismatch was making the dropdown go blank after every save, and silently posting `0` (Off) which reset the level on the server. The dropdown's `<option value=>` strings now match Jellyfin's `JsonStringEnumConverter` wire format.
+- **Admin Users tab shows ALL Jellyfin users** *(fix #55 followup, Dasnap)* — previously listed only users with plugin-side data files, so users who'd never interacted with the plugin were invisible until their next login. Enumeration now starts from Jellyfin's user table and merges plugin data per user, defaulting to all-zero counts for unenrolled users. Single-user read failures no longer 500 the whole listing.
+- **Trusted-proxy CIDR misconfig guidance** *(fix #56, derpacco)* — admins typing broad RFC1918 ranges (e.g. `10.0.0.0/8`) into Trusted Proxy CIDRs caused LAN bypass to silently refuse for every LAN client (the SEC-H3 guard from v2.4.12 can't distinguish "stale-XFF proxy" from "direct LAN client in a broad range"). Added a help block under the admin field spelling out the trap, and promoted the SEC-H3 refusal log to Information level on first hit per peer IP so admins see the actionable diagnostic in their logs without filtering for Debug.
+- **Pending-pair Deny / Approve / QR buttons no longer fail silently** — wrapped each click handler so a server error surfaces via `alert` + `console.error` instead of leaving the button looking dead. Touches the disabled-during-request UX too.
+- **Textarea clipping fixed** — `.tfa-input` now uses `box-sizing: border-box` so `width:100%` textareas (LAN CIDRs, Trusted Proxy CIDRs, Admin emails, Exempt CIDRs, Restore JSON) sit inside their parent panels instead of bleeding the horizontal padding outside.
+- **Two CodeQL alerts dismissed as false positives** — `cs/cleartext-storage-of-sensitive-information` on the SEC-H3 log line was flagging CIDR strings as if they were credentials. CIDRs are admin-configured network topology, already in cleartext in `PluginConfiguration.xml` by necessity, and the SEC-H3 diagnostic depends on surfacing the matched CIDR.
+- 254/254 tests pass. In-place upgrade — every persisted record carries over.
+
+---
+
+## 🆕 What was new in v2.5.7
 
 - **OIDC step-up for users** — users who only have an IdP linked (no TOTP / passkey / recovery code / email OTP) can now satisfy `SelfServiceStepUpMode=Forced` by re-authenticating to that IdP in a popup. Subject match against the stored `SsoLink` is enforced, so signing into a different IdP account doesn't grant step-up.
 - **Verified-session state survives restart** *(fix #52)* — `/Users/Foo` getting 403'd by `RequestBlockerMiddleware` after `docker compose down/up` is gone. The plugin now persists SHA-256 hashes of verified tokens to a sidecar JSON, so the in-memory verified-set is rehydrated on every restart instead of locking out every active session.
@@ -72,7 +85,7 @@ visible trust signals is treated as a high-priority bug.
 - **User-listing crash fix** *(fix #55)* — junk `Guid.Empty` lockout entries from brute-force testing no longer 500 the Users tab. Two layers: defensive skip in the listing + write-refuse at the store boundary.
 - **Login-page 8-digit OTP fix** *(fix #50)* — the embedded login page now accepts 8-digit email OTP codes; the v2.5.5 brute-force hardening changed the digit count but `login.html` was missed. Thanks to **@duongynhi000005-oss** for the PR.
 - **Better error feedback on pending-pair actions** — Approve / Deny / QR buttons now show a spinner during the request and surface server errors via alert + `console.error`, instead of silently looking dead.
-- 254/254 tests pass. Clean build with `TreatWarningsAsErrors=true`. In-place upgrade — every persisted record (TOTP, passkeys, OIDC links, trusted browsers, paired devices, audit history) carries over.
+- 254/254 tests pass. Clean build with `TreatWarningsAsErrors=true`. In-place upgrade — every persisted record (TOTP, passkeys, OIDC links, trusted browsers, paired devices, audit history) carries over. *(Shipped 2026-06-05.)*
 
 ---
 
