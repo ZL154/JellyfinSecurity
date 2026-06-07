@@ -1037,7 +1037,18 @@
                         page.querySelector('#cfgGeoCity').value = c.GeoIpCityDbPath || '';
                         // v2.5.0 hardening fields
                         page.querySelector('#cfgRequire2faToDisable').checked = !!c.RequireTwoFactorToDisable;
-                        page.querySelector('#cfgStepUpLevel').value = (c.StepUpLevel != null ? c.StepUpLevel : 0);
+                        // [v2.5.8] (bug found during #57 smoke test): Jellyfin's
+                        // JsonStringEnumConverter serialises StepUpLevel by
+                        // enum name ("Off" / "Destructive" / "AllConfigChanges"
+                        // / "Everything"). Earlier code expected an int and the
+                        // dropdown option values were "0" / "1" / "2" / "3" —
+                        // setting .value to a name found no matching option, so
+                        // the select went blank. On save, parseInt("") -> NaN
+                        // -> default 0 -> server silently reset StepUpLevel
+                        // back to Off every save, which is also why subsequent
+                        // settings toggles weren't gated. Now strings on both
+                        // ends; matches the option values in admin.html.
+                        page.querySelector('#cfgStepUpLevel').value = (c.StepUpLevel != null && c.StepUpLevel !== '') ? c.StepUpLevel : 'Off';
                         var indefEl = page.querySelector('#cfgAllowIndefiniteTrust');
                         if (indefEl) indefEl.checked = !!c.AllowIndefiniteTrust;
                         // [v2.5.7] (issue #48 feature, Gaarindor): per-button login-page visibility.
@@ -1208,7 +1219,10 @@
                         var indefEl = page.querySelector('#cfgAllowIndefiniteTrust');
                         var hardening = {
                             RequireTwoFactorToDisable: page.querySelector('#cfgRequire2faToDisable').checked,
-                            StepUpLevel: parseInt(page.querySelector('#cfgStepUpLevel').value, 10) || 0,
+                            // [v2.5.8] (bug found during #57 smoke test): send
+                            // the enum NAME, not parseInt() of it. See the
+                            // matching load handler comment above.
+                            StepUpLevel: page.querySelector('#cfgStepUpLevel').value || 'Off',
                             StepUpWindowSeconds: (_currentConfig && _currentConfig.StepUpWindowSeconds) || 300,
                             AllowIndefiniteTrust: indefEl ? indefEl.checked : false,
                         };
