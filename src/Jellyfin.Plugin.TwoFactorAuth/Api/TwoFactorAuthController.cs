@@ -208,8 +208,19 @@ public class TwoFactorAuthController : ControllerBase
         if (config is null) return null;
 
         var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        // SECURITY [v2.5.9]: "existing 2FA" must count EVERY factor that
+        // currently protects the account, not just TOTP/passkeys. v2.5.7
+        // added OIDC step-up but this gate didn't recognise OIDC-only or
+        // email-only users, so a hijacked session for those users could
+        // add/replace the attacker's own factor with no step-up. Include:
+        //   - SSO/OIDC links (the user authenticates via an IdP)
+        //   - email OTP, when the server has it enabled and the user relies
+        //     on it (EmailOtpPreferred)
+        var emailFactorActive = config.EmailOtpEnabled && userData.EmailOtpPreferred;
         var hasExisting2fa = (userData.TotpEnabled && userData.TotpVerified)
-                             || userData.Passkeys.Count > 0;
+                             || userData.Passkeys.Count > 0
+                             || userData.SsoLinks.Count > 0
+                             || emailFactorActive;
         if (!hasExisting2fa) return null;
 
         var modeRequiresStepUp = config.SelfServiceStepUpMode switch
@@ -2766,6 +2777,18 @@ public class TwoFactorAuthController : ControllerBase
         if (challenge is null)
         {
             return BadRequest(new { message = "Invalid or expired challenge." });
+        }
+
+        // SECURITY [v2.5.9]: only send an email OTP when the challenge actually
+        // offers "email" as a method. Without this, anyone holding a valid
+        // challenge token for a TOTP/passkey-only user could trigger OTP
+        // emails (inbox spam / noise). Mirrors the AvailableMethods
+        // enforcement in Verify. Return the same generic success as the happy
+        // path so this can't be used to probe which tokens are email-eligible.
+        if (challenge.AvailableMethods is { Count: > 0 }
+            && !challenge.AvailableMethods.Any(m => string.Equals(m, "email", StringComparison.OrdinalIgnoreCase)))
+        {
+            return Ok(new { message = "If an email is configured for this user, a code has been sent." });
         }
 
         if (!await _allowlist.IsAllowedAsync(challenge.UserId, clientIp).ConfigureAwait(false))

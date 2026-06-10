@@ -82,6 +82,35 @@ public class OidcService : IDisposable
     private readonly ConcurrentDictionary<string, JwksCacheEntry> _jwksCache = new();
     private readonly ConcurrentDictionary<string, PendingFlow> _pendingFlows = new();
     private readonly ConcurrentDictionary<string, PendingUserStepUp> _pendingUserStepUps = new();
+
+    // SECURITY [v2.5.9]: hard cap on the in-memory pending maps. TTL + rate
+    // limits already bound them, but a global cap makes DoS resistance
+    // explicit: on insert we prune expired entries, then if still at the cap
+    // evict the oldest, so a flood of un-completed Begin() / step-up calls
+    // can't grow memory without bound. 2000 is far above any real concurrent
+    // login volume on a self-hosted instance.
+    private const int MaxPendingEntries = 2000;
+    private static void PruneAndCap<T>(ConcurrentDictionary<string, T> map, Func<T, DateTime> expiry)
+    {
+        if (map.Count < MaxPendingEntries) return;
+        var now = DateTime.UtcNow;
+        foreach (var kv in map)
+        {
+            if (expiry(kv.Value) <= now) map.TryRemove(kv.Key, out _);
+        }
+        while (map.Count >= MaxPendingEntries)
+        {
+            string? oldestKey = null;
+            var oldestExp = DateTime.MaxValue;
+            foreach (var kv in map)
+            {
+                var e = expiry(kv.Value);
+                if (e < oldestExp) { oldestExp = e; oldestKey = kv.Key; }
+            }
+            if (oldestKey is null) break;
+            map.TryRemove(oldestKey, out _);
+        }
+    }
     private readonly Timer _cleanupTimer;
     private bool _disposed;
 
@@ -121,6 +150,7 @@ public class OidcService : IDisposable
         var state = Base64Url(RandomNumberGenerator.GetBytes(24));
         var nonce = Base64Url(RandomNumberGenerator.GetBytes(24));
 
+        PruneAndCap(_pendingFlows, p => p.ExpiresAt);
         _pendingFlows[state] = new PendingFlow(
             provider.Id, codeVerifier, nonce, returnUrl,
             DateTime.UtcNow.AddMinutes(10));
@@ -258,6 +288,7 @@ public class OidcService : IDisposable
         var state = Base64Url(RandomNumberGenerator.GetBytes(24));
         var nonce = Base64Url(RandomNumberGenerator.GetBytes(24));
 
+        PruneAndCap(_pendingUserStepUps, p => p.ExpiresAt);
         _pendingUserStepUps[state] = new PendingUserStepUp(
             provider.Id, userId, codeVerifier, nonce,
             DateTime.UtcNow.AddMinutes(10));
@@ -1037,6 +1068,34 @@ public class OidcService : IDisposable
                 throw new InvalidOperationException(
                     $"Outbound URL scheme must be http or https, got '{uri.Scheme}' for host '{uri.Host}'.");
             }
+            // SECURITY [v2.5.9]: AllowPrivateNetworks exists for LAN/VPN IdPs
+            // (RFC1918 / CGN / IPv6-ULA), NOT for loopback or cloud metadata.
+            // Even in this mode we still refuse loopback, link-local / IMDS
+            // (169.254.169.254), multicast, and the unspecified address — the
+            // classic SSRF pivots. Only genuinely-private unicast is allowed.
+            if (IPAddress.TryParse(uri.Host, out var litPriv))
+            {
+                EnsureNotDangerousIp(litPriv, uri.Host);
+                return;
+            }
+            IPAddress[] privAddrs;
+            try
+            {
+                privAddrs = await Dns.GetHostAddressesAsync(uri.Host).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"Outbound URL host '{uri.Host}' did not resolve: {ex.GetType().Name}.", ex);
+            }
+            if (privAddrs.Length == 0)
+            {
+                throw new InvalidOperationException($"Outbound URL host '{uri.Host}' has no DNS records.");
+            }
+            foreach (var addr in privAddrs)
+            {
+                EnsureNotDangerousIp(addr, uri.Host);
+            }
             return;
         }
         if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
@@ -1118,6 +1177,41 @@ public class OidcService : IDisposable
     {
         throw new InvalidOperationException(
             $"Outbound URL host '{host}' resolved to non-public address {addr} ({reason}). Refusing to fetch.");
+    }
+
+    /// <summary>SECURITY [v2.5.9]: the subset of <see cref="EnsurePublicIp"/>
+    /// applied when a provider has AllowPrivateNetworks enabled. PERMITS
+    /// RFC1918 / CGN / IPv6-ULA private unicast (the LAN/VPN IdP the flag
+    /// exists for) but STILL REFUSES loopback, link-local / cloud-metadata
+    /// (169.254/16 incl. 169.254.169.254), multicast and the unspecified
+    /// address — none of which is ever a legitimate IdP, all of which are
+    /// classic SSRF pivots.</summary>
+    private static void EnsureNotDangerousIp(IPAddress addr, string host)
+    {
+        if (addr.IsIPv4MappedToIPv6) addr = addr.MapToIPv4();
+
+        if (IPAddress.IsLoopback(addr))
+        {
+            throw new InvalidOperationException($"Outbound URL host '{host}' resolves to loopback.");
+        }
+
+        if (addr.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = addr.GetAddressBytes();
+            if (b[0] == 169 && b[1] == 254) Reject(host, addr, "link-local / IMDS 169.254/16");
+            if (b[0] >= 224) Reject(host, addr, "multicast/reserved");
+            if (b[0] == 0) Reject(host, addr, "0.0.0.0/8");
+            // RFC1918 10/8, 172.16/12, 192.168/16 and CGN 100.64/10 are
+            // intentionally ALLOWED here — that's what the flag is for.
+        }
+        else if (addr.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            var b = addr.GetAddressBytes();
+            if (b[0] == 0xfe && (b[1] & 0xc0) == 0x80) Reject(host, addr, "IPv6 link-local fe80::/10");
+            if (addr.IsIPv6Multicast) Reject(host, addr, "IPv6 multicast");
+            if (addr.Equals(IPAddress.IPv6Any)) Reject(host, addr, "IPv6 unspecified ::");
+            // IPv6 ULA fc00::/7 is intentionally ALLOWED (private unicast).
+        }
     }
 
     private async Task<JsonWebKeySet> GetJwksAsync(OidcProvider provider, Discovery disc, string? requiredKid = null)

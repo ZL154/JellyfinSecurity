@@ -22,6 +22,12 @@ public class PasskeyChallengeStore : IDisposable
     private readonly Timer _cleanup;
     private bool _disposed;
 
+    // SECURITY [v2.5.9]: hard cap on the in-memory challenge map. The 60s
+    // sweep + 5-min TTL already bound it, but a global cap makes DoS
+    // resistance explicit. On insert we prune expired, then evict the
+    // oldest if still at the cap.
+    private const int MaxEntries = 2000;
+
     public PasskeyChallengeStore()
     {
         _cleanup = new Timer(_ => Sweep(), null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
@@ -33,6 +39,25 @@ public class PasskeyChallengeStore : IDisposable
     public string Begin(string optionsJson, Guid? userId)
     {
         var nonce = NewNonce();
+        if (_entries.Count >= MaxEntries)
+        {
+            var now = DateTime.UtcNow;
+            foreach (var kv in _entries)
+            {
+                if (kv.Value.ExpiresAt <= now) _entries.TryRemove(kv.Key, out _);
+            }
+            while (_entries.Count >= MaxEntries)
+            {
+                string? oldestKey = null;
+                var oldestExp = DateTime.MaxValue;
+                foreach (var kv in _entries)
+                {
+                    if (kv.Value.ExpiresAt < oldestExp) { oldestExp = kv.Value.ExpiresAt; oldestKey = kv.Key; }
+                }
+                if (oldestKey is null) break;
+                _entries.TryRemove(oldestKey, out _);
+            }
+        }
         _entries[nonce] = new Entry(optionsJson, userId, DateTime.UtcNow.AddMinutes(5));
         return nonce;
     }

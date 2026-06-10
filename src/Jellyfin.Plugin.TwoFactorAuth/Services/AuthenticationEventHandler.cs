@@ -225,8 +225,19 @@ public class AuthenticationEventHandler : IHostedService
         // DeviceIdMatches normalises Jellyfin Web UA-hash ids (Tizen/SmartTV)
         // so the per-session timestamp suffix doesn't break matching across
         // app restarts.
-        var userDataPaired = userData.PairedDevices.FirstOrDefault(p =>
-            BypassEvaluator.DeviceIdMatches(p.DeviceId, info.DeviceId));
+        //
+        // SECURITY [v2.5.9]: gate this behind BareDeviceIdBypassEnabled
+        // (default false), exactly like TwoFactorAuthProvider (~line 512) and
+        // TwoFactorEnforcementMiddleware (~line 522). A bare DeviceId is
+        // client-supplied and not a secret; honouring it here unconditionally
+        // re-opened the very bypass the provider/middleware paths already
+        // close. With the flag off, paired devices must still pass the normal
+        // challenge.
+        var bareDevBypassEnabled = config.BareDeviceIdBypassEnabled && !string.IsNullOrEmpty(info.DeviceId);
+        var userDataPaired = bareDevBypassEnabled
+            ? userData.PairedDevices.FirstOrDefault(p =>
+                BypassEvaluator.DeviceIdMatches(p.DeviceId, info.DeviceId))
+            : null;
         if (userDataPaired is not null)
         {
             _logger.LogDebug("[2FA] {Name} paired device {Device} — session allowed",
