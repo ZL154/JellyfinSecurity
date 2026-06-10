@@ -1604,9 +1604,29 @@ public class TwoFactorAuthController : ControllerBase
         // concurrent-disable race where two threads both verify the same
         // code before either wipes.
         var config = Plugin.Instance?.Configuration;
-        if (config is { RequireTwoFactorToDisable: true })
+        var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        // SECURITY [v2.5.9] (audit top-tier #5): DisableTotp is the most
+        // destructive self-service action (the wipe below clears TOTP,
+        // recovery codes, trusted + paired devices and app passwords), yet it
+        // previously required a fresh factor ONLY when the legacy
+        // RequireTwoFactorToDisable flag (default off) was set — so under
+        // SelfServiceStepUpMode.Forced a hijacked session could still strip a
+        // victim's 2FA with no step-up. Require verification when EITHER the
+        // legacy flag is set OR the self-service mode demands it for a user
+        // with any existing factor (TOTP / passkey / OIDC / email).
+        var hasExisting2faForDisable = (userData.TotpEnabled && userData.TotpVerified)
+            || userData.Passkeys.Count > 0
+            || userData.SsoLinks.Count > 0
+            || (config?.EmailOtpEnabled == true && userData.EmailOtpPreferred);
+        var modeRequiresDisableStepUp = hasExisting2faForDisable && (config?.SelfServiceStepUpMode switch
         {
-            var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+            Configuration.SelfServiceStepUpMode.Off => false,
+            Configuration.SelfServiceStepUpMode.UserChoice => userData.RequireStepUpForChanges,
+            Configuration.SelfServiceStepUpMode.Forced => true,
+            _ => true,
+        });
+        if (config is { RequireTwoFactorToDisable: true } || modeRequiresDisableStepUp)
+        {
             // [v2.5.6] (round-5c): accept either a fresh code or a step-up
             // token (issued by /StepUp/UserCodeVerify or
             // /StepUp/UserPasskeyVerify). The token path lets the UI offer

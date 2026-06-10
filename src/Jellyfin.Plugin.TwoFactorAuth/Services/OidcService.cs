@@ -11,6 +11,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using MediaBrowser.Controller.Library;
 using Microsoft.IdentityModel.Tokens;
@@ -650,6 +652,21 @@ public class OidcService : IDisposable
                 {
                     _logger.LogWarning(
                         "[2FA] OIDC sign-in refused: Jellyfin user '{User}' already linked to a different {Provider} identity. Possible takeover attempt — admin must reconcile.",
+                        claims.Username, provider.Id);
+                    return null;
+                }
+                // SECURITY [v2.5.9] (audit top-tier #1): NEVER implicitly link
+                // an IdP-asserted username to a pre-existing ADMINISTRATOR
+                // account. On IdPs where the user controls their own
+                // preferred_username (open registration, shared tenants), an
+                // attacker could register username "admin", sign in, and be
+                // auto-linked to — and authenticated as — the real Jellyfin
+                // admin. Admin OIDC links must be created explicitly by an
+                // admin (pre-existing SsoLink), never auto-linked here.
+                if (existing.HasPermission(PermissionKind.IsAdministrator))
+                {
+                    _logger.LogWarning(
+                        "[2FA] OIDC sign-in refused: '{User}' matches an existing ADMINISTRATOR with no pre-existing link to {Provider}. Refusing implicit link-on-first-use for an admin account (possible takeover). An admin must create the SSO link explicitly.",
                         claims.Username, provider.Id);
                     return null;
                 }

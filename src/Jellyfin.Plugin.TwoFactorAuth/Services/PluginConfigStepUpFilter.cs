@@ -34,8 +34,6 @@ public class PluginConfigStepUpFilter : IAsyncActionFilter
     // Match the literal in Plugin.Id (kept in sync manually since Plugin.Id
     // is an instance property and we need a static path-string at construct).
     private static readonly Guid PluginGuid = new("94879a0c-da24-4eb1-aa06-f28b4b9333b1");
-    private static readonly string PluginConfigPath =
-        "/Plugins/" + PluginGuid.ToString("D") + "/Configuration";
 
     private readonly StepUpService _stepUp;
     private readonly ILogger<PluginConfigStepUpFilter> _logger;
@@ -96,9 +94,28 @@ public class PluginConfigStepUpFilter : IAsyncActionFilter
         if (!HttpMethods.IsPost(ctx.Request.Method)) return false;
         var path = ctx.Request.Path.Value;
         if (string.IsNullOrEmpty(path)) return false;
-        // Path comparison is case-insensitive — Jellyfin routes are not
-        // strict about casing for plugin guids.
-        return path.EndsWith(PluginConfigPath, StringComparison.OrdinalIgnoreCase);
+
+        // SECURITY [v2.5.9] (audit top-tier #2): do NOT string-match the
+        // hyphenated GUID with EndsWith. ASP.NET's Guid route constraint also
+        // accepts the compact "N" form (32 hex, no hyphens), the "B"/"P"
+        // forms, and a trailing slash — all of which still route to
+        // Jellyfin's PluginsController config-save action but slipped past
+        // the old check, letting a hijacked admin session disable step-up
+        // via POST /Plugins/<compact-guid>/Configuration. Instead, scan the
+        // path for the [Plugins / <guid> / Configuration] triple and compare
+        // the GUID BY VALUE (Guid.TryParse accepts every format), case- and
+        // trailing-slash-insensitive, and tolerant of reverse-proxy subpaths.
+        var seg = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i <= seg.Length - 3; i++)
+        {
+            if (seg[i].Equals("Plugins", StringComparison.OrdinalIgnoreCase)
+                && Guid.TryParse(seg[i + 1], out var g) && g == PluginGuid
+                && seg[i + 2].Equals("Configuration", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 }
 
