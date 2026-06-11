@@ -132,6 +132,38 @@ public class BypassEvaluator
                 }
             }
 
+            // SECURITY [v2.5.9] (audit top-tier #3): the SEC-H3 refusal above
+            // only runs when TrustForwardedFor is ON. The dangerous case is
+            // the opposite: a reverse proxy sitting on the LAN whose own IP
+            // falls inside LanBypassCidrs, with XFF untrusted/off. Then
+            // ipToCheck stays equal to the proxy's IP, every internet client
+            // behind it matches a LAN CIDR, and 2FA is skipped for the whole
+            // internet. Independent of the flag: if the direct peer is itself
+            // a configured trusted proxy AND we did not resolve a distinct
+            // real client IP from a trusted XFF chain, refuse the LAN bypass.
+            if (!refuseLanBypass
+                && !string.IsNullOrWhiteSpace(remoteIp)
+                && config.TrustedProxyCidrs.Length > 0
+                && (string.IsNullOrWhiteSpace(ipToCheck)
+                    || string.Equals(ipToCheck, remoteIp, StringComparison.OrdinalIgnoreCase)))
+            {
+                var matchedProxy = FindMatchingProxyCidr(remoteIp, config.TrustedProxyCidrs);
+                if (matchedProxy is not null)
+                {
+                    refuseLanBypass = true;
+                    if (_secH3LoggedIps.TryAdd(remoteIp!, 0))
+                    {
+                        _logger.LogInformation(
+                            "[2FA] Refusing LAN bypass: direct peer {Ip} is a configured trusted proxy ({Cidr}) and the real client IP could not be resolved (X-Forwarded-For is not trusted). Granting LAN bypass off the proxy's own address would skip 2FA for every client behind it. Enable TrustForwardedFor (with TrustedProxyCidrs set to your proxy's specific IP) so the real client is resolved, or remove the proxy's range from LanBypassCidrs.",
+                            remoteIp, matchedProxy);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Refusing LAN bypass: peer {Ip} is trusted proxy {Cidr}, no resolved client", remoteIp, matchedProxy);
+                    }
+                }
+            }
+
             if (!refuseLanBypass && !string.IsNullOrWhiteSpace(ipToCheck))
             {
                 foreach (var cidr in config.LanBypassCidrs)

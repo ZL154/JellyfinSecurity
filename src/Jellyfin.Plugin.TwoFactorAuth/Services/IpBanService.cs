@@ -122,6 +122,16 @@ public class IpBanService : IDisposable
 
     private static bool IsExempt(string ip, Configuration.PluginConfiguration config)
     {
+        // SECURITY [v2.5.9] (audit top-tier #6): ALWAYS exempt loopback from
+        // auto-ban. When Jellyfin sits behind a same-host reverse proxy and
+        // XFF isn't trusted, every client resolves to 127.0.0.1 / ::1; 10 bad
+        // logins would then ban that shared identity and 403 the auth path for
+        // EVERY user (an unauthenticated, remote, whole-instance lockout DoS).
+        // Loopback is never a real remote attacker, so it must never be banned.
+        if (System.Net.IPAddress.TryParse(ip, out var parsed) && System.Net.IPAddress.IsLoopback(parsed))
+        {
+            return true;
+        }
         foreach (var c in config.IpBanExemptCidrs)
         {
             if (BypassEvaluator.IsIpInCidr(ip, c)) return true;

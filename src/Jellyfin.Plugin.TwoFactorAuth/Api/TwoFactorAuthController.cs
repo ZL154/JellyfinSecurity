@@ -208,8 +208,19 @@ public class TwoFactorAuthController : ControllerBase
         if (config is null) return null;
 
         var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        // SECURITY [v2.5.9]: "existing 2FA" must count EVERY factor that
+        // currently protects the account, not just TOTP/passkeys. v2.5.7
+        // added OIDC step-up but this gate didn't recognise OIDC-only or
+        // email-only users, so a hijacked session for those users could
+        // add/replace the attacker's own factor with no step-up. Include:
+        //   - SSO/OIDC links (the user authenticates via an IdP)
+        //   - email OTP, when the server has it enabled and the user relies
+        //     on it (EmailOtpPreferred)
+        var emailFactorActive = config.EmailOtpEnabled && userData.EmailOtpPreferred;
         var hasExisting2fa = (userData.TotpEnabled && userData.TotpVerified)
-                             || userData.Passkeys.Count > 0;
+                             || userData.Passkeys.Count > 0
+                             || userData.SsoLinks.Count > 0
+                             || emailFactorActive;
         if (!hasExisting2fa) return null;
 
         var modeRequiresStepUp = config.SelfServiceStepUpMode switch
@@ -1593,9 +1604,29 @@ public class TwoFactorAuthController : ControllerBase
         // concurrent-disable race where two threads both verify the same
         // code before either wipes.
         var config = Plugin.Instance?.Configuration;
-        if (config is { RequireTwoFactorToDisable: true })
+        var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        // SECURITY [v2.5.9] (audit top-tier #5): DisableTotp is the most
+        // destructive self-service action (the wipe below clears TOTP,
+        // recovery codes, trusted + paired devices and app passwords), yet it
+        // previously required a fresh factor ONLY when the legacy
+        // RequireTwoFactorToDisable flag (default off) was set — so under
+        // SelfServiceStepUpMode.Forced a hijacked session could still strip a
+        // victim's 2FA with no step-up. Require verification when EITHER the
+        // legacy flag is set OR the self-service mode demands it for a user
+        // with any existing factor (TOTP / passkey / OIDC / email).
+        var hasExisting2faForDisable = (userData.TotpEnabled && userData.TotpVerified)
+            || userData.Passkeys.Count > 0
+            || userData.SsoLinks.Count > 0
+            || (config?.EmailOtpEnabled == true && userData.EmailOtpPreferred);
+        var modeRequiresDisableStepUp = hasExisting2faForDisable && (config?.SelfServiceStepUpMode switch
         {
-            var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+            Configuration.SelfServiceStepUpMode.Off => false,
+            Configuration.SelfServiceStepUpMode.UserChoice => userData.RequireStepUpForChanges,
+            Configuration.SelfServiceStepUpMode.Forced => true,
+            _ => true,
+        });
+        if (config is { RequireTwoFactorToDisable: true } || modeRequiresDisableStepUp)
+        {
             // [v2.5.6] (round-5c): accept either a fresh code or a step-up
             // token (issued by /StepUp/UserCodeVerify or
             // /StepUp/UserPasskeyVerify). The token path lets the UI offer
@@ -2766,6 +2797,18 @@ public class TwoFactorAuthController : ControllerBase
         if (challenge is null)
         {
             return BadRequest(new { message = "Invalid or expired challenge." });
+        }
+
+        // SECURITY [v2.5.9]: only send an email OTP when the challenge actually
+        // offers "email" as a method. Without this, anyone holding a valid
+        // challenge token for a TOTP/passkey-only user could trigger OTP
+        // emails (inbox spam / noise). Mirrors the AvailableMethods
+        // enforcement in Verify. Return the same generic success as the happy
+        // path so this can't be used to probe which tokens are email-eligible.
+        if (challenge.AvailableMethods is { Count: > 0 }
+            && !challenge.AvailableMethods.Any(m => string.Equals(m, "email", StringComparison.OrdinalIgnoreCase)))
+        {
+            return Ok(new { message = "If an email is configured for this user, a code has been sent." });
         }
 
         if (!await _allowlist.IsAllowedAsync(challenge.UserId, clientIp).ConfigureAwait(false))

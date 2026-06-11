@@ -10,6 +10,11 @@ public class ChallengeStore : IDisposable
 {
     private readonly ConcurrentDictionary<string, ChallengeData> _challenges = new();
 
+    // SECURITY [v2.5.9]: hard ceiling on outstanding challenges (DoS
+    // resistance). Enforced in CreateChallenge: prune expired/consumed, then
+    // evict oldest. Far above any real concurrent-login volume.
+    private const int MaxChallenges = 5000;
+
     // Pre-verified keyed by (userId, deviceId). Prevents Swiftfin/TV sessions
     // from piggy-backing on a web sign-in's 2-minute verification window.
     private readonly ConcurrentDictionary<string, DateTime> _preVerifiedDevices = new();
@@ -484,6 +489,31 @@ public class ChallengeStore : IDisposable
             RemoteIp = remoteIp,
             IsConsumed = false
         };
+
+        // SECURITY [v2.5.9]: hard cap on the in-memory challenge map for DoS
+        // resistance. TTL + the periodic sweep already bound it; this makes
+        // the ceiling explicit. Prune expired/consumed first, then evict the
+        // oldest if still at the cap. 5000 is far above real concurrent
+        // login volume on a self-hosted instance.
+        if (_challenges.Count >= MaxChallenges)
+        {
+            var nowCap = DateTime.UtcNow;
+            foreach (var kv in _challenges)
+            {
+                if (kv.Value.IsConsumed || kv.Value.ExpiresAt <= nowCap) _challenges.TryRemove(kv.Key, out _);
+            }
+            while (_challenges.Count >= MaxChallenges)
+            {
+                string? oldestKey = null;
+                var oldestExp = DateTime.MaxValue;
+                foreach (var kv in _challenges)
+                {
+                    if (kv.Value.ExpiresAt < oldestExp) { oldestExp = kv.Value.ExpiresAt; oldestKey = kv.Key; }
+                }
+                if (oldestKey is null) break;
+                _challenges.TryRemove(oldestKey, out _);
+            }
+        }
 
         _challenges[token] = challenge;
         return challenge;
