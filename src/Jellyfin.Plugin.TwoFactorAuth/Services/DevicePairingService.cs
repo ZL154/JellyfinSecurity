@@ -130,7 +130,9 @@ public class DevicePairingService : IDisposable
 
         request.Status = PairingStatus.Approved;
         request.QuickConnectSecret = quickConnectSecret;
-        _logger.LogInformation("Pairing request '{Code}' approved with QC secret", code);
+        // SECURITY [v2.5.9] (audit low): don't log the live pairing code — it
+        // is an active credential until it expires/is consumed.
+        _logger.LogInformation("Pairing request approved (with QC secret)");
         return true;
     }
 
@@ -181,7 +183,7 @@ public class DevicePairingService : IDisposable
         }
 
         request.Status = PairingStatus.Approved;
-        _logger.LogInformation("Pairing request '{Code}' approved", code);
+        _logger.LogInformation("Pairing request approved");
         return true;
     }
 
@@ -201,7 +203,7 @@ public class DevicePairingService : IDisposable
         }
 
         request.Status = PairingStatus.Denied;
-        _logger.LogInformation("Pairing request '{Code}' denied", code);
+        _logger.LogInformation("Pairing request denied");
         return true;
     }
 

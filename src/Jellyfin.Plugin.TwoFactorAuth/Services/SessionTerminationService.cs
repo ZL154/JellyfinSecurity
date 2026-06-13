@@ -33,6 +33,24 @@ public class SessionTerminationService
         _deviceManager = deviceManager;
         _challengeStore = challengeStore;
         _logger = logger;
+
+        // SECURITY [v2.5.9] (audit TT#4, option c): wire ChallengeStore's
+        // token revoker. When a blocked token expires WITHOUT 2FA ever being
+        // completed, the cleanup sweep calls this to log the access token out
+        // at Jellyfin's session layer — so a token that slipped past the
+        // response-intercept can't become usable once the short in-memory
+        // block lapses. Delegate (not constructor injection) because STS
+        // already depends on ChallengeStore; a back-reference would be a DI
+        // cycle. Fire-and-forget; failures are swallowed (best-effort).
+        _challengeStore.TokenRevoker ??= token =>
+        {
+            if (string.IsNullOrEmpty(token)) return;
+            _ = Task.Run(async () =>
+            {
+                try { await _sessionManager.Logout(token).ConfigureAwait(false); }
+                catch (Exception ex) { _logger.LogDebug(ex, "[2FA] TT#4 revoke of expired-unverified blocked token failed"); }
+            });
+        };
     }
 
     /// <summary>Logout every access token belonging to the user and wipe all

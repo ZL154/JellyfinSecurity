@@ -704,6 +704,158 @@
         return null;
     }
 
+    // ---------------------------------------------------------------------
+    // [v2.5.9] (issue #64): in-page OIDC for embedded app webviews.
+    //
+    // The Jellyfin Android app's webview bounces to its server-select screen
+    // whenever the page navigates off /web/ — so the old full-page redirect to
+    // /Oidc/Login dead-ended, and even after NativeShell opened the browser,
+    // the polling page had been destroyed. Instead, when the app's native
+    // shell is present we keep the web client loaded and run the whole flow in
+    // an in-page modal: open the consent in the system browser via
+    // NativeShell.openUrl, poll the server for completion, then sign in using
+    // the existing form-fill + bridge-token path. /web/ never unloads, so the
+    // poller survives the trip to the browser and back.
+    var OIDC_MODAL_ID = '__twofactor_oidc_modal';
+
+    function hasNativeShell() {
+        try {
+            return (window.NativeShell && typeof window.NativeShell.openUrl === 'function')
+                || (window.NativeInterface && typeof window.NativeInterface.openUrl === 'function');
+        } catch (e) { return false; }
+    }
+
+    // Intercept in ANY embedded app webview — not only when the native shell
+    // is detected at the click instant (it can attach late). Inside the modal
+    // we still prefer NativeShell.openUrl, then window.open, then copy-link, so
+    // the popup works even without a native bridge. Plain desktop/mobile
+    // browsers fall through to the normal full-page redirect (which works).
+    function inEmbeddedWebView() {
+        try {
+            // window.NativeShell / NativeInterface are injected by Jellyfin
+            // NATIVE clients (Android app, Media Player) and are ABSENT in a
+            // plain desktop/mobile browser — the most reliable "I'm inside an
+            // app webview" signal. Check EXISTENCE (not a specific method
+            // signature) so a differing shape still triggers the in-page popup
+            // rather than falling through to the bouncing full-page redirect.
+            if (typeof window.NativeShell !== 'undefined' && window.NativeShell) return true;
+            if (typeof window.NativeInterface !== 'undefined' && window.NativeInterface) return true;
+            var ua = navigator.userAgent || '';
+            if (ua.indexOf('; wv') !== -1 || ua.indexOf('(wv)') !== -1) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function openExternalUrl(url) {
+        try { if (window.NativeShell && typeof window.NativeShell.openUrl === 'function') { window.NativeShell.openUrl(url, '_blank'); return; } } catch (e) {}
+        try { if (window.NativeInterface && typeof window.NativeInterface.openUrl === 'function') { window.NativeInterface.openUrl(url); return; } } catch (e) {}
+        try { window.open(url, '_blank'); } catch (e) {}
+    }
+
+    function closeOidcModal() {
+        window.__tfaOidcPolling = false;
+        var m = document.getElementById(OIDC_MODAL_ID);
+        if (m && m.parentNode) m.parentNode.removeChild(m);
+    }
+
+    function oidcModalStatus(msg) {
+        var s = document.getElementById(OIDC_MODAL_ID + '_st');
+        if (s) s.textContent = msg;
+    }
+
+    function showOidcModal(name, authUrl) {
+        closeOidcModal();
+        var safeName = String(name || 'your provider').replace(/[<>&"]/g, '');
+        var ov = document.createElement('div');
+        ov.id = OIDC_MODAL_ID;
+        ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.72);display:flex;align-items:center;justify-content:center;padding:24px;';
+        ov.innerHTML = '<div style="background:#16181c;border:1px solid #2a2d33;border-radius:14px;max-width:420px;width:100%;padding:24px;box-sizing:border-box;color:#e6e6e6;font-family:system-ui,-apple-system,sans-serif;">'
+            + '<h2 style="font-size:19px;margin:0 0 10px;">Sign in with ' + safeName + '</h2>'
+            + '<p style="color:#aeb4bd;font-size:14px;line-height:1.5;margin:0 0 14px;">Your browser will open to finish sign-in. Approve there, then come back to this screen — it completes automatically.</p>'
+            + '<button id="' + OIDC_MODAL_ID + '_open" style="width:100%;padding:13px;border-radius:10px;border:0;background:#00a4dc;color:#fff;font-weight:600;font-size:15px;cursor:pointer;">Open sign-in in browser</button>'
+            + '<button id="' + OIDC_MODAL_ID + '_copy" style="width:100%;padding:12px;border-radius:10px;border:1px solid #2a2d33;background:#23262c;color:#e6e6e6;font-weight:600;font-size:14px;cursor:pointer;margin-top:10px;">Copy sign-in link</button>'
+            + '<div id="' + OIDC_MODAL_ID + '_st" style="font-size:13px;color:#9aa0a8;margin-top:14px;min-height:18px;"></div>'
+            + '<button id="' + OIDC_MODAL_ID + '_cancel" style="width:100%;padding:10px;border-radius:10px;border:0;background:transparent;color:#7d828b;font-size:13px;cursor:pointer;margin-top:6px;">Cancel</button>'
+            + '</div>';
+        document.body.appendChild(ov);
+        document.getElementById(OIDC_MODAL_ID + '_open').addEventListener('click', function () {
+            oidcModalStatus('Opening your browser…');
+            openExternalUrl(authUrl);
+        });
+        document.getElementById(OIDC_MODAL_ID + '_copy').addEventListener('click', function () {
+            function ok() { oidcModalStatus('Link copied — paste it into Chrome, sign in, then return here.'); }
+            try { navigator.clipboard.writeText(authUrl).then(ok, ok); } catch (e) { ok(); }
+        });
+        document.getElementById(OIDC_MODAL_ID + '_cancel').addEventListener('click', closeOidcModal);
+    }
+
+    function completeWithBridgeToken(user, token) {
+        // [v2.5.9] (issue #64): authenticate exactly like the proven DESKTOP
+        // OIDC bridge page — direct AuthenticateByName with a self-managed
+        // device id, then store credentials and reload /web/. This matters for
+        // 2FA BYPASS: the provider pre-verifies the *device id used at
+        // AuthenticateByName* (TwoFactorAuthProvider → MarkDevicePreVerified),
+        // and the resulting session carries that same device id, so the
+        // SessionStarted handler skips the 2FA challenge. Filling + submitting
+        // the login form instead went through a different device-id path and
+        // lost the bypass (landed on the 2FA code screen).
+        var did = (function () {
+            try {
+                var x = localStorage.getItem('_deviceId2');
+                if (!x) {
+                    x = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+                    localStorage.setItem('_deviceId2', x);
+                }
+                return x;
+            } catch (e) { return 'bridge-' + Date.now(); }
+        })();
+        var auth = 'MediaBrowser Client="Jellyfin Web", Device="Browser", DeviceId="' + did + '", Version="10.11.0"';
+        fetch('/Users/AuthenticateByName', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Emby-Authorization': auth, 'Authorization': auth },
+            body: JSON.stringify({ Username: user, Pw: token })
+        })
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (res) {
+                var server = { Id: res.ServerId, Name: 'Jellyfin', AccessToken: res.AccessToken, UserId: res.User.Id, Type: 'Server', DateLastAccessed: Date.now(), LastConnectionMode: 1, ManualAddress: window.location.origin, LocalAddress: window.location.origin };
+                localStorage.setItem('jellyfin_credentials', JSON.stringify({ Servers: [server] }));
+                oidcModalStatus('Signed in as ' + (res.User && res.User.Name ? res.User.Name : user) + ' — opening Jellyfin…');
+                setTimeout(function () { closeOidcModal(); window.location.href = '/web/index.html'; }, 300);
+            })
+            .catch(function (e) { oidcModalStatus('Sign-in failed: ' + (e && e.message ? e.message : 'error') + '. Tap the button to retry.'); });
+    }
+
+    function pollDeviceFlow(pollToken) {
+        window.__tfaOidcPolling = true;
+        var tries = 0, MAX = 150;
+        (function tick() {
+            if (!window.__tfaOidcPolling) return;
+            if (tries++ > MAX) { oidcModalStatus('Timed out — tap “Open sign-in in browser” to try again.'); return; }
+            fetch('/TwoFactorAuth/Oidc/DevicePoll?pt=' + encodeURIComponent(pollToken), { headers: { 'Accept': 'application/json' } })
+                .then(function (r) { return r.json(); })
+                .then(function (j) {
+                    if (j && j.ready) { window.__tfaOidcPolling = false; oidcModalStatus('Signing you in…'); completeWithBridgeToken(j.username, j.token); }
+                    else { setTimeout(tick, 2500); }
+                })
+                .catch(function () { setTimeout(tick, 2500); });
+        })();
+    }
+
+    function startInAppOidc(id, name) {
+        showOidcModal(name, '#');
+        oidcModalStatus('Starting…');
+        fetch('/TwoFactorAuth/Oidc/LoginInfo/' + encodeURIComponent(id), { headers: { 'Accept': 'application/json' } })
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (info) {
+                if (!info || !info.authUrl || !info.pollToken) throw new Error('bad response');
+                showOidcModal(name, info.authUrl);
+                oidcModalStatus('Opening your browser…');
+                openExternalUrl(info.authUrl);
+                pollDeviceFlow(info.pollToken);
+            })
+            .catch(function () { oidcModalStatus('Could not start sign-in. Please try again.'); });
+    }
+
     function injectOidcButtons() {
         if (!isLoginPage()) return;
         if (document.getElementById(OIDC_BUTTONS_ID)) return;
@@ -739,6 +891,15 @@
                 btn.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;padding:0.9em 1em;text-decoration:none;';
                 btn.href = '/TwoFactorAuth/Oidc/Login/' + encodeURIComponent(p.id);
                 btn.innerHTML = '<span class="material-icons" style="font-family:Material Icons;font-size:18px;">login</span><span>Sign in with ' + (p.displayName || p.id).replace(/[<>&"]/g, '') + '</span>';
+                // [v2.5.9] (issue #64): in an embedded app webview, a full-page
+                // nav off /web/ bounces the app to server-select. Detect the
+                // native shell and run the flow in-page (modal + device-poll)
+                // instead. Regular browsers fall through to the normal redirect.
+                (function (pid, pname) {
+                    btn.addEventListener('click', function (e) {
+                        if (inEmbeddedWebView()) { e.preventDefault(); startInAppOidc(pid, pname); }
+                    });
+                })(p.id, p.displayName || p.id);
                 container.appendChild(btn);
             });
         }).catch(function() { /* silent */ });

@@ -139,7 +139,11 @@ public class ImpossibleTravelDetector : IDisposable
         _cityReader?.Dispose();
         _cityReader = null;
         _loadedCityPath = path;
-        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+        // SECURITY [v2.5.9] (audit medium #10): apply the SAME path-safety
+        // validation GeoIpService uses for the ASN/Country DBs before mmap-ing
+        // the City DB — reject '..', UNC, non-absolute, non-.mmdb, sensitive
+        // system paths, and symlinks that resolve to any of those.
+        if (!string.IsNullOrWhiteSpace(path) && GeoIpService.IsSafeGeoIpPath(path, _logger) && File.Exists(path))
         {
             try
             {

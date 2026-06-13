@@ -341,7 +341,28 @@ public class SecurityController : ControllerBase
         var redirectUri = BuildRedirectUri(provider);
         try
         {
-            var (authUrl, _) = await _oidc.BeginAsync(provider, redirectUri, safeReturn).ConfigureAwait(false);
+            var (authUrl, state) = await _oidc.BeginAsync(provider, redirectUri, safeReturn).ConfigureAwait(false);
+
+            // [v2.5.9] (issue #64): Google — and other strict IdPs — return
+            // "403: disallowed_useragent" when their OAuth consent screen is
+            // loaded inside an embedded app webview (e.g. the Jellyfin Android
+            // app's in-app browser), and the app can't receive an OAuth
+            // redirect back from an external browser. A blind 302 into that
+            // webview dead-ends. So when the request originates from an
+            // embedded webview we run a DEVICE-POLL flow: serve an interstitial
+            // that (a) opens the consent in the system browser and (b) polls
+            // this server for completion. The browser callback stashes the
+            // session under a secret poll token (kept only in the app webview),
+            // and the interstitial picks it up and logs the app in — no
+            // copy-paste, no in-webview Google load.
+            var userAgent = Request.Headers.UserAgent.ToString();
+            if (IsEmbeddedWebView(userAgent))
+            {
+                var pollToken = _oidcBridge.BeginDeviceFlow(state);
+                _logger.LogInformation("[2FA] OIDC begin from an embedded webview — serving device-poll interstitial (provider={Pid})", providerId);
+                return Content(BuildWebViewBreakoutHtml(authUrl, provider.DisplayName, pollToken), "text/html; charset=utf-8");
+            }
+
             return Redirect(authUrl);
         }
         catch (Exception ex)
@@ -354,6 +375,79 @@ public class SecurityController : ControllerBase
             {
                 message = "Failed to start OIDC sign-in — check server logs.",
             });
+        }
+    }
+
+    /// <summary>[v2.5.9] (issue #64): device-poll endpoint for app-initiated
+    /// OIDC. The app webview polls this with its secret poll token; once the
+    /// external browser has finished the consent + callback, this returns the
+    /// one-shot bridge token + resolved username so the app can complete login
+    /// via /Users/AuthenticateByName. Returns {ready:false} while pending. The
+    /// poll token is 256-bit random and single-use, so an unknown/!ready token
+    /// is indistinguishable from a not-yet-complete one.</summary>
+    [HttpGet("Oidc/DevicePoll")]
+    [AllowAnonymous]
+    public IActionResult OidcDevicePoll([FromQuery] string? pt)
+    {
+        var ip = RateLimiter.ClientKey(HttpContext);
+        // Lenient cap: the app polls ~every 2s; this only stops flooding. The
+        // poll token's entropy + one-shot consume are the real protection.
+        var rl = _oidcRateLimiter.CheckAndRecord("oidc_devicepoll:" + ip, 150, TimeSpan.FromMinutes(5));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { ready = false });
+        }
+
+        Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+        var res = _oidcBridge.PollDeviceFlow(pt ?? string.Empty);
+        if (res is null) return Ok(new { ready = false });
+        return Ok(new { ready = true, username = res.Value.Username, token = res.Value.BridgeToken });
+    }
+
+    /// <summary>[v2.5.9] (issue #64): JSON "begin" for the IN-PAGE app flow.
+    /// The injected login button (inject.js) calls this instead of navigating
+    /// to /Oidc/Login when it detects the Jellyfin app's native shell —
+    /// navigating the app's webview off /web/ bounces it to the server-select
+    /// screen and destroys the polling page. This returns the authorize URL +
+    /// a device poll token WITHOUT navigating, so inject.js can open the
+    /// browser via NativeShell, poll in-page, and complete login while the web
+    /// client stays loaded.</summary>
+    [HttpGet("Oidc/LoginInfo/{providerId}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> OidcLoginInfo([FromRoute] string providerId)
+    {
+        var ip = RateLimiter.ClientKey(HttpContext);
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_bans.CheckBanned(clientIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "This IP address is temporarily blocked.", expiresAt = ban.ExpiresAt });
+        }
+
+        var rl = _oidcRateLimiter.CheckAndRecord("oidc_login:" + ip, 20, TimeSpan.FromMinutes(5));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { message = $"Too many sign-in attempts. Try again in {rl.retryAfterSeconds} seconds." });
+        }
+
+        var provider = Plugin.Instance?.Configuration.OidcProviders
+            .FirstOrDefault(p => p.Id == providerId && p.Enabled);
+        if (provider is null) return NotFound(new { message = "Provider not found or disabled." });
+
+        var redirectUri = BuildRedirectUri(provider);
+        try
+        {
+            var (authUrl, state) = await _oidc.BeginAsync(provider, redirectUri, "/web/").ConfigureAwait(false);
+            var pollToken = _oidcBridge.BeginDeviceFlow(state);
+            Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+            _logger.LogInformation("[2FA] OIDC in-page device flow begun (provider={Pid})", providerId);
+            return Ok(new { authUrl, pollToken });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[2FA] OIDC LoginInfo begin failed for {Provider}", providerId);
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = "Failed to start OIDC sign-in — check server logs." });
         }
     }
 
@@ -547,6 +641,22 @@ public class SecurityController : ControllerBase
             providerId,
             bypassPluginTwoFa: provider.BypassPluginTwoFa);
 
+        // [v2.5.9] (issue #64): if this login was started from an app webview
+        // (device-poll flow), the consent ran here in the external browser but
+        // the SESSION belongs to the app. Stash the bridge token under the
+        // flow's secret poll token so the app's webview poll picks it up, and
+        // show the browser a "return to your app" page instead of logging the
+        // browser in.
+        if (_oidcBridge.HasDeviceFlow(state))
+        {
+            _oidcBridge.CompleteDeviceFlow(state, result.Username, token);
+            _logger.LogInformation("[2FA] OIDC device-poll completed in browser for {User} — app will pick up the session", result.Username);
+            Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+            Response.Headers.Pragma = "no-cache";
+            Response.Headers["X-Content-Type-Options"] = "nosniff";
+            return Content(BuildDeviceReturnHtml(), "text/html; charset=utf-8");
+        }
+
         // Return a self-contained bridge page that POSTs to Jellyfin's auth
         // endpoint server-side (from the browser, with a real X-Emby-Authorization
         // header), stores credentials in localStorage, then lands on /web/. This
@@ -712,6 +822,163 @@ public class SecurityController : ControllerBase
             BridgeToken = token,
             BypassPluginTwoFa = provider.BypassPluginTwoFa,
         });
+    }
+
+    /// <summary>[v2.5.9] (issue #64): heuristically detect an embedded app
+    /// webview from the User-Agent. Google and other strict IdPs reject their
+    /// OAuth consent screen with "403: disallowed_useragent" inside these, so
+    /// the OIDC begin endpoint serves a break-out interstitial instead of a
+    /// blind redirect. Deliberately conservative — only the reliable Android
+    /// System WebView marker and well-known in-app social browsers — so normal
+    /// desktop/mobile browsers and the Jellyfin web client are never affected.</summary>
+    private static bool IsEmbeddedWebView(string? ua)
+    {
+        if (string.IsNullOrEmpty(ua)) return false;
+        if (ua.Contains("; wv", StringComparison.OrdinalIgnoreCase)) return true;   // Android System WebView
+        if (ua.Contains("(wv)", StringComparison.OrdinalIgnoreCase)) return true;
+        string[] markers = { "FBAN", "FBAV", "FB_IAB", "Instagram", "Line/", "GSA/", "musical_ly", "TikTok", "Snapchat" };
+        foreach (var m in markers)
+        {
+            if (ua.Contains(m, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>[v2.5.9] (issue #64): interstitial served to embedded webviews
+    /// in place of the OIDC begin redirect. Google blocks its consent screen
+    /// inside app webviews; this page breaks the sign-in out to the system
+    /// browser — Android via an intent:// URL, everything else via a normal
+    /// link — with a copyable-URL fallback. All URLs are injected as
+    /// JSON-encoded JS string literals (never raw into HTML) so the auth URL's
+    /// query string can't break out of the markup.</summary>
+    private static string BuildWebViewBreakoutHtml(string authUrl, string providerDisplayName, string pollToken)
+    {
+        // Android intent:// that forces the OS default browser (outside the
+        // webview). On webviews that pass intent:// to Android this opens
+        // Chrome/the default browser; elsewhere the page falls back to a
+        // plain link + a copyable URL.
+        var intentUrl = authUrl;
+        try
+        {
+            var u = new Uri(authUrl);
+            intentUrl = "intent://" + u.Host + u.PathAndQuery
+                + "#Intent;scheme=" + u.Scheme + ";action=android.intent.action.VIEW;end";
+        }
+        catch (UriFormatException)
+        {
+            // keep the plain URL
+        }
+
+        var authJson = System.Text.Json.JsonSerializer.Serialize(authUrl);
+        var intentJson = System.Text.Json.JsonSerializer.Serialize(intentUrl);
+        var nameJson = System.Text.Json.JsonSerializer.Serialize(
+            string.IsNullOrWhiteSpace(providerDisplayName) ? "your identity provider" : providerDisplayName);
+        var pollJson = System.Text.Json.JsonSerializer.Serialize(pollToken);
+
+        return "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+            + "<title>Continue sign-in</title><style>"
+            + "body{background:#0a0a0a;color:#e6e6e6;font-family:system-ui,-apple-system,sans-serif;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}"
+            + ".card{background:#16181c;border:1px solid #2a2d33;border-radius:14px;max-width:420px;width:100%;padding:28px;box-sizing:border-box;}"
+            + "h1{font-size:20px;margin:0 0 12px;}p{color:#aeb4bd;line-height:1.5;font-size:15px;margin:0 0 16px;}"
+            + ".btn{display:block;text-align:center;background:#00a4dc;color:#fff;text-decoration:none;font-weight:600;padding:14px;border-radius:10px;font-size:16px;border:0;width:100%;box-sizing:border-box;cursor:pointer;}"
+            + ".btn2{display:block;text-align:center;background:#23262c;color:#e6e6e6;border:1px solid #2a2d33;font-weight:600;padding:13px;border-radius:10px;font-size:15px;width:100%;box-sizing:border-box;cursor:pointer;margin-top:10px;}"
+            + ".spin{width:26px;height:26px;border:3px solid #333;border-top-color:#00a4dc;border-radius:50%;animation:s .8s linear infinite;margin:14px auto 0;display:none;}"
+            + "@keyframes s{to{transform:rotate(360deg)}}"
+            + ".status{font-size:14px;color:#9aa0a8;margin-top:14px;min-height:18px;}"
+            + ".hint{font-size:13px;color:#7d828b;margin-top:18px;}"
+            + ".url{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;border-radius:8px;border:1px solid #2a2d33;background:#0c0d10;color:#aeb4bd;font-size:12px;}"
+            + "</style></head><body><div class=\"card\">"
+            + "<h1>Finish sign-in in your browser</h1>"
+            + "<p id=\"desc\"></p>"
+            + "<button class=\"btn\" id=\"go\">Open sign-in in browser</button>"
+            + "<button class=\"btn2\" id=\"cp\">Copy sign-in link</button>"
+            + "<div class=\"spin\" id=\"sp\"></div>"
+            + "<div class=\"status\" id=\"st\"></div>"
+            + "<p class=\"hint\">Your browser should open automatically. If it doesn't, tap <b>Open sign-in in browser</b> — or <b>Copy sign-in link</b>, paste it into Chrome and sign in. Then return to this screen; it finishes automatically.</p>"
+            + "<input class=\"url\" id=\"u\" readonly onclick=\"this.select()\">"
+            + "</div><script>(function(){"
+            + "var au=" + authJson + ",intent=" + intentJson + ",name=" + nameJson + ",pt=" + pollJson + ";"
+            + "var done=false,tries=0,MAX=140;"
+            + "function st(m){document.getElementById('st').textContent=m;}"
+            + "document.getElementById('desc').textContent='For security, '+name+' blocks sign-in inside apps. Open the sign-in in your phone\\u2019s browser; this screen finishes automatically when you\\u2019re done.';"
+            + "document.getElementById('u').value=au;"
+            + "var isAndroid=/Android/i.test(navigator.userAgent);"
+            // CRITICAL: open the browser via window.open ONLY — NEVER navigate
+            // the main frame (window.location). The Jellyfin Android app's
+            // webview treats a top-frame navigation to an external/intent URL
+            // as a lost server connection and bounces to the server-select
+            // screen (issue #64 loop). window.open either spawns an external
+            // window or harmlessly no-ops; it never resets the app. If it
+            // no-ops, the Copy-link button is the reliable path.
+            + "function go(){document.getElementById('sp').style.display='block';"
+            + "st('Opening your browser\\u2026 approve sign-in there, then return to this screen.');"
+            // The Jellyfin app injects NativeShell/NativeInterface — its
+            // app-sanctioned bridge to open an external URL (fires an Android
+            // Intent -> system browser). Plain window.open / window.location
+            // get hijacked into a main-frame navigation and bounce the app to
+            // its server-select screen (issue #64), so use the bridge first.
+            + "try{if(window.NativeShell&&typeof window.NativeShell.openUrl==='function'){window.NativeShell.openUrl(au,'_blank');return;}}catch(e){}"
+            + "try{if(window.NativeInterface&&typeof window.NativeInterface.openUrl==='function'){window.NativeInterface.openUrl(au);return;}}catch(e){}"
+            + "try{window.open(au,'_blank');}catch(e){}"
+            + "try{window.open(au,'_system');}catch(e){}}"
+            + "document.getElementById('go').addEventListener('click',go);"
+            // Auto-open through the native bridge when present — gives the app
+            // the automatic 'redirect' UX (native bridge calls aren't gated by
+            // a user gesture). Falls back to the visible buttons otherwise.
+            + "try{if((window.NativeShell&&window.NativeShell.openUrl)||(window.NativeInterface&&window.NativeInterface.openUrl)){setTimeout(go,300);}}catch(e){}"
+            + "function copied(){document.getElementById('sp').style.display='block';st('Link copied \\u2014 open Chrome, paste it, and sign in. Then return to this screen.');}"
+            + "document.getElementById('cp').addEventListener('click',function(){"
+            + "try{navigator.clipboard.writeText(au).then(copied,function(){var i=document.getElementById('u');i.focus();i.select();try{document.execCommand('copy');}catch(_){}copied();});}"
+            + "catch(e){var i=document.getElementById('u');i.focus();i.select();try{document.execCommand('copy');}catch(_){}copied();}"
+            + "});"
+            + "if(isAndroid){void intent;}"
+            // Device-poll: once the browser side completes the callback, this
+            // returns the one-shot bridge token; complete login like the
+            // browser bridge page (AuthenticateByName -> localStorage -> /web).
+            + "function complete(u,t){"
+            + "var did=(function(){try{var x=localStorage.getItem('_deviceId2');if(!x){x=Array.from(crypto.getRandomValues(new Uint8Array(16))).map(function(b){return b.toString(16).padStart(2,'0');}).join('');localStorage.setItem('_deviceId2',x);}return x;}catch(e){return 'bridge-'+Date.now();}})();"
+            + "var auth='MediaBrowser Client=\"Jellyfin Web\", Device=\"Browser\", DeviceId=\"'+did+'\", Version=\"10.11.0\"';"
+            + "fetch('/Users/AuthenticateByName',{method:'POST',headers:{'Content-Type':'application/json','X-Emby-Authorization':auth,'Authorization':auth},body:JSON.stringify({Username:u,Pw:t})})"
+            + ".then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})"
+            + ".then(function(res){"
+            + "var server={Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:1,ManualAddress:window.location.origin,LocalAddress:window.location.origin};"
+            + "localStorage.setItem('jellyfin_credentials',JSON.stringify({Servers:[server]}));"
+            + "st('Signed in as '+res.User.Name+' \\u2014 opening Jellyfin\\u2026');"
+            + "setTimeout(function(){window.location.href='/web/index.html';},400);"
+            + "}).catch(function(e){st('Sign-in failed: '+e.message);});"
+            + "}"
+            + "function poll(){"
+            + "if(done)return;"
+            + "if(tries++>MAX){st('Timed out \\u2014 tap the button to try again.');return;}"
+            + "fetch('/TwoFactorAuth/Oidc/DevicePoll?pt='+encodeURIComponent(pt),{headers:{'Accept':'application/json'}})"
+            + ".then(function(r){return r.json();})"
+            + ".then(function(j){if(j&&j.ready){done=true;document.getElementById('sp').style.display='block';st('Finishing sign-in\\u2026');complete(j.username,j.token);}else{setTimeout(poll,2500);}})"
+            + ".catch(function(){setTimeout(poll,2500);});"
+            + "}"
+            + "poll();"
+            + "})();</script></body></html>";
+    }
+
+    /// <summary>[v2.5.9] (issue #64): the page the EXTERNAL browser lands on
+    /// after completing an app-initiated (device-poll) OIDC sign-in. The
+    /// session belongs to the app, not this browser tab — so instead of
+    /// logging the browser in, tell the user to switch back to the app (which
+    /// is polling and will finish automatically).</summary>
+    private static string BuildDeviceReturnHtml()
+    {
+        return "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+            + "<title>Signed in</title><style>"
+            + "body{background:#0a0a0a;color:#e6e6e6;font-family:system-ui,-apple-system,sans-serif;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}"
+            + ".card{background:#16181c;border:1px solid #2a2d33;border-radius:14px;max-width:420px;width:100%;padding:32px 28px;box-sizing:border-box;text-align:center;}"
+            + ".ok{font-size:42px;line-height:1;margin-bottom:12px;}h1{font-size:21px;margin:0 0 12px;}"
+            + "p{color:#aeb4bd;line-height:1.5;font-size:15px;margin:0;}"
+            + "</style></head><body><div class=\"card\">"
+            + "<div class=\"ok\">✅</div>"
+            + "<h1>You’re signed in</h1>"
+            + "<p>Switch back to your Jellyfin app — it will finish signing you in automatically. You can close this tab.</p>"
+            + "</div></body></html>";
     }
 
     private static string LoginErrorUrl(string msg)

@@ -25,6 +25,12 @@ public class IpBanService : IDisposable
     private readonly ILogger<IpBanService> _logger;
     private readonly ConcurrentDictionary<string, IpBanEntry> _activeBans = new();
     private readonly ConcurrentDictionary<string, List<DateTime>> _failures = new();
+
+    // SECURITY [v2.5.9] (audit medium): hard caps so a botnet presenting many
+    // distinct source IPs can't grow these maps — and the persisted
+    // ip-bans.json — without bound. Mirrors RateLimiter's cap+prune.
+    private const int MaxActiveBans = 10000;
+    private const int MaxFailureKeys = 50000;
     private readonly Timer _sweepTimer;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private bool _disposed;
@@ -65,6 +71,19 @@ public class IpBanService : IDisposable
 
         var window = TimeSpan.FromMinutes(Math.Max(1, config.IpBanFailureWindowMinutes));
         var cutoff = DateTime.UtcNow - window;
+        // [v2.5.9] bound the failure map: when at cap, drop buckets that are
+        // now entirely outside the window (and any that empty out).
+        if (_failures.Count >= MaxFailureKeys)
+        {
+            foreach (var kv in _failures)
+            {
+                lock (kv.Value)
+                {
+                    kv.Value.RemoveAll(t => t < cutoff);
+                    if (kv.Value.Count == 0) _failures.TryRemove(kv.Key, out _);
+                }
+            }
+        }
         var bucket = _failures.GetOrAdd(ip, _ => new List<DateTime>());
         lock (bucket)
         {
@@ -90,6 +109,26 @@ public class IpBanService : IDisposable
             Source = source,
             Note = note,
         };
+        // [v2.5.9] bound the ban map: prune expired, then evict oldest-expiring.
+        if (_activeBans.Count >= MaxActiveBans)
+        {
+            var nowB = DateTime.UtcNow;
+            foreach (var kv in _activeBans)
+            {
+                if (kv.Value.ExpiresAt <= nowB) _activeBans.TryRemove(kv.Key, out _);
+            }
+            while (_activeBans.Count >= MaxActiveBans)
+            {
+                string? oldest = null;
+                var oldestExp = DateTime.MaxValue;
+                foreach (var kv in _activeBans)
+                {
+                    if (kv.Value.ExpiresAt < oldestExp) { oldestExp = kv.Value.ExpiresAt; oldest = kv.Key; }
+                }
+                if (oldest is null) break;
+                _activeBans.TryRemove(oldest, out _);
+            }
+        }
         _activeBans[ip] = entry;
         _logger.LogWarning("[2FA] Banned IP {Ip} for {Hours}h ({Note})", ip, hours, note);
         _ = SaveAsync();

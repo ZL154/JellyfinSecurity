@@ -82,6 +82,22 @@ public class ConfigExportService
             }
         }
 
+        // SECURITY [v2.5.9] (audit medium): the config-only export is
+        // UNENCRYPTED and meant to be shareable (bug reports, backups). But
+        // UserEmails is {userId, email} for every enrolled user, and
+        // NotifyEmailAddresses are admin contact addresses — both PII that
+        // must not ride along in a "safe to share" config. Strip them.
+        if (redactedCfg.UserEmails.Count > 0)
+        {
+            redactedCfg.UserEmails = new();
+            redacted.Add("UserEmails");
+        }
+        if (redactedCfg.NotifyEmailAddresses.Length > 0)
+        {
+            redactedCfg.NotifyEmailAddresses = System.Array.Empty<string>();
+            redacted.Add("NotifyEmailAddresses");
+        }
+
         var history = await _score.GetHistoryAsync(365).ConfigureAwait(false);
         var payload = new ConfigExportPayload
         {

@@ -19,7 +19,26 @@ public class IndexHtmlInjectionMiddleware
     // synchronous script tag placed as the first child of <head> executes
     // BEFORE Jellyfin's bundle, so our fetch/XHR wraps are in place when the
     // bundle captures them.
-    private const string ScriptTag = "<script src=\"/TwoFactorAuth/inject.js\"></script>";
+    // [v2.5.9] cache-bust the inject.js URL with the plugin version. Without
+    // this, the app webview / Jellyfin service worker keeps serving a stale
+    // cached inject.js after an upgrade (issue #64: the new in-page OIDC popup
+    // never ran because the old script was cached). A version-stamped URL is a
+    // fresh cache key every release, forcing a re-fetch.
+    // NOTE: extension-less "/inject" URL (NOT "inject.js") so a CDN/Cloudflare
+    // "*.js" cache rule can't freeze it — the .js URL was being edge-cached for
+    // days, overriding our no-store origin headers, so client fixes never
+    // reached users behind the proxy (issue #64). "/inject" stays DYNAMIC.
+    // Cache-bust token: assembly version + a per-process random suffix
+    // (regenerated every Jellyfin/plugin restart). A static "?v=<version>"
+    // wasn't enough — a webview/proxy can keep serving a cached inject under
+    // the same URL across redeploys of the same version. A per-restart token
+    // makes every upgrade/restart a brand-new URL = guaranteed cache miss =
+    // fresh script everywhere (webview, CDN, browser).
+    private static readonly string CacheBust =
+        (typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0")
+        + "-" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+    private static readonly string ScriptTag =
+        "<script src=\"/TwoFactorAuth/inject?v=" + CacheBust + "\"></script>";
     private const string InjectionMarker = "<!-- twofactor-inject -->";
 
     private readonly RequestDelegate _next;

@@ -431,6 +431,16 @@ public class NotificationService
         if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return null;
         if (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps) return null;
 
+        // SECURITY [v2.5.9] (audit medium): warn (non-breaking) on plaintext
+        // http:// notification targets. Bodies can carry pairing codes,
+        // usernames and IPs, and webhook auth tokens (X-Gotify-Key / HMAC)
+        // travel in headers — all in clear over http. Kept allowed for
+        // LAN-only ntfy/Gotify, but surfaced so admins can switch to https.
+        if (string.Equals(u.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("[2FA] Notification target host '{Host}' uses plaintext http:// — message content and any auth token are sent unencrypted. Prefer https://.", u.Host);
+        }
+
         try
         {
             var addrs = System.Net.Dns.GetHostAddresses(u.Host);

@@ -101,7 +101,23 @@ public class RequestBlockerMiddleware
         }
         catch
         {
-            // Jellyfin auth failed — not our concern, let the real pipeline handle it
+            // SECURITY [v2.5.9] (audit low): fail CLOSED for a blocked token.
+            // The block is keyed by the token itself (not the userId), so even
+            // when Jellyfin's auth handler throws transiently we can — and
+            // must — still refuse a token that is mid-2FA. Previously this
+            // bare catch let the request through, silently skipping the 2FA
+            // block on any auth-evaluation hiccup.
+            if (!string.IsNullOrEmpty(token) && _challengeStore.IsTokenBlocked(token))
+            {
+                _logger.LogWarning("[2FA] BLOCKED {Path} (token-scoped; auth-resolve threw) — 2FA not completed", path);
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsync(
+                    "{\"message\":\"Two-factor authentication required. Visit /TwoFactorAuth/Login to complete sign in.\",\"twoFactorRequired\":true}"
+                ).ConfigureAwait(false);
+                return;
+            }
+            // No blocked token in play — not our concern, let the pipeline handle it.
             await _next(context).ConfigureAwait(false);
             return;
         }

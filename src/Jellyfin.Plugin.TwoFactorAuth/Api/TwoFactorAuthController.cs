@@ -243,10 +243,30 @@ public class TwoFactorAuthController : ControllerBase
         // directly in `code` after the UI clicked "Send code by email".
         // EmailOtpService.ValidateStepUpCode does the single-use consume so
         // an attacker can't replay the same email OTP.
+        // SECURITY [v2.5.9] (audit medium): rate-limit the user-self step-up
+        // CODE path. The admin StepUp/Verify and the login verify path each
+        // have a per-user limiter; this gate didn't — letting a hijacked
+        // (non-elevated) session brute-force the 6-digit TOTP step-up code to
+        // mint factor changes without ever tripping a limiter or lockout.
+        // 15 attempts / 15 min per user, mirroring "verify_user:".
+        if (!string.IsNullOrWhiteSpace(code))
+        {
+            var ssRl = _rateLimiter.CheckAndRecord("stepup_self:" + userId.ToString("N"), 15, TimeSpan.FromMinutes(15));
+            if (!ssRl.allowed)
+            {
+                return StatusCode(StatusCodes.Status429TooManyRequests, new
+                {
+                    message = $"Too many verification attempts. Try again in {ssRl.retryAfterSeconds} seconds.",
+                    stepUpRequired = true,
+                });
+            }
+        }
+
         var ok = !string.IsNullOrWhiteSpace(code)
                  && (_stepUp.VerifyUserCode(userData, code!) || _emailOtpService.ValidateStepUpCode(userId, code!));
         if (!ok)
         {
+            await _store.RecordFailedAttemptAsync(userId).ConfigureAwait(false);
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
                 message = "A current authenticator or recovery code is required to modify two-factor settings.",
@@ -254,6 +274,9 @@ public class TwoFactorAuthController : ControllerBase
                 twoFactorRequired = true,
             });
         }
+
+        // Success — clear the step-up attempt counter for this user.
+        _rateLimiter.Reset("stepup_self:" + userId.ToString("N"));
 
         // VerifyUserCode may have marked a recovery code as Used on the
         // local clone (and bumped LastUsedTotpStep). Persist atomically so
@@ -620,7 +643,10 @@ public class TwoFactorAuthController : ControllerBase
                 // user-exists-but-wrong-code path.
                 _ = await _store.GetUserDataAsync(Guid.Empty).ConfigureAwait(false);
                 _ipBans.RecordFailure(clientIp);
-                return Unauthorized(new { message = "Invalid username or password." });
+                // SECURITY [v2.5.9] (audit low): identical message for every
+                // auth failure (bad user / bad password / bad code) so the
+                // response can't be used as a 2FA-code-validity oracle.
+                return Unauthorized(new { message = "Invalid username, password, or verification code." });
             }
 
             var userData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
@@ -822,7 +848,10 @@ public class TwoFactorAuthController : ControllerBase
                 catch (MediaBrowser.Controller.Authentication.AuthenticationException)
                 {
                     _ipBans.RecordFailure(clientIp);
-                    return Unauthorized(new { message = "Invalid username or password." });
+                    // SECURITY [v2.5.9] (audit low): identical message for every
+                // auth failure (bad user / bad password / bad code) so the
+                // response can't be used as a 2FA-code-validity oracle.
+                return Unauthorized(new { message = "Invalid username, password, or verification code." });
                 }
             }
             finally
@@ -1007,6 +1036,13 @@ public class TwoFactorAuthController : ControllerBase
     // GET /TwoFactorAuth/inject.js — script injected into Jellyfin web UI
     // -------------------------------------------------------------------------
 
+    // [v2.5.9] (issue #64): also serve at an EXTENSION-LESS route. A CDN /
+    // Cloudflare cache rule that matches "*.js" (and overrides our no-store
+    // origin headers with a long edge TTL) freezes inject.js for days, so
+    // client-side fixes never reach users behind a proxy. The "/inject" URL
+    // doesn't match a ".js" rule, so it stays DYNAMIC/uncached and always
+    // serves fresh. IndexHtmlInjectionMiddleware points the script tag here.
+    [HttpGet("inject")]
     [HttpGet("inject.js")]
     [AllowAnonymous]
     public IActionResult GetInjectScript()
@@ -1021,6 +1057,12 @@ public class TwoFactorAuthController : ControllerBase
 
         using var reader = new System.IO.StreamReader(stream);
         var js = reader.ReadToEnd();
+        // [v2.5.9] (issue #64): Debug-level trace of which inject URL was
+        // requested + the client UA — invaluable for diagnosing CDN/webview
+        // caching of the injected script. Debug so it doesn't spam Info on
+        // every login-page load.
+        _logger.LogDebug("[2FA] inject served: path={Path}{Query} len={Len} ua={UA}",
+            Request.Path.Value, Request.QueryString.Value, js.Length, Request.Headers.UserAgent.ToString());
         // inject.js changes with every plugin upgrade — a CDN / reverse proxy
         // caching it for 24h means users don't see new login buttons, bug fixes,
         // or security hardening until the cache expires. Tell every intermediate
@@ -4606,7 +4648,11 @@ public class TwoFactorAuthController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            // SECURITY [v2.5.9] (audit low): don't echo internal exception
+            // text to the client (consistent with the OIDC/Fido2 paths). Log
+            // the detail server-side; return a generic message.
+            _logger.LogWarning(ex, "[2FA] Config import failed");
+            return BadRequest(new { message = "Config import failed. Check the server log for details." });
         }
     }
 
@@ -4614,6 +4660,12 @@ public class TwoFactorAuthController : ControllerBase
     [Authorize(Policy = "RequiresElevation")]
     public async Task<IActionResult> ExportUser([FromRoute] Guid userId)
     {
+        // SECURITY [v2.5.9] (audit medium): gate per-user export behind
+        // step-up like the full-config export. A hijacked admin session could
+        // otherwise exfiltrate a user's 2FA export without re-proving control.
+        var exportGuard = StepUpGuard(StepUpAction.ExportWithSecrets);
+        if (exportGuard is not null) return exportGuard;
+
         var data = await _userExport.BuildExportAsync(userId).ConfigureAwait(false);
         var json = System.Text.Json.JsonSerializer.Serialize(data, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
         Response.Headers["Content-Disposition"] = $"attachment; filename=2fa-export-{userId:N}.json";

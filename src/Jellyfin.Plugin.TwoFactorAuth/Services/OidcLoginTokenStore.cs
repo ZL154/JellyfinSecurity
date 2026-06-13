@@ -72,6 +72,119 @@ public class OidcLoginTokenStore : IDisposable
     public static bool LooksLikeBridgeToken(string? value)
         => !string.IsNullOrEmpty(value) && value.StartsWith(TokenPrefix, StringComparison.Ordinal);
 
+    // ---------------------------------------------------------------------
+    // [v2.5.9] (issue #64): native/webview device-poll flow.
+    //
+    // Google blocks its OAuth consent inside embedded app webviews, and the
+    // Jellyfin Android app can't receive an OAuth redirect back from an
+    // external browser. So an app-initiated login routes the consent through
+    // the system browser and the app's webview POLLS for completion:
+    //   - Begin (in the app webview): map the OIDC `state` (which round-trips
+    //     through the IdP and is known to the callback) to a high-entropy
+    //     poll token kept ONLY in the app webview. The poll token never
+    //     travels through the external browser, so the browser-visible
+    //     `state` can't be used to steal the session.
+    //   - Callback (in the external browser): stash the minted bridge token +
+    //     resolved username under the flow.
+    //   - Poll (in the app webview): one-shot pick-up, then the app completes
+    //     login exactly like the browser bridge page (AuthenticateByName).
+    private const string PollPrefix = "oidcpoll_";
+    private const int MaxDeviceFlows = 2000;
+
+    private sealed class DeviceEntry
+    {
+        public string PollToken = string.Empty;
+        public string? Username;
+        public string? BridgeToken;
+        public DateTime ExpiresAt;
+    }
+
+    private readonly ConcurrentDictionary<string, DeviceEntry> _deviceByState = new();
+    private readonly ConcurrentDictionary<string, DeviceEntry> _deviceByPoll = new();
+
+    /// <summary>Start a device-poll flow for an app-initiated OIDC login.
+    /// Returns the secret poll token the app webview keeps and polls with.</summary>
+    public string BeginDeviceFlow(string state)
+    {
+        if (string.IsNullOrEmpty(state)) return string.Empty;
+        PruneDeviceFlows();
+        var pollToken = PollPrefix + Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var entry = new DeviceEntry
+        {
+            PollToken = pollToken,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(5),
+        };
+        _deviceByState[state] = entry;
+        _deviceByPoll[pollToken] = entry;
+        return pollToken;
+    }
+
+    public bool HasDeviceFlow(string state)
+        => !string.IsNullOrEmpty(state) && _deviceByState.ContainsKey(state);
+
+    /// <summary>Callback side: stash the minted bridge token + username for the
+    /// polling app to pick up. Returns false if this wasn't a device flow.</summary>
+    public bool CompleteDeviceFlow(string state, string username, string bridgeToken)
+    {
+        if (string.IsNullOrEmpty(state)) return false;
+        if (!_deviceByState.TryGetValue(state, out var entry)) return false;
+        entry.Username = username;
+        entry.BridgeToken = bridgeToken;
+        // Fresh short window for the app to poll-pick the token.
+        entry.ExpiresAt = DateTime.UtcNow.AddSeconds(90);
+        return true;
+    }
+
+    /// <summary>App poll: returns + one-shot-consumes (username, bridgeToken)
+    /// once the browser side completed. Null while pending/unknown/expired.</summary>
+    public (string Username, string BridgeToken)? PollDeviceFlow(string pollToken)
+    {
+        if (string.IsNullOrEmpty(pollToken)) return null;
+        if (!_deviceByPoll.TryGetValue(pollToken, out var entry)) return null;
+        if (entry.ExpiresAt <= DateTime.UtcNow)
+        {
+            RemoveDeviceFlow(entry);
+            return null;
+        }
+        if (entry.BridgeToken is null || entry.Username is null) return null; // still pending
+        var result = (entry.Username, entry.BridgeToken);
+        RemoveDeviceFlow(entry); // one-shot
+        return result;
+    }
+
+    private void RemoveDeviceFlow(DeviceEntry entry)
+    {
+        _deviceByPoll.TryRemove(entry.PollToken, out _);
+        foreach (var kv in _deviceByState)
+        {
+            if (ReferenceEquals(kv.Value, entry))
+            {
+                _deviceByState.TryRemove(kv.Key, out _);
+                break;
+            }
+        }
+    }
+
+    private void PruneDeviceFlows()
+    {
+        var now = DateTime.UtcNow;
+        foreach (var kv in _deviceByPoll)
+        {
+            if (kv.Value.ExpiresAt <= now) RemoveDeviceFlow(kv.Value);
+        }
+        while (_deviceByPoll.Count >= MaxDeviceFlows)
+        {
+            DeviceEntry? oldest = null;
+            foreach (var kv in _deviceByPoll)
+            {
+                if (oldest is null || kv.Value.ExpiresAt < oldest.ExpiresAt) oldest = kv.Value;
+            }
+            if (oldest is null) break;
+            RemoveDeviceFlow(oldest);
+        }
+    }
+
     private void Sweep()
     {
         var now = DateTime.UtcNow;
@@ -79,5 +192,6 @@ public class OidcLoginTokenStore : IDisposable
         {
             if (kv.Value.ExpiresAt <= now) _tokens.TryRemove(kv.Key, out _);
         }
+        PruneDeviceFlows();
     }
 }

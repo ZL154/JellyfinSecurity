@@ -33,6 +33,19 @@ public class ChallengeStore : IDisposable
     // X-Emby-Token so we block-by-token as the actual enforcement mechanism.
     private readonly ConcurrentDictionary<string, DateTime> _blockedTokens = new();
 
+    /// <summary>SECURITY [v2.5.9] (audit TT#4, option c): set by
+    /// SessionTerminationService at construction. Invoked by the cleanup
+    /// sweep for each blocked token that reaches expiry while STILL blocked
+    /// — which means 2FA was never completed (the success path calls
+    /// UnblockToken). Rather than let the short in-memory block silently
+    /// lapse into a usable token, the revoker logs the access token out at
+    /// Jellyfin's session layer. Takes the token itself (the block key),
+    /// which is the X-Emby-Token, so no deviceId is needed — Jellyfin Web
+    /// often doesn't send one. A delegate (not constructor injection)
+    /// because STS already depends on ChallengeStore — a back-reference
+    /// would be a DI cycle. Null until wired.</summary>
+    public Action<string>? TokenRevoker { get; set; }
+
     // Tokens the event handler has already approved (paired device / preVerified /
     // IP bypass). The middleware checks this before issuing a challenge so a
     // response whose paired-device status can only be determined via SessionInfo
@@ -581,7 +594,20 @@ public class ChallengeStore : IDisposable
         }
         foreach (var kv in _blockedTokens)
         {
-            if (kv.Value <= now) _blockedTokens.TryRemove(kv.Key, out _);
+            if (kv.Value <= now)
+            {
+                _blockedTokens.TryRemove(kv.Key, out _);
+                // SECURITY [v2.5.9] (audit TT#4, option c): still-blocked at
+                // expiry == 2FA was never completed (the success path calls
+                // UnblockToken). Rather than let the block silently lapse into
+                // a usable token, actively log the access token out at
+                // Jellyfin's session layer via the wired revoker. Best-effort.
+                if (TokenRevoker is { } revoke)
+                {
+                    try { revoke(kv.Key); }
+                    catch { /* best-effort revoke; never let the sweep throw */ }
+                }
+            }
         }
         foreach (var kv in _approvedTokens)
         {

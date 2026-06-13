@@ -62,7 +62,18 @@ public class OidcService : IDisposable
     private readonly UserTwoFactorStore _store;
     private readonly IUserManager _userManager;
     private readonly ILogger<OidcService> _logger;
-    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    // SECURITY [v2.5.9] (audit medium): AllowAutoRedirect=false. The
+    // EnsureSafeOutboundAsync egress filter validates only the CONFIGURED
+    // URL's host/IP; with auto-redirect on (the default), a malicious or
+    // compromised IdP could 302 the discovery/token/jwks/userinfo request to
+    // 169.254.169.254 (cloud metadata) or an RFC1918 address and the client
+    // would follow it WITHOUT re-validating — defeating the SSRF guard on the
+    // redirect leg. Legit OIDC endpoints never redirect these requests, so
+    // refusing to follow redirects is safe and closes the bypass.
+    private static readonly HttpClient _http = new(new HttpClientHandler { AllowAutoRedirect = false })
+    {
+        Timeout = TimeSpan.FromSeconds(15),
+    };
 
     // SEC-M1: JWKs are cached with the same 1h TTL as discovery. IdPs rotate
     // signing keys (Google ~every few weeks); without a TTL the cache could
@@ -143,6 +154,14 @@ public class OidcService : IDisposable
     public async Task<(string AuthUrl, string State)> BeginAsync(
         OidcProvider provider, string redirectUri, string returnUrl)
     {
+        // SECURITY [v2.5.9] (audit medium): coerce returnUrl to a safe
+        // site-relative path BEFORE storing it in the pending flow. An
+        // attacker-supplied absolute or protocol-relative URL would otherwise
+        // round-trip through the callback and become an open redirect
+        // (phishing, or leaking the freshly-minted bridge token to an
+        // external origin).
+        returnUrl = SanitizeReturnUrl(returnUrl);
+
         var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
 
         // PKCE: random 43-char verifier, S256 challenge.
@@ -434,7 +453,58 @@ public class OidcService : IDisposable
             return new CallbackResult(false, "Token verification failed: " + ex.Message, null, null, null, null);
         }
 
+        // SECURITY [v2.5.9] (audit medium): bind the supplied access_token to
+        // the verified id_token via at_hash. Without this, a caller could
+        // pair a valid id_token (sub=X, aud=ourClientId) with a DIFFERENT
+        // user's access_token (sub=Y); the /userinfo fetch in
+        // FinalizeSignInAsync would then merge Y's groups + email into X's
+        // session — crossing the identity boundary the verified id_token was
+        // supposed to establish (group-allowlist satisfaction, email-based
+        // user resolution). Reject on explicit mismatch; a missing at_hash
+        // can't be validated and is allowed (some IdPs omit it).
+        if (!string.IsNullOrEmpty(accessToken) && !AtHashMatches(idToken, accessToken))
+        {
+            _logger.LogWarning("[2FA] OIDC token-exchange refused: at_hash in id_token does not match the supplied access_token (possible token mix-up).");
+            return new CallbackResult(false, "Token verification failed: the access token does not match the id token.", null, null, null, null);
+        }
+
         return await FinalizeSignInAsync(provider, disc, claims, accessToken, returnUrl: string.Empty).ConfigureAwait(false);
+    }
+
+    /// <summary>SECURITY [v2.5.9] (audit medium): validate the id_token's
+    /// at_hash against the access_token. at_hash = base64url(left-half(HASH(
+    /// access_token))) where HASH matches the id_token's signing alg. Returns
+    /// false ONLY on an explicit mismatch; a missing at_hash returns true
+    /// (can't bind, but don't break IdPs that omit it).</summary>
+    private static bool AtHashMatches(string idToken, string accessToken)
+    {
+        try
+        {
+            var jwt = new JwtSecurityTokenHandler().ReadJwtToken(idToken);
+            var atHash = jwt.Claims.FirstOrDefault(c => c.Type == "at_hash")?.Value;
+            if (string.IsNullOrEmpty(atHash)) return true; // not asserted → cannot validate
+            var alg = jwt.Header.Alg ?? "RS256";
+            var atBytes = Encoding.ASCII.GetBytes(accessToken);
+            byte[] hash = alg switch
+            {
+                "RS384" or "ES384" or "PS384" or "HS384" => SHA384.HashData(atBytes),
+                "RS512" or "ES512" or "PS512" or "HS512" => SHA512.HashData(atBytes),
+                _ => SHA256.HashData(atBytes),
+            };
+            var half = new byte[hash.Length / 2];
+            Array.Copy(hash, half, half.Length);
+            var computed = Base64Url(half);
+            return CryptographicOperations.FixedTimeEquals(
+                Encoding.ASCII.GetBytes(computed),
+                Encoding.ASCII.GetBytes(atHash));
+        }
+        catch
+        {
+            // id_token already passed full signature verification before this
+            // is called, so a parse failure here is unexpected; don't hard-
+            // fail the exchange on a best-effort binding check.
+            return true;
+        }
     }
 
     /// <summary>Shared pipeline that runs after an id_token has been verified:
@@ -1194,6 +1264,26 @@ public class OidcService : IDisposable
     {
         throw new InvalidOperationException(
             $"Outbound URL host '{host}' resolved to non-public address {addr} ({reason}). Refusing to fetch.");
+    }
+
+    /// <summary>SECURITY [v2.5.9] (audit medium): coerce an OIDC returnUrl to
+    /// a safe, same-origin, site-relative path. Rejects absolute URLs
+    /// (scheme://), protocol-relative ("//host"), backslash tricks, and any
+    /// control characters — all of which enable open redirect. Anything
+    /// suspect collapses to "/".</summary>
+    private static string SanitizeReturnUrl(string? returnUrl)
+    {
+        if (string.IsNullOrWhiteSpace(returnUrl)) return "/";
+        var u = returnUrl.Trim();
+        if (!u.StartsWith('/')) return "/";
+        if (u.StartsWith("//", StringComparison.Ordinal)) return "/";       // protocol-relative
+        if (u.Contains('\\', StringComparison.Ordinal)) return "/";          // backslash → //evil
+        if (u.Contains("://", StringComparison.Ordinal)) return "/";         // embedded scheme
+        foreach (var ch in u)
+        {
+            if (char.IsControl(ch)) return "/";                              // CR/LF/etc.
+        }
+        return u;
     }
 
     /// <summary>SECURITY [v2.5.9]: the subset of <see cref="EnsurePublicIp"/>

@@ -952,7 +952,12 @@
                             (e.details || e.Details || ''),
                         ]);
                     });
-                    var csv = rows.map(function(r) { return r.map(function(v) { var s = String(v == null ? '' : v); if (/[",\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"'; return s; }).join(','); }).join('\n');
+                    // SECURITY [v2.5.9] (audit medium): neutralize CSV formula
+                    // injection. username / deviceName / details are attacker-
+                    // influenced; a cell beginning = + - @ (or tab/CR) executes
+                    // as a formula in Excel/LibreOffice. Prefix those with a
+                    // single quote before the normal quote-escaping.
+                    var csv = rows.map(function(r) { return r.map(function(v) { var s = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(s)) { s = "'" + s; } if (/[",\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"'; return s; }).join(','); }).join('\n');
                     var blob = new Blob([csv], { type: 'text/csv' });
                     var a = document.createElement('a');
                     a.href = URL.createObjectURL(blob);

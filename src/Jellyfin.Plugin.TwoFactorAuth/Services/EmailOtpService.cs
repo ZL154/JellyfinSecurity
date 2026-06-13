@@ -296,6 +296,15 @@ public class EmailOtpService
         var submittedHash = HashOtp(code ?? string.Empty);
         if (!CryptographicOperations.FixedTimeEquals(entry.CodeHash, submittedHash))
         {
+            // SECURITY [v2.5.9] (audit medium): bound wrong guesses per code.
+            // The send path is rate-limited but ValidateCode wasn't — a held
+            // challenge token could otherwise hammer the 10^8 space for the
+            // full TTL. After 8 wrong attempts, consume the code so it can no
+            // longer be guessed (the user must request a fresh one).
+            if (System.Threading.Interlocked.Increment(ref entry.Attempts) >= 8)
+            {
+                _pendingCodes.TryRemove(challengeToken, out _);
+            }
             return false;
         }
 
@@ -379,5 +388,9 @@ public class EmailOtpService
         public DateTime CreatedAt { get; set; }
         public DateTime ExpiresAt { get; set; }
         public bool IsUsed { get; set; }
+
+        // SECURITY [v2.5.9] (audit medium): per-code wrong-guess counter.
+        // Field (not property) so Interlocked.Increment can take it by ref.
+        public int Attempts;
     }
 }

@@ -312,7 +312,12 @@ public class BypassEvaluator
                 // import, but the runtime parser used by the hot path didn't
                 // — so a hand-edited PluginConfiguration.xml or a CIDR added
                 // before that validation existed could still slip through.
-                if (prefixLength >= 0 && prefixLength <= maxBits)
+                // SECURITY [v2.5.9] (audit low): reject /0 (match-any). A
+                // "0.0.0.0/0" or "::/0" entry in LanBypassCidrs / IpBanExemptCidrs
+                // would otherwise match EVERY address — granting LAN bypass to
+                // the whole internet or exempting all IPs from banning. A /0 is
+                // never a legitimate security CIDR, so treat it as no-match.
+                if (prefixLength >= 1 && prefixLength <= maxBits)
                 {
                     parsed = new ParsedCidr(networkAddr.GetAddressBytes(), prefixLength);
                 }

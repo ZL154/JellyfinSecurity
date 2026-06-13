@@ -111,7 +111,7 @@ public class GeoIpService : IDisposable
             _asnReader?.Dispose();
             _asnReader = null;
             _loadedAsnPath = asnPath;
-            if (!string.IsNullOrWhiteSpace(asnPath) && IsSafeGeoIpPath(asnPath) && File.Exists(asnPath))
+            if (!string.IsNullOrWhiteSpace(asnPath) && IsSafeGeoIpPath(asnPath, _logger) && File.Exists(asnPath))
             {
                 try
                 {
@@ -131,7 +131,7 @@ public class GeoIpService : IDisposable
             _countryReader?.Dispose();
             _countryReader = null;
             _loadedCountryPath = countryPath;
-            if (!string.IsNullOrWhiteSpace(countryPath) && IsSafeGeoIpPath(countryPath) && File.Exists(countryPath))
+            if (!string.IsNullOrWhiteSpace(countryPath) && IsSafeGeoIpPath(countryPath, _logger) && File.Exists(countryPath))
             {
                 try
                 {
@@ -152,29 +152,34 @@ public class GeoIpService : IDisposable
     /// Windows) are not UNC paths. Reject sensitive Unix system paths
     /// outright. Failing the check leaves the reader null = GeoIP inactive,
     /// which degrades gracefully.</summary>
-    private bool IsSafeGeoIpPath(string path)
+    // SECURITY [v2.5.9] (audit medium #10): made internal static (logger
+    // passed in) so ImpossibleTravelDetector reuses the EXACT same path-safety
+    // validation before it opens GeoIpCityDbPath. Previously only GeoIpService
+    // applied it, leaving the City-DB loader able to mmap a symlinked or
+    // sensitive path the ASN/Country loaders would have refused.
+    internal static bool IsSafeGeoIpPath(string path, ILogger logger)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(path)) return false;
             if (path.Contains("..", StringComparison.Ordinal))
             {
-                _logger.LogWarning("[2FA] GeoIP path rejected (contains '..'): {Path}", path);
+                logger.LogWarning("[2FA] GeoIP path rejected (contains '..'): {Path}", path);
                 return false;
             }
             if (path.StartsWith("\\\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal))
             {
-                _logger.LogWarning("[2FA] GeoIP path rejected (UNC/network path): {Path}", path);
+                logger.LogWarning("[2FA] GeoIP path rejected (UNC/network path): {Path}", path);
                 return false;
             }
             if (!Path.IsPathFullyQualified(path))
             {
-                _logger.LogWarning("[2FA] GeoIP path rejected (not absolute): {Path}", path);
+                logger.LogWarning("[2FA] GeoIP path rejected (not absolute): {Path}", path);
                 return false;
             }
             if (!path.EndsWith(".mmdb", StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogWarning("[2FA] GeoIP path rejected (must end with .mmdb): {Path}", path);
+                logger.LogWarning("[2FA] GeoIP path rejected (must end with .mmdb): {Path}", path);
                 return false;
             }
             var lower = path.Replace('\\', '/').ToLowerInvariant();
@@ -182,7 +187,7 @@ public class GeoIpService : IDisposable
             {
                 if (lower.StartsWith(bad, StringComparison.Ordinal))
                 {
-                    _logger.LogWarning("[2FA] GeoIP path rejected (sensitive system path '{Bad}'): {Path}", bad, path);
+                    logger.LogWarning("[2FA] GeoIP path rejected (sensitive system path '{Bad}'): {Path}", bad, path);
                     return false;
                 }
             }
@@ -205,20 +210,20 @@ public class GeoIpService : IDisposable
                     {
                         if (resolvedLower.StartsWith(bad, StringComparison.Ordinal))
                         {
-                            _logger.LogWarning("[2FA] GeoIP path rejected: symlink {Path} resolves to sensitive {Resolved}", path, resolved);
+                            logger.LogWarning("[2FA] GeoIP path rejected: symlink {Path} resolves to sensitive {Resolved}", path, resolved);
                             return false;
                         }
                     }
                     if (!resolved.EndsWith(".mmdb", StringComparison.OrdinalIgnoreCase))
                     {
-                        _logger.LogWarning("[2FA] GeoIP path rejected: symlink {Path} resolves to non-mmdb {Resolved}", path, resolved);
+                        logger.LogWarning("[2FA] GeoIP path rejected: symlink {Path} resolves to non-mmdb {Resolved}", path, resolved);
                         return false;
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[2FA] GeoIP symlink resolution non-fatal for {Path}", path);
+                logger.LogDebug(ex, "[2FA] GeoIP symlink resolution non-fatal for {Path}", path);
                 // Fall through — the file may not exist yet, which is handled
                 // by the caller's File.Exists check.
             }
@@ -227,7 +232,7 @@ public class GeoIpService : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[2FA] GeoIP path validation threw, treating as unsafe: {Path}", path);
+            logger.LogWarning(ex, "[2FA] GeoIP path validation threw, treating as unsafe: {Path}", path);
             return false;
         }
     }

@@ -20,8 +20,10 @@ public class BypassEvaluatorTests
     [InlineData("192.168.1.6", "192.168.1.5/32", false)]
     [InlineData("192.168.1.5", "192.168.1.5", true)]
     [InlineData("192.168.1.6", "192.168.1.5", false)]
-    [InlineData("1.2.3.4", "0.0.0.0/0", true)]
-    [InlineData("8.8.8.8", "0.0.0.0/0", true)]
+    // SECURITY [v2.5.9] (audit low): /0 is now rejected as match-any — a
+    // "0.0.0.0/0" entry in a security CIDR list must NOT match every address.
+    [InlineData("1.2.3.4", "0.0.0.0/0", false)]
+    [InlineData("8.8.8.8", "0.0.0.0/0", false)]
     public void IsIpInCidr_ipv4_cases(string ip, string cidr, bool expected)
     {
         Assert.Equal(expected, BypassEvaluator.IsIpInCidr(ip, cidr));
@@ -29,7 +31,7 @@ public class BypassEvaluatorTests
 
     [Theory]
     [InlineData("::1", "::1/128", true)]
-    [InlineData("::1", "::/0", true)]
+    [InlineData("::1", "::/0", false)]
     [InlineData("2001:db8::1", "2001:db8::/32", true)]
     [InlineData("2001:db8:1::1", "2001:db8::/32", true)]
     [InlineData("2001:db9::1", "2001:db8::/32", false)]
