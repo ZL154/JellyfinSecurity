@@ -162,17 +162,17 @@
       },
       "Jellyfin.Data": {
         "type": "Transitive",
-        "resolved": "10.11.10",
-        "contentHash": "e0IDGPN7rK66EIdHcuFZjsaBydv3Ap00ZlnXn+lEMyTj9F3ueqX+EX2QkrR0ApBy/PdjYSS3Hb9330LMB3+Lhw==",
+        "resolved": "10.11.11",
+        "contentHash": "5rIih9CKDtWyhAR72O6Wi7ln3It+K8oXdgVF1EZEaeXTjFCl4n/+y6B3oYnFA3SeVMMmdcZq5ty+qTDcbyasLA==",
         "dependencies": {
-          "Jellyfin.Database.Implementations": "10.11.10",
+          "Jellyfin.Database.Implementations": "10.11.11",
           "Microsoft.Extensions.Logging": "9.0.11"
         }
       },
       "Jellyfin.Database.Implementations": {
         "type": "Transitive",
-        "resolved": "10.11.10",
-        "contentHash": "BvTFygdmtTX5V0ndJaqHsAYWa1VXlo9V+T61tmrBDVcPjScm6L+aGwR/8InJP8R2FgVc3TQXG5pDrE/CVQEB9A==",
+        "resolved": "10.11.11",
+        "contentHash": "kRfod73YY4EMvMx1dS6+/1dpsOuwJxk+lJ2D3TKAp7T/dz9C20JT3DroldkLursLc5BTXB74YT0/k6uNz/mySg==",
         "dependencies": {
           "Microsoft.EntityFrameworkCore.Relational": "9.0.11",
           "Polly": "8.6.5"
@@ -180,8 +180,8 @@
       },
       "Jellyfin.Extensions": {
         "type": "Transitive",
-        "resolved": "10.11.10",
-        "contentHash": "MiqMfETTvUu3mV0yjr62X8ET0Duh/6sazTh7UgDBmAd8QPeAKm4ymiI14EyMRR/oh2cpHkDiNOSupe7IjnNa3w==",
+        "resolved": "10.11.11",
+        "contentHash": "mR8rQk09R4JRoKI1MWIDSsNbfsg4qsvhXML3QFw5+u+kkwYC1x3iT6Atz9doLKe0iV+odUXVWKwEljsIYS2J3g==",
         "dependencies": {
           "Diacritics": "4.0.17",
           "ICU4N.Transliterator": "60.1.0-alpha.356"
@@ -198,11 +198,11 @@
       },
       "Jellyfin.Model": {
         "type": "Transitive",
-        "resolved": "10.11.10",
-        "contentHash": "86Ouy6awY1AwYBr11oKQKy3bQP7YWRWVYWeodaLJ4hwMt/LhJNiKCcOAcYwn7owXMmLxXizVDqDkamj2smFBNA==",
+        "resolved": "10.11.11",
+        "contentHash": "ijxySPrwVZvMPmsWAwEQXPjFD8E3YE6jSMX5bBLzipLZTgPicRwr2fXiuV4LdVs5yZUOkxqdV0aedoZXG++x1g==",
         "dependencies": {
-          "Jellyfin.Data": "10.11.10",
-          "Jellyfin.Extensions": "10.11.10",
+          "Jellyfin.Data": "10.11.11",
+          "Jellyfin.Extensions": "10.11.11",
           "Microsoft.Extensions.Logging.Abstractions": "9.0.11",
           "System.Globalization": "4.3.0",
           "System.Text.Json": "9.0.11"
@@ -652,7 +652,7 @@
           "Fido2": "[4.0.1, )",
           "IdentityModel.OidcClient": "[6.0.0, )",
           "Jellyfin.Controller": "[10.11.10, )",
-          "Jellyfin.Model": "[10.11.10, )",
+          "Jellyfin.Model": "[10.11.11, )",
           "MailKit": "[4.17.0, )",
           "MaxMind.Db": "[5.1.0, )",
           "Microsoft.IdentityModel.Tokens": "[8.18.0, )",
