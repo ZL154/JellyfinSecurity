@@ -709,5 +709,7 @@
   "tfa.admin.sso.role_library_help": "Associez à chaque groupe/rôle de l'IdP les médiathèques qu'il accorde. À la connexion, les médiathèques activées d'un utilisateur deviennent l'union de toutes celles accordées par ses rôles correspondants, et « Activer toutes les médiathèques » est désactivé. Un utilisateur dont les rôles ne correspondent à aucune association n'obtient aucune médiathèque ; configurez donc les associations avant d'activer cette option. Les administrateurs ne sont jamais restreints. Remarque : cela ne fonctionne qu'avec les fournisseurs d'identité qui envoient un claim groups ou roles (Authentik, Authelia, Keycloak, etc.) — Google n'envoie pas de groupes.",
   "tfa.admin.sso.btn_add_role_map": "+ Ajouter une association de rôle",
   "tfa.admin.sso.ph_role": "nom de rôle / groupe",
-  "tfa.admin.common.remove": "Supprimer"
+  "tfa.admin.common.remove": "Supprimer",
+  "tfa.admin.sso.opt_prompt_select": "Toujours afficher le sélecteur de compte à la connexion",
+  "tfa.admin.sso.prompt_select_help": "Ajoute prompt=select_account pour que le fournisseur affiche toujours son sélecteur de compte au lieu de réutiliser silencieusement le compte déjà connecté à l'IdP dans ce navigateur. Activez-le sur les machines partagées ou les foyers avec plusieurs comptes (p. ex. deux comptes Google) ; laissez-le désactivé pour une connexion en un clic avec un seul compte."
 }

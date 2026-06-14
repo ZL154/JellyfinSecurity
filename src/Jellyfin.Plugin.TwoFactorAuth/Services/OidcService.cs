@@ -207,6 +207,15 @@ public class OidcService : IDisposable
         if (!string.IsNullOrWhiteSpace(provider.AcrValues))
             qs.Add(("acr_values", provider.AcrValues));
 
+        // [v2.5.10] Force the IdP account chooser on the main sign-in flow.
+        // Without this, an IdP with an active browser session (e.g. Google)
+        // silently returns the already-signed-in account and skips the picker,
+        // so on a shared machine you can't switch accounts. Opt-in per provider
+        // (single-account setups prefer one-click). Deliberately NOT applied to
+        // the step-up flow, where re-using the same account is what we want.
+        if (provider.PromptSelectAccount)
+            qs.Add(("prompt", "select_account"));
+
         var url = disc.AuthorizationEndpoint + "?" +
             string.Join("&", qs.Select(kv => $"{Uri.EscapeDataString(kv.Item1)}={Uri.EscapeDataString(kv.Item2)}"));
         return (url, state);

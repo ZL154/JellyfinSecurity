@@ -709,5 +709,7 @@
   "tfa.admin.sso.role_library_help": "Associe cada grupo/função do IdP às bibliotecas que concede. Ao iniciar sessão, as bibliotecas ativadas de um utilizador passam a ser a união de todas as concedidas pelas funções correspondentes, e \"Ativar todas as bibliotecas\" é desativado. Um utilizador cujas funções não correspondam a qualquer associação não obtém bibliotecas, por isso configure as associações antes de ativar isto. Os administradores nunca são restringidos. Nota: isto só funciona com fornecedores de identidade que enviam um claim groups ou roles (Authentik, Authelia, Keycloak e semelhantes); o Google não envia grupos.",
   "tfa.admin.sso.btn_add_role_map": "+ Adicionar associação de função",
   "tfa.admin.sso.ph_role": "nome de função / grupo",
-  "tfa.admin.common.remove": "Remover"
+  "tfa.admin.common.remove": "Remover",
+  "tfa.admin.sso.opt_prompt_select": "Mostrar sempre o seletor de conta ao iniciar sessão",
+  "tfa.admin.sso.prompt_select_help": "Adiciona prompt=select_account para que o fornecedor mostre sempre o seu seletor de conta em vez de reutilizar silenciosamente a conta já autenticada no IdP neste navegador. Ative em máquinas partilhadas ou casas com várias contas (por ex. duas contas Google); deixe desativado para um início de sessão de um clique com uma única conta."
 }

@@ -421,6 +421,11 @@
                                 <label><input type="checkbox" id="ssoAllowPrivate" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_allow_private">Allow private / VPN / LAN endpoints &nbsp;<span class="tfa-badge warn" style="font-size:10px;vertical-align:middle;" data-i18n-key="tfa.admin.sso.opt_allow_private_pill">Advanced</span></span></label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.sso.opt_allow_private_help">By default the plugin rejects OIDC endpoint URLs that resolve to RFC1918 / loopback / link-local addresses, or that use plain http. Enable this ONLY for IdPs you intentionally host on a private network (LAN-only Authentik, Tailscale or VPN-fronted Authelia, etc.). Turning this on for an IdP whose discovery URL was tampered with would let an attacker pivot the plugin into your internal services (AWS IMDS at 169.254.169.254, internal admin APIs, etc.).</div>
                             </div>
+                            <!-- [v2.5.10] force the IdP account chooser. -->
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="ssoPromptSelect" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_prompt_select">Always show the account chooser on sign-in</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.prompt_select_help">Adds <code>prompt=select_account</code> so the provider always shows its account picker instead of silently reusing whichever account is already signed in to the IdP in this browser. Turn on for shared machines or households with multiple accounts (e.g. two Google accounts); leave off for a one-click single-account sign-in.</div>
+                            </div>
                             <!-- [v2.5.10] (issue #66, ZEROX7): sync IdP profile picture. -->
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="ssoSyncPicture" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_sync_picture">Sync the IdP profile picture to the Jellyfin avatar on sign-in</span></label>

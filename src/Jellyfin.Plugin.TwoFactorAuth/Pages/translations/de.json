@@ -709,5 +709,7 @@
   "tfa.admin.sso.role_library_help": "Ordnen Sie jeder IdP-Gruppe/Rolle die Bibliotheken zu, die sie gewährt. Bei der Anmeldung werden die aktivierten Bibliotheken eines Benutzers zur Vereinigung aller von seinen passenden Rollen gewährten Bibliotheken, und \"Alle Bibliotheken aktivieren\" wird deaktiviert. Ein Benutzer, dessen Rollen keiner Zuordnung entsprechen, erhält keine Bibliotheken – richten Sie die Zuordnungen daher ein, bevor Sie dies aktivieren. Administratoren werden nie eingeschränkt. Hinweis: Dies funktioniert nur mit Identitätsanbietern, die einen groups- oder roles-Claim senden (Authentik, Authelia, Keycloak und ähnliche) – Google sendet keine Gruppen.",
   "tfa.admin.sso.btn_add_role_map": "+ Rollenzuordnung hinzufügen",
   "tfa.admin.sso.ph_role": "Rollen-/Gruppenname",
-  "tfa.admin.common.remove": "Entfernen"
+  "tfa.admin.common.remove": "Entfernen",
+  "tfa.admin.sso.opt_prompt_select": "Bei der Anmeldung immer die Kontoauswahl anzeigen",
+  "tfa.admin.sso.prompt_select_help": "Fügt prompt=select_account hinzu, damit der Anbieter immer seine Kontoauswahl anzeigt, statt stillschweigend das Konto wiederzuverwenden, das in diesem Browser bereits beim IdP angemeldet ist. Für gemeinsam genutzte Rechner oder Haushalte mit mehreren Konten (z. B. zwei Google-Konten) aktivieren; für eine Ein-Klick-Anmeldung mit einem einzigen Konto deaktiviert lassen."
 }

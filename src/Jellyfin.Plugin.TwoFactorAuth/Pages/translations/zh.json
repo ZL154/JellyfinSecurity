@@ -709,5 +709,7 @@
   "tfa.admin.sso.role_library_help": "将每个 IdP 组/角色映射到它所授予的媒体库。登录时，用户启用的媒体库将变为其匹配角色所授予的所有媒体库的并集，并且会关闭“启用所有媒体库”。角色不匹配任何映射的用户将得不到任何媒体库，因此请在启用前先配置好映射。管理员永远不会被限制。注意：此功能仅适用于会发送 groups 或 roles 声明的身份提供商（Authentik、Authelia、Keycloak 等）——Google 不发送组。",
   "tfa.admin.sso.btn_add_role_map": "+ 添加角色映射",
   "tfa.admin.sso.ph_role": "角色/组名称",
-  "tfa.admin.common.remove": "移除"
+  "tfa.admin.common.remove": "移除",
+  "tfa.admin.sso.opt_prompt_select": "登录时始终显示账户选择器",
+  "tfa.admin.sso.prompt_select_help": "添加 prompt=select_account，使提供商始终显示其账户选择器，而不是静默重用此浏览器中已登录该 IdP 的账户。在共享设备或拥有多个账户的家庭（例如两个 Google 账户）中开启；如需单账户一键登录，请保持关闭。"
 }

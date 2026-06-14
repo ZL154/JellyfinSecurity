@@ -709,5 +709,7 @@
   "tfa.admin.sso.role_library_help": "各 IdP グループ/ロールに、付与するライブラリを割り当てます。ログイン時、ユーザーの有効なライブラリは一致したロールが付与するすべてのライブラリの和集合になり、「すべてのライブラリを有効化」はオフになります。ロールがどのマッピングにも一致しないユーザーはライブラリを取得できないため、有効化する前にマッピングを設定してください。管理者が制限されることはありません。注意: これは groups または roles クレームを送信する ID プロバイダー（Authentik、Authelia、Keycloak など）でのみ機能します。Google はグループを送信しません。",
   "tfa.admin.sso.btn_add_role_map": "+ ロールマッピングを追加",
   "tfa.admin.sso.ph_role": "ロール / グループ名",
-  "tfa.admin.common.remove": "削除"
+  "tfa.admin.common.remove": "削除",
+  "tfa.admin.sso.opt_prompt_select": "サインイン時に常にアカウント選択画面を表示する",
+  "tfa.admin.sso.prompt_select_help": "prompt=select_account を追加し、このブラウザーで IdP に既にサインインしているアカウントを黙って再利用するのではなく、プロバイダーが常にアカウント選択画面を表示するようにします。共有マシンや複数アカウントの世帯（例: 2 つの Google アカウント）では有効にし、単一アカウントのワンクリックサインインでは無効のままにします。"
 }

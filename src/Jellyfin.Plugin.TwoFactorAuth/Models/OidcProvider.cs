@@ -140,6 +140,14 @@ public class OidcProvider
     /// or unmapped users may lose visible libraries. Administrators are never
     /// restricted by this (admins implicitly see everything). Default false so
     /// existing installs are unchanged.</summary>
+    /// <summary>[v2.5.10] When true, the sign-in request adds
+    /// <c>prompt=select_account</c> so the IdP always shows its account chooser
+    /// instead of silently reusing an existing IdP browser session. Useful on
+    /// shared machines / multi-account households (e.g. switching between two
+    /// Google accounts). Default false — single-account setups keep the
+    /// one-click path.</summary>
+    public bool PromptSelectAccount { get; set; }
+
     public bool ApplyRoleLibraryAccess { get; set; }
 
     /// <summary>[v2.5.10] (issue #65): role→library access map. Each entry maps

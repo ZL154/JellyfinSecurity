@@ -709,5 +709,7 @@
   "tfa.admin.sso.role_library_help": "Asigna a cada grupo/rol del IdP las bibliotecas que concede. Al iniciar sesión, las bibliotecas habilitadas de un usuario pasan a ser la unión de todas las concedidas por sus roles coincidentes, y se desactiva \"Habilitar todas las bibliotecas\". Un usuario cuyos roles no coincidan con ninguna asignación no obtiene ninguna biblioteca, así que configura las asignaciones antes de activarlo. Los administradores nunca se restringen. Nota: esto solo funciona con proveedores de identidad que envían un claim groups o roles (Authentik, Authelia, Keycloak y similares); Google no envía grupos.",
   "tfa.admin.sso.btn_add_role_map": "+ Añadir asignación de rol",
   "tfa.admin.sso.ph_role": "nombre de rol / grupo",
-  "tfa.admin.common.remove": "Eliminar"
+  "tfa.admin.common.remove": "Eliminar",
+  "tfa.admin.sso.opt_prompt_select": "Mostrar siempre el selector de cuenta al iniciar sesión",
+  "tfa.admin.sso.prompt_select_help": "Añade prompt=select_account para que el proveedor muestre siempre su selector de cuenta en lugar de reutilizar en silencio la cuenta que ya tiene sesión iniciada en el IdP en este navegador. Actívalo en equipos compartidos u hogares con varias cuentas (p. ej. dos cuentas de Google); déjalo desactivado para un inicio de sesión de un solo clic con una cuenta."
 }

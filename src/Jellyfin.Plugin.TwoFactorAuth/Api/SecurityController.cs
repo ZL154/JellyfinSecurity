@@ -126,6 +126,8 @@ public class SecurityController : ControllerBase
         // [v2.5.10] (#65) role→library access.
         public bool ApplyRoleLibraryAccess { get; set; }
         public List<RoleLibraryMappingDto> RoleLibraryMappings { get; set; } = new();
+        // [v2.5.10] force the IdP account chooser (prompt=select_account).
+        public bool PromptSelectAccount { get; set; }
     }
 
     /// <summary>[v2.5.10] (#65) one role→libraries mapping as sent by the admin
@@ -195,6 +197,7 @@ public class SecurityController : ControllerBase
             pictureClaim = p.PictureClaim,
             applyRoleLibraryAccess = p.ApplyRoleLibraryAccess,
             roleLibraryMappings = p.RoleLibraryMappings.Select(m => new { role = m.Role, libraryIds = m.LibraryIds }).ToList(),
+            promptSelectAccount = p.PromptSelectAccount,
             createdAt = p.CreatedAt,
         }).ToList<object>();
         return Ok(safe);
@@ -244,6 +247,7 @@ public class SecurityController : ControllerBase
             PictureClaim = string.IsNullOrWhiteSpace(req.PictureClaim) ? "picture" : req.PictureClaim.Trim(),
             ApplyRoleLibraryAccess = req.ApplyRoleLibraryAccess,
             RoleLibraryMappings = MapRoleLibraryMappings(req.RoleLibraryMappings),
+            PromptSelectAccount = req.PromptSelectAccount,
             CreatedAt = DateTime.UtcNow,
         };
         config.OidcProviders.Add(provider);
@@ -289,6 +293,7 @@ public class SecurityController : ControllerBase
         existing.PictureClaim = string.IsNullOrWhiteSpace(req.PictureClaim) ? "picture" : req.PictureClaim.Trim();
         existing.ApplyRoleLibraryAccess = req.ApplyRoleLibraryAccess;
         existing.RoleLibraryMappings = MapRoleLibraryMappings(req.RoleLibraryMappings);
+        existing.PromptSelectAccount = req.PromptSelectAccount;
         plugin.SaveConfiguration();
         _oidc.InvalidateCache(id);
         return Ok();

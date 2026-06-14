@@ -723,5 +723,7 @@
   "tfa.admin.sso.role_library_help": "Map each IdP group/role to the libraries it grants. On sign-in a user's enabled libraries become the union of all libraries granted by their matched roles, and \"Enable all libraries\" is turned off. A user whose roles match no mapping gets no libraries, so add your mappings before enabling this. Administrators are never restricted. Note: this only works with identity providers that send a groups or roles claim (Authentik, Authelia, Keycloak, and similar) — Google does NOT send groups.",
   "tfa.admin.sso.btn_add_role_map": "+ Add role mapping",
   "tfa.admin.sso.ph_role": "role / group name",
-  "tfa.admin.common.remove": "Remove"
+  "tfa.admin.common.remove": "Remove",
+  "tfa.admin.sso.opt_prompt_select": "Always show the account chooser on sign-in",
+  "tfa.admin.sso.prompt_select_help": "Adds prompt=select_account so the provider always shows its account picker instead of silently reusing whichever account is already signed in to the IdP in this browser. Turn on for shared machines or households with multiple accounts (e.g. two Google accounts); leave off for a one-click single-account sign-in."
 }
