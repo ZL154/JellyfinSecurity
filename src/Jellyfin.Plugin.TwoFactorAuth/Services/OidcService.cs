@@ -900,12 +900,47 @@ public class OidcService : IDisposable
             var config = Plugin.Instance?.Configuration;
             if (config is not null)
             {
-                var match = config.UserEmails.FirstOrDefault(e =>
-                    string.Equals(e.Email, claims.Email, StringComparison.OrdinalIgnoreCase));
-                if (match is not null && Guid.TryParse(match.UserId, out var uid))
+                var matches = config.UserEmails
+                    .Where(e => string.Equals(e.Email, claims.Email, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                // SECURITY [v2.5.10]: refuse an AMBIGUOUS email match. If more
+                // than one Jellyfin user has this email configured, we cannot
+                // know which account the IdP identity belongs to — silently
+                // taking the first (the old FirstOrDefault) could attach the
+                // external account to, and sign the caller in as, the WRONG
+                // user (e.g. the admin). Refuse and make the admin give each
+                // user a unique email or link explicitly from Setup.
+                if (matches.Count > 1)
+                {
+                    _logger.LogWarning(
+                        "[2FA] OIDC email-match refused: {Count} Jellyfin users share email '{Email}'. Give each user a unique email or link the account explicitly from Setup.",
+                        matches.Count, claims.Email);
+                }
+                else if (matches.Count == 1 && Guid.TryParse(matches[0].UserId, out var uid))
                 {
                     var u = _userManager.GetUserById(uid);
-                    if (u is not null) return u;
+                    if (u is not null)
+                    {
+                        // SECURITY [v2.5.10]: never resolve/auto-link an
+                        // ADMINISTRATOR via the email fallback. An IdP-asserted
+                        // email (which the user controls on open-registration
+                        // IdPs) matching the admin's configured address would
+                        // otherwise hand out a Jellyfin admin session. Admins
+                        // must link OIDC explicitly from their Setup page, which
+                        // creates an SsoLink matched by the immutable `sub`
+                        // (step 1 above). Mirrors the username-match admin guard.
+                        if (u.HasPermission(PermissionKind.IsAdministrator))
+                        {
+                            _logger.LogWarning(
+                                "[2FA] OIDC email-match refused for administrator '{User}': admins must link OIDC explicitly from Setup, not via IdP-asserted email.",
+                                u.Username);
+                        }
+                        else
+                        {
+                            return u;
+                        }
+                    }
                 }
             }
         }
