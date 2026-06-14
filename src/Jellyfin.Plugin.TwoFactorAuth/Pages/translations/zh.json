@@ -725,5 +725,7 @@
   "tfa.setup.stepup.oidc_failed": "OIDC 登录失败。请重试或使用其他方式。",
   "tfa.setup.stepup.opening": "正在打开登录窗口…",
   "tfa.setup.stepup.popup_blocked": "弹出窗口被拦截。请允许此站点的弹出窗口后重试。",
-  "tfa.setup.stepup.use_oidc": "验证方式："
+  "tfa.setup.stepup.use_oidc": "验证方式：",
+  "tfa.admin.settings.opt_block_empty_password": "阻止使用空密码登录",
+  "tfa.admin.settings.block_empty_password_help": "拒绝所有用户使用空密码的任何登录尝试。修复以下缺陷：没有存储密码哈希的账户（某些通过 OIDC 创建或导入的账户）可被任何知道用户名的人登录。仅当你依赖 Jellyfin 的无密码\"点击用户磁贴\"自助终端登录时才保持关闭。"
 }

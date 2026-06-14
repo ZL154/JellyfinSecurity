@@ -1007,6 +1007,8 @@
                         page.querySelector('#cfgLockoutMin').value = c.LockoutDurationMinutes || 15;
                         // [v2.5.10] (#55) admin lockout exemption (default true).
                         page.querySelector('#cfgExemptAdminLockout').checked = c.ExemptAdministratorsFromLockout !== false;
+                        // [v2.5.10] (#68) block empty-password sign-in (default false).
+                        page.querySelector('#cfgBlockEmptyPassword').checked = c.BlockEmptyPasswordLogin === true;
                         page.querySelector('#cfgAuditMax').value = c.AuditLogMaxEntries || 1000;
                         page.querySelector('#cfgSmtpHost').value = c.SmtpHost || '';
                         page.querySelector('#cfgSmtpPort').value = c.SmtpPort || 587;
@@ -1144,6 +1146,8 @@
                         c.LockoutDurationMinutes = parseInt(page.querySelector('#cfgLockoutMin').value) || 15;
                         // [v2.5.10] (#55) admin lockout exemption.
                         c.ExemptAdministratorsFromLockout = page.querySelector('#cfgExemptAdminLockout').checked;
+                        // [v2.5.10] (#68) block empty-password sign-in.
+                        c.BlockEmptyPasswordLogin = page.querySelector('#cfgBlockEmptyPassword').checked;
                         c.AuditLogMaxEntries = parseInt(page.querySelector('#cfgAuditMax').value) || 1000;
                         c.SmtpHost = page.querySelector('#cfgSmtpHost').value.trim();
                         c.SmtpPort = parseInt(page.querySelector('#cfgSmtpPort').value) || 587;

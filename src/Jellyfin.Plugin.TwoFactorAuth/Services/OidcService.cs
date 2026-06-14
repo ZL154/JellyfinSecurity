@@ -1022,6 +1022,18 @@ public class OidcService : IDisposable
                 // OIDC flow itself.
                 await HardenNewUserPasswordAsync(u).ConfigureAwait(false);
 
+                // SECURITY [v2.5.10] (issue #68, CWabbity): re-fetch the user.
+                // On Jellyfin 10.11.9+ ChangePassword(Guid,…) sets the PBKDF2
+                // hash on a DB-fetched User instance, NOT on this `u` reference,
+                // so `u` stays stale (null hash) in memory. The caller
+                // (FinalizeSignInAsync) then UpdateUserAsync's this entity to
+                // reassign AuthenticationProviderId (and for picture/role sync)
+                // — persisting the stale entity CLOBBERS the freshly-set hash
+                // back to null, recreating the empty-password backdoor the
+                // hardening exists to close. Returning the fresh entity (which
+                // carries the hash) makes those later writes preserve it.
+                u = _userManager.GetUserById(u.Id) ?? u;
+
                 _logger.LogInformation("[2FA] Auto-created Jellyfin user '{Username}' from OIDC provider {Provider} (password hardened)",
                     claims.Username, provider.Id);
                 return u;

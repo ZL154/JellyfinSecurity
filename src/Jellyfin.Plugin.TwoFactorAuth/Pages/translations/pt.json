@@ -725,5 +725,7 @@
   "tfa.setup.stepup.oidc_failed": "Falha no início de sessão OIDC. Tente novamente ou use outro método.",
   "tfa.setup.stepup.opening": "A abrir a janela de início de sessão…",
   "tfa.setup.stepup.popup_blocked": "Pop-up bloqueado. Permita pop-ups para este site e tente novamente.",
-  "tfa.setup.stepup.use_oidc": "Verificar com"
+  "tfa.setup.stepup.use_oidc": "Verificar com",
+  "tfa.admin.settings.opt_block_empty_password": "Bloquear o início de sessão com palavra-passe vazia",
+  "tfa.admin.settings.block_empty_password_help": "Rejeita qualquer tentativa de início de sessão com palavra-passe em branco, para todos os utilizadores. Fecha a falha em que uma conta sem hash de palavra-passe armazenado (algumas contas criadas por OIDC ou importadas) pode ser usada por qualquer pessoa que saiba o nome de utilizador. Deixe desativado apenas se depender do início de sessão sem palavra-passe do Jellyfin (\"tocar no mosaico do utilizador\") em modo quiosque."
 }

@@ -725,5 +725,7 @@
   "tfa.admin.sso.ph_role": "role / group name",
   "tfa.admin.common.remove": "Remove",
   "tfa.admin.sso.opt_prompt_select": "Always show the account chooser on sign-in",
-  "tfa.admin.sso.prompt_select_help": "Adds prompt=select_account so the provider always shows its account picker instead of silently reusing whichever account is already signed in to the IdP in this browser. Turn on for shared machines or households with multiple accounts (e.g. two Google accounts); leave off for a one-click single-account sign-in."
+  "tfa.admin.sso.prompt_select_help": "Adds prompt=select_account so the provider always shows its account picker instead of silently reusing whichever account is already signed in to the IdP in this browser. Turn on for shared machines or households with multiple accounts (e.g. two Google accounts); leave off for a one-click single-account sign-in.",
+  "tfa.admin.settings.opt_block_empty_password": "Block sign-in with an empty password",
+  "tfa.admin.settings.block_empty_password_help": "Rejects any sign-in attempt with a blank password, for every user. Closes the flaw where an account with no stored password hash (some OIDC-provisioned or imported accounts) can be signed into by anyone who knows the username. Leave OFF only if you rely on Jellyfin's passwordless \"tap a user tile\" kiosk login."
 }

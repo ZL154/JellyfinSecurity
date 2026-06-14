@@ -725,5 +725,7 @@
   "tfa.setup.stepup.oidc_failed": "OIDC-Anmeldung fehlgeschlagen. Erneut versuchen oder eine andere Methode verwenden.",
   "tfa.setup.stepup.opening": "Anmeldefenster wird geöffnet…",
   "tfa.setup.stepup.popup_blocked": "Popup blockiert. Erlauben Sie Popups für diese Website und versuchen Sie es erneut.",
-  "tfa.setup.stepup.use_oidc": "Verifizieren mit"
+  "tfa.setup.stepup.use_oidc": "Verifizieren mit",
+  "tfa.admin.settings.opt_block_empty_password": "Anmeldung mit leerem Passwort blockieren",
+  "tfa.admin.settings.block_empty_password_help": "Lehnt jeden Anmeldeversuch mit leerem Passwort für alle Benutzer ab. Schließt die Lücke, bei der ein Konto ohne gespeicherten Passwort-Hash (manche per OIDC angelegte oder importierte Konten) von jedem angemeldet werden kann, der den Benutzernamen kennt. Nur deaktiviert lassen, wenn Sie auf Jellyfins passwortlose „Benutzerkachel antippen\"-Kiosk-Anmeldung angewiesen sind."
 }

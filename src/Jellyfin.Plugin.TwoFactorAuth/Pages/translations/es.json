@@ -725,5 +725,7 @@
   "tfa.setup.stepup.oidc_failed": "Error al iniciar sesión con OIDC. Inténtalo de nuevo o usa otro método.",
   "tfa.setup.stepup.opening": "Abriendo la ventana de inicio de sesión…",
   "tfa.setup.stepup.popup_blocked": "Ventana emergente bloqueada. Permite las ventanas emergentes para este sitio y vuelve a intentarlo.",
-  "tfa.setup.stepup.use_oidc": "Verificar con"
+  "tfa.setup.stepup.use_oidc": "Verificar con",
+  "tfa.admin.settings.opt_block_empty_password": "Bloquear el inicio de sesión con contraseña vacía",
+  "tfa.admin.settings.block_empty_password_help": "Rechaza cualquier intento de inicio de sesión con contraseña en blanco, para todos los usuarios. Cierra el fallo por el que una cuenta sin hash de contraseña almacenado (algunas cuentas creadas por OIDC o importadas) puede ser usada por cualquiera que conozca el nombre de usuario. Déjalo desactivado solo si dependes del inicio de sesión sin contraseña de Jellyfin (\"tocar la ficha de usuario\") en modo quiosco."
 }

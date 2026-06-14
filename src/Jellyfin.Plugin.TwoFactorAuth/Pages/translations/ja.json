@@ -725,5 +725,7 @@
   "tfa.setup.stepup.oidc_failed": "OIDC サインインに失敗しました。もう一度試すか、別の方法を使用してください。",
   "tfa.setup.stepup.opening": "サインインウィンドウを開いています…",
   "tfa.setup.stepup.popup_blocked": "ポップアップがブロックされました。このサイトのポップアップを許可して再試行してください。",
-  "tfa.setup.stepup.use_oidc": "確認に使用："
+  "tfa.setup.stepup.use_oidc": "確認に使用：",
+  "tfa.admin.settings.opt_block_empty_password": "空のパスワードでのサインインをブロックする",
+  "tfa.admin.settings.block_empty_password_help": "すべてのユーザーについて、空のパスワードでのサインイン試行を拒否します。保存されたパスワードハッシュがないアカウント（一部の OIDC で作成されたアカウントやインポートされたアカウント）に、ユーザー名を知っている人なら誰でもサインインできてしまう欠陥を塞ぎます。Jellyfin のパスワード不要の「ユーザータイルをタップ」するキオスクログインに依存している場合のみ、オフのままにしてください。"
 }

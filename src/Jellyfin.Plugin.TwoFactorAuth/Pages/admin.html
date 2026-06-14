@@ -530,6 +530,11 @@
                                 <label><input type="checkbox" id="cfgExemptAdminLockout" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_exempt_admin_lockout">Never lock administrators out by failed attempts</span></label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.settings.exempt_admin_lockout_help">Account lockout is a denial-of-service vector against the admin: anyone who knows the admin username can deliberately fail logins to lock the real admin out of their own server. With this on (recommended), admins are never auto-locked — they're still protected by 2FA enforcement and the per-IP brute-force ban, which keeps banning the attacker's IP. Failed-attempt alerts still fire so a brute-force attempt stays visible. Turn off to apply strict per-account lockout to admins too.</div>
                             </div>
+                            <!-- [v2.5.10] (issue #68, CWabbity): block empty-password sign-in. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgBlockEmptyPassword" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_block_empty_password">Block sign-in with an empty password</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.block_empty_password_help">Rejects any sign-in attempt with a blank password, for every user. Closes the flaw where an account with no stored password hash (some OIDC-provisioned or imported accounts) can be signed into by anyone who knows the username. Leave OFF only if you rely on Jellyfin's passwordless "tap a user tile" kiosk login.</div>
+                            </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_audit_max">Audit log max entries</label>
                                 <input type="number" id="cfgAuditMax" class="tfa-input" style="width:80px;" min="100" />

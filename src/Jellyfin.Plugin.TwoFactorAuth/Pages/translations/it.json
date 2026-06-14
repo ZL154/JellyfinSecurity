@@ -725,5 +725,7 @@
   "tfa.setup.stepup.oidc_failed": "Accesso OIDC non riuscito. Riprova o usa un altro metodo.",
   "tfa.setup.stepup.opening": "Apertura della finestra di accesso…",
   "tfa.setup.stepup.popup_blocked": "Popup bloccato. Consenti i popup per questo sito e riprova.",
-  "tfa.setup.stepup.use_oidc": "Verifica con"
+  "tfa.setup.stepup.use_oidc": "Verifica con",
+  "tfa.admin.settings.opt_block_empty_password": "Blocca l'accesso con password vuota",
+  "tfa.admin.settings.block_empty_password_help": "Rifiuta qualsiasi tentativo di accesso con password vuota, per tutti gli utenti. Chiude la falla per cui un account senza hash della password memorizzato (alcuni account creati tramite OIDC o importati) può essere usato da chiunque conosca il nome utente. Lascialo disattivato solo se dipendi dall'accesso senza password di Jellyfin (\"tocca il riquadro utente\") in modalità chiosco."
 }

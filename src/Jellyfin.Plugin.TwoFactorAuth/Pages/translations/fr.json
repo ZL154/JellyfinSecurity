@@ -725,5 +725,7 @@
   "tfa.setup.stepup.oidc_failed": "Échec de la connexion OIDC. Réessayez ou utilisez une autre méthode.",
   "tfa.setup.stepup.opening": "Ouverture de la fenêtre de connexion…",
   "tfa.setup.stepup.popup_blocked": "Fenêtre contextuelle bloquée. Autorisez les fenêtres contextuelles pour ce site et réessayez.",
-  "tfa.setup.stepup.use_oidc": "Vérifier avec"
+  "tfa.setup.stepup.use_oidc": "Vérifier avec",
+  "tfa.admin.settings.opt_block_empty_password": "Bloquer la connexion avec un mot de passe vide",
+  "tfa.admin.settings.block_empty_password_help": "Rejette toute tentative de connexion avec un mot de passe vide, pour tous les utilisateurs. Corrige la faille permettant à quiconque connaît le nom d'utilisateur de se connecter à un compte sans empreinte de mot de passe stockée (certains comptes créés par OIDC ou importés). Ne le laissez désactivé que si vous dépendez de la connexion sans mot de passe de Jellyfin (« toucher la vignette utilisateur ») en mode kiosque."
 }
