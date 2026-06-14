@@ -698,5 +698,16 @@
   "tfa.setup.stepup.email_failed": "Echec de l envoi de l e-mail. Verifiez SMTP / e-mail de votre compte.",
   "tfa.admin.hardening.force_label": "Forcer la securite renforcee pour tous les utilisateurs",
   "tfa.admin.hardening.force_btn": "Forcer pour tous les utilisateurs (pas de desactivation)",
-  "tfa.admin.hardening.force_help": "Cliquez pour definir la liste deroulante sur Force. Puis cliquez sur Enregistrer les parametres en bas. Chaque utilisateur doit soumettre un code TOTP, de recuperation, cle d acces ou e-mail actuel avant tout changement 2FA."
+  "tfa.admin.hardening.force_help": "Cliquez pour definir la liste deroulante sur Force. Puis cliquez sur Enregistrer les parametres en bas. Chaque utilisateur doit soumettre un code TOTP, de recuperation, cle d acces ou e-mail actuel avant tout changement 2FA.",
+  "tfa.admin.settings.opt_exempt_admin_lockout": "Ne jamais verrouiller les administrateurs après des échecs de connexion",
+  "tfa.admin.settings.exempt_admin_lockout_help": "Le verrouillage de compte peut se retourner contre l'administrateur : quiconque connaît le nom d'utilisateur de l'administrateur peut échouer des connexions volontairement pour verrouiller le véritable administrateur hors de son propre serveur. Avec cette option activée (recommandé), les administrateurs ne sont jamais verrouillés automatiquement — ils restent protégés par l'obligation de 2FA et le bannissement anti-force-brute par IP (qui continue de bannir l'IP de l'attaquant), et les alertes d'échecs de connexion sont toujours déclenchées. Désactivez-la pour appliquer aussi le verrouillage strict par compte aux administrateurs.",
+  "tfa.admin.sso.opt_sync_picture": "Synchroniser la photo de profil de l'IdP avec l'avatar Jellyfin à la connexion",
+  "tfa.admin.sso.lbl_picture_claim": "Claim de la photo",
+  "tfa.admin.sso.picture_claim_help": "Claim contenant l'URL de l'avatar. L'OIDC standard utilise \"picture\" ; ne le modifiez que si votre IdP le renvoie sous un autre claim. L'image est téléchargée via la même protection réseau que les autres requêtes vers l'IdP.",
+  "tfa.admin.sso.opt_role_library": "Définir l'accès aux médiathèques d'après les groupes/rôles de l'IdP à la connexion",
+  "tfa.admin.sso.opt_role_library_pill": "Avancé",
+  "tfa.admin.sso.role_library_help": "Associez à chaque groupe/rôle de l'IdP les médiathèques qu'il accorde. À la connexion, les médiathèques activées d'un utilisateur deviennent l'union de toutes celles accordées par ses rôles correspondants, et « Activer toutes les médiathèques » est désactivé. Un utilisateur dont les rôles ne correspondent à aucune association n'obtient aucune médiathèque ; configurez donc les associations avant d'activer cette option. Les administrateurs ne sont jamais restreints. Remarque : cela ne fonctionne qu'avec les fournisseurs d'identité qui envoient un claim groups ou roles (Authentik, Authelia, Keycloak, etc.) — Google n'envoie pas de groupes.",
+  "tfa.admin.sso.btn_add_role_map": "+ Ajouter une association de rôle",
+  "tfa.admin.sso.ph_role": "nom de rôle / groupe",
+  "tfa.admin.common.remove": "Supprimer"
 }

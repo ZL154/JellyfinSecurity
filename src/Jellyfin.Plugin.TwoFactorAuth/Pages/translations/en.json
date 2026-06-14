@@ -712,5 +712,16 @@
   "tfa.setup.stepup.email_failed": "Failed to send email. Check SMTP / your account email.",
   "tfa.admin.hardening.force_label": "Force hardened security on every user",
   "tfa.admin.hardening.force_btn": "Force for all users (no opt-out)",
-  "tfa.admin.hardening.force_help": "Click to set the dropdown below to Forced. Then click Save Settings at the bottom of the page to apply. Every user must submit a current TOTP, recovery code, passkey, or email code before changing any 2FA factor."
+  "tfa.admin.hardening.force_help": "Click to set the dropdown below to Forced. Then click Save Settings at the bottom of the page to apply. Every user must submit a current TOTP, recovery code, passkey, or email code before changing any 2FA factor.",
+  "tfa.admin.settings.opt_exempt_admin_lockout": "Never lock administrators out by failed attempts",
+  "tfa.admin.settings.exempt_admin_lockout_help": "Account lockout can be turned against the admin: anyone who knows the admin username can fail logins on purpose to lock the real administrator out of their own server. With this on (recommended), administrators are never auto-locked — they're still protected by 2FA enforcement and the per-IP brute-force ban (which keeps banning the attacker's IP), and failed-attempt alerts still fire. Turn off to apply strict per-account lockout to administrators too.",
+  "tfa.admin.sso.opt_sync_picture": "Sync the IdP profile picture to the Jellyfin avatar on sign-in",
+  "tfa.admin.sso.lbl_picture_claim": "Picture claim",
+  "tfa.admin.sso.picture_claim_help": "Claim that holds the avatar URL. Standard OIDC uses \"picture\"; override only if your IdP returns it under a different claim. The image is downloaded through the same network-safety guard as the other IdP requests.",
+  "tfa.admin.sso.opt_role_library": "Set library access from IdP groups/roles on sign-in",
+  "tfa.admin.sso.opt_role_library_pill": "Advanced",
+  "tfa.admin.sso.role_library_help": "Map each IdP group/role to the libraries it grants. On sign-in a user's enabled libraries become the union of all libraries granted by their matched roles, and \"Enable all libraries\" is turned off. A user whose roles match no mapping gets no libraries, so add your mappings before enabling this. Administrators are never restricted. Note: this only works with identity providers that send a groups or roles claim (Authentik, Authelia, Keycloak, and similar) — Google does NOT send groups.",
+  "tfa.admin.sso.btn_add_role_map": "+ Add role mapping",
+  "tfa.admin.sso.ph_role": "role / group name",
+  "tfa.admin.common.remove": "Remove"
 }

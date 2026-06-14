@@ -698,5 +698,16 @@
   "tfa.setup.stepup.email_failed": "メールの送信に失敗しました。SMTP / アカウントのメールを確認してください。",
   "tfa.admin.hardening.force_label": "すべてのユーザーに強化されたセキュリティを強制",
   "tfa.admin.hardening.force_btn": "すべてのユーザーに強制（オプトアウトなし）",
-  "tfa.admin.hardening.force_help": "クリックして下のドロップダウンを強制に設定します。次にページ下部の設定を保存をクリックします。すべてのユーザーは、2FA要素を変更する前に、現在のTOTP、リカバリーコード、パスキー、またはメールコードを送信する必要があります。"
+  "tfa.admin.hardening.force_help": "クリックして下のドロップダウンを強制に設定します。次にページ下部の設定を保存をクリックします。すべてのユーザーは、2FA要素を変更する前に、現在のTOTP、リカバリーコード、パスキー、またはメールコードを送信する必要があります。",
+  "tfa.admin.settings.opt_exempt_admin_lockout": "ログイン失敗で管理者をロックアウトしない",
+  "tfa.admin.settings.exempt_admin_lockout_help": "アカウントロックは管理者に対して悪用され得ます。管理者のユーザー名を知っている者がわざとログインを失敗させ、本物の管理者を自分のサーバーから締め出すことができます。これを有効（推奨）にすると、管理者がログイン失敗で自動ロックされることはありません。引き続き 2FA の強制と IP 単位のブルートフォース禁止（攻撃者の IP を遮断し続けます）で保護され、失敗試行のアラートも通知されます。無効にすると、厳格なアカウント単位のロックを管理者にも適用します。",
+  "tfa.admin.sso.opt_sync_picture": "ログイン時に IdP のプロフィール画像を Jellyfin のアバターに同期する",
+  "tfa.admin.sso.lbl_picture_claim": "画像クレーム（picture claim）",
+  "tfa.admin.sso.picture_claim_help": "アバターの URL を保持するクレーム。標準の OIDC では \"picture\" を使用します。IdP が別のクレームで返す場合のみ変更してください。画像は他の IdP リクエストと同じネットワーク安全ガードを通してダウンロードされます。",
+  "tfa.admin.sso.opt_role_library": "ログイン時に IdP のグループ/ロールからライブラリのアクセス権を設定する",
+  "tfa.admin.sso.opt_role_library_pill": "詳細",
+  "tfa.admin.sso.role_library_help": "各 IdP グループ/ロールに、付与するライブラリを割り当てます。ログイン時、ユーザーの有効なライブラリは一致したロールが付与するすべてのライブラリの和集合になり、「すべてのライブラリを有効化」はオフになります。ロールがどのマッピングにも一致しないユーザーはライブラリを取得できないため、有効化する前にマッピングを設定してください。管理者が制限されることはありません。注意: これは groups または roles クレームを送信する ID プロバイダー（Authentik、Authelia、Keycloak など）でのみ機能します。Google はグループを送信しません。",
+  "tfa.admin.sso.btn_add_role_map": "+ ロールマッピングを追加",
+  "tfa.admin.sso.ph_role": "ロール / グループ名",
+  "tfa.admin.common.remove": "削除"
 }

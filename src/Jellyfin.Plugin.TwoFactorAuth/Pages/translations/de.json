@@ -698,5 +698,16 @@
   "tfa.setup.stepup.email_failed": "E-Mail-Versand fehlgeschlagen. SMTP / Konto-E-Mail pruefen.",
   "tfa.admin.hardening.force_label": "Erweiterte Sicherheit fuer alle Benutzer erzwingen",
   "tfa.admin.hardening.force_btn": "Fuer alle Benutzer erzwingen (kein Opt-out)",
-  "tfa.admin.hardening.force_help": "Klicken um die Auswahl unten auf Erzwungen zu setzen. Dann unten auf Einstellungen speichern klicken. Jeder Benutzer muss vor jeder 2FA-Aenderung einen aktuellen TOTP-, Wiederherstellungs-, Passkey- oder E-Mail-Code einreichen."
+  "tfa.admin.hardening.force_help": "Klicken um die Auswahl unten auf Erzwungen zu setzen. Dann unten auf Einstellungen speichern klicken. Jeder Benutzer muss vor jeder 2FA-Aenderung einen aktuellen TOTP-, Wiederherstellungs-, Passkey- oder E-Mail-Code einreichen.",
+  "tfa.admin.settings.opt_exempt_admin_lockout": "Administratoren nie durch Fehlversuche aussperren",
+  "tfa.admin.settings.exempt_admin_lockout_help": "Die Kontosperre kann gegen den Administrator verwendet werden: Wer den Admin-Benutzernamen kennt, kann absichtlich falsche Anmeldungen erzeugen, um den echten Administrator aus seinem eigenen Server auszusperren. Wenn aktiviert (empfohlen), werden Administratoren nie automatisch gesperrt – sie sind weiterhin durch die 2FA-Pflicht und die IP-Brute-Force-Sperre geschützt (die die IP des Angreifers weiterhin sperrt), und Warnungen zu Fehlversuchen werden weiterhin ausgelöst. Deaktivieren, um die strenge kontobezogene Sperre auch auf Administratoren anzuwenden.",
+  "tfa.admin.sso.opt_sync_picture": "IdP-Profilbild bei der Anmeldung mit dem Jellyfin-Avatar synchronisieren",
+  "tfa.admin.sso.lbl_picture_claim": "Picture-Claim",
+  "tfa.admin.sso.picture_claim_help": "Claim, der die Avatar-URL enthält. Standard-OIDC verwendet \"picture\"; nur überschreiben, wenn Ihr IdP es unter einem anderen Claim zurückgibt. Das Bild wird über denselben Netzwerksicherheits-Schutz wie die anderen IdP-Anfragen heruntergeladen.",
+  "tfa.admin.sso.opt_role_library": "Bibliothekszugriff bei der Anmeldung aus IdP-Gruppen/Rollen festlegen",
+  "tfa.admin.sso.opt_role_library_pill": "Erweitert",
+  "tfa.admin.sso.role_library_help": "Ordnen Sie jeder IdP-Gruppe/Rolle die Bibliotheken zu, die sie gewährt. Bei der Anmeldung werden die aktivierten Bibliotheken eines Benutzers zur Vereinigung aller von seinen passenden Rollen gewährten Bibliotheken, und \"Alle Bibliotheken aktivieren\" wird deaktiviert. Ein Benutzer, dessen Rollen keiner Zuordnung entsprechen, erhält keine Bibliotheken – richten Sie die Zuordnungen daher ein, bevor Sie dies aktivieren. Administratoren werden nie eingeschränkt. Hinweis: Dies funktioniert nur mit Identitätsanbietern, die einen groups- oder roles-Claim senden (Authentik, Authelia, Keycloak und ähnliche) – Google sendet keine Gruppen.",
+  "tfa.admin.sso.btn_add_role_map": "+ Rollenzuordnung hinzufügen",
+  "tfa.admin.sso.ph_role": "Rollen-/Gruppenname",
+  "tfa.admin.common.remove": "Entfernen"
 }

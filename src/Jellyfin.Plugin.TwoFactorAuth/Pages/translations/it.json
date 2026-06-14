@@ -698,5 +698,16 @@
   "tfa.setup.stepup.email_failed": "Invio e-mail fallito. Controlla SMTP / e-mail dell account.",
   "tfa.admin.hardening.force_label": "Forza sicurezza rafforzata su ogni utente",
   "tfa.admin.hardening.force_btn": "Forza per tutti gli utenti (nessun opt-out)",
-  "tfa.admin.hardening.force_help": "Clicca per impostare il menu a discesa su Forzato. Poi clicca Salva Impostazioni in fondo. Ogni utente deve inviare un codice TOTP, di recupero, passkey o e-mail attuale prima di ogni cambio 2FA."
+  "tfa.admin.hardening.force_help": "Clicca per impostare il menu a discesa su Forzato. Poi clicca Salva Impostazioni in fondo. Ogni utente deve inviare un codice TOTP, di recupero, passkey o e-mail attuale prima di ogni cambio 2FA.",
+  "tfa.admin.settings.opt_exempt_admin_lockout": "Non bloccare mai gli amministratori per tentativi falliti",
+  "tfa.admin.settings.exempt_admin_lockout_help": "Il blocco dell'account può essere usato contro l'amministratore: chiunque conosca il nome utente dell'amministratore può fallire gli accessi di proposito per bloccare il vero amministratore fuori dal proprio server. Con questa opzione attiva (consigliata), gli amministratori non vengono mai bloccati automaticamente: restano protetti dall'obbligo della 2FA e dal blocco anti-forza-bruta per IP (che continua a bloccare l'IP dell'attaccante) e gli avvisi sui tentativi falliti vengono comunque inviati. Disattivala per applicare il blocco rigido per account anche agli amministratori.",
+  "tfa.admin.sso.opt_sync_picture": "Sincronizza l'immagine del profilo dell'IdP con l'avatar di Jellyfin all'accesso",
+  "tfa.admin.sso.lbl_picture_claim": "Claim immagine",
+  "tfa.admin.sso.picture_claim_help": "Claim che contiene l'URL dell'avatar. L'OIDC standard usa \"picture\"; sostituiscilo solo se il tuo IdP lo restituisce con un claim diverso. L'immagine viene scaricata tramite la stessa protezione di rete delle altre richieste all'IdP.",
+  "tfa.admin.sso.opt_role_library": "Imposta l'accesso alle librerie dai gruppi/ruoli dell'IdP all'accesso",
+  "tfa.admin.sso.opt_role_library_pill": "Avanzate",
+  "tfa.admin.sso.role_library_help": "Associa a ogni gruppo/ruolo dell'IdP le librerie che concede. All'accesso, le librerie abilitate di un utente diventano l'unione di tutte quelle concesse dai ruoli corrispondenti e \"Abilita tutte le librerie\" viene disattivato. Un utente i cui ruoli non corrispondono ad alcuna associazione non ottiene alcuna libreria, quindi configura le associazioni prima di abilitare questa opzione. Gli amministratori non vengono mai limitati. Nota: funziona solo con i provider di identità che inviano un claim groups o roles (Authentik, Authelia, Keycloak e simili); Google non invia gruppi.",
+  "tfa.admin.sso.btn_add_role_map": "+ Aggiungi associazione ruolo",
+  "tfa.admin.sso.ph_role": "nome ruolo / gruppo",
+  "tfa.admin.common.remove": "Rimuovi"
 }

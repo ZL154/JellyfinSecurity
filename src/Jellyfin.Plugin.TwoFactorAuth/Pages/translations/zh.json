@@ -698,5 +698,16 @@
   "tfa.setup.stepup.email_failed": "邮件发送失败。请检查SMTP / 您账户的邮箱。",
   "tfa.admin.hardening.force_label": "对所有用户强制启用增强安全性",
   "tfa.admin.hardening.force_btn": "对所有用户强制（无选择退出）",
-  "tfa.admin.hardening.force_help": "点击将下方下拉菜单设置为强制。然后点击页面底部的保存设置以应用。每位用户在更改任何2FA因子之前都必须提交当前的TOTP、恢复代码、通行密钥或邮件代码。"
+  "tfa.admin.hardening.force_help": "点击将下方下拉菜单设置为强制。然后点击页面底部的保存设置以应用。每位用户在更改任何2FA因子之前都必须提交当前的TOTP、恢复代码、通行密钥或邮件代码。",
+  "tfa.admin.settings.opt_exempt_admin_lockout": "切勿因登录失败次数过多而锁定管理员",
+  "tfa.admin.settings.exempt_admin_lockout_help": "账户锁定可能被用来对付管理员：任何知道管理员用户名的人都可以故意输错登录，把真正的管理员锁在自己的服务器之外。启用此项（推荐）后，管理员永远不会被自动锁定——他们仍受 2FA 强制要求和按 IP 的暴力破解封禁保护（会持续封禁攻击者的 IP），并且登录失败的告警仍会触发。关闭后，严格的按账户锁定也会应用于管理员。",
+  "tfa.admin.sso.opt_sync_picture": "登录时将 IdP 头像同步到 Jellyfin 头像",
+  "tfa.admin.sso.lbl_picture_claim": "头像声明（picture claim）",
+  "tfa.admin.sso.picture_claim_help": "包含头像 URL 的声明。标准 OIDC 使用 \"picture\"；仅当你的 IdP 用不同的声明返回时才覆盖。图片会通过与其他 IdP 请求相同的网络安全防护下载。",
+  "tfa.admin.sso.opt_role_library": "登录时根据 IdP 的组/角色设置媒体库访问权限",
+  "tfa.admin.sso.opt_role_library_pill": "高级",
+  "tfa.admin.sso.role_library_help": "将每个 IdP 组/角色映射到它所授予的媒体库。登录时，用户启用的媒体库将变为其匹配角色所授予的所有媒体库的并集，并且会关闭“启用所有媒体库”。角色不匹配任何映射的用户将得不到任何媒体库，因此请在启用前先配置好映射。管理员永远不会被限制。注意：此功能仅适用于会发送 groups 或 roles 声明的身份提供商（Authentik、Authelia、Keycloak 等）——Google 不发送组。",
+  "tfa.admin.sso.btn_add_role_map": "+ 添加角色映射",
+  "tfa.admin.sso.ph_role": "角色/组名称",
+  "tfa.admin.common.remove": "移除"
 }

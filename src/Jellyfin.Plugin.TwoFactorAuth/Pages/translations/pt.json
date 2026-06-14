@@ -698,5 +698,16 @@
   "tfa.setup.stepup.email_failed": "Falha ao enviar e-mail. Verifique SMTP / e-mail da conta.",
   "tfa.admin.hardening.force_label": "Forcar seguranca reforcada em todos os usuarios",
   "tfa.admin.hardening.force_btn": "Forcar para todos os usuarios (sem opcao de exclusao)",
-  "tfa.admin.hardening.force_help": "Clique para definir o menu suspenso abaixo como Forcado. Em seguida, clique em Salvar Configuracoes na parte inferior. Todo usuario deve enviar um codigo TOTP, de recuperacao, chave de acesso ou e-mail atual antes de qualquer alteracao 2FA."
+  "tfa.admin.hardening.force_help": "Clique para definir o menu suspenso abaixo como Forcado. Em seguida, clique em Salvar Configuracoes na parte inferior. Todo usuario deve enviar um codigo TOTP, de recuperacao, chave de acesso ou e-mail atual antes de qualquer alteracao 2FA.",
+  "tfa.admin.settings.opt_exempt_admin_lockout": "Nunca bloquear administradores por tentativas falhadas",
+  "tfa.admin.settings.exempt_admin_lockout_help": "O bloqueio de conta pode ser usado contra o administrador: qualquer pessoa que saiba o nome de utilizador do administrador pode falhar inícios de sessão de propósito para bloquear o verdadeiro administrador do seu próprio servidor. Com isto ativado (recomendado), os administradores nunca são bloqueados automaticamente — continuam protegidos pela obrigatoriedade de 2FA e pelo bloqueio anti-força-bruta por IP (que continua a bloquear o IP do atacante), e os alertas de tentativas falhadas continuam a ser enviados. Desative para aplicar também o bloqueio estrito por conta aos administradores.",
+  "tfa.admin.sso.opt_sync_picture": "Sincronizar a foto de perfil do IdP com o avatar do Jellyfin ao iniciar sessão",
+  "tfa.admin.sso.lbl_picture_claim": "Claim da imagem",
+  "tfa.admin.sso.picture_claim_help": "Claim que contém o URL do avatar. O OIDC padrão usa \"picture\"; só substitua se o seu IdP o devolver num claim diferente. A imagem é transferida através da mesma proteção de rede das outras chamadas ao IdP.",
+  "tfa.admin.sso.opt_role_library": "Definir o acesso às bibliotecas a partir dos grupos/funções do IdP ao iniciar sessão",
+  "tfa.admin.sso.opt_role_library_pill": "Avançado",
+  "tfa.admin.sso.role_library_help": "Associe cada grupo/função do IdP às bibliotecas que concede. Ao iniciar sessão, as bibliotecas ativadas de um utilizador passam a ser a união de todas as concedidas pelas funções correspondentes, e \"Ativar todas as bibliotecas\" é desativado. Um utilizador cujas funções não correspondam a qualquer associação não obtém bibliotecas, por isso configure as associações antes de ativar isto. Os administradores nunca são restringidos. Nota: isto só funciona com fornecedores de identidade que enviam um claim groups ou roles (Authentik, Authelia, Keycloak e semelhantes); o Google não envia grupos.",
+  "tfa.admin.sso.btn_add_role_map": "+ Adicionar associação de função",
+  "tfa.admin.sso.ph_role": "nome de função / grupo",
+  "tfa.admin.common.remove": "Remover"
 }
