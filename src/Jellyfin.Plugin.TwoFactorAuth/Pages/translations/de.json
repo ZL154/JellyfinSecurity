@@ -711,5 +711,19 @@
   "tfa.admin.sso.ph_role": "Rollen-/Gruppenname",
   "tfa.admin.common.remove": "Entfernen",
   "tfa.admin.sso.opt_prompt_select": "Bei der Anmeldung immer die Kontoauswahl anzeigen",
-  "tfa.admin.sso.prompt_select_help": "Fügt prompt=select_account hinzu, damit der Anbieter immer seine Kontoauswahl anzeigt, statt stillschweigend das Konto wiederzuverwenden, das in diesem Browser bereits beim IdP angemeldet ist. Für gemeinsam genutzte Rechner oder Haushalte mit mehreren Konten (z. B. zwei Google-Konten) aktivieren; für eine Ein-Klick-Anmeldung mit einem einzigen Konto deaktiviert lassen."
+  "tfa.admin.sso.prompt_select_help": "Fügt prompt=select_account hinzu, damit der Anbieter immer seine Kontoauswahl anzeigt, statt stillschweigend das Konto wiederzuverwenden, das in diesem Browser bereits beim IdP angemeldet ist. Für gemeinsam genutzte Rechner oder Haushalte mit mehreren Konten (z. B. zwei Google-Konten) aktivieren; für eine Ein-Klick-Anmeldung mit einem einzigen Konto deaktiviert lassen.",
+  "tfa.admin.hardening.hide_builtin_2fa_label": "Die Schaltfläche „Mit Zwei-Faktor-Authentifizierung anmelden\" auf der Jellyfin-Anmeldeseite ausblenden",
+  "tfa.admin.hardening.hide_builtin_2fa_help": "Blendet nur die von diesem Plugin eingefügte 2FA-Schaltfläche aus. Die Seite /TwoFactorAuth/Login funktioniert für Administratoren / Notfallzugang weiterhin direkt.",
+  "tfa.admin.hardening.hide_builtin_passkey_label": "Die Schaltfläche „Mit Passkey anmelden\" auf der Jellyfin-Anmeldeseite ausblenden",
+  "tfa.admin.hardening.hide_builtin_passkey_help": "Blendet nur die Passkey-Schaltfläche aus. Mit dem 2FA-Schalter oben kombinieren für den reinen OIDC-Modus, in dem nur Ihre konfigurierten IdP-Schaltflächen sichtbar bleiben.",
+  "tfa.admin.settings.proxy_cidrs_help": "Tragen Sie hier NUR die IPs Ihrer tatsächlichen Reverse-Proxy-Hosts ein — z. B. 127.0.0.1/32 + ::1/128 für ein nginx auf demselben Host oder die konkreten LAN-IPs separater Proxy-Hosts. Geben Sie KEINE breiten Bereiche wie 10.0.0.0/8 oder 192.168.0.0/16 an: Wenn die IP eines LAN-Clients in einen dieser CIDRs fällt und die Anfrage ohne X-Forwarded-For-Header eintrifft, verweigert das Plugin vorsichtshalber den LAN-Bypass (es kann einen direkten LAN-Client nicht von einem Proxy unterscheiden, der sein XFF verloren hat). Issue #56 war diese Fehlkonfiguration. Leer lassen, wenn sich kein Reverse-Proxy vor Jellyfin befindet.",
+  "tfa.admin.settings.save_failed": "Speichern fehlgeschlagen (HTTP ",
+  "tfa.admin.sso.opt_allow_private": "Private / VPN / LAN-Endpunkte zulassen",
+  "tfa.admin.sso.opt_allow_private_help": "Standardmäßig lehnt das Plugin OIDC-Endpunkt-URLs ab, die auf RFC1918-/Loopback-/Link-Local-Adressen auflösen oder einfaches http verwenden. Aktivieren Sie dies NUR für IdPs, die Sie absichtlich in einem privaten Netzwerk betreiben (LAN-only Authentik, Tailscale- oder VPN-fronted Authelia usw.). Wenn Sie dies für einen IdP aktivieren, dessen Discovery-URL manipuliert wurde, könnte ein Angreifer das Plugin auf Ihre internen Dienste umlenken (AWS IMDS unter 169.254.169.254, interne Admin-APIs usw.).",
+  "tfa.admin.sso.opt_allow_private_pill": "Erweitert",
+  "tfa.setup.pending.action_failed": "Aktion fehlgeschlagen. Bitte erneut versuchen.",
+  "tfa.setup.stepup.oidc_failed": "OIDC-Anmeldung fehlgeschlagen. Erneut versuchen oder eine andere Methode verwenden.",
+  "tfa.setup.stepup.opening": "Anmeldefenster wird geöffnet…",
+  "tfa.setup.stepup.popup_blocked": "Popup blockiert. Erlauben Sie Popups für diese Website und versuchen Sie es erneut.",
+  "tfa.setup.stepup.use_oidc": "Verifizieren mit"
 }

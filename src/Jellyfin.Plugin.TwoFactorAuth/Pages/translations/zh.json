@@ -711,5 +711,19 @@
   "tfa.admin.sso.ph_role": "角色/组名称",
   "tfa.admin.common.remove": "移除",
   "tfa.admin.sso.opt_prompt_select": "登录时始终显示账户选择器",
-  "tfa.admin.sso.prompt_select_help": "添加 prompt=select_account，使提供商始终显示其账户选择器，而不是静默重用此浏览器中已登录该 IdP 的账户。在共享设备或拥有多个账户的家庭（例如两个 Google 账户）中开启；如需单账户一键登录，请保持关闭。"
+  "tfa.admin.sso.prompt_select_help": "添加 prompt=select_account，使提供商始终显示其账户选择器，而不是静默重用此浏览器中已登录该 IdP 的账户。在共享设备或拥有多个账户的家庭（例如两个 Google 账户）中开启；如需单账户一键登录，请保持关闭。",
+  "tfa.admin.hardening.hide_builtin_2fa_label": "在 Jellyfin 登录页面隐藏\"使用双重认证登录\"按钮",
+  "tfa.admin.hardening.hide_builtin_2fa_help": "仅隐藏此插件注入的 2FA 快捷按钮。/TwoFactorAuth/Login 页面仍可供管理员/后备访问直接使用。",
+  "tfa.admin.hardening.hide_builtin_passkey_label": "在 Jellyfin 登录页面隐藏\"使用通行密钥登录\"按钮",
+  "tfa.admin.hardening.hide_builtin_passkey_help": "仅隐藏通行密钥快捷按钮。与上面的 2FA 开关结合使用，可实现纯 OIDC 模式，此时只显示你已配置的 IdP 按钮。",
+  "tfa.admin.settings.proxy_cidrs_help": "此处仅填写你实际反向代理主机的 IP——例如同主机 nginx 填 127.0.0.1/32 + ::1/128，或单独代理主机的具体 LAN IP。请勿填写像 10.0.0.0/8 或 192.168.0.0/16 这样的大范围：当某个 LAN 客户端的 IP 落入这些 CIDR 之一、且请求未携带 X-Forwarded-For 头时，插件会保守地拒绝 LAN 旁路（它无法区分直连的 LAN 客户端和丢失了 XFF 的代理）。问题 #56 就是这种配置错误。如果 Jellyfin 前面没有反向代理，请留空。",
+  "tfa.admin.settings.save_failed": "保存失败（HTTP ",
+  "tfa.admin.sso.opt_allow_private": "允许私有 / VPN / LAN 端点",
+  "tfa.admin.sso.opt_allow_private_help": "默认情况下，插件会拒绝解析到 RFC1918 / 回环 / 链路本地地址或使用纯 http 的 OIDC 端点 URL。仅对你有意托管在专用网络上的 IdP 启用此项（仅限 LAN 的 Authentik、经 Tailscale 或 VPN 代理的 Authelia 等）。如果对某个发现 URL 已被篡改的 IdP 启用此项，攻击者可借此将插件转向你的内部服务（位于 169.254.169.254 的 AWS IMDS、内部管理 API 等）。",
+  "tfa.admin.sso.opt_allow_private_pill": "高级",
+  "tfa.setup.pending.action_failed": "操作失败。请重试。",
+  "tfa.setup.stepup.oidc_failed": "OIDC 登录失败。请重试或使用其他方式。",
+  "tfa.setup.stepup.opening": "正在打开登录窗口…",
+  "tfa.setup.stepup.popup_blocked": "弹出窗口被拦截。请允许此站点的弹出窗口后重试。",
+  "tfa.setup.stepup.use_oidc": "验证方式："
 }

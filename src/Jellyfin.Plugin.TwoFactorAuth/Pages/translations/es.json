@@ -711,5 +711,19 @@
   "tfa.admin.sso.ph_role": "nombre de rol / grupo",
   "tfa.admin.common.remove": "Eliminar",
   "tfa.admin.sso.opt_prompt_select": "Mostrar siempre el selector de cuenta al iniciar sesión",
-  "tfa.admin.sso.prompt_select_help": "Añade prompt=select_account para que el proveedor muestre siempre su selector de cuenta en lugar de reutilizar en silencio la cuenta que ya tiene sesión iniciada en el IdP en este navegador. Actívalo en equipos compartidos u hogares con varias cuentas (p. ej. dos cuentas de Google); déjalo desactivado para un inicio de sesión de un solo clic con una cuenta."
+  "tfa.admin.sso.prompt_select_help": "Añade prompt=select_account para que el proveedor muestre siempre su selector de cuenta en lugar de reutilizar en silencio la cuenta que ya tiene sesión iniciada en el IdP en este navegador. Actívalo en equipos compartidos u hogares con varias cuentas (p. ej. dos cuentas de Google); déjalo desactivado para un inicio de sesión de un solo clic con una cuenta.",
+  "tfa.admin.hardening.hide_builtin_2fa_label": "Ocultar el botón \"Iniciar sesión con autenticación de dos factores\" en la página de inicio de sesión de Jellyfin",
+  "tfa.admin.hardening.hide_builtin_2fa_help": "Oculta solo el botón de acceso directo de 2FA que inyecta este complemento. La página /TwoFactorAuth/Login sigue funcionando directamente para administradores / acceso de reserva.",
+  "tfa.admin.hardening.hide_builtin_passkey_label": "Ocultar el botón \"Iniciar sesión con clave de acceso\" en la página de inicio de sesión de Jellyfin",
+  "tfa.admin.hardening.hide_builtin_passkey_help": "Oculta solo el botón de acceso directo de clave de acceso. Combínalo con la opción de 2FA de arriba para un modo solo OIDC en el que solo permanezcan visibles los botones de tu IdP configurado.",
+  "tfa.admin.settings.proxy_cidrs_help": "Pon AQUÍ SOLO las IP de tus hosts de proxy inverso reales — p. ej. 127.0.0.1/32 + ::1/128 para un nginx en el mismo host, o las IP de LAN concretas de hosts proxy separados. NO introduzcas rangos amplios como 10.0.0.0/8 o 192.168.0.0/16: cuando la IP de un cliente de LAN cae dentro de uno de estos CIDR y la solicitud llega sin cabecera X-Forwarded-For, el complemento rechaza de forma conservadora el bypass de LAN (no puede distinguir un cliente de LAN directo de un proxy que perdió su XFF). La incidencia #56 fue esta mala configuración. Déjalo vacío si no tienes un proxy inverso delante de Jellyfin.",
+  "tfa.admin.settings.save_failed": "Error al guardar (HTTP ",
+  "tfa.admin.sso.opt_allow_private": "Permitir endpoints privados / VPN / LAN",
+  "tfa.admin.sso.opt_allow_private_help": "De forma predeterminada, el complemento rechaza las URL de endpoints OIDC que se resuelven en direcciones RFC1918 / loopback / link-local, o que usan http simple. Habilita esto SOLO para IdP que alojas intencionadamente en una red privada (Authentik solo-LAN, Authelia tras Tailscale o VPN, etc.). Activarlo para un IdP cuya URL de descubrimiento haya sido manipulada permitiría a un atacante redirigir el complemento hacia tus servicios internos (AWS IMDS en 169.254.169.254, API de administración internas, etc.).",
+  "tfa.admin.sso.opt_allow_private_pill": "Avanzado",
+  "tfa.setup.pending.action_failed": "La acción falló. Inténtalo de nuevo.",
+  "tfa.setup.stepup.oidc_failed": "Error al iniciar sesión con OIDC. Inténtalo de nuevo o usa otro método.",
+  "tfa.setup.stepup.opening": "Abriendo la ventana de inicio de sesión…",
+  "tfa.setup.stepup.popup_blocked": "Ventana emergente bloqueada. Permite las ventanas emergentes para este sitio y vuelve a intentarlo.",
+  "tfa.setup.stepup.use_oidc": "Verificar con"
 }

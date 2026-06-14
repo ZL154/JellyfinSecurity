@@ -711,5 +711,19 @@
   "tfa.admin.sso.ph_role": "ロール / グループ名",
   "tfa.admin.common.remove": "削除",
   "tfa.admin.sso.opt_prompt_select": "サインイン時に常にアカウント選択画面を表示する",
-  "tfa.admin.sso.prompt_select_help": "prompt=select_account を追加し、このブラウザーで IdP に既にサインインしているアカウントを黙って再利用するのではなく、プロバイダーが常にアカウント選択画面を表示するようにします。共有マシンや複数アカウントの世帯（例: 2 つの Google アカウント）では有効にし、単一アカウントのワンクリックサインインでは無効のままにします。"
+  "tfa.admin.sso.prompt_select_help": "prompt=select_account を追加し、このブラウザーで IdP に既にサインインしているアカウントを黙って再利用するのではなく、プロバイダーが常にアカウント選択画面を表示するようにします。共有マシンや複数アカウントの世帯（例: 2 つの Google アカウント）では有効にし、単一アカウントのワンクリックサインインでは無効のままにします。",
+  "tfa.admin.hardening.hide_builtin_2fa_label": "Jellyfin のログインページで「二要素認証でサインイン」ボタンを非表示にする",
+  "tfa.admin.hardening.hide_builtin_2fa_help": "このプラグインが挿入する 2FA ショートカットボタンのみを非表示にします。/TwoFactorAuth/Login ページは管理者/フォールバックアクセス用に引き続き直接利用できます。",
+  "tfa.admin.hardening.hide_builtin_passkey_label": "Jellyfin のログインページで「パスキーでサインイン」ボタンを非表示にする",
+  "tfa.admin.hardening.hide_builtin_passkey_help": "パスキーのショートカットボタンのみを非表示にします。上の 2FA トグルと組み合わせると、設定済みの IdP ボタンのみが表示される OIDC 専用モードになります。",
+  "tfa.admin.settings.proxy_cidrs_help": "ここには実際のリバースプロキシホストの IP のみを入力してください — 例: 同一ホストの nginx なら 127.0.0.1/32 + ::1/128、別のプロキシホストならその具体的な LAN IP。10.0.0.0/8 や 192.168.0.0/16 のような広い範囲は入力しないでください。LAN クライアントの IP がこれらの CIDR のいずれかに含まれ、リクエストが X-Forwarded-For ヘッダーなしで届いた場合、プラグインは安全側に倒して LAN バイパスを拒否します（直接接続の LAN クライアントと XFF を失ったプロキシを区別できないため）。Issue #56 はこの設定ミスでした。Jellyfin の前段にリバースプロキシがない場合は空のままにしてください。",
+  "tfa.admin.settings.save_failed": "保存に失敗しました (HTTP ",
+  "tfa.admin.sso.opt_allow_private": "プライベート / VPN / LAN エンドポイントを許可する",
+  "tfa.admin.sso.opt_allow_private_help": "既定では、プラグインは RFC1918 / ループバック / リンクローカルアドレスに解決される、またはプレーンな http を使用する OIDC エンドポイント URL を拒否します。これは、プライベートネットワーク上で意図的にホストしている IdP（LAN 専用の Authentik、Tailscale や VPN 経由の Authelia など）に対してのみ有効にしてください。ディスカバリ URL が改ざんされた IdP に対して有効にすると、攻撃者がプラグインを内部サービス（169.254.169.254 の AWS IMDS、内部管理 API など）へ向けられる恐れがあります。",
+  "tfa.admin.sso.opt_allow_private_pill": "詳細",
+  "tfa.setup.pending.action_failed": "操作に失敗しました。もう一度お試しください。",
+  "tfa.setup.stepup.oidc_failed": "OIDC サインインに失敗しました。もう一度試すか、別の方法を使用してください。",
+  "tfa.setup.stepup.opening": "サインインウィンドウを開いています…",
+  "tfa.setup.stepup.popup_blocked": "ポップアップがブロックされました。このサイトのポップアップを許可して再試行してください。",
+  "tfa.setup.stepup.use_oidc": "確認に使用："
 }

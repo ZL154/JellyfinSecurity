@@ -711,5 +711,19 @@
   "tfa.admin.sso.ph_role": "nome ruolo / gruppo",
   "tfa.admin.common.remove": "Rimuovi",
   "tfa.admin.sso.opt_prompt_select": "Mostra sempre il selettore dell'account all'accesso",
-  "tfa.admin.sso.prompt_select_help": "Aggiunge prompt=select_account in modo che il provider mostri sempre il selettore dell'account invece di riutilizzare silenziosamente l'account già connesso all'IdP in questo browser. Attivalo su macchine condivise o famiglie con più account (es. due account Google); lascialo disattivato per un accesso con un clic e un singolo account."
+  "tfa.admin.sso.prompt_select_help": "Aggiunge prompt=select_account in modo che il provider mostri sempre il selettore dell'account invece di riutilizzare silenziosamente l'account già connesso all'IdP in questo browser. Attivalo su macchine condivise o famiglie con più account (es. due account Google); lascialo disattivato per un accesso con un clic e un singolo account.",
+  "tfa.admin.hardening.hide_builtin_2fa_label": "Nascondi il pulsante \"Accedi con l'autenticazione a due fattori\" nella pagina di accesso di Jellyfin",
+  "tfa.admin.hardening.hide_builtin_2fa_help": "Nasconde solo il pulsante di scelta rapida 2FA inserito da questo plugin. La pagina /TwoFactorAuth/Login funziona ancora direttamente per gli amministratori / l'accesso di riserva.",
+  "tfa.admin.hardening.hide_builtin_passkey_label": "Nascondi il pulsante \"Accedi con passkey\" nella pagina di accesso di Jellyfin",
+  "tfa.admin.hardening.hide_builtin_passkey_help": "Nasconde solo il pulsante di scelta rapida passkey. Combinalo con l'opzione 2FA sopra per la modalità solo OIDC in cui rimangono visibili solo i pulsanti dell'IdP configurato.",
+  "tfa.admin.settings.proxy_cidrs_help": "Inserisci QUI SOLO gli IP dei tuoi reali host reverse-proxy — ad es. 127.0.0.1/32 + ::1/128 per un nginx sullo stesso host, o gli specifici IP LAN di host proxy separati. NON inserire intervalli ampi come 10.0.0.0/8 o 192.168.0.0/16: quando l'IP di un client LAN rientra in uno di questi CIDR e la richiesta arriva senza intestazione X-Forwarded-For, il plugin rifiuta in modo conservativo il bypass LAN (non può distinguere un client LAN diretto da un proxy che ha perso il suo XFF). Il problema #56 era questa configurazione errata. Lascia vuoto se non hai un reverse proxy davanti a Jellyfin.",
+  "tfa.admin.settings.save_failed": "Salvataggio non riuscito (HTTP ",
+  "tfa.admin.sso.opt_allow_private": "Consenti endpoint privati / VPN / LAN",
+  "tfa.admin.sso.opt_allow_private_help": "Per impostazione predefinita, il plugin rifiuta gli URL degli endpoint OIDC che si risolvono in indirizzi RFC1918 / loopback / link-local, o che usano http semplice. Abilita questa opzione SOLO per gli IdP che ospiti intenzionalmente su una rete privata (Authentik solo-LAN, Authelia dietro Tailscale o VPN, ecc.). Attivarla per un IdP il cui URL di discovery è stato manomesso consentirebbe a un utente malintenzionato di reindirizzare il plugin verso i tuoi servizi interni (AWS IMDS su 169.254.169.254, API di amministrazione interne, ecc.).",
+  "tfa.admin.sso.opt_allow_private_pill": "Avanzate",
+  "tfa.setup.pending.action_failed": "Azione non riuscita. Riprova.",
+  "tfa.setup.stepup.oidc_failed": "Accesso OIDC non riuscito. Riprova o usa un altro metodo.",
+  "tfa.setup.stepup.opening": "Apertura della finestra di accesso…",
+  "tfa.setup.stepup.popup_blocked": "Popup bloccato. Consenti i popup per questo sito e riprova.",
+  "tfa.setup.stepup.use_oidc": "Verifica con"
 }
