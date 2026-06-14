@@ -127,6 +127,11 @@ public class SsoLink
     public DateTime LinkedAt { get; set; }
 
     public DateTime? LastUsedAt { get; set; }
+
+    /// <summary>[v2.5.10] (issue #66): the IdP picture URL last synced to the
+    /// Jellyfin avatar for this link. Lets the sign-in path skip re-downloading
+    /// an unchanged avatar on every login. Null = never synced.</summary>
+    public string? SyncedPictureUrl { get; set; }
 }
 
 /// <summary>Cached geo for impossible-travel detection. Lat/lon may be 0 if

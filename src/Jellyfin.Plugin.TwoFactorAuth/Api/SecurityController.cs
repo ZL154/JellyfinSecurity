@@ -120,6 +120,21 @@ public class SecurityController : ControllerBase
         // [v2.5.7] (issue #54, cwildfoerster): per-provider opt-in to bypass
         // the v2.5.5 SSRF guard for LAN/VPN IdPs. Default false.
         public bool AllowPrivateNetworks { get; set; }
+        // [v2.5.10] (#66) sync IdP avatar into the Jellyfin profile picture.
+        public bool SyncProfilePicture { get; set; }
+        public string PictureClaim { get; set; } = "picture";
+        // [v2.5.10] (#65) role→library access.
+        public bool ApplyRoleLibraryAccess { get; set; }
+        public List<RoleLibraryMappingDto> RoleLibraryMappings { get; set; } = new();
+    }
+
+    /// <summary>[v2.5.10] (#65) one role→libraries mapping as sent by the admin
+    /// UI. <see cref="LibraryIds"/> is a comma-separated list of Jellyfin
+    /// virtual-folder GUIDs the role grants.</summary>
+    public class RoleLibraryMappingDto
+    {
+        public string Role { get; set; } = string.Empty;
+        public string LibraryIds { get; set; } = string.Empty;
     }
 
     [HttpGet("Oidc/Presets")]
@@ -176,6 +191,10 @@ public class SecurityController : ControllerBase
             enabled = p.Enabled,
             forceHttps = p.ForceHttps,
             allowPrivateNetworks = p.AllowPrivateNetworks,
+            syncProfilePicture = p.SyncProfilePicture,
+            pictureClaim = p.PictureClaim,
+            applyRoleLibraryAccess = p.ApplyRoleLibraryAccess,
+            roleLibraryMappings = p.RoleLibraryMappings.Select(m => new { role = m.Role, libraryIds = m.LibraryIds }).ToList(),
             createdAt = p.CreatedAt,
         }).ToList<object>();
         return Ok(safe);
@@ -220,6 +239,11 @@ public class SecurityController : ControllerBase
             ForceHttps = req.ForceHttps,
             // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
             AllowPrivateNetworks = req.AllowPrivateNetworks,
+            // [v2.5.10] (#66 / #65)
+            SyncProfilePicture = req.SyncProfilePicture,
+            PictureClaim = string.IsNullOrWhiteSpace(req.PictureClaim) ? "picture" : req.PictureClaim.Trim(),
+            ApplyRoleLibraryAccess = req.ApplyRoleLibraryAccess,
+            RoleLibraryMappings = MapRoleLibraryMappings(req.RoleLibraryMappings),
             CreatedAt = DateTime.UtcNow,
         };
         config.OidcProviders.Add(provider);
@@ -260,9 +284,35 @@ public class SecurityController : ControllerBase
         existing.ForceHttps = req.ForceHttps;
         // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
         existing.AllowPrivateNetworks = req.AllowPrivateNetworks;
+        // [v2.5.10] (#66 / #65)
+        existing.SyncProfilePicture = req.SyncProfilePicture;
+        existing.PictureClaim = string.IsNullOrWhiteSpace(req.PictureClaim) ? "picture" : req.PictureClaim.Trim();
+        existing.ApplyRoleLibraryAccess = req.ApplyRoleLibraryAccess;
+        existing.RoleLibraryMappings = MapRoleLibraryMappings(req.RoleLibraryMappings);
         plugin.SaveConfiguration();
         _oidc.InvalidateCache(id);
         return Ok();
+    }
+
+    /// <summary>[v2.5.10] (#65) map admin-UI role→library DTOs to the stored
+    /// model, dropping blank rows and normalizing the library-id list.</summary>
+    private static List<OidcRoleLibraryMapping> MapRoleLibraryMappings(List<RoleLibraryMappingDto>? dtos)
+    {
+        var result = new List<OidcRoleLibraryMapping>();
+        if (dtos is null) return result;
+        foreach (var d in dtos)
+        {
+            if (d is null || string.IsNullOrWhiteSpace(d.Role)) continue;
+            var ids = (d.LibraryIds ?? string.Empty)
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            result.Add(new OidcRoleLibraryMapping
+            {
+                Role = d.Role.Trim(),
+                LibraryIds = string.Join(",", ids),
+            });
+        }
+
+        return result;
     }
 
     [HttpDelete("Oidc/Providers/{id}")]

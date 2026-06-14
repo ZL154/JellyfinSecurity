@@ -117,5 +117,50 @@ public class OidcProvider
     /// Authentik can coexist without weakening Google's guard.</summary>
     public bool AllowPrivateNetworks { get; set; }
 
+    /// <summary>[v2.5.10] (issue #66, ZEROX7): when true, on each successful
+    /// sign-in the plugin copies the IdP-provided profile picture into the
+    /// Jellyfin user's avatar. The URL is read from <see cref="PictureClaim"/>
+    /// (default the standard OIDC `picture` claim) in the id_token / userinfo.
+    /// The download goes through the same SSRF egress guard as the other
+    /// outbound IdP calls. Best-effort: a failed picture sync never blocks
+    /// sign-in. Default false so existing installs are unchanged.</summary>
+    public bool SyncProfilePicture { get; set; }
+
+    /// <summary>[v2.5.10] (issue #66): claim name holding the avatar URL.
+    /// Standard OIDC is `picture`; some IdPs use a custom claim. Only used
+    /// when <see cref="SyncProfilePicture"/> is enabled.</summary>
+    public string PictureClaim { get; set; } = "picture";
+
+    /// <summary>[v2.5.10] (issue #65, Bgabor997): when true, on each sign-in
+    /// the user's Jellyfin library access is set from their IdP group/role
+    /// claims via <see cref="RoleLibraryMappings"/>. The union of libraries
+    /// granted by all of the user's matched roles becomes their EnabledFolders
+    /// (EnableAllFolders is turned off). A user whose roles match no mapping
+    /// gets NO libraries — so only enable this once mappings are configured,
+    /// or unmapped users may lose visible libraries. Administrators are never
+    /// restricted by this (admins implicitly see everything). Default false so
+    /// existing installs are unchanged.</summary>
+    public bool ApplyRoleLibraryAccess { get; set; }
+
+    /// <summary>[v2.5.10] (issue #65): role→library access map. Each entry maps
+    /// one IdP group/role (matched against the `groups`/`roles` claim,
+    /// case-insensitive) to a set of Jellyfin library IDs the role grants.</summary>
+    public List<OidcRoleLibraryMapping> RoleLibraryMappings { get; set; } = new();
+
     public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>[v2.5.10] (issue #65): one role→libraries mapping for
+/// <see cref="OidcProvider.RoleLibraryMappings"/>. Stored in the plugin XML
+/// config, so plain string properties only (no Dictionary).</summary>
+public class OidcRoleLibraryMapping
+{
+    /// <summary>IdP group/role name, matched case-insensitively against the
+    /// user's `groups`/`roles` claim values.</summary>
+    public string Role { get; set; } = string.Empty;
+
+    /// <summary>Comma-separated Jellyfin library (virtual-folder) GUIDs this
+    /// role grants access to. The admin UI resolves friendly library names to
+    /// these IDs when saving.</summary>
+    public string LibraryIds { get; set; } = string.Empty;
 }

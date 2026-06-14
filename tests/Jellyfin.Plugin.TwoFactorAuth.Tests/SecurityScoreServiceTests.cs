@@ -55,7 +55,7 @@ public class SecurityScoreComputeTests
     private static SecurityScoreService Build(out UserTwoFactorStore store, out PluginConfiguration cfg)
     {
         var paths = TestApplicationPaths.Create();
-        store = new UserTwoFactorStore(paths);
+        store = new UserTwoFactorStore(paths, Substitute.For<IServiceProvider>());
         cfg = new PluginConfiguration();
         var stats = Substitute.For<StatsService>(store, Substitute.For<IUserManager>());
         var logger = Substitute.For<ILogger<SecurityScoreService>>();
@@ -176,7 +176,7 @@ internal static class SecurityScoreServiceTests_TestHarness
 {
     public static SecurityScoreService Build(IApplicationPaths paths, out PluginConfiguration cfg)
     {
-        var store = new UserTwoFactorStore(paths);
+        var store = new UserTwoFactorStore(paths, Substitute.For<IServiceProvider>());
         cfg = new PluginConfiguration();
         var stats = Substitute.For<StatsService>(store, Substitute.For<IUserManager>());
         var logger = Substitute.For<ILogger<SecurityScoreService>>();

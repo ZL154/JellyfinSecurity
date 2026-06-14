@@ -1005,6 +1005,8 @@
                         page.querySelector('#cfgProxyCidrs').value = (c.TrustedProxyCidrs || []).join('\n');
                         page.querySelector('#cfgMaxFail').value = c.MaxFailedAttempts || 5;
                         page.querySelector('#cfgLockoutMin').value = c.LockoutDurationMinutes || 15;
+                        // [v2.5.10] (#55) admin lockout exemption (default true).
+                        page.querySelector('#cfgExemptAdminLockout').checked = c.ExemptAdministratorsFromLockout !== false;
                         page.querySelector('#cfgAuditMax').value = c.AuditLogMaxEntries || 1000;
                         page.querySelector('#cfgSmtpHost').value = c.SmtpHost || '';
                         page.querySelector('#cfgSmtpPort').value = c.SmtpPort || 587;
@@ -1140,6 +1142,8 @@
                         c.TrustedProxyCidrs = page.querySelector('#cfgProxyCidrs').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.MaxFailedAttempts = parseInt(page.querySelector('#cfgMaxFail').value) || 5;
                         c.LockoutDurationMinutes = parseInt(page.querySelector('#cfgLockoutMin').value) || 15;
+                        // [v2.5.10] (#55) admin lockout exemption.
+                        c.ExemptAdministratorsFromLockout = page.querySelector('#cfgExemptAdminLockout').checked;
                         c.AuditLogMaxEntries = parseInt(page.querySelector('#cfgAuditMax').value) || 1000;
                         c.SmtpHost = page.querySelector('#cfgSmtpHost').value.trim();
                         c.SmtpPort = parseInt(page.querySelector('#cfgSmtpPort').value) || 587;
@@ -1359,6 +1363,80 @@
                         page.querySelector('#ssoBody').innerHTML = '<tr><td colspan="5" class="tfa-empty">' + escapeHtml(_tr('tfa.admin.sso.load_failed', 'Failed to load providers')) + '</td></tr>';
                     });
                 }
+                // [v2.5.10] (#65/#66) library list cache + role-map editor.
+                var ssoLibrariesCache = null;
+                function loadLibrariesOnce() {
+                    if (ssoLibrariesCache) return Promise.resolve(ssoLibrariesCache);
+                    return ApiClient.getVirtualFolders().then(function(folders) {
+                        ssoLibrariesCache = (folders || []).map(function(f) {
+                            return { id: f.ItemId || f.Id || '', name: f.Name || '(unnamed)' };
+                        }).filter(function(x) { return x.id; });
+                        return ssoLibrariesCache;
+                    }).catch(function() { ssoLibrariesCache = []; return ssoLibrariesCache; });
+                }
+                function addRoleLibRow(role, libraryIdsCsv) {
+                    var wrap = page.querySelector('#ssoRoleLibRows');
+                    if (!wrap) return;
+                    var selected = (libraryIdsCsv || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+                    var row = document.createElement('div');
+                    row.className = 'tfa-rolemap-row';
+                    row.style.cssText = 'display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;border:1px solid rgba(255,255,255,0.08);padding:8px;border-radius:6px;';
+                    var roleInput = document.createElement('input');
+                    roleInput.type = 'text';
+                    roleInput.className = 'tfa-input tfa-rolemap-role';
+                    roleInput.style.width = '180px';
+                    roleInput.placeholder = _tr('tfa.admin.sso.ph_role', 'role / group name');
+                    roleInput.value = role || '';
+                    var sel = document.createElement('select');
+                    sel.multiple = true;
+                    sel.className = 'tfa-input tfa-rolemap-libs';
+                    sel.style.cssText = 'min-width:220px;min-height:84px;';
+                    (ssoLibrariesCache || []).forEach(function(lib) {
+                        var opt = document.createElement('option');
+                        opt.value = lib.id;
+                        opt.textContent = lib.name;
+                        if (selected.indexOf(lib.id) !== -1) opt.selected = true;
+                        sel.appendChild(opt);
+                    });
+                    var rm = document.createElement('button');
+                    rm.type = 'button';
+                    rm.className = 'tfa-btn tfa-btn-danger';
+                    rm.textContent = _tr('tfa.admin.common.remove', 'Remove');
+                    rm.addEventListener('click', function() { if (row.parentNode) row.parentNode.removeChild(row); });
+                    row.appendChild(roleInput);
+                    row.appendChild(sel);
+                    row.appendChild(rm);
+                    wrap.appendChild(row);
+                }
+                function renderRoleLibRows(mappings) {
+                    var wrap = page.querySelector('#ssoRoleLibRows');
+                    if (wrap) wrap.innerHTML = '';
+                    (mappings || []).forEach(function(m) {
+                        addRoleLibRow(m.role || m.Role || '', m.libraryIds || m.LibraryIds || '');
+                    });
+                }
+                function collectRoleLibMappings() {
+                    var out = [];
+                    var rows = page.querySelectorAll('#ssoRoleLibRows .tfa-rolemap-row');
+                    Array.prototype.forEach.call(rows, function(row) {
+                        var roleEl = row.querySelector('.tfa-rolemap-role');
+                        var role = (roleEl ? roleEl.value : '').trim();
+                        if (!role) return;
+                        var sel = row.querySelector('.tfa-rolemap-libs');
+                        var ids = [];
+                        if (sel) Array.prototype.forEach.call(sel.selectedOptions, function(o) { ids.push(o.value); });
+                        out.push({ Role: role, LibraryIds: ids.join(',') });
+                    });
+                    return out;
+                }
+                function toggleSsoConditionalRows() {
+                    var picRow = page.querySelector('#ssoPictureClaimRow');
+                    var picOn = page.querySelector('#ssoSyncPicture');
+                    if (picRow && picOn) picRow.style.display = picOn.checked ? '' : 'none';
+                    var rlSec = page.querySelector('#ssoRoleLibSection');
+                    var rlOn = page.querySelector('#ssoApplyRoleLib');
+                    if (rlSec && rlOn) rlSec.style.display = rlOn.checked ? '' : 'none';
+                }
                 function showSsoForm(prov) {
                     page.querySelector('#ssoFormSection').style.display = 'block';
                     page.querySelector('#ssoFormTitle').textContent = prov ? (_tr('tfa.admin.sso.form_title_edit', 'Edit') + ' ' + prov.displayName) : _tr('tfa.admin.sso.form_title_new', 'New provider');
@@ -1380,6 +1458,15 @@
                     // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
                     var allowPrivEl = page.querySelector('#ssoAllowPrivate');
                     if (allowPrivEl) allowPrivEl.checked = prov ? !!prov.allowPrivateNetworks : false;
+                    // [v2.5.10] (#66) profile-picture sync.
+                    page.querySelector('#ssoSyncPicture').checked = prov ? !!prov.syncProfilePicture : false;
+                    page.querySelector('#ssoPictureClaim').value = prov ? (prov.pictureClaim || 'picture') : 'picture';
+                    // [v2.5.10] (#65) role→library access.
+                    page.querySelector('#ssoApplyRoleLib').checked = prov ? !!prov.applyRoleLibraryAccess : false;
+                    loadLibrariesOnce().then(function() {
+                        renderRoleLibRows(prov ? (prov.roleLibraryMappings || []) : []);
+                        toggleSsoConditionalRows();
+                    });
                     ssoEditingId = prov ? prov.id : null;
                     updateSsoHint();
                 }
@@ -1411,6 +1498,10 @@
                     page.querySelector('#ssoFormSection').style.display = 'none';
                 });
                 page.querySelector('#ssoPreset').addEventListener('change', updateSsoHint);
+                // [v2.5.10] (#65/#66) conditional-row visibility + add-mapping.
+                page.querySelector('#ssoSyncPicture').addEventListener('change', toggleSsoConditionalRows);
+                page.querySelector('#ssoApplyRoleLib').addEventListener('change', toggleSsoConditionalRows);
+                page.querySelector('#ssoAddRoleMapBtn').addEventListener('click', function() { addRoleLibRow('', ''); });
                 page.querySelector('#ssoSaveBtn').addEventListener('click', function() {
                     var body = {
                         DisplayName: page.querySelector('#ssoDisplay').value.trim(),
@@ -1430,6 +1521,11 @@
                         ForceHttps: page.querySelector('#ssoForceHttps').checked,
                         // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
                         AllowPrivateNetworks: (page.querySelector('#ssoAllowPrivate') || {}).checked === true,
+                        // [v2.5.10] (#66) profile-picture sync + (#65) role→library access.
+                        SyncProfilePicture: page.querySelector('#ssoSyncPicture').checked,
+                        PictureClaim: page.querySelector('#ssoPictureClaim').value.trim() || 'picture',
+                        ApplyRoleLibraryAccess: page.querySelector('#ssoApplyRoleLib').checked,
+                        RoleLibraryMappings: collectRoleLibMappings(),
                     };
                     if (!body.DisplayName) { alert(_tr('tfa.admin.sso.alert_display_required', 'Display name is required.')); return; }
                     if (!body.ClientId) { alert(_tr('tfa.admin.sso.alert_client_id_required', 'Client ID is required.')); return; }

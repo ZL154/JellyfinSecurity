@@ -232,6 +232,21 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public int LockoutDurationMinutes { get; set; } = 15;
 
+    /// <summary>[v2.5.10] (issue #55, Dasnap): when true, Jellyfin
+    /// administrators are never locked out by the failed-attempt counter.
+    /// Account lockout is a denial-of-service vector against the admin: anyone
+    /// who knows the admin username can deliberately fail logins to lock the
+    /// real admin out of their own server. Because admin accounts are already
+    /// protected by 2FA enforcement AND the per-IP brute-force ban (which
+    /// keeps firing against the attacker's IP regardless of this flag), the
+    /// account-lockout adds little brute-force protection for admins while
+    /// handing attackers an easy lockout DoS. Defaults to TRUE so the admin
+    /// can't be self-locked out of the box; set FALSE to restore strict
+    /// per-account lockout for administrators too. Regular users are always
+    /// subject to lockout. Failed-attempt notifications/audit still fire for
+    /// exempt admins, so a brute-force attempt is still visible.</summary>
+    public bool ExemptAdministratorsFromLockout { get; set; } = true;
+
     public int AuditLogMaxEntries { get; set; } = 1000;
 
     public string NtfyUrl { get; set; } = string.Empty;

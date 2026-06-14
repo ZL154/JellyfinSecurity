@@ -421,6 +421,24 @@
                                 <label><input type="checkbox" id="ssoAllowPrivate" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_allow_private">Allow private / VPN / LAN endpoints &nbsp;<span class="tfa-badge warn" style="font-size:10px;vertical-align:middle;" data-i18n-key="tfa.admin.sso.opt_allow_private_pill">Advanced</span></span></label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.sso.opt_allow_private_help">By default the plugin rejects OIDC endpoint URLs that resolve to RFC1918 / loopback / link-local addresses, or that use plain http. Enable this ONLY for IdPs you intentionally host on a private network (LAN-only Authentik, Tailscale or VPN-fronted Authelia, etc.). Turning this on for an IdP whose discovery URL was tampered with would let an attacker pivot the plugin into your internal services (AWS IMDS at 169.254.169.254, internal admin APIs, etc.).</div>
                             </div>
+                            <!-- [v2.5.10] (issue #66, ZEROX7): sync IdP profile picture. -->
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="ssoSyncPicture" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_sync_picture">Sync the IdP profile picture to the Jellyfin avatar on sign-in</span></label>
+                            </div>
+                            <div class="tfa-row" id="ssoPictureClaimRow" style="display:none;">
+                                <label data-i18n-key="tfa.admin.sso.lbl_picture_claim">Picture claim</label>
+                                <input type="text" id="ssoPictureClaim" class="tfa-input" style="width:240px;" placeholder="picture" />
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.picture_claim_help">Claim name holding the avatar URL. Standard OIDC is <code>picture</code>; override only if your IdP uses a different claim. The image is fetched through the same network-safety guard as the other IdP calls.</div>
+                            </div>
+                            <!-- [v2.5.10] (issue #65, Bgabor997): role → library access. -->
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="ssoApplyRoleLib" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_role_library">Set library access from IdP groups/roles on sign-in &nbsp;<span class="tfa-badge warn" style="font-size:10px;vertical-align:middle;" data-i18n-key="tfa.admin.sso.opt_role_library_pill">Advanced</span></span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.role_library_help">Map each IdP group/role to the libraries it should grant. On sign-in, a user's enabled libraries become the union of all libraries granted by their matched roles (and "Enable all libraries" is turned off). A user whose roles match no mapping gets no libraries, so configure mappings before enabling this. Administrators are never restricted.</div>
+                            </div>
+                            <div class="tfa-row tfa-row-stack" id="ssoRoleLibSection" style="display:none;">
+                                <div id="ssoRoleLibRows" style="display:flex;flex-direction:column;gap:10px;"></div>
+                                <button type="button" class="tfa-btn" id="ssoAddRoleMapBtn" style="margin-top:8px;align-self:flex-start;" data-i18n-key="tfa.admin.sso.btn_add_role_map">+ Add role mapping</button>
+                            </div>
                             <div id="ssoSetupHint" class="tfa-note" style="margin-top:8px;display:none;"></div>
                             <div style="margin-top:14px;display:flex;gap:10px;">
                                 <button type="button" class="tfa-btn tfa-btn-primary" id="ssoSaveBtn" data-i18n-key="tfa.admin.sso.btn_save">Save provider</button>
@@ -501,6 +519,11 @@
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_lockout_min">Lockout duration (minutes)</label>
                                 <input type="number" id="cfgLockoutMin" class="tfa-input" style="width:80px;" min="1" />
+                            </div>
+                            <!-- [v2.5.10] (issue #55, Dasnap): admin lockout DoS mitigation. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgExemptAdminLockout" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_exempt_admin_lockout">Never lock administrators out by failed attempts</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.exempt_admin_lockout_help">Account lockout is a denial-of-service vector against the admin: anyone who knows the admin username can deliberately fail logins to lock the real admin out of their own server. With this on (recommended), admins are never auto-locked — they're still protected by 2FA enforcement and the per-IP brute-force ban, which keeps banning the attacker's IP. Failed-attempt alerts still fire so a brute-force attempt stays visible. Turn off to apply strict per-account lockout to admins too.</div>
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_audit_max">Audit log max entries</label>

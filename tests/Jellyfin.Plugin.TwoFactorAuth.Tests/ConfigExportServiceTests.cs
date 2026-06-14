@@ -49,7 +49,7 @@ public static class ConfigExportTestHarness
     public static ConfigExportService Build(out PluginConfiguration cfg)
     {
         var paths = TestApplicationPaths.Create();
-        var store = new UserTwoFactorStore(paths);
+        var store = new UserTwoFactorStore(paths, Substitute.For<IServiceProvider>());
         var stats = Substitute.For<StatsService>(store, Substitute.For<MediaBrowser.Controller.Library.IUserManager>());
         var scoreLogger = Substitute.For<ILogger<SecurityScoreService>>();
         var localCfg = new PluginConfiguration();

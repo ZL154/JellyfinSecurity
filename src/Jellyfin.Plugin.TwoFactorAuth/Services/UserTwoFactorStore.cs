@@ -7,8 +7,11 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.Library;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
@@ -55,8 +58,19 @@ public class UserTwoFactorStore : IDisposable
 
     private bool _disposed;
 
-    public UserTwoFactorStore(IApplicationPaths applicationPaths)
+    // [v2.5.10] (issue #55): IUserManager is resolved LAZILY via IServiceProvider,
+    // NOT injected directly. UserManager depends on
+    // IEnumerable<IAuthenticationProvider> → TwoFactorAuthProvider →
+    // UserTwoFactorStore, so a direct IUserManager ctor dependency here closes
+    // a DI cycle and the container fails to build the graph at startup. We only
+    // need IUserManager at auth time (lockout checks), long after the graph is
+    // constructed, so we resolve + cache it on first use instead.
+    private readonly IServiceProvider _services;
+    private IUserManager? _userManagerCached;
+
+    public UserTwoFactorStore(IApplicationPaths applicationPaths, IServiceProvider services)
     {
+        _services = services;
         _dataPath = Path.Combine(applicationPaths.PluginConfigurationsPath, "TwoFactorAuth");
         _usersPath = Path.Combine(_dataPath, "users");
         _auditFilePath = Path.Combine(_dataPath, "audit.json");
@@ -163,8 +177,47 @@ public class UserTwoFactorStore : IDisposable
         }
     }
 
+    /// <summary>[v2.5.10] (issue #55, Dasnap): true when this user must NOT be
+    /// locked out by the failed-attempt counter — i.e. they're a Jellyfin
+    /// administrator AND the admin-lockout exemption is enabled (default). This
+    /// closes the admin-lockout DoS where anyone who knows the admin username
+    /// can fail logins to lock the real admin out. The per-IP brute-force ban
+    /// and 2FA enforcement still protect the admin; only the per-account
+    /// auto-lockout is suppressed. Resolution is best-effort: any lookup
+    /// failure falls through to "not exempt" (fail-closed — lockout applies).</summary>
+    private bool IsLockoutExempt(Guid userId)
+    {
+        if (Plugin.Instance?.Configuration?.ExemptAdministratorsFromLockout != true)
+        {
+            return false;
+        }
+
+        try
+        {
+            var userManager = _userManagerCached ??= _services.GetService(typeof(IUserManager)) as IUserManager;
+            if (userManager is null)
+            {
+                return false;
+            }
+
+            var user = userManager.GetUserById(userId);
+            return user is not null && user.HasPermission(PermissionKind.IsAdministrator);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<bool> IsLockedOutAsync(Guid userId)
     {
+        // Exempt admins are never reported as locked out, even if a stale
+        // LockoutEnd was written before the exemption was enabled.
+        if (IsLockoutExempt(userId))
+        {
+            return false;
+        }
+
         var data = await GetUserDataAsync(userId).ConfigureAwait(false);
         if (data.LockoutEnd.HasValue && data.LockoutEnd.Value > DateTime.UtcNow)
         {
@@ -176,10 +229,22 @@ public class UserTwoFactorStore : IDisposable
 
     public async Task RecordFailedAttemptAsync(Guid userId)
     {
+        // [v2.5.10] (issue #55): resolve admin-exemption ONCE outside the
+        // mutate lambda (the lambda is hot + lock-held; GetUserById shouldn't
+        // run under it). We still increment the counter for exempt admins so
+        // the failed-attempt notification/audit thresholds fire and the
+        // brute-force attempt stays visible — we just never set LockoutEnd.
+        var exempt = IsLockoutExempt(userId);
+
         // Use MutateAsync so cache + file stay consistent.
         await MutateAsync(userId, ud =>
         {
             ud.FailedAttemptCount++;
+            if (exempt)
+            {
+                return;
+            }
+
             var config = Plugin.Instance?.Configuration;
             int maxAttempts = config?.MaxFailedAttempts ?? 5;
             int lockoutMinutes = config?.LockoutDurationMinutes ?? 15;

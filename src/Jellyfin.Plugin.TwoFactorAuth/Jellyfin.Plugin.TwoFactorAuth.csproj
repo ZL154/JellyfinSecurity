@@ -7,9 +7,9 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.5.9.0</Version>
-    <AssemblyVersion>2.5.9.0</AssemblyVersion>
-    <FileVersion>2.5.9.0</FileVersion>
+    <Version>2.5.10.0</Version>
+    <AssemblyVersion>2.5.10.0</AssemblyVersion>
+    <FileVersion>2.5.10.0</FileVersion>
     <AnalysisMode>Recommended</AnalysisMode>
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
@@ -60,8 +60,17 @@
          IUserManager.Users in a way that broke the build. Bumping these to a
          newer 10.11.x is a deliberate change that requires verifying the
          plugin still compiles and behaves correctly against the new ABI. -->
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.11" />
-    <PackageReference Include="Jellyfin.Model" Version="10.11.11" />
+    <!-- [v2.5.10] Pinned to 10.11.10. Dependabot #59 bumped these to 10.11.11,
+         which silently RAISES the minimum Jellyfin runtime to 10.11.11 — the
+         compiled plugin then fails to load on any host < 10.11.11 ("incompatible
+         version of one of the shared libraries"), breaking every user on
+         10.11.10 or earlier. v2.5.9 built against 10.11.10 (the code uses the
+         ChangePassword(Guid,…) overload that only exists in 10.11.10+, so we
+         can't drop below that). 10.11.10 keeps the established supported floor.
+         Do not let Dependabot raise this without deliberately bumping the
+         supported-Jellyfin range. -->
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.10" />
+    <PackageReference Include="Jellyfin.Model" Version="10.11.10" />
   </ItemGroup>
 
   <ItemGroup>

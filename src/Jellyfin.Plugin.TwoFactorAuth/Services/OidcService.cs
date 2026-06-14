@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -12,9 +13,12 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Logging;
 
@@ -62,6 +66,10 @@ public class OidcService : IDisposable
     private readonly UserTwoFactorStore _store;
     private readonly IUserManager _userManager;
     private readonly ILogger<OidcService> _logger;
+    // [v2.5.10] (#66) avatar sync + (#65) role→library access.
+    private readonly IProviderManager _providerManager;
+    private readonly IServerConfigurationManager _serverConfig;
+    private readonly ILibraryManager _libraryManager;
     // SECURITY [v2.5.9] (audit medium): AllowAutoRedirect=false. The
     // EnsureSafeOutboundAsync egress filter validates only the CONFIGURED
     // URL's host/IP; with auto-redirect on (the default), a malicious or
@@ -127,11 +135,20 @@ public class OidcService : IDisposable
     private readonly Timer _cleanupTimer;
     private bool _disposed;
 
-    public OidcService(UserTwoFactorStore store, IUserManager userManager, ILogger<OidcService> logger)
+    public OidcService(
+        UserTwoFactorStore store,
+        IUserManager userManager,
+        ILogger<OidcService> logger,
+        IProviderManager providerManager,
+        IServerConfigurationManager serverConfig,
+        ILibraryManager libraryManager)
     {
         _store = store;
         _userManager = userManager;
         _logger = logger;
+        _providerManager = providerManager;
+        _serverConfig = serverConfig;
+        _libraryManager = libraryManager;
         _cleanupTimer = new Timer(_ => SweepPending(), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
     }
 
@@ -575,6 +592,13 @@ public class OidcService : IDisposable
                     claims = claims with { Username = extra.Username };
                     _logger.LogDebug("[2FA] OIDC merged username from /userinfo");
                 }
+                // [v2.5.10] (#66) avatar URL: many IdPs only return `picture`
+                // at /userinfo, not in the id_token. Merge it when missing.
+                if (string.IsNullOrEmpty(claims.Picture) && !string.IsNullOrEmpty(extra.Picture))
+                {
+                    claims = claims with { Picture = extra.Picture };
+                    _logger.LogDebug("[2FA] OIDC merged picture from /userinfo");
+                }
             }
             catch (Exception ex)
             {
@@ -642,6 +666,34 @@ public class OidcService : IDisposable
             }
         }).ConfigureAwait(false);
 
+        // [v2.5.10] (#65) Apply role→library access from the IdP group claims.
+        // Best-effort: a failure must never block a sign-in.
+        if (provider.ApplyRoleLibraryAccess)
+        {
+            try
+            {
+                await ApplyRoleLibraryAccessAsync(matchedUser, provider, claims.Groups).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[2FA] OIDC role→library access sync failed for {User}", matchedUser.Username);
+            }
+        }
+
+        // [v2.5.10] (#66) Sync the IdP profile picture into the Jellyfin avatar.
+        // Best-effort: a failure must never block a sign-in.
+        if (provider.SyncProfilePicture && !string.IsNullOrWhiteSpace(claims.Picture))
+        {
+            try
+            {
+                await ApplyProfilePictureAsync(matchedUser, provider, claims.Picture).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[2FA] OIDC profile-picture sync failed for {User}", matchedUser.Username);
+            }
+        }
+
         // Route this user's auth through our provider so bridge tokens work.
         // Our Authenticate delegates to the default provider for normal
         // passwords, so flipping this is additive — password login still
@@ -662,6 +714,137 @@ public class OidcService : IDisposable
         }
 
         return new CallbackResult(true, null, matchedUser.Id, matchedUser.Username, returnUrl, link);
+    }
+
+    /// <summary>[v2.5.10] (issue #65, Bgabor997): set the user's Jellyfin
+    /// library access from their IdP role/group claims. The union of libraries
+    /// granted by every role the user holds becomes their EnabledFolders;
+    /// EnableAllFolders is turned off. Administrators are never restricted.
+    /// If no mappings are configured we leave the user untouched rather than
+    /// stripping all access (defensive — avoids locking everyone out the
+    /// moment the toggle is flipped before mappings exist).</summary>
+    private async Task ApplyRoleLibraryAccessAsync(User user, OidcProvider provider, string[] groups)
+    {
+        // Admins implicitly see everything — never restrict an administrator.
+        if (user.HasPermission(PermissionKind.IsAdministrator))
+        {
+            return;
+        }
+
+        if (provider.RoleLibraryMappings is null || provider.RoleLibraryMappings.Count == 0)
+        {
+            _logger.LogWarning(
+                "[2FA] OIDC role→library access enabled for provider {Provider} but no mappings configured; leaving {User}'s library access unchanged",
+                provider.Id, user.Username);
+            return;
+        }
+
+        // Union of library IDs granted by every role the user holds.
+        var grantedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var map in provider.RoleLibraryMappings)
+        {
+            if (string.IsNullOrWhiteSpace(map.Role)) continue;
+            if (!groups.Any(g => g.Equals(map.Role, StringComparison.OrdinalIgnoreCase))) continue;
+            foreach (var id in map.LibraryIds.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                grantedIds.Add(id);
+            }
+        }
+
+        // Validate against libraries that actually exist so a stale mapping ID
+        // can't poison the policy with a dangling GUID.
+        var existing = _libraryManager.GetVirtualFolders()
+            .Select(v => v.ItemId)
+            .Where(id => !string.IsNullOrEmpty(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var finalIds = grantedIds.Where(id => existing.Contains(id)).ToArray();
+
+        user.SetPermission(PermissionKind.EnableAllFolders, false);
+        user.SetPreference(PreferenceKind.EnabledFolders, finalIds);
+        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+
+        _logger.LogInformation(
+            "[2FA] OIDC set {Count} librar(ies) for {User} from {GroupCount} IdP group claim(s) via provider {Provider}",
+            finalIds.Length, user.Username, groups.Length, provider.Id);
+    }
+
+    /// <summary>[v2.5.10] (issue #66, ZEROX7): download the IdP-provided avatar
+    /// and set it as the Jellyfin user's profile picture. Mirrors Jellyfin's
+    /// own ImageController (ClearProfileImage → ImageInfo → IProviderManager
+    /// .SaveImage → UpdateUserAsync). The fetch is SSRF-guarded by the same
+    /// egress policy as the other IdP calls, content-type-restricted to common
+    /// image types, and size-capped. Skips work when the URL is unchanged from
+    /// the last sync recorded on the SsoLink.</summary>
+    private async Task ApplyProfilePictureAsync(User user, OidcProvider provider, string pictureUrl)
+    {
+        // Skip if we already synced this exact URL for this provider link.
+        var data = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
+        var link = data.SsoLinks.FirstOrDefault(l => l.ProviderId == provider.Id);
+        if (link is not null && string.Equals(link.SyncedPictureUrl, pictureUrl, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // SSRF guard — same egress policy as discovery/token/userinfo fetches.
+        await EnsureSafeOutboundAsync(pictureUrl, provider.AllowPrivateNetworks).ConfigureAwait(false);
+
+        using var resp = await _http.GetAsync(pictureUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+        resp.EnsureSuccessStatusCode();
+
+        var mime = resp.Content.Headers.ContentType?.MediaType?.ToLowerInvariant() ?? string.Empty;
+        var ext = mime switch
+        {
+            "image/jpeg" or "image/jpg" => ".jpg",
+            "image/png" => ".png",
+            "image/webp" => ".webp",
+            "image/gif" => ".gif",
+            _ => null,
+        };
+        if (ext is null)
+        {
+            _logger.LogWarning("[2FA] OIDC picture sync skipped for {User}: unsupported content-type '{Mime}'", user.Username, mime);
+            return;
+        }
+
+        const long maxBytes = 10 * 1024 * 1024;
+        if (resp.Content.Headers.ContentLength is long len && len > maxBytes)
+        {
+            _logger.LogWarning("[2FA] OIDC picture sync skipped for {User}: image too large ({Len} bytes)", user.Username, len);
+            return;
+        }
+
+        var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+        if (bytes.Length == 0 || bytes.Length > maxBytes)
+        {
+            _logger.LogWarning("[2FA] OIDC picture sync skipped for {User}: empty or oversized image ({Len} bytes)", user.Username, bytes.Length);
+            return;
+        }
+
+        var userDataPath = Path.Combine(_serverConfig.ApplicationPaths.UserConfigurationDirectoryPath, user.Username);
+        Directory.CreateDirectory(userDataPath);
+
+        if (user.ProfileImage is not null)
+        {
+            await _userManager.ClearProfileImageAsync(user).ConfigureAwait(false);
+        }
+
+        user.ProfileImage = new ImageInfo(Path.Combine(userDataPath, "profile" + ext));
+
+        using (var ms = new MemoryStream(bytes))
+        {
+            await _providerManager.SaveImage(ms, mime, user.ProfileImage.Path).ConfigureAwait(false);
+        }
+
+        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+
+        // Record the synced URL so the next sign-in skips an unchanged avatar.
+        await _store.MutateAsync(user.Id, ud =>
+        {
+            var l = ud.SsoLinks.FirstOrDefault(x => x.ProviderId == provider.Id);
+            if (l is not null) l.SyncedPictureUrl = pictureUrl;
+        }).ConfigureAwait(false);
+
+        _logger.LogInformation("[2FA] OIDC synced profile picture for {User} from provider {Provider}", user.Username, provider.Id);
     }
 
     /// <summary>Try to find a Jellyfin user matching the IdP claims. Order:
@@ -841,7 +1024,8 @@ public class OidcService : IDisposable
         bool EmailVerified,
         string Username,
         string[] Groups,
-        string[] Amr);
+        string[] Amr,
+        string Picture);
 
     private async Task<ClaimsBundle> VerifyIdTokenAsync(OidcProvider provider, Discovery disc, string idToken, string? expectedNonce)
     {
@@ -983,7 +1167,14 @@ public class OidcService : IDisposable
 
         var amr = jwt.Claims.Where(c => c.Type == "amr").Select(c => c.Value).ToArray();
 
-        return new ClaimsBundle(sub, email, emailVerified, username, groups, amr);
+        // [v2.5.10] (#66) avatar URL. Honor the provider's configured claim
+        // name, falling back to the standard OIDC `picture` claim.
+        var pictureClaimName = string.IsNullOrWhiteSpace(provider.PictureClaim) ? "picture" : provider.PictureClaim;
+        var picture = jwt.Claims.FirstOrDefault(c => c.Type == pictureClaimName)?.Value
+            ?? jwt.Claims.FirstOrDefault(c => c.Type == "picture")?.Value
+            ?? string.Empty;
+
+        return new ClaimsBundle(sub, email, emailVerified, username, groups, amr, picture);
     }
 
     // Issue #29: fetch /userinfo and extract groups/email/username claims.
@@ -1005,9 +1196,9 @@ public class OidcService : IDisposable
         return ExtractClaimsFromUserInfo(json);
     }
 
-    internal record UserInfoExtract(string[] Groups, string Email, bool EmailVerified, string Username)
+    internal record UserInfoExtract(string[] Groups, string Email, bool EmailVerified, string Username, string Picture)
     {
-        public static UserInfoExtract Empty { get; } = new(Array.Empty<string>(), string.Empty, false, string.Empty);
+        public static UserInfoExtract Empty { get; } = new(Array.Empty<string>(), string.Empty, false, string.Empty, string.Empty);
     }
 
     /// <summary>Extract groups+roles+email+username claims from a userinfo
@@ -1075,7 +1266,12 @@ public class OidcService : IDisposable
             username = n.GetString() ?? string.Empty;
         }
 
-        return new UserInfoExtract(groups.ToArray(), email, emailVerified, username);
+        // [v2.5.10] (#66) avatar URL from userinfo (standard `picture` claim).
+        var picture = json.TryGetProperty("picture", out var pic) && pic.ValueKind == JsonValueKind.String
+            ? pic.GetString() ?? string.Empty
+            : string.Empty;
+
+        return new UserInfoExtract(groups.ToArray(), email, emailVerified, username, picture);
     }
 
     // Back-compat shim — earlier test files call ExtractGroupsFromJson.
