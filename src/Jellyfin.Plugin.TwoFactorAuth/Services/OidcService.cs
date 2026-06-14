@@ -739,25 +739,13 @@ public class OidcService : IDisposable
             return;
         }
 
-        // Union of library IDs granted by every role the user holds.
-        var grantedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var map in provider.RoleLibraryMappings)
-        {
-            if (string.IsNullOrWhiteSpace(map.Role)) continue;
-            if (!groups.Any(g => g.Equals(map.Role, StringComparison.OrdinalIgnoreCase))) continue;
-            foreach (var id in map.LibraryIds.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
-            {
-                grantedIds.Add(id);
-            }
-        }
-
         // Validate against libraries that actually exist so a stale mapping ID
         // can't poison the policy with a dangling GUID.
         var existing = _libraryManager.GetVirtualFolders()
             .Select(v => v.ItemId)
             .Where(id => !string.IsNullOrEmpty(id))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var finalIds = grantedIds.Where(id => existing.Contains(id)).ToArray();
+        var finalIds = ComputeGrantedLibraryIds(provider.RoleLibraryMappings, groups, existing);
 
         user.SetPermission(PermissionKind.EnableAllFolders, false);
         user.SetPreference(PreferenceKind.EnabledFolders, finalIds);
@@ -766,6 +754,49 @@ public class OidcService : IDisposable
         _logger.LogInformation(
             "[2FA] OIDC set {Count} librar(ies) for {User} from {GroupCount} IdP group claim(s) via provider {Provider}",
             finalIds.Length, user.Username, groups.Length, provider.Id);
+    }
+
+    /// <summary>[v2.5.10] (issue #65) Pure mapping: given the user's IdP
+    /// group/role claims and the provider's role→library mappings, return the
+    /// distinct set of library IDs to grant — the UNION across every mapping
+    /// whose Role matches one of the user's groups (case-insensitive), filtered
+    /// to libraries that actually exist. Extracted as a static, dependency-free
+    /// method so the role-matching logic is unit-testable without a live IdP or
+    /// Jellyfin host. Returns an empty array when no role matches (caller turns
+    /// EnableAllFolders off, so the user then sees no libraries).</summary>
+    internal static string[] ComputeGrantedLibraryIds(
+        System.Collections.Generic.IReadOnlyList<OidcRoleLibraryMapping> mappings,
+        string[] groups,
+        System.Collections.Generic.ISet<string> existingLibraryIds)
+    {
+        var grantedIds = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (mappings is null || groups is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        foreach (var map in mappings)
+        {
+            if (map is null || string.IsNullOrWhiteSpace(map.Role))
+            {
+                continue;
+            }
+
+            if (!groups.Any(g => g != null && g.Equals(map.Role, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            foreach (var id in (map.LibraryIds ?? string.Empty)
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                grantedIds.Add(id);
+            }
+        }
+
+        return grantedIds
+            .Where(id => existingLibraryIds is null || existingLibraryIds.Contains(id))
+            .ToArray();
     }
 
     /// <summary>[v2.5.10] (issue #66, ZEROX7): download the IdP-provided avatar

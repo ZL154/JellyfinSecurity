@@ -48,9 +48,26 @@ public class LockoutMessageMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (await ShouldBlockAsync(context).ConfigureAwait(false))
+        // Only instrument the username/password login endpoint. Everything else
+        // flows straight through untouched.
+        if (!IsAuthenticateByName(context) || Plugin.Instance?.Configuration?.Enabled != true)
         {
-            _logger.LogInformation("[2FA] Login short-circuited with lockout message for a locked account.");
+            await _next(context).ConfigureAwait(false);
+            return;
+        }
+
+        // Resolve the account being signed in to (best-effort; null = unknown
+        // username or unreadable body → behave as a no-op pass-through).
+        var user = await ResolveAttemptedUserAsync(context).ConfigureAwait(false);
+
+        // 1. PRE-CHECK: a locked account is refused BEFORE the password is even
+        //    checked, with a recognizable body so inject.js can show a
+        //    "temporarily locked" message (Jellyfin strips the provider's
+        //    AuthenticationException message in production). IsLockedOutAsync
+        //    honours the admin exemption, so an exempt admin is never blocked.
+        if (user is not null && await IsLockedSafeAsync(user.Id).ConfigureAwait(false))
+        {
+            _logger.LogWarning("[2FA] Login refused for locked account '{User}'.", user.Username);
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync(
@@ -59,57 +76,112 @@ public class LockoutMessageMiddleware
             return;
         }
 
-        await _next(context).ConfigureAwait(false);
+        try
+        {
+            await _next(context).ConfigureAwait(false);
+        }
+        catch (MediaBrowser.Controller.Authentication.AuthenticationException)
+        {
+            // Bad credentials surface as a thrown AuthenticationException here
+            // when this middleware sits INSIDE Jellyfin's exception handler
+            // (the common ordering). Record the failed attempt, then let it
+            // propagate so the normal 401 is produced. We do NOT also run the
+            // status-based branch below in this case (we re-throw), so there's
+            // no double count.
+            if (user is not null)
+            {
+                try
+                {
+                    await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[2FA] lockout record (exception path) failed (non-fatal)");
+                }
+            }
+
+            throw;
+        }
+
+        // 2. POST: record the outcome so the per-account lockout actually tracks
+        //    PASSWORD attempts. The plugin's IAuthenticationProvider is NOT
+        //    invoked for users on Jellyfin's default password provider (only
+        //    OIDC/passkey users are routed to it), so this middleware is the
+        //    single universal hook for "wrong password -> lockout". This branch
+        //    covers pipeline orderings where the auth failure arrives as a 401
+        //    status rather than a thrown exception. Admin accounts are exempt
+        //    inside RecordFailedAttemptAsync (the counter still increments for
+        //    visibility, but LockoutEnd is never set).
+        if (user is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var status = context.Response.StatusCode;
+            if (status is >= 200 and < 300)
+            {
+                await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
+            }
+            else if (status == StatusCodes.Status401Unauthorized)
+            {
+                await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[2FA] lockout record/reset after login failed (non-fatal)");
+        }
     }
 
-    private async Task<bool> ShouldBlockAsync(HttpContext context)
+    private static bool IsAuthenticateByName(HttpContext context)
+    {
+        if (!HttpMethods.IsPost(context.Request.Method))
+        {
+            return false;
+        }
+
+        var path = (context.Request.Path.Value ?? string.Empty).TrimEnd('/');
+        return path.EndsWith("/Users/AuthenticateByName", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<bool> IsLockedSafeAsync(Guid userId)
     {
         try
         {
-            if (!HttpMethods.IsPost(context.Request.Method))
-            {
-                return false;
-            }
+            return await _store.IsLockedOutAsync(userId).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Fail OPEN — never block a login because the lockout check threw.
+            _logger.LogDebug(ex, "[2FA] lockout pre-check threw; passing the request through");
+            return false;
+        }
+    }
 
-            var path = (context.Request.Path.Value ?? string.Empty).TrimEnd('/');
-            if (!path.EndsWith("/Users/AuthenticateByName", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            var config = Plugin.Instance?.Configuration;
-            if (config is null || !config.Enabled)
-            {
-                return false;
-            }
-
+    private async Task<Jellyfin.Database.Implementations.Entities.User?> ResolveAttemptedUserAsync(HttpContext context)
+    {
+        try
+        {
             // The auth payload is tiny; refuse to buffer anything unexpectedly large.
             if (context.Request.ContentLength is > 8192)
             {
-                return false;
+                return null;
             }
 
             var username = await PeekUsernameAsync(context.Request).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(username))
             {
-                return false;
+                return null;
             }
 
-            var user = _userManager.GetUserByName(username);
-            if (user is null)
-            {
-                // Unknown username — don't reveal anything; let the normal 401 flow run.
-                return false;
-            }
-
-            return await _store.IsLockedOutAsync(user.Id).ConfigureAwait(false);
+            return _userManager.GetUserByName(username);
         }
         catch (Exception ex)
         {
-            // Fail OPEN — never block a login because the lockout-message
-            // pre-check threw.
-            _logger.LogDebug(ex, "[2FA] lockout-message pre-check failed; passing the request through");
-            return false;
+            _logger.LogDebug(ex, "[2FA] could not resolve attempted login user; passing through");
+            return null;
         }
     }
 
