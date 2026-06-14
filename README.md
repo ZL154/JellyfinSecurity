@@ -26,6 +26,7 @@
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity"><img src="https://img.shields.io/ossf-scorecard/github.com/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=OSSF%20Score&color=00a4dc" alt="OpenSSF Scorecard" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-254%20passing-00a4dc?style=for-the-badge&labelColor=000000&logo=xunit&logoColor=white" alt="Tests" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/blob/main/SECURITY.md"><img src="https://img.shields.io/badge/Security-Policy-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=gitbook&logoColor=white" alt="Security policy" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/wiki"><img src="https://img.shields.io/badge/Docs-Wiki-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc&logo=gitbook&logoColor=white" alt="Wiki" /></a>
 </p>
 
 <p align="center">
@@ -40,6 +41,8 @@
 Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email OTP, **OIDC/SSO sign-in**, brute-force IP banning, impossible-travel detection, per-user IP allowlist, device pairing, trusted-browser cookies, and a full audit log — all from one plugin.
 
 > **Why this exists:** for self-hosters who want a complete auth + hardening layer **without standing up a separate identity stack**. Full IdPs like Authentik (with OIDC or LDAP outposts) and Authelia work great with Jellyfin and offer features this plugin doesn't — they're often the right call for serious deployments. This plugin is for the case where you'd rather get TOTP, passkeys, OIDC sign-in, brute-force protection, impossible-travel detection, IP allowlist, audit logging, and a proper admin UI **as a single Jellyfin plugin** — no extra containers, no LDAP outpost, no proxy-auth header juggling, native Jellyfin user model end-to-end.
+
+> 📖 **New: step-by-step guides live in the [Wiki](https://github.com/ZL154/JellyfinSecurity/wiki)** — [Installation](https://github.com/ZL154/JellyfinSecurity/wiki/Installation), [First-Time Setup](https://github.com/ZL154/JellyfinSecurity/wiki/First-Time-Setup), [OIDC / SSO](https://github.com/ZL154/JellyfinSecurity/wiki/OIDC-SSO), [Account Protection](https://github.com/ZL154/JellyfinSecurity/wiki/Account-Protection), [Admin Guide](https://github.com/ZL154/JellyfinSecurity/wiki/Admin-Guide), and [Troubleshooting](https://github.com/ZL154/JellyfinSecurity/wiki/Troubleshooting).
 
 ---
 
