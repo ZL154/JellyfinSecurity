@@ -60,17 +60,19 @@
          IUserManager.Users in a way that broke the build. Bumping these to a
          newer 10.11.x is a deliberate change that requires verifying the
          plugin still compiles and behaves correctly against the new ABI. -->
-    <!-- [v2.5.10] Pinned to 10.11.10. Dependabot #59 bumped these to 10.11.11,
-         which silently RAISES the minimum Jellyfin runtime to 10.11.11 — the
-         compiled plugin then fails to load on any host < 10.11.11 ("incompatible
-         version of one of the shared libraries"), breaking every user on
-         10.11.10 or earlier. v2.5.9 built against 10.11.10 (the code uses the
-         ChangePassword(Guid,…) overload that only exists in 10.11.10+, so we
-         can't drop below that). 10.11.10 keeps the established supported floor.
-         Do not let Dependabot raise this without deliberately bumping the
+    <!-- [v2.5.10] Pinned to 10.11.9 — the LOWEST 10.11.x this code compiles
+         against, so the compiled plugin loads on the widest range of hosts
+         (10.11.9, 10.11.10, 10.11.11+; a plugin built against N loads on host
+         >= N). 10.11.7/10.11.8 fail because the OIDC password-hardening path
+         uses IUserManager.ChangePassword(Guid,…), an overload introduced in
+         10.11.9. v2.5.9 shipped pinned at 10.11.10; dropping to 10.11.9 is a
+         strict compatibility improvement. Dependabot #59 had bumped these to
+         10.11.11, which RAISES the minimum runtime and breaks loading on every
+         host < 10.11.11 ("incompatible version of one of the shared libraries")
+         — do not let it raise this without deliberately narrowing the
          supported-Jellyfin range. -->
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.10" />
-    <PackageReference Include="Jellyfin.Model" Version="10.11.10" />
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.9" />
+    <PackageReference Include="Jellyfin.Model" Version="10.11.9" />
   </ItemGroup>
 
   <ItemGroup>
