@@ -48,17 +48,40 @@ public class LockoutMessageMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
+        var config = Plugin.Instance?.Configuration;
+
         // Only instrument the username/password login endpoint. Everything else
         // flows straight through untouched.
-        if (!IsAuthenticateByName(context) || Plugin.Instance?.Configuration?.Enabled != true)
+        if (!IsAuthenticateByName(context) || config?.Enabled != true)
         {
             await _next(context).ConfigureAwait(false);
             return;
         }
 
+        // Read the submitted credentials once (best-effort; nulls = unreadable
+        // body → behave as a pass-through).
+        var (username, password) = await PeekCredentialsAsync(context.Request).ConfigureAwait(false);
+
+        // 0. EMPTY-PASSWORD GATE [v2.5.10] (issue #68, CWabbity). The provider
+        //    enforces BlockEmptyPasswordLogin too, but ONLY for plugin-routed
+        //    users (OIDC/passkey). Normal default-provider users never reach it,
+        //    so a null-hash account could still be signed into with a blank
+        //    password via this endpoint. Enforce it here for EVERY sign-in. OIDC
+        //    bridge tokens are non-empty, so this never blocks SSO.
+        if (config.BlockEmptyPasswordLogin && string.IsNullOrWhiteSpace(password))
+        {
+            _logger.LogWarning("[2FA] Login refused: empty password blocked (BlockEmptyPasswordLogin) for '{User}'.", username ?? "(unknown)");
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(
+                "{\"message\":\"Signing in with an empty password is not allowed. Please enter your password.\",\"emptyPasswordBlocked\":true}")
+                .ConfigureAwait(false);
+            return;
+        }
+
         // Resolve the account being signed in to (best-effort; null = unknown
-        // username or unreadable body → behave as a no-op pass-through).
-        var user = await ResolveAttemptedUserAsync(context).ConfigureAwait(false);
+        // username → the lockout/record steps below no-op).
+        var user = ResolveUserSafe(username);
 
         // 1. PRE-CHECK: a locked account is refused BEFORE the password is even
         //    checked, with a recognizable body so inject.js can show a
@@ -160,22 +183,15 @@ public class LockoutMessageMiddleware
         }
     }
 
-    private async Task<Jellyfin.Database.Implementations.Entities.User?> ResolveAttemptedUserAsync(HttpContext context)
+    private Jellyfin.Database.Implementations.Entities.User? ResolveUserSafe(string? username)
     {
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            return null;
+        }
+
         try
         {
-            // The auth payload is tiny; refuse to buffer anything unexpectedly large.
-            if (context.Request.ContentLength is > 8192)
-            {
-                return null;
-            }
-
-            var username = await PeekUsernameAsync(context.Request).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(username))
-            {
-                return null;
-            }
-
             return _userManager.GetUserByName(username);
         }
         catch (Exception ex)
@@ -185,34 +201,56 @@ public class LockoutMessageMiddleware
         }
     }
 
-    /// <summary>Read the JSON body's username without consuming it for the
-    /// downstream pipeline (EnableBuffering + rewind).</summary>
-    private static async Task<string?> PeekUsernameAsync(HttpRequest request)
+    /// <summary>Read the JSON body's Username + Pw without consuming it for the
+    /// downstream pipeline (EnableBuffering + rewind). Returns (null, null) on
+    /// any error or an unexpectedly large body — callers treat that as a
+    /// pass-through.</summary>
+    private static async Task<(string? Username, string? Password)> PeekCredentialsAsync(HttpRequest request)
     {
-        request.EnableBuffering();
-        string body;
-        using (var reader = new StreamReader(
-            request.Body, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true))
+        try
         {
-            body = await reader.ReadToEndAsync().ConfigureAwait(false);
+            // The auth payload is tiny; refuse to buffer anything unexpectedly large.
+            if (request.ContentLength is > 8192)
+            {
+                return (null, null);
+            }
+
+            request.EnableBuffering();
+            string body;
+            using (var reader = new StreamReader(
+                request.Body, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true))
+            {
+                body = await reader.ReadToEndAsync().ConfigureAwait(false);
+            }
+
+            request.Body.Position = 0;
+
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                return (null, null);
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return (null, null);
+            }
+
+            return (
+                GetString(doc.RootElement, "Username", "username", "Name", "name"),
+                GetString(doc.RootElement, "Pw", "Password", "pw", "password"));
         }
-
-        request.Body.Position = 0;
-
-        if (string.IsNullOrWhiteSpace(body))
+        catch
         {
-            return null;
+            return (null, null);
         }
+    }
 
-        using var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.ValueKind != JsonValueKind.Object)
+    private static string? GetString(JsonElement root, params string[] names)
+    {
+        foreach (var name in names)
         {
-            return null;
-        }
-
-        foreach (var name in new[] { "Username", "username", "Name", "name" })
-        {
-            if (doc.RootElement.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String)
+            if (root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String)
             {
                 return el.GetString();
             }

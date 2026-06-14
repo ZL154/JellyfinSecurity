@@ -233,6 +233,10 @@
                     if (body && (body.accountLocked || body.AccountLocked)) {
                         showLockoutToast(body.message || body.Message);
                     }
+                    // [v2.5.10] (#68) empty-password blocked message.
+                    if (body && (body.emptyPasswordBlocked || body.EmptyPasswordBlocked)) {
+                        showLockoutToast(body.message || body.Message);
+                    }
                     if (isAuthPath(url) && handleTwoFactorBody(body)) {
                         return new Promise(function () {});
                     }
