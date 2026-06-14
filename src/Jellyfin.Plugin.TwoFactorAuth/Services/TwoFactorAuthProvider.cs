@@ -320,6 +320,34 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         var jellyfinUser = UserManager.GetUserByName(username);
 
         // ------------------------------------------------------------------
+        // 1b. [v2.5.10] (issue #55) PER-ACCOUNT LOCKOUT now covers PASSWORD
+        //     brute-force, not just failed 2FA codes. Refuse a locked account
+        //     BEFORE the password is even checked — regardless of 2FA status —
+        //     so a locked account can't be probed and a correct password can't
+        //     silently reset the lock. IsLockedOutAsync honours the admin
+        //     exemption (ExemptAdministratorsFromLockout), so an exempt
+        //     administrator is never blocked here.
+        // ------------------------------------------------------------------
+        if (config?.Enabled == true && jellyfinUser is not null
+            && await _store.IsLockedOutAsync(jellyfinUser.Id).ConfigureAwait(false))
+        {
+            _logger.LogWarning("[2FA] Login refused — user '{Username}' is locked out (too many failed attempts)", username);
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = jellyfinUser.Id,
+                Username = username,
+                RemoteIp = authIp ?? string.Empty,
+                DeviceId = GetDeviceHeader("X-Emby-Device-Id", "DeviceId") ?? string.Empty,
+                DeviceName = GetDeviceHeader("X-Emby-Device-Name", "Device") ?? string.Empty,
+                Result = AuditResult.Locked,
+                Method = "login",
+                Details = "Account locked out (pre-password lockout gate)"
+            }).ConfigureAwait(false);
+            throw new AuthenticationException("Account is temporarily locked due to too many failed attempts. Try again later.");
+        }
+
+        // ------------------------------------------------------------------
         // 2. Find the default (password) provider and delegate credential
         //    validation to it, making sure we don't recurse into ourselves.
         //    Jellyfin 10.11's DefaultAuthenticationProvider only implements
@@ -356,7 +384,25 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         catch (AuthenticationException)
         {
             _ipBans.RecordFailure(authIp ?? string.Empty);
+            // [v2.5.10] (issue #55) Count a wrong PASSWORD toward the per-account
+            // lockout (previously only failed 2FA codes counted). Admin-exempt
+            // inside RecordFailedAttemptAsync. Only for a resolved user — a wrong
+            // USERNAME has no account to lock.
+            if (config?.Enabled == true && jellyfinUser is not null)
+            {
+                await _store.RecordFailedAttemptAsync(jellyfinUser.Id).ConfigureAwait(false);
+            }
+
             throw;
+        }
+
+        // [v2.5.10] (issue #55) Correct password → clear the failed-attempt
+        // counter so a legitimate sign-in resets the lockout progression (the
+        // account isn't locked here — a locked account was already refused by
+        // the 1b gate above before the password was checked).
+        if (config?.Enabled == true && jellyfinUser is not null)
+        {
+            await _store.ResetFailedAttemptsAsync(jellyfinUser.Id).ConfigureAwait(false);
         }
 
         // ------------------------------------------------------------------

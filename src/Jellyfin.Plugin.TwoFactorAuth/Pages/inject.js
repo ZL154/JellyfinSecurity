@@ -167,6 +167,29 @@
         return headers;
     }
 
+    // [v2.5.10] (#55) Show a clear "account temporarily locked" toast on the
+    // login page. The server (LockoutMessageMiddleware) returns a 401 with
+    // {accountLocked:true,message} when a locked account tries to sign in;
+    // Jellyfin's own UI would otherwise show only its generic
+    // "Invalid username or password".
+    function showLockoutToast(msg) {
+        try {
+            var text = msg || 'Your account is temporarily locked due to too many failed sign-in attempts. Please try again later.';
+            var existing = document.getElementById('tfa-lockout-toast');
+            if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+            var d = document.createElement('div');
+            d.id = 'tfa-lockout-toast';
+            d.setAttribute('role', 'alert');
+            d.textContent = text;
+            d.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);' +
+                'z-index:99999;background:#b00020;color:#fff;padding:14px 22px;border-radius:8px;' +
+                'font-size:15px;line-height:1.4;font-family:inherit;box-shadow:0 4px 16px rgba(0,0,0,.45);' +
+                'max-width:90%;text-align:center;';
+            document.body.appendChild(d);
+            setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 8000);
+        } catch (e) {}
+    }
+
     var origFetch = window.fetch ? window.fetch.bind(window) : null;
     if (origFetch) {
         window.fetch = function (input, init) {
@@ -205,6 +228,10 @@
                     // before the redirect happens.
                     if (body && (body.twoFactorRequired || body.TwoFactorRequired)) {
                         setTfaPending();
+                    }
+                    // [v2.5.10] (#55) account-lockout message on the login page.
+                    if (body && (body.accountLocked || body.AccountLocked)) {
+                        showLockoutToast(body.message || body.Message);
                     }
                     if (isAuthPath(url) && handleTwoFactorBody(body)) {
                         return new Promise(function () {});
