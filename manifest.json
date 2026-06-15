@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/ZL154/JellyfinSecurity/main/assets/logo.png",
     "versions": [
       {
+        "version": "2.5.11.0",
+        "changelog": "v2.5.11 - OIDC email auto-fill, disable-password login, email password recovery. NEW: disable username+password sign-in (OIDC / Quick Connect only) with three independently-toggleable escape hatches - administrators may always use a password, LAN clients may always use a password (i.e. disable for remote users only), and an explicit exempt-CIDR list - so a failed IdP can't lock everyone out (#69); per-provider custom login button text + icon/logo (#69); self-service password recovery by email - a one-time, 30-minute, single-use reset link, SMTP-gated, rate-limited per IP and per identifier, with always-generic responses so it can't be used to discover which accounts exist (#71); per-provider configurable OIDC email claim for IdPs that use a non-standard claim such as internal_email (#70). FIXES: the IdP email now populates the Jellyfin user's email field on sign-in when it isn't already set - used for email OTP and shown in the Users tab, and a manually-entered email is never overwritten (#70); a stale email record left behind by a DELETED Jellyfin account no longer counts as a duplicate that wrongly tripped the ambiguous-email guard and blocked OIDC sign-in for the surviving user; failed OIDC sign-ins now show a clear, actionable reason on the login page (no matching account, ambiguous email, not in an allowed group, MFA required, expired session) instead of silently bouncing - sensitive token details stay server-side. Supports Jellyfin 10.11.9 and newer. In-place upgrade from any 2.5.x, no schema or data migration. 266/266 tests pass on .NET 9. Sigstore-signed + SLSA build-provenance attested.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.5.11/Jellyfin.Plugin.TwoFactorAuthv2.5.11.0.zip",
+        "checksum": "C2A1F259ABFBF568DB2AA474FB3F95A4",
+        "timestamp": "2026-06-15T00:44:38Z"
+      },
+      {
         "version": "2.5.10.0",
         "changelog": "v2.5.10 - OIDC role & picture sync, real account lockout, empty-password gate. NEW: role-based library access from IdP group/role claims (#65) - per-provider, with an admin-UI mapping editor; works with identity providers that send a groups/roles claim (Authentik, Authelia, Keycloak, and similar; Google does not send groups). Profile-picture sync copies the IdP avatar into Jellyfin on sign-in (#66) - per-provider, SSRF-guarded, content-type-restricted. Per-provider 'always show the account chooser' (prompt=select_account) so the IdP shows its account picker instead of silently reusing an existing session - useful on shared machines / multiple accounts. 'Block sign-in with an empty password' is now an admin-UI toggle (was config-file-only). FIXES: account lockout now counts failed PASSWORDS, not just 2FA codes (#55) - enforced before the password check, with a clear 'temporarily locked' message on the login page, and administrators are exempt by default so the lockout cannot be used to deny-of-service the admin account (the per-IP brute-force ban still protects them). Auto-created OIDC users could be signed into with an empty password on Jellyfin 10.11.9+ because a later internal save overwrote the freshly-hardened password hash (#68) - fixed, and the empty-password gate now applies to every sign-in (not just OIDC/passkey users), so the new toggle also protects pre-existing passwordless accounts. OIDC identity matching is stricter: a sign-in is refused when the IdP email matches more than one Jellyfin user, and an administrator can never be resolved or auto-linked via IdP-asserted email (admins link explicitly from Setup). Also filled missing translations across all 8 locales. Supports Jellyfin 10.11.9 and newer. In-place upgrade from any 2.5.x, no schema or data migration. 263/263 tests pass on .NET 9. Sigstore-signed + SLSA build-provenance attested.",
         "targetAbi": "10.11.0.0",
@@ -194,7 +202,7 @@
       },
       {
         "version": "2.4.0.0",
-        "changelog": "v2.4.0 \u2014 Security hardening, per-role policy, breach-password check, and 'Where am I signed in?'. Security: 10 fixes from internal review (email enumeration on 2FA endpoints rate-limited, atomic challenge consumption to close a passkey replay window, auth-path check hoisted before body buffering, audit-log label sanitization, passkey assertion rate limit, plus L-tier hardening). Policy: new EnforcementScope setting (Optional / Admins only / All users) replaces the old all-or-nothing toggle \u2014 Admins-only is the recommended pattern for shared media servers. HIBP (opt-in): on sign-in, the first 5 hex chars of SHA-1(password) are sent to api.pwnedpasswords.com (k-anonymity); a breach hit writes an audit entry and warning log but never blocks sign-in; fails open on outage. Sessions: Setup page now shows a 'Where am I signed in?' panel of your active devices and lets you self-revoke any of them. In-place upgrade.",
+        "changelog": "v2.4.0 — Security hardening, per-role policy, breach-password check, and 'Where am I signed in?'. Security: 10 fixes from internal review (email enumeration on 2FA endpoints rate-limited, atomic challenge consumption to close a passkey replay window, auth-path check hoisted before body buffering, audit-log label sanitization, passkey assertion rate limit, plus L-tier hardening). Policy: new EnforcementScope setting (Optional / Admins only / All users) replaces the old all-or-nothing toggle — Admins-only is the recommended pattern for shared media servers. HIBP (opt-in): on sign-in, the first 5 hex chars of SHA-1(password) are sent to api.pwnedpasswords.com (k-anonymity); a breach hit writes an audit entry and warning log but never blocks sign-in; fails open on outage. Sessions: Setup page now shows a 'Where am I signed in?' panel of your active devices and lets you self-revoke any of them. In-place upgrade.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.4.0/Jellyfin.Plugin.TwoFactorAuthv2.4.0.0.zip",
         "checksum": "EDE9E10A2658C8EBD8AEB002D19F1355",
@@ -202,7 +210,7 @@
       },
       {
         "version": "2.3.2.0",
-        "changelog": "v2.3.2 \u2014 Dependency refresh + supply chain hardening. Ships the dependabot updates that landed after v2.3.1 was cut: QuestPDF 2024.12 to 2026.5 (recovery code PDF rendering), Microsoft.IdentityModel.Tokens + System.IdentityModel.Tokens.Jwt 8.0 to 8.18 (OIDC JWT validation), MaxMind.Db 4.1 to 5.0 (GeoIP for impossible-travel detection). Repo: NuGet packages.lock.json now committed for both csproj files; CI restores in locked-mode so transitive dep drift fails fast. Workflow Token-Permissions tightened to read-all top-level with per-job scoped writes only where actually needed. No plugin code changes since v2.3.1 \u2014 this release is purely the merged dep updates and supply chain work. In-place upgrade.",
+        "changelog": "v2.3.2 — Dependency refresh + supply chain hardening. Ships the dependabot updates that landed after v2.3.1 was cut: QuestPDF 2024.12 to 2026.5 (recovery code PDF rendering), Microsoft.IdentityModel.Tokens + System.IdentityModel.Tokens.Jwt 8.0 to 8.18 (OIDC JWT validation), MaxMind.Db 4.1 to 5.0 (GeoIP for impossible-travel detection). Repo: NuGet packages.lock.json now committed for both csproj files; CI restores in locked-mode so transitive dep drift fails fast. Workflow Token-Permissions tightened to read-all top-level with per-job scoped writes only where actually needed. No plugin code changes since v2.3.1 — this release is purely the merged dep updates and supply chain work. In-place upgrade.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.3.2/Jellyfin.Plugin.TwoFactorAuthv2.3.2.0.zip",
         "checksum": "6012ECD05CB140E07E19BB6633A303F6",
@@ -210,7 +218,7 @@
       },
       {
         "version": "2.3.1.0",
-        "changelog": "v2.3.1 \u2014 Security hardening + supply chain. Real fixes: SSRF allowlist for webhook delivery is now correctly visible to the HttpClient ConnectCallback across awaits (was silently broken due to ThreadStatic vs AsyncLocal); OIDC token-exchange request body is now disposed deterministically; full email addresses are no longer written to plaintext logs (masked to a***@example.com). Supply chain: every GitHub Action SHA-pinned, Docker SDK image pinned by digest, release zip is now Sigstore-signed (verify with cosign verify-blob), CodeQL + OpenSSF Scorecard scanning every push, branch protection on main, dependabot active. Underlying NuGet deps refreshed via merged dependabot PRs. No breaking changes; in-place upgrade.",
+        "changelog": "v2.3.1 — Security hardening + supply chain. Real fixes: SSRF allowlist for webhook delivery is now correctly visible to the HttpClient ConnectCallback across awaits (was silently broken due to ThreadStatic vs AsyncLocal); OIDC token-exchange request body is now disposed deterministically; full email addresses are no longer written to plaintext logs (masked to a***@example.com). Supply chain: every GitHub Action SHA-pinned, Docker SDK image pinned by digest, release zip is now Sigstore-signed (verify with cosign verify-blob), CodeQL + OpenSSF Scorecard scanning every push, branch protection on main, dependabot active. Underlying NuGet deps refreshed via merged dependabot PRs. No breaking changes; in-place upgrade.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.3.1/Jellyfin.Plugin.TwoFactorAuthv2.3.1.0.zip",
         "checksum": "1C7E55F856A1236506E79C2341C4059B",
@@ -218,7 +226,7 @@
       },
       {
         "version": "2.3.0.0",
-        "changelog": "v2.3.0 \u2014 Security maintenance and forced enrollment. Fixed some security issues, strengthened sign-in handling, added a proper forced-enrollment flow when Require 2FA for all users is enabled, improved OIDC/SSO reliability, and fixed a Settings-page layout overlap. Public notes are intentionally high-level.",
+        "changelog": "v2.3.0 — Security maintenance and forced enrollment. Fixed some security issues, strengthened sign-in handling, added a proper forced-enrollment flow when Require 2FA for all users is enabled, improved OIDC/SSO reliability, and fixed a Settings-page layout overlap. Public notes are intentionally high-level.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.3.0/Jellyfin.Plugin.TwoFactorAuthv2.3.0.zip",
         "checksum": "7109E4F12650EAF54695D84C3F0610FD",
@@ -226,7 +234,7 @@
       },
       {
         "version": "2.2.3.0",
-        "changelog": "v2.2.3 \u2014 PDF font fix. Recovery-code PDF now actually renders the text. v2.2.2 swapped the font from Fonts.SegoeUI to 'Lato' thinking QuestPDF auto-loaded Lato \u2014 it doesn't, the constant is just a name. Skia's fallback found nothing usable inside the Jellyfin Docker container (no system fonts) and rendered every glyph as an empty box. Lato-Regular and Lato-Bold are now embedded as resources in the plugin DLL and registered with QuestPDF's FontManager in the RecoveryCodePdfService static constructor. Works on any container regardless of installed system fonts. No breaking changes; in-place upgrade.",
+        "changelog": "v2.2.3 — PDF font fix. Recovery-code PDF now actually renders the text. v2.2.2 swapped the font from Fonts.SegoeUI to 'Lato' thinking QuestPDF auto-loaded Lato — it doesn't, the constant is just a name. Skia's fallback found nothing usable inside the Jellyfin Docker container (no system fonts) and rendered every glyph as an empty box. Lato-Regular and Lato-Bold are now embedded as resources in the plugin DLL and registered with QuestPDF's FontManager in the RecoveryCodePdfService static constructor. Works on any container regardless of installed system fonts. No breaking changes; in-place upgrade.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.2.3/Jellyfin.Plugin.TwoFactorAuthv2.2.3.zip",
         "checksum": "CB8AD6521A47232BA6212335B43542AF",
@@ -234,7 +242,7 @@
       },
       {
         "version": "2.2.2.0",
-        "changelog": "v2.2.2 \u2014 UX polish. Recovery-code PDF now renders correctly inside Linux containers (was producing empty glyph boxes due to Windows-only fonts; switched to QuestPDF's bundled Lato font). 2FA challenge page now exposes a Recovery code tab alongside Authenticator and Email so a user without their authenticator can sign in directly. All Setup-page confirmation prompts (regenerate codes, revoke device / app password / trusted browser, disable 2FA, emergency lockout) now use a dark-themed in-page modal instead of the browser native confirm() popup. No breaking changes; in-place upgrade.",
+        "changelog": "v2.2.2 — UX polish. Recovery-code PDF now renders correctly inside Linux containers (was producing empty glyph boxes due to Windows-only fonts; switched to QuestPDF's bundled Lato font). 2FA challenge page now exposes a Recovery code tab alongside Authenticator and Email so a user without their authenticator can sign in directly. All Setup-page confirmation prompts (regenerate codes, revoke device / app password / trusted browser, disable 2FA, emergency lockout) now use a dark-themed in-page modal instead of the browser native confirm() popup. No breaking changes; in-place upgrade.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.2.2/Jellyfin.Plugin.TwoFactorAuthv2.2.2.zip",
         "checksum": "D815F0A3BE2999A77C688B28F239F989",
@@ -242,7 +250,7 @@
       },
       {
         "version": "2.2.1.0",
-        "changelog": "v2.2.1 \u2014 Multi-architecture support. Recovery-code PDF generation now works on linux-x64, linux-arm64, and linux-musl-x64 containers (previously only linux-x64 native libs shipped). Runtime architecture + libc detection in RecoveryCodePdfService picks the right RID's native libs at startup, copies them next to the plugin DLL where QuestPDF probes, and loads them in dependency order. PDF init wraps in try/catch so a failed native load no longer takes the rest of the plugin down. Build pipeline rewritten as a fat-package builder + new GitHub Actions workflow that builds inside dotnet sdk:9.0 Docker. Multi-arch fix contributed by @glauciocampos.",
+        "changelog": "v2.2.1 — Multi-architecture support. Recovery-code PDF generation now works on linux-x64, linux-arm64, and linux-musl-x64 containers (previously only linux-x64 native libs shipped). Runtime architecture + libc detection in RecoveryCodePdfService picks the right RID's native libs at startup, copies them next to the plugin DLL where QuestPDF probes, and loads them in dependency order. PDF init wraps in try/catch so a failed native load no longer takes the rest of the plugin down. Build pipeline rewritten as a fat-package builder + new GitHub Actions workflow that builds inside dotnet sdk:9.0 Docker. Multi-arch fix contributed by @glauciocampos.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.2.1/Jellyfin.Plugin.TwoFactorAuthv2.2.1.zip",
         "checksum": "2F4623348CB90130A4A7B89D50DDBAF8",
@@ -250,7 +258,7 @@
       },
       {
         "version": "2.2.0.0",
-        "changelog": "v2.2 \u2014 Hardening + performance. Internal hardening pass on the auth pipeline (cookie attributes behind reverse proxies, stricter handling of forwarded headers, additional input bounds). Performance: in-memory caches for hot paths (per-user data, audit log, parsed CIDRs, patched /web/ index), background-flushed audit log instead of per-event rewrite, faster login latency by replacing a polling wait with immediate signaling. Operational: trusted-browser cookie now carries the Secure flag correctly when Jellyfin is behind a TLS-terminating proxy (Cloudflare, Caddy, nginx) \u2014 set TrustForwardedFor + TrustedProxyCidrs in plugin settings to enable. Audit log is now compact JSON on disk; existing logs continue to read fine. No breaking changes; in-place upgrade.",
+        "changelog": "v2.2 — Hardening + performance. Internal hardening pass on the auth pipeline (cookie attributes behind reverse proxies, stricter handling of forwarded headers, additional input bounds). Performance: in-memory caches for hot paths (per-user data, audit log, parsed CIDRs, patched /web/ index), background-flushed audit log instead of per-event rewrite, faster login latency by replacing a polling wait with immediate signaling. Operational: trusted-browser cookie now carries the Secure flag correctly when Jellyfin is behind a TLS-terminating proxy (Cloudflare, Caddy, nginx) — set TrustForwardedFor + TrustedProxyCidrs in plugin settings to enable. Audit log is now compact JSON on disk; existing logs continue to read fine. No breaking changes; in-place upgrade.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.2.0/Jellyfin.Plugin.TwoFactorAuthv2.2.0.zip",
         "checksum": "29EF94596334EA4E67E9E34AEAD865B2",
@@ -258,7 +266,7 @@
       },
       {
         "version": "2.1.0.0",
-        "changelog": "v2.1 \u2014 Passkey primary login. NEW: 'Sign in with passkey' button on the standard login page \u2014 users with a passkey registered can sign in with one click (type username \u2192 click button \u2192 authenticator prompt \u2192 done), no password needed. Uses the same one-shot bridge-token mechanism as OIDC. WebAuthn requires a secure context (HTTPS or localhost); button is hidden otherwise. FIX: inject.js now sent with Cache-Control: no-store so CDN/reverse-proxy caching doesn't pin old script after plugin upgrades \u2014 if you were on a 24h Cloudflare cache, new buttons + fixes now appear immediately. Heads-up: Cloudflare's default Page Rules may still cache JS; add a Bypass rule for /TwoFactorAuth/* to guarantee immediate propagation.",
+        "changelog": "v2.1 — Passkey primary login. NEW: 'Sign in with passkey' button on the standard login page — users with a passkey registered can sign in with one click (type username → click button → authenticator prompt → done), no password needed. Uses the same one-shot bridge-token mechanism as OIDC. WebAuthn requires a secure context (HTTPS or localhost); button is hidden otherwise. FIX: inject.js now sent with Cache-Control: no-store so CDN/reverse-proxy caching doesn't pin old script after plugin upgrades — if you were on a 24h Cloudflare cache, new buttons + fixes now appear immediately. Heads-up: Cloudflare's default Page Rules may still cache JS; add a Bypass rule for /TwoFactorAuth/* to guarantee immediate propagation.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.1.0/Jellyfin.Plugin.TwoFactorAuthv2.1.0.zip",
         "checksum": "09900B2B4B741CEFE6DCA77D13E09576",
@@ -266,7 +274,7 @@
       },
       {
         "version": "2.0.0.0",
-        "changelog": "v2.0.0 \u2014 Jellyfin Security. Plugin rename from 'Two-Factor Authentication' to 'Jellyfin Security' (GUID unchanged, upgrades in place). NEW: OIDC / SSO sign-in (Google, Microsoft/Entra, Apple, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, or any OIDC-compliant IdP) with PKCE S256, id_token signature + issuer + audience + nonce validation, optional AMR-based IdP-MFA enforcement, optional group allowlist, per-provider auto-create toggle. NEW: brute-force IP banning \u2014 configurable threshold + window + duration, persisted across restarts, LAN / trusted-proxy / exempt CIDRs never banned, admin IP Bans tab lists/unbans. NEW: impossible-travel detection \u2014 Haversine distance vs time exceeding configured km/h fires a notification via existing channels, uses GeoLite2-City. NEW: per-user IP allowlist \u2014 pin high-value accounts to specific CIDRs, self-service in Setup. NEW: login-page provider buttons, Linked Sign-In Methods card in user Setup, pill-style admin tab bar, new Sign-in Methods and IP Bans tabs, new Settings sections for brute-force + impossible-travel. SECURITY: X-Forwarded-Host/Proto only honoured when direct peer is in TrustedProxyCidrs; rate limit on /Oidc/Login (20/5min); bridge HTML uses JsonSerializer.Serialize for JS-context injection + strict CSP + Cache-Control no-store; returnUrl validated to same-origin relative paths. BUG FIXES: TOTP replay cache cleared on new-secret generation (fixed 'Invalid code' false-positive when setup ran twice); Setup page no longer shows NOT SET UP for non-admin users; default-auth provider delegation now uses IRequiresResolvedUser correctly (Jellyfin 10.11's DefaultAuthenticationProvider throws NotImplementedException on the plain Authenticate overload); provider no longer throws AuthenticationException carrying 2FA challenge JSON (Jellyfin ate the payload \u2014 middleware path handles the challenge response body now). Bundles IdentityModel.OidcClient, Microsoft.IdentityModel.Tokens, System.IdentityModel.Tokens.Jwt in addition to the existing v1.4 deps.",
+        "changelog": "v2.0.0 — Jellyfin Security. Plugin rename from 'Two-Factor Authentication' to 'Jellyfin Security' (GUID unchanged, upgrades in place). NEW: OIDC / SSO sign-in (Google, Microsoft/Entra, Apple, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, or any OIDC-compliant IdP) with PKCE S256, id_token signature + issuer + audience + nonce validation, optional AMR-based IdP-MFA enforcement, optional group allowlist, per-provider auto-create toggle. NEW: brute-force IP banning — configurable threshold + window + duration, persisted across restarts, LAN / trusted-proxy / exempt CIDRs never banned, admin IP Bans tab lists/unbans. NEW: impossible-travel detection — Haversine distance vs time exceeding configured km/h fires a notification via existing channels, uses GeoLite2-City. NEW: per-user IP allowlist — pin high-value accounts to specific CIDRs, self-service in Setup. NEW: login-page provider buttons, Linked Sign-In Methods card in user Setup, pill-style admin tab bar, new Sign-in Methods and IP Bans tabs, new Settings sections for brute-force + impossible-travel. SECURITY: X-Forwarded-Host/Proto only honoured when direct peer is in TrustedProxyCidrs; rate limit on /Oidc/Login (20/5min); bridge HTML uses JsonSerializer.Serialize for JS-context injection + strict CSP + Cache-Control no-store; returnUrl validated to same-origin relative paths. BUG FIXES: TOTP replay cache cleared on new-secret generation (fixed 'Invalid code' false-positive when setup ran twice); Setup page no longer shows NOT SET UP for non-admin users; default-auth provider delegation now uses IRequiresResolvedUser correctly (Jellyfin 10.11's DefaultAuthenticationProvider throws NotImplementedException on the plain Authenticate overload); provider no longer throws AuthenticationException carrying 2FA challenge JSON (Jellyfin ate the payload — middleware path handles the challenge response body now). Bundles IdentityModel.OidcClient, Microsoft.IdentityModel.Tokens, System.IdentityModel.Tokens.Jwt in addition to the existing v1.4 deps.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v2.0.0/Jellyfin.Plugin.TwoFactorAuthv2.0.0.zip",
         "checksum": "ACD2EC0221D308D773D3755951E1DDA3",
@@ -274,7 +282,7 @@
       },
       {
         "version": "1.4.2.0",
-        "changelog": "CRITICAL fix for 1.4.0/1.4.1: the /web/ index page was rendered as raw gzip bytes in the browser (wall of garbage, Jellyfin UI refused to load) when Kestrel served the pre-compressed index.html.gz static asset. IndexHtmlInjectionMiddleware now strips Accept-Encoding on the incoming /web/ request so the upstream responds with identity-encoded HTML we can safely inject into. Only applied to /web/ /web /web/index.html \u2014 other assets still compress normally. Upgrade if you saw mojibake on the web UI.",
+        "changelog": "CRITICAL fix for 1.4.0/1.4.1: the /web/ index page was rendered as raw gzip bytes in the browser (wall of garbage, Jellyfin UI refused to load) when Kestrel served the pre-compressed index.html.gz static asset. IndexHtmlInjectionMiddleware now strips Accept-Encoding on the incoming /web/ request so the upstream responds with identity-encoded HTML we can safely inject into. Only applied to /web/ /web /web/index.html — other assets still compress normally. Upgrade if you saw mojibake on the web UI.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.4.2/Jellyfin.Plugin.TwoFactorAuthv1.4.2.zip",
         "checksum": "118B6DBDC30FE860161B854CE49702E6",
@@ -282,7 +290,7 @@
       },
       {
         "version": "1.4.1.0",
-        "changelog": "Bug-fix release. CRITICAL: Samsung Tizen / Smart TV clients behind a reverse proxy (Caddy, nginx, Cloudflare, etc) couldn't sign in after the v1.4 upgrade \u2014 their AuthenticateByName requests arrive at the server without X-Emby-Device-Id or a parseable X-Emby-Authorization, so the plugin couldn't extract a deviceId and the paired-device/registered-device bypasses never fired, forcing the TV through a 2FA challenge it can't render. Fixed: the enforcement middleware now falls back to reading SessionInfo.DeviceId from Jellyfin's own auth response body when request headers don't carry a deviceId. RegisteredDeviceIds lookup now uses the same normalisation as PairedDevices so Jellyfin Web UA-hash deviceIds match across session-timestamp suffix changes (Tizen webview restarts). Also removed leftover dev-only diagnostic log lines accumulated during this investigation.",
+        "changelog": "Bug-fix release. CRITICAL: Samsung Tizen / Smart TV clients behind a reverse proxy (Caddy, nginx, Cloudflare, etc) couldn't sign in after the v1.4 upgrade — their AuthenticateByName requests arrive at the server without X-Emby-Device-Id or a parseable X-Emby-Authorization, so the plugin couldn't extract a deviceId and the paired-device/registered-device bypasses never fired, forcing the TV through a 2FA challenge it can't render. Fixed: the enforcement middleware now falls back to reading SessionInfo.DeviceId from Jellyfin's own auth response body when request headers don't carry a deviceId. RegisteredDeviceIds lookup now uses the same normalisation as PairedDevices so Jellyfin Web UA-hash deviceIds match across session-timestamp suffix changes (Tizen webview restarts). Also removed leftover dev-only diagnostic log lines accumulated during this investigation.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.4.1/Jellyfin.Plugin.TwoFactorAuthv1.4.1.zip",
         "checksum": "FFAC421D31E787356F60C72701B18B7C",
@@ -290,7 +298,7 @@
       },
       {
         "version": "1.4.0.0",
-        "changelog": "v1.4 \u2014 Passkeys + safety net. PASSKEYS / WebAuthn as additive 2nd factor (Face ID / Touch ID / Windows Hello / YubiKey) \u2014 register from Setup, sign in with one tap from any browser; native apps still use device pairing (WebAuthn is browser-only). USER SELF-SERVICE: emergency lockout button (terminate every session, revoke every device, force recovery code on next sign-in), TOTP secret rotation without admin (current code + recovery code), recovery codes PDF + print, autocomplete=one-time-code on OTP input, QR-pair-from-phone (reverse of TV pairing). ADMIN TOOLS: new Overview tab with adoption stats, new Diagnostics tab with green/red checklist, new Rate Limits tab with bucket-trip log, force-logout per user (with last-admin guard), bulk actions (reset 2FA, rotate recovery, revoke paired/trusted, force logout), search/filter Users tab, expandable per-user details row, per-user GDPR JSON export, audit-log CSV export, dashboard-sidebar entry, expand/collapse for long Trusted/Paired/Sessions lists. WEBHOOK + ALERTS: POST every notable event to a configurable URL with HMAC-SHA256 signature (timestamp.body) and X-2FA-Timestamp header; auto-reshapes for Discord and Slack URLs; SSRF guard rejects RFC1918/loopback/link-local/cloud-metadata. Suspicious-login alerts on first-seen ASN/country (admin drops MaxMind GeoLite2 .mmdb files into config). SECURITY: audit log hash chain (tamper detection), per-user concurrent session cap, NAT-hairpin self-IP bypass (opt-in), configurable pre-verify window + trust cookie TTL. v1.4 audit performed in-flight: 4 High + 8 Medium + 1 Low fixed (Passkeys/Diagnose admin-only, ForceRecoveryOnNextLogin enforced, QrPair deviceId cross-check, ClientLog rate-limited+capped, webhook SSRF guard, last-admin force-logout guard, PDF resource cap + filename sanitize, SelfIp rejects private addresses, bulk audit chain entries, TOTP-rotate notification, webhook timestamp+HMAC contract, dashboard-nav admin-gate, webhook-test rate-limit). Bundles Fido2NetLib, MaxMind.Db, QuestPDF + Linux x64 native libs (libsodium, libQuestPdfSkia). Windows / macOS need Docker or manual native install \u2014 see README.",
+        "changelog": "v1.4 — Passkeys + safety net. PASSKEYS / WebAuthn as additive 2nd factor (Face ID / Touch ID / Windows Hello / YubiKey) — register from Setup, sign in with one tap from any browser; native apps still use device pairing (WebAuthn is browser-only). USER SELF-SERVICE: emergency lockout button (terminate every session, revoke every device, force recovery code on next sign-in), TOTP secret rotation without admin (current code + recovery code), recovery codes PDF + print, autocomplete=one-time-code on OTP input, QR-pair-from-phone (reverse of TV pairing). ADMIN TOOLS: new Overview tab with adoption stats, new Diagnostics tab with green/red checklist, new Rate Limits tab with bucket-trip log, force-logout per user (with last-admin guard), bulk actions (reset 2FA, rotate recovery, revoke paired/trusted, force logout), search/filter Users tab, expandable per-user details row, per-user GDPR JSON export, audit-log CSV export, dashboard-sidebar entry, expand/collapse for long Trusted/Paired/Sessions lists. WEBHOOK + ALERTS: POST every notable event to a configurable URL with HMAC-SHA256 signature (timestamp.body) and X-2FA-Timestamp header; auto-reshapes for Discord and Slack URLs; SSRF guard rejects RFC1918/loopback/link-local/cloud-metadata. Suspicious-login alerts on first-seen ASN/country (admin drops MaxMind GeoLite2 .mmdb files into config). SECURITY: audit log hash chain (tamper detection), per-user concurrent session cap, NAT-hairpin self-IP bypass (opt-in), configurable pre-verify window + trust cookie TTL. v1.4 audit performed in-flight: 4 High + 8 Medium + 1 Low fixed (Passkeys/Diagnose admin-only, ForceRecoveryOnNextLogin enforced, QrPair deviceId cross-check, ClientLog rate-limited+capped, webhook SSRF guard, last-admin force-logout guard, PDF resource cap + filename sanitize, SelfIp rejects private addresses, bulk audit chain entries, TOTP-rotate notification, webhook timestamp+HMAC contract, dashboard-nav admin-gate, webhook-test rate-limit). Bundles Fido2NetLib, MaxMind.Db, QuestPDF + Linux x64 native libs (libsodium, libQuestPdfSkia). Windows / macOS need Docker or manual native install — see README.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.4.0/Jellyfin.Plugin.TwoFactorAuthv1.4.0.zip",
         "checksum": "6E2694197813D2B8FCA62DBF7843D3FA",
@@ -306,7 +314,7 @@
       },
       {
         "version": "1.3.1.0",
-        "changelog": "CRITICAL FIX: failing 2FA on one device no longer signs you out on all other devices. Pre-verification and blocking are now scoped to (user, device) instead of user-wide. CRITICAL FIX: Swiftfin/Findroid 2FA bypass when another browser had just completed 2FA \u2014 caused by a user-scoped 2-minute pre-verification window that piggy-backed onto any device connecting. App passwords now ACTUALLY work for native clients \u2014 implemented as a fast-path in IAuthenticationProvider instead of response rewriting. Submit your app password in the native app's password field; server accepts it and skips the default provider. QR pairing: each pending device can be approved by scanning a QR on a phone that's already signed in. New settings tile on preferences page, back button on challenge page. Security: rate-limited and lockout-checked app password attempts, atomic pending-pairing approval, device-scoped state, ConfigChanged audit category, dead code removed, paired-device revoke now ends live sessions immediately, full challenge state wiped on 2FA disable.",
+        "changelog": "CRITICAL FIX: failing 2FA on one device no longer signs you out on all other devices. Pre-verification and blocking are now scoped to (user, device) instead of user-wide. CRITICAL FIX: Swiftfin/Findroid 2FA bypass when another browser had just completed 2FA — caused by a user-scoped 2-minute pre-verification window that piggy-backed onto any device connecting. App passwords now ACTUALLY work for native clients — implemented as a fast-path in IAuthenticationProvider instead of response rewriting. Submit your app password in the native app's password field; server accepts it and skips the default provider. QR pairing: each pending device can be approved by scanning a QR on a phone that's already signed in. New settings tile on preferences page, back button on challenge page. Security: rate-limited and lockout-checked app password attempts, atomic pending-pairing approval, device-scoped state, ConfigChanged audit category, dead code removed, paired-device revoke now ends live sessions immediately, full challenge state wiped on 2FA disable.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.3.1/Jellyfin.Plugin.TwoFactorAuthv1.3.1.zip",
         "checksum": "C98F5A6737CEDFCDE4413DC698B8118C",
@@ -330,7 +338,7 @@
       },
       {
         "version": "1.2.2.0",
-        "changelog": "Fix: passwordless / quick-profile login now triggers 2FA. The injected script now intercepts BOTH fetch and XHR auth responses; when the server returns 401 with twoFactorRequired:true, the browser is redirected to the challenge page automatically. Works for the manual login form, the avatar quick-login flow, and any other auth path. Fix: signed-in users now get a 'Two-Factor Auth' link in Jellyfin's user menu so they can find the Setup page without knowing the URL. Fix: failed-login spinner \u2014 clarified the failure path so wrong-credential 401s pass through to Jellyfin's normal error UI instead of stalling.",
+        "changelog": "Fix: passwordless / quick-profile login now triggers 2FA. The injected script now intercepts BOTH fetch and XHR auth responses; when the server returns 401 with twoFactorRequired:true, the browser is redirected to the challenge page automatically. Works for the manual login form, the avatar quick-login flow, and any other auth path. Fix: signed-in users now get a 'Two-Factor Auth' link in Jellyfin's user menu so they can find the Setup page without knowing the URL. Fix: failed-login spinner — clarified the failure path so wrong-credential 401s pass through to Jellyfin's normal error UI instead of stalling.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.2.2/Jellyfin.Plugin.TwoFactorAuthv1.2.2.zip",
         "checksum": "67D57D49E2F6CCB46B45C6F214173086",
@@ -338,7 +346,7 @@
       },
       {
         "version": "1.2.1.0",
-        "changelog": "CRITICAL FIX for v1.2.0: PluginConfiguration.UserEmailAddresses was a Dictionary which Jellyfin's XML serializer cannot handle. Adding the new TotpIssuerName field triggered a config rewrite on every request, crashing the entire HTTP pipeline (white-screen Jellyfin web UI). Replaced with an XML-serializable List<UserEmailEntry> plus GetUserEmail/SetUserEmail helpers. Existing per-user email entries WILL be lost on upgrade \u2014 admins need to re-enter them in the Users tab.",
+        "changelog": "CRITICAL FIX for v1.2.0: PluginConfiguration.UserEmailAddresses was a Dictionary which Jellyfin's XML serializer cannot handle. Adding the new TotpIssuerName field triggered a config rewrite on every request, crashing the entire HTTP pipeline (white-screen Jellyfin web UI). Replaced with an XML-serializable List<UserEmailEntry> plus GetUserEmail/SetUserEmail helpers. Existing per-user email entries WILL be lost on upgrade — admins need to re-enter them in the Users tab.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.2.1/Jellyfin.Plugin.TwoFactorAuthv1.2.1.zip",
         "checksum": "0879E8FF72BDE80D677F8095C3AA597D",
@@ -362,7 +370,7 @@
       },
       {
         "version": "1.0.22.0",
-        "changelog": "Fix blank page after 2FA login. Pre-verified flag now lasts 2 minutes (non-consuming) so all sessions from a login attempt are allowed \u2014 WebSocket connects + HTTP sessions were previously re-blocking the user immediately. 30-day trust now checks 'any recent verification' instead of strict device ID match, since Jellyfin generates different device IDs for different session types.",
+        "changelog": "Fix blank page after 2FA login. Pre-verified flag now lasts 2 minutes (non-consuming) so all sessions from a login attempt are allowed — WebSocket connects + HTTP sessions were previously re-blocking the user immediately. 30-day trust now checks 'any recent verification' instead of strict device ID match, since Jellyfin generates different device IDs for different session types.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.22/Jellyfin.Plugin.TwoFactorAuthv1.0.22.zip",
         "checksum": "386FCFFC540F6BC161BB5C88810FBE53",
@@ -370,7 +378,7 @@
       },
       {
         "version": "1.0.21.0",
-        "changelog": "Remember device for 30 days. After completing /TwoFactorAuth/Login, the device is auto-trusted \u2014 subsequent logins from the same browser skip 2FA until the 30-day window expires. No more re-typing the code on every refresh. Trusted devices visible and revocable in the Setup page.",
+        "changelog": "Remember device for 30 days. After completing /TwoFactorAuth/Login, the device is auto-trusted — subsequent logins from the same browser skip 2FA until the 30-day window expires. No more re-typing the code on every refresh. Trusted devices visible and revocable in the Setup page.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.21/Jellyfin.Plugin.TwoFactorAuthv1.0.21.zip",
         "checksum": "15B12513387FC17D50B4157A3A60538E",
@@ -386,7 +394,7 @@
       },
       {
         "version": "1.0.19.0",
-        "changelog": "Actually enforce 2FA. New RequestBlockerMiddleware returns 401 for every authenticated API call from users who logged in without completing 2FA \u2014 so normal login no longer lets them through, they must use /TwoFactorAuth/Login. Button on login page now matches Jellyfin's native style (neutral, not bright blue) and properly captures the username at click-time. Login card sized better on wide screens.",
+        "changelog": "Actually enforce 2FA. New RequestBlockerMiddleware returns 401 for every authenticated API call from users who logged in without completing 2FA — so normal login no longer lets them through, they must use /TwoFactorAuth/Login. Button on login page now matches Jellyfin's native style (neutral, not bright blue) and properly captures the username at click-time. Login card sized better on wide screens.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.19/Jellyfin.Plugin.TwoFactorAuthv1.0.19.zip",
         "checksum": "FE78AC8CBA4E4C92D593826505167961",
@@ -410,7 +418,7 @@
       },
       {
         "version": "1.0.16.0",
-        "changelog": "Auto-redirect from Jellyfin's default login. Inject script now intercepts the standard login form \u2014 if the typed username has 2FA enabled, it redirects to /TwoFactorAuth/Login with username pre-filled. Users no longer need to know the separate login URL.",
+        "changelog": "Auto-redirect from Jellyfin's default login. Inject script now intercepts the standard login form — if the typed username has 2FA enabled, it redirects to /TwoFactorAuth/Login with username pre-filled. Users no longer need to know the separate login URL.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.16/Jellyfin.Plugin.TwoFactorAuthv1.0.16.zip",
         "checksum": "AA11A7A3A6483552834E7BDB208B7FCA",
@@ -426,7 +434,7 @@
       },
       {
         "version": "1.0.14.0",
-        "changelog": "Diagnostic build for /Authenticate endpoint. Wraps entire endpoint in try/catch, logs every step, returns actual error message in 500 responses so login page can display it. Most likely diagnosis: data protection key lost between plugin restarts (stored ephemeral) \u2014 users may need to re-enroll TOTP.",
+        "changelog": "Diagnostic build for /Authenticate endpoint. Wraps entire endpoint in try/catch, logs every step, returns actual error message in 500 responses so login page can display it. Most likely diagnosis: data protection key lost between plugin restarts (stored ephemeral) — users may need to re-enroll TOTP.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.14/Jellyfin.Plugin.TwoFactorAuthv1.0.14.zip",
         "checksum": "0CC3A7E05DEA3BF6E8271D8BEAB22DA5",
@@ -442,7 +450,7 @@
       },
       {
         "version": "1.0.12.0",
-        "changelog": "Event-based enforcement. Subscribes to ISessionManager.SessionStarted which fires server-side on every successful login. When 2FA-enabled user logs in without bypass, their session is immediately ended server-side. Works regardless of middleware/routing. UX: login appears to succeed then immediately fails \u2014 user must verify via /TwoFactorAuth/Verify to get valid session.",
+        "changelog": "Event-based enforcement. Subscribes to ISessionManager.SessionStarted which fires server-side on every successful login. When 2FA-enabled user logs in without bypass, their session is immediately ended server-side. Works regardless of middleware/routing. UX: login appears to succeed then immediately fails — user must verify via /TwoFactorAuth/Verify to get valid session.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.12/Jellyfin.Plugin.TwoFactorAuthv1.0.12.zip",
         "checksum": "93C6997928142B885728CA5214CD6655",
@@ -482,7 +490,7 @@
       },
       {
         "version": "1.0.7.0",
-        "changelog": "Fix 401 on /TwoFactorAuth/Setup \u2014 HTML page is now served anonymously (JavaScript inside uses stored Jellyfin token for API calls).",
+        "changelog": "Fix 401 on /TwoFactorAuth/Setup — HTML page is now served anonymously (JavaScript inside uses stored Jellyfin token for API calls).",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/ZL154/JellyfinSecurity/releases/download/v1.0.7/Jellyfin.Plugin.TwoFactorAuthv1.0.7.zip",
         "checksum": "0E05A425E667358ED21E321D9757EC83",
