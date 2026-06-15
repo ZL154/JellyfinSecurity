@@ -66,57 +66,16 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.5.8
+## 🆕 What's new in v2.5.11
 
-- **Admin Save Settings now triggers the step-up modal** *(fix #57)* — when `StepUpLevel` is set to `AllConfigChanges` or above, clicking Save in the admin UI used to silently fail with no UI prompt because the main config save call went through Jellyfin's built-in ApiClient helper, which doesn't know about the plugin's `stepUpRequired` response. Re-wired through the existing step-up-aware fetch wrapper so the same TOTP modal that gates every other admin action now also gates plugin-config saves.
-- **`StepUpLevel` dropdown persists across saves** — enum-serialization mismatch was making the dropdown go blank after every save, and silently posting `0` (Off) which reset the level on the server. The dropdown's `<option value=>` strings now match Jellyfin's `JsonStringEnumConverter` wire format.
-- **Admin Users tab shows ALL Jellyfin users** *(fix #55 followup, Dasnap)* — previously listed only users with plugin-side data files, so users who'd never interacted with the plugin were invisible until their next login. Enumeration now starts from Jellyfin's user table and merges plugin data per user, defaulting to all-zero counts for unenrolled users. Single-user read failures no longer 500 the whole listing.
-- **Trusted-proxy CIDR misconfig guidance** *(fix #56, derpacco)* — admins typing broad RFC1918 ranges (e.g. `10.0.0.0/8`) into Trusted Proxy CIDRs caused LAN bypass to silently refuse for every LAN client (the SEC-H3 guard from v2.4.12 can't distinguish "stale-XFF proxy" from "direct LAN client in a broad range"). Added a help block under the admin field spelling out the trap, and promoted the SEC-H3 refusal log to Information level on first hit per peer IP so admins see the actionable diagnostic in their logs without filtering for Debug.
-- **Pending-pair Deny / Approve / QR buttons no longer fail silently** — wrapped each click handler so a server error surfaces via `alert` + `console.error` instead of leaving the button looking dead. Touches the disabled-during-request UX too.
-- **Textarea clipping fixed** — `.tfa-input` now uses `box-sizing: border-box` so `width:100%` textareas (LAN CIDRs, Trusted Proxy CIDRs, Admin emails, Exempt CIDRs, Restore JSON) sit inside their parent panels instead of bleeding the horizontal padding outside.
-- **Two CodeQL alerts dismissed as false positives** — `cs/cleartext-storage-of-sensitive-information` on the SEC-H3 log line was flagging CIDR strings as if they were credentials. CIDRs are admin-configured network topology, already in cleartext in `PluginConfiguration.xml` by necessity, and the SEC-H3 diagnostic depends on surfacing the matched CIDR.
-- 254/254 tests pass. In-place upgrade — every persisted record carries over.
+- **Disable password sign-in** *(feature #69, ZEROX7)* — refuse username+password login so users go through your identity provider (or Quick Connect) — for OIDC-only deployments. The login page hides the password fields, leaving a discreet "Sign in with a password instead" link. Three independently-toggleable escape hatches stop a dead IdP locking everyone out: **admins-always**, **LAN-always** ("disable for remote users only"), and an explicit **exempt-CIDR list**. OIDC and Quick Connect are never blocked, and `/TwoFactorAuth/Login` always works.
+- **Custom login button** *(feature #69)* — per-provider button text + icon/logo (an https or `data:` image URL) instead of the generic "Sign in with …".
+- **Password recovery by email** *(feature #71, ZEROX7)* — an optional "Forgot password?" link that emails a one-time, 30-minute, single-use reset link. SMTP-gated, rate-limited per IP and per identifier, and responses are always generic so it can't be used to discover which accounts exist.
+- **IdP email auto-fill** *(fix #70, ZEROX7)* — the email claim now populates the Jellyfin user's email on sign-in (used for email OTP and shown in the Users tab) when it isn't already set; a manually-entered email is never overwritten. Per-provider configurable email claim (default `email`) for IdPs that use a custom claim.
+- **Clear OIDC sign-in errors** — a refused SSO sign-in now shows *why* (no matching account, ambiguous email, not in an allowed group, MFA required, expired session) instead of silently bouncing to the login page. Also fixed: a stale email record left by a **deleted** account no longer counts as a duplicate that blocked sign-in for the surviving real user.
+- 266/266 tests pass. In-place upgrade — every persisted record carries over.
 
----
-
-## 🆕 What was new in v2.5.7
-
-- **OIDC step-up for users** — users who only have an IdP linked (no TOTP / passkey / recovery code / email OTP) can now satisfy `SelfServiceStepUpMode=Forced` by re-authenticating to that IdP in a popup. Subject match against the stored `SsoLink` is enforced, so signing into a different IdP account doesn't grant step-up.
-- **Verified-session state survives restart** *(fix #52)* — `/Users/Foo` getting 403'd by `RequestBlockerMiddleware` after `docker compose down/up` is gone. The plugin now persists SHA-256 hashes of verified tokens to a sidecar JSON, so the in-memory verified-set is rehydrated on every restart instead of locking out every active session.
-- **OIDC private / VPN / LAN endpoints** *(fix #54)* — new per-provider toggle lets you point the plugin at a LAN-only Authentik / Authelia / Pocket ID / etc. without the v2.5.5 SSRF guard rejecting it. Public-Internet IdPs keep the strict guard.
-- **Hide built-in 2FA / Passkey login buttons** *(feature #48)* — two independent admin toggles for OIDC-only deployments. Pick any combination of "show 2FA", "show passkey", "show neither" — your configured IdP buttons stay visible regardless.
-- **User-listing crash fix** *(fix #55)* — junk `Guid.Empty` lockout entries from brute-force testing no longer 500 the Users tab. Two layers: defensive skip in the listing + write-refuse at the store boundary.
-- **Login-page 8-digit OTP fix** *(fix #50)* — the embedded login page now accepts 8-digit email OTP codes; the v2.5.5 brute-force hardening changed the digit count but `login.html` was missed. Thanks to **@duongynhi000005-oss** for the PR.
-- **Better error feedback on pending-pair actions** — Approve / Deny / QR buttons now show a spinner during the request and surface server errors via alert + `console.error`, instead of silently looking dead.
-- 254/254 tests pass. Clean build with `TreatWarningsAsErrors=true`. In-place upgrade — every persisted record (TOTP, passkeys, OIDC links, trusted browsers, paired devices, audit history) carries over. *(Shipped 2026-06-05.)*
-
----
-
-## 🆕 What was new in v2.5.6
-
-- **Critical: bare DeviceId can no longer bypass 2FA.** New `BareDeviceIdBypassEnabled` flag (default off). The signed trusted-device cookie path is unchanged.
-- **Issue #28 — OIDC redirect_uri behind TLS-terminating proxies.** New providers default to `ForceHttps=true`; existing providers also get https automatically.
-- **Issue #48 — OIDC pre-existing-user link.** No more duplicate-user errors when a Jellyfin user with the matching username already exists.
-- **Issue #49 — login showed "incorrect username or password" instead of 2FA.** Race between `inject.js` and Jellyfin's bundled scripts fixed.
-- **Issue #50 — Email OTP digit-count UI mismatch.** Server-side fix (login.html caught up in v2.5.7).
-- **Hardened self-service** (`SelfServiceStepUpMode`, default `Forced`) — adding/replacing TOTP, recovery codes, app password, or passkey now requires proof of an existing factor.
-- **Email step-up** — for users who don't have TOTP/passkey but do have email, the step-up modal can mail them an 8-digit code.
-
----
-
-## 🆕 What was new in v2.5.5
-
-- **OIDC empty-password sign-in path** closed. Auto-provisioned OIDC users now get a 256-bit random password at creation so Jellyfin's default auth provider stops treating them as accepting any password.
-- **TOTP rotate endpoint** fixed — earlier versions rejected the current code unconditionally.
-- **General security hardening**: OIDC token algorithm allowlist, OIDC discovery URL validation, recovery-code PBKDF2 iteration bump, email-OTP storage hardening, GeoIP path validation, log scrubbing, and a handful of small race fixes.
-- **`BlockEmptyPasswordLogin`** (default off) — when true, the plugin refuses empty/whitespace passwords for all users.
-
----
-
-## 🆕 What was new in v2.5.4
-
-- **Issue #35 — Cloudflare Tunnel re-block after legit login.** All four legitimate-bypass branches now call `MarkTokenVerified` so the 30-day verified flag short-circuits later `SessionStarted` re-evaluations regardless of proxy IP rotation.
-- **Jellyfin 10.11.10 SDK bump** with the `IUserManager.Users` property → `GetUsers()` method rename handled via reflection so the same DLL still loads on 10.11.0–10.11.9.
+> Full version history is in the [Changelog](#-changelog) below and on [GitHub Releases](https://github.com/ZL154/JellyfinSecurity/releases).
 
 ---
 
@@ -169,6 +128,13 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ---
 
 ## 🧩 Features
+
+### New in v2.5.11
+- **Disable password sign-in** — OIDC / Quick-Connect-only mode with independently-toggleable **admin / LAN / exempt-CIDR** escape hatches (#69).
+- **Custom OIDC login button** — per-provider button text + icon/logo (#69).
+- **Password recovery by email** — one-time, single-use, rate-limited reset link; SMTP-gated, no account enumeration (#71).
+- **IdP email auto-fill** — populate the Jellyfin email from the IdP claim on sign-in; per-provider configurable claim (#70).
+- **Clear OIDC sign-in errors** — failed SSO explains why instead of bouncing silently.
 
 ### Added in v2.5.4 – v2.5.7
 - **OIDC step-up factor** — re-authenticate to a linked IdP in a popup to satisfy hardened-security step-up, with subject-match against the stored `SsoLink`.
@@ -971,6 +937,50 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.5.8
+
+- **Admin Save Settings now triggers the step-up modal** *(fix #57)* — when `StepUpLevel` is set to `AllConfigChanges` or above, clicking Save in the admin UI used to silently fail with no UI prompt because the main config save call went through Jellyfin's built-in ApiClient helper, which doesn't know about the plugin's `stepUpRequired` response. Re-wired through the existing step-up-aware fetch wrapper so the same TOTP modal that gates every other admin action now also gates plugin-config saves.
+- **`StepUpLevel` dropdown persists across saves** — enum-serialization mismatch was making the dropdown go blank after every save, and silently posting `0` (Off) which reset the level on the server. The dropdown's `<option value=>` strings now match Jellyfin's `JsonStringEnumConverter` wire format.
+- **Admin Users tab shows ALL Jellyfin users** *(fix #55 followup, Dasnap)* — previously listed only users with plugin-side data files, so users who'd never interacted with the plugin were invisible until their next login. Enumeration now starts from Jellyfin's user table and merges plugin data per user, defaulting to all-zero counts for unenrolled users. Single-user read failures no longer 500 the whole listing.
+- **Trusted-proxy CIDR misconfig guidance** *(fix #56, derpacco)* — admins typing broad RFC1918 ranges (e.g. `10.0.0.0/8`) into Trusted Proxy CIDRs caused LAN bypass to silently refuse for every LAN client (the SEC-H3 guard from v2.4.12 can't distinguish "stale-XFF proxy" from "direct LAN client in a broad range"). Added a help block under the admin field spelling out the trap, and promoted the SEC-H3 refusal log to Information level on first hit per peer IP so admins see the actionable diagnostic in their logs without filtering for Debug.
+- **Pending-pair Deny / Approve / QR buttons no longer fail silently** — wrapped each click handler so a server error surfaces via `alert` + `console.error` instead of leaving the button looking dead. Touches the disabled-during-request UX too.
+- **Textarea clipping fixed** — `.tfa-input` now uses `box-sizing: border-box` so `width:100%` textareas (LAN CIDRs, Trusted Proxy CIDRs, Admin emails, Exempt CIDRs, Restore JSON) sit inside their parent panels instead of bleeding the horizontal padding outside.
+- **Two CodeQL alerts dismissed as false positives** — `cs/cleartext-storage-of-sensitive-information` on the SEC-H3 log line was flagging CIDR strings as if they were credentials. CIDRs are admin-configured network topology, already in cleartext in `PluginConfiguration.xml` by necessity, and the SEC-H3 diagnostic depends on surfacing the matched CIDR.
+- 254/254 tests pass. In-place upgrade — every persisted record carries over.
+
+### 2.5.7
+
+- **OIDC step-up for users** — users who only have an IdP linked (no TOTP / passkey / recovery code / email OTP) can now satisfy `SelfServiceStepUpMode=Forced` by re-authenticating to that IdP in a popup. Subject match against the stored `SsoLink` is enforced, so signing into a different IdP account doesn't grant step-up.
+- **Verified-session state survives restart** *(fix #52)* — `/Users/Foo` getting 403'd by `RequestBlockerMiddleware` after `docker compose down/up` is gone. The plugin now persists SHA-256 hashes of verified tokens to a sidecar JSON, so the in-memory verified-set is rehydrated on every restart instead of locking out every active session.
+- **OIDC private / VPN / LAN endpoints** *(fix #54)* — new per-provider toggle lets you point the plugin at a LAN-only Authentik / Authelia / Pocket ID / etc. without the v2.5.5 SSRF guard rejecting it. Public-Internet IdPs keep the strict guard.
+- **Hide built-in 2FA / Passkey login buttons** *(feature #48)* — two independent admin toggles for OIDC-only deployments. Pick any combination of "show 2FA", "show passkey", "show neither" — your configured IdP buttons stay visible regardless.
+- **User-listing crash fix** *(fix #55)* — junk `Guid.Empty` lockout entries from brute-force testing no longer 500 the Users tab. Two layers: defensive skip in the listing + write-refuse at the store boundary.
+- **Login-page 8-digit OTP fix** *(fix #50)* — the embedded login page now accepts 8-digit email OTP codes; the v2.5.5 brute-force hardening changed the digit count but `login.html` was missed. Thanks to **@duongynhi000005-oss** for the PR.
+- **Better error feedback on pending-pair actions** — Approve / Deny / QR buttons now show a spinner during the request and surface server errors via alert + `console.error`, instead of silently looking dead.
+- 254/254 tests pass. Clean build with `TreatWarningsAsErrors=true`. In-place upgrade — every persisted record (TOTP, passkeys, OIDC links, trusted browsers, paired devices, audit history) carries over. *(Shipped 2026-06-05.)*
+
+### 2.5.6
+
+- **Critical: bare DeviceId can no longer bypass 2FA.** New `BareDeviceIdBypassEnabled` flag (default off). The signed trusted-device cookie path is unchanged.
+- **Issue #28 — OIDC redirect_uri behind TLS-terminating proxies.** New providers default to `ForceHttps=true`; existing providers also get https automatically.
+- **Issue #48 — OIDC pre-existing-user link.** No more duplicate-user errors when a Jellyfin user with the matching username already exists.
+- **Issue #49 — login showed "incorrect username or password" instead of 2FA.** Race between `inject.js` and Jellyfin's bundled scripts fixed.
+- **Issue #50 — Email OTP digit-count UI mismatch.** Server-side fix (login.html caught up in v2.5.7).
+- **Hardened self-service** (`SelfServiceStepUpMode`, default `Forced`) — adding/replacing TOTP, recovery codes, app password, or passkey now requires proof of an existing factor.
+- **Email step-up** — for users who don't have TOTP/passkey but do have email, the step-up modal can mail them an 8-digit code.
+
+### 2.5.5
+
+- **OIDC empty-password sign-in path** closed. Auto-provisioned OIDC users now get a 256-bit random password at creation so Jellyfin's default auth provider stops treating them as accepting any password.
+- **TOTP rotate endpoint** fixed — earlier versions rejected the current code unconditionally.
+- **General security hardening**: OIDC token algorithm allowlist, OIDC discovery URL validation, recovery-code PBKDF2 iteration bump, email-OTP storage hardening, GeoIP path validation, log scrubbing, and a handful of small race fixes.
+- **`BlockEmptyPasswordLogin`** (default off) — when true, the plugin refuses empty/whitespace passwords for all users.
+
+### 2.5.4
+
+- **Issue #35 — Cloudflare Tunnel re-block after legit login.** All four legitimate-bypass branches now call `MarkTokenVerified` so the 30-day verified flag short-circuits later `SessionStarted` re-evaluations regardless of proxy IP rotation.
+- **Jellyfin 10.11.10 SDK bump** with the `IUserManager.Users` property → `GetUsers()` method rename handled via reflection so the same DLL still loads on 10.11.0–10.11.9.
 
 ### 2.5.0 — Hardening, observability, i18n, and indefinite trust
 
