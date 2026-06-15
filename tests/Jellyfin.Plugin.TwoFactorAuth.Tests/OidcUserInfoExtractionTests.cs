@@ -90,4 +90,44 @@ public class OidcUserInfoExtractionTests
 
         Assert.Equal(new[] { "jellyfin-users", "admins" }, result);
     }
+
+    // ---------------------------------------------------------------------
+    // [v2.5.11] (#70, ZEROX7) configurable email claim. The plugin must read
+    // the email from a provider-specified claim name, falling back to the
+    // standard OIDC `email` claim.
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void ExtractEmail_DefaultClaim_ReadsStandardEmail()
+    {
+        var json = Parse("""{ "email": "alice@example.com", "email_verified": true }""");
+
+        var result = OidcService.ExtractClaimsFromUserInfo(json);
+
+        Assert.Equal("alice@example.com", result.Email);
+        Assert.True(result.EmailVerified);
+    }
+
+    [Fact]
+    public void ExtractEmail_CustomClaim_ReadsFromConfiguredClaim()
+    {
+        // IdP exposes the address under a non-standard claim (#70 example).
+        var json = Parse("""{ "internal_email": "bob@corp.example", "email": "noreply@corp.example" }""");
+
+        var result = OidcService.ExtractClaimsFromUserInfo(json, "internal_email");
+
+        Assert.Equal("bob@corp.example", result.Email);
+    }
+
+    [Fact]
+    public void ExtractEmail_CustomClaimAbsent_FallsBackToStandardEmail()
+    {
+        // Configured a custom claim but this user only has the standard one —
+        // fall back rather than returning empty.
+        var json = Parse("""{ "email": "carol@example.com" }""");
+
+        var result = OidcService.ExtractClaimsFromUserInfo(json, "internal_email");
+
+        Assert.Equal("carol@example.com", result.Email);
+    }
 }

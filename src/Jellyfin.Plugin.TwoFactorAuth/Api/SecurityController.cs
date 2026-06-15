@@ -128,6 +128,12 @@ public class SecurityController : ControllerBase
         public List<RoleLibraryMappingDto> RoleLibraryMappings { get; set; } = new();
         // [v2.5.10] force the IdP account chooser (prompt=select_account).
         public bool PromptSelectAccount { get; set; }
+        // [v2.5.11] (#70) configurable email claim + auto-fill the user's email.
+        public string EmailClaim { get; set; } = "email";
+        public bool SyncEmailFromClaim { get; set; } = true;
+        // [v2.5.11] (#69) custom login-button text + icon.
+        public string ButtonText { get; set; } = string.Empty;
+        public string ButtonIconUrl { get; set; } = string.Empty;
     }
 
     /// <summary>[v2.5.10] (#65) one role→libraries mapping as sent by the admin
@@ -160,6 +166,10 @@ public class SecurityController : ControllerBase
             id = p.Id,
             displayName = p.DisplayName,
             enabled = true,
+            // [v2.5.11] (#69) login-button customization — safe to expose to
+            // the anonymous login page (display label + already-sanitized icon).
+            buttonText = p.ButtonText,
+            buttonIconUrl = p.ButtonIconUrl,
         }).ToList<object>();
         return Ok(safe);
     }
@@ -198,6 +208,10 @@ public class SecurityController : ControllerBase
             applyRoleLibraryAccess = p.ApplyRoleLibraryAccess,
             roleLibraryMappings = p.RoleLibraryMappings.Select(m => new { role = m.Role, libraryIds = m.LibraryIds }).ToList(),
             promptSelectAccount = p.PromptSelectAccount,
+            emailClaim = p.EmailClaim,
+            syncEmailFromClaim = p.SyncEmailFromClaim,
+            buttonText = p.ButtonText,
+            buttonIconUrl = p.ButtonIconUrl,
             createdAt = p.CreatedAt,
         }).ToList<object>();
         return Ok(safe);
@@ -248,6 +262,11 @@ public class SecurityController : ControllerBase
             ApplyRoleLibraryAccess = req.ApplyRoleLibraryAccess,
             RoleLibraryMappings = MapRoleLibraryMappings(req.RoleLibraryMappings),
             PromptSelectAccount = req.PromptSelectAccount,
+            // [v2.5.11] (#70 / #69)
+            EmailClaim = string.IsNullOrWhiteSpace(req.EmailClaim) ? "email" : req.EmailClaim.Trim(),
+            SyncEmailFromClaim = req.SyncEmailFromClaim,
+            ButtonText = (req.ButtonText ?? string.Empty).Trim(),
+            ButtonIconUrl = SanitizeButtonIconUrl(req.ButtonIconUrl),
             CreatedAt = DateTime.UtcNow,
         };
         config.OidcProviders.Add(provider);
@@ -294,6 +313,11 @@ public class SecurityController : ControllerBase
         existing.ApplyRoleLibraryAccess = req.ApplyRoleLibraryAccess;
         existing.RoleLibraryMappings = MapRoleLibraryMappings(req.RoleLibraryMappings);
         existing.PromptSelectAccount = req.PromptSelectAccount;
+        // [v2.5.11] (#70 / #69)
+        existing.EmailClaim = string.IsNullOrWhiteSpace(req.EmailClaim) ? "email" : req.EmailClaim.Trim();
+        existing.SyncEmailFromClaim = req.SyncEmailFromClaim;
+        existing.ButtonText = (req.ButtonText ?? string.Empty).Trim();
+        existing.ButtonIconUrl = SanitizeButtonIconUrl(req.ButtonIconUrl);
         plugin.SaveConfiguration();
         _oidc.InvalidateCache(id);
         return Ok();
@@ -318,6 +342,25 @@ public class SecurityController : ControllerBase
         }
 
         return result;
+    }
+
+    /// <summary>[v2.5.11] (#69) accept only an https URL or a data: image URI
+    /// for the login-button icon. Anything else (http, javascript:, relative,
+    /// garbage) is dropped to empty — the button then renders with the default
+    /// glyph. Prevents mixed-content warnings and an admin-typed javascript:
+    /// URL ending up in the anonymous login page.</summary>
+    private static string SanitizeButtonIconUrl(string? raw)
+    {
+        var v = (raw ?? string.Empty).Trim();
+        if (v.Length == 0) return string.Empty;
+        if (v.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) return v;
+        if (Uri.TryCreate(v, UriKind.Absolute, out var uri)
+            && uri.Scheme == Uri.UriSchemeHttps)
+        {
+            return v;
+        }
+
+        return string.Empty;
     }
 
     [HttpDelete("Oidc/Providers/{id}")]
@@ -665,13 +708,42 @@ public class SecurityController : ControllerBase
             // user-facing message to the browser.
             _logger.LogWarning("[2FA] OIDC sign-in failed: {Err}", result.Error);
             var lower = (result.Error ?? string.Empty).ToLowerInvariant();
-            var safeMsg = lower.Contains("state token", StringComparison.Ordinal)
-                ? "Your sign-in session expired. Try again."
-                : lower.Contains("token exchange", StringComparison.Ordinal)
-                    ? "The identity provider rejected the sign-in. Contact your administrator if this persists."
-                    : lower.Contains("verification", StringComparison.Ordinal) || lower.Contains("signature", StringComparison.Ordinal)
-                        ? "Sign-in token could not be verified."
-                        : "Sign-in failed.";
+            string safeMsg;
+            if (lower.Contains("state token", StringComparison.Ordinal))
+            {
+                safeMsg = "Your sign-in session expired. Try again.";
+            }
+            else if (lower.Contains("token exchange", StringComparison.Ordinal))
+            {
+                safeMsg = "The identity provider rejected the sign-in. Contact your administrator if this persists.";
+            }
+            else if (lower.Contains("verification", StringComparison.Ordinal) || lower.Contains("signature", StringComparison.Ordinal))
+            {
+                safeMsg = "Sign-in token could not be verified.";
+            }
+            // [v2.5.11] (ZEROX7) actionable guidance for the common SSO setup
+            // mistakes. These carry NO token/library internals — only config
+            // advice — so they're safe to surface to the browser. Without them
+            // every failure read "Sign-in failed" and the user (and admin) had
+            // no idea why the sign-in bounced.
+            else if (lower.Contains("no jellyfin user matched", StringComparison.Ordinal)
+                || lower.Contains("auto-create", StringComparison.Ordinal))
+            {
+                safeMsg = "No matching Jellyfin account — link this provider from your Setup page, or ask your admin.";
+            }
+            else if (lower.Contains("allowed group", StringComparison.Ordinal))
+            {
+                safeMsg = "Your account isn't in a group allowed to sign in here.";
+            }
+            else if (lower.Contains("mfa", StringComparison.Ordinal))
+            {
+                safeMsg = "This provider requires MFA — enable it at your identity provider, then try again.";
+            }
+            else
+            {
+                safeMsg = "Sign-in failed.";
+            }
+
             return Redirect(LoginErrorUrl(safeMsg));
         }
 

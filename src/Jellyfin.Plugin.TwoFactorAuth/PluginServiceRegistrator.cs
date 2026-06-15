@@ -24,6 +24,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ConfigExportService>();
         serviceCollection.AddSingleton<TotpService>();
         serviceCollection.AddSingleton<EmailOtpService>();
+        // [v2.5.11] (#71) self-service password recovery by email.
+        serviceCollection.AddSingleton<PasswordResetService>();
         serviceCollection.AddSingleton<DeviceTokenService>();
         serviceCollection.AddSingleton<DevicePairingService>();
         serviceCollection.AddSingleton<BypassEvaluator>();

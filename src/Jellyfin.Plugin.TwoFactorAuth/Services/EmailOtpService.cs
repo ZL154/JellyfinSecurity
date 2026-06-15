@@ -151,6 +151,30 @@ public class EmailOtpService
         await SendMimeMessageAsync(config, msg).ConfigureAwait(false);
     }
 
+    /// <summary>[v2.5.11] (#71) Email a one-time password-reset link. No-ops if
+    /// SMTP isn't configured. Callers must NOT surface success/failure to the
+    /// requester (anti-enumeration).</summary>
+    public async Task SendPasswordResetAsync(string email, string username, string resetUrl, int ttlMinutes)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || string.IsNullOrEmpty(email)
+            || string.IsNullOrEmpty(config.SmtpHost) || string.IsNullOrEmpty(config.SmtpFromAddress))
+        {
+            _logger.LogWarning("Password-reset email for {User}: SMTP not configured or no email address.", username);
+            return;
+        }
+
+        var msg = BuildMimeMessage(
+            config.SmtpFromAddress,
+            string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName,
+            email,
+            "Reset your Jellyfin password",
+            $"Hi {username},\n\nWe received a request to reset your Jellyfin password. Open this link to choose a new one:\n\n  {resetUrl}\n\nThis link expires in {ttlMinutes} minutes and can be used once. If you didn't request this, you can ignore this email — your password won't change.\n\n— Jellyfin 2FA");
+
+        await SendMimeMessageAsync(config, msg).ConfigureAwait(false);
+        _logger.LogInformation("Password-reset email sent to {Email} for {User}", MaskEmail(email), username);
+    }
+
     private async Task<bool> TrySendEmailAsync(string? email, string username, string code, int ttlSeconds)
     {
         var config = Plugin.Instance?.Configuration;

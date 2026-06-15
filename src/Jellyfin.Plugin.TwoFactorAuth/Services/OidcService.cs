@@ -559,7 +559,7 @@ public class OidcService : IDisposable
                 // endpoint before each fetch — same DNS-rebind window as the
                 // token endpoint. See GetJwksAsync for the same pattern.
                 await EnsureSafeOutboundAsync(disc.UserInfoEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
-                var extra = await FetchUserInfoClaimsAsync(disc.UserInfoEndpoint, accessToken).ConfigureAwait(false);
+                var extra = await FetchUserInfoClaimsAsync(disc.UserInfoEndpoint, accessToken, provider.EmailClaim).ConfigureAwait(false);
                 if (extra.Groups.Length > 0)
                 {
                     var merged = claims.Groups
@@ -674,6 +674,29 @@ public class OidcService : IDisposable
                 existing.LastUsedAt = DateTime.UtcNow;
             }
         }).ConfigureAwait(false);
+
+        // [v2.5.11] (#70, ZEROX7) Fill the user's plugin email (used for email
+        // OTP and shown in the admin Users tab) from the IdP email claim when
+        // it isn't already set. Never overwrites an admin-entered address.
+        // Best-effort: a failure must never block a sign-in.
+        if (provider.SyncEmailFromClaim && !string.IsNullOrWhiteSpace(claims.Email))
+        {
+            try
+            {
+                var cfg = Plugin.Instance?.Configuration;
+                var userKey = matchedUser.Id.ToString("N");
+                if (cfg is not null && string.IsNullOrWhiteSpace(cfg.GetUserEmail(userKey)))
+                {
+                    cfg.SetUserEmail(userKey, claims.Email);
+                    Plugin.Instance!.SaveConfiguration();
+                    _logger.LogInformation("[2FA] OIDC filled email for {User} from IdP claim '{Claim}'", matchedUser.Username, provider.EmailClaim);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[2FA] OIDC email auto-fill failed for {User}", matchedUser.Username);
+            }
+        }
 
         // [v2.5.10] (#65) Apply role→library access from the IdP group claims.
         // Best-effort: a failure must never block a sign-in.
@@ -909,46 +932,56 @@ public class OidcService : IDisposable
             var config = Plugin.Instance?.Configuration;
             if (config is not null)
             {
-                var matches = config.UserEmails
+                // Resolve each configured-email match to a LIVE Jellyfin user.
+                // [v2.5.11] (ZEROX7): drop entries whose UserId no longer
+                // resolves. A stale UserEmails row left behind by a DELETED
+                // account would otherwise count as a phantom duplicate and
+                // wrongly trip the ambiguity guard below, locking the surviving
+                // real user out of OIDC sign-in. Distinct by id so the same
+                // user listed twice doesn't read as ambiguous either.
+                var liveMatches = config.UserEmails
                     .Where(e => string.Equals(e.Email, claims.Email, StringComparison.OrdinalIgnoreCase))
+                    .Select(e => Guid.TryParse(e.UserId, out var g) ? g : Guid.Empty)
+                    .Where(g => g != Guid.Empty)
+                    .Distinct()
+                    .Select(g => _userManager.GetUserById(g))
+                    .Where(u => u is not null)
+                    .Cast<Jellyfin.Database.Implementations.Entities.User>()
                     .ToList();
 
                 // SECURITY [v2.5.10]: refuse an AMBIGUOUS email match. If more
-                // than one Jellyfin user has this email configured, we cannot
-                // know which account the IdP identity belongs to — silently
-                // taking the first (the old FirstOrDefault) could attach the
-                // external account to, and sign the caller in as, the WRONG
-                // user (e.g. the admin). Refuse and make the admin give each
-                // user a unique email or link explicitly from Setup.
-                if (matches.Count > 1)
+                // than one EXISTING Jellyfin user has this email configured, we
+                // cannot know which account the IdP identity belongs to —
+                // silently taking the first could attach the external account
+                // to, and sign the caller in as, the WRONG user (e.g. the
+                // admin). Refuse and make the admin give each user a unique
+                // email or link explicitly from Setup.
+                if (liveMatches.Count > 1)
                 {
                     _logger.LogWarning(
                         "[2FA] OIDC email-match refused: {Count} Jellyfin users share email '{Email}'. Give each user a unique email or link the account explicitly from Setup.",
-                        matches.Count, claims.Email);
+                        liveMatches.Count, claims.Email);
                 }
-                else if (matches.Count == 1 && Guid.TryParse(matches[0].UserId, out var uid))
+                else if (liveMatches.Count == 1)
                 {
-                    var u = _userManager.GetUserById(uid);
-                    if (u is not null)
+                    var u = liveMatches[0];
+                    // SECURITY [v2.5.10]: never resolve/auto-link an
+                    // ADMINISTRATOR via the email fallback. An IdP-asserted
+                    // email (which the user controls on open-registration
+                    // IdPs) matching the admin's configured address would
+                    // otherwise hand out a Jellyfin admin session. Admins
+                    // must link OIDC explicitly from their Setup page, which
+                    // creates an SsoLink matched by the immutable `sub`
+                    // (step 1 above). Mirrors the username-match admin guard.
+                    if (u.HasPermission(PermissionKind.IsAdministrator))
                     {
-                        // SECURITY [v2.5.10]: never resolve/auto-link an
-                        // ADMINISTRATOR via the email fallback. An IdP-asserted
-                        // email (which the user controls on open-registration
-                        // IdPs) matching the admin's configured address would
-                        // otherwise hand out a Jellyfin admin session. Admins
-                        // must link OIDC explicitly from their Setup page, which
-                        // creates an SsoLink matched by the immutable `sub`
-                        // (step 1 above). Mirrors the username-match admin guard.
-                        if (u.HasPermission(PermissionKind.IsAdministrator))
-                        {
-                            _logger.LogWarning(
-                                "[2FA] OIDC email-match refused for administrator '{User}': admins must link OIDC explicitly from Setup, not via IdP-asserted email.",
-                                u.Username);
-                        }
-                        else
-                        {
-                            return u;
-                        }
+                        _logger.LogWarning(
+                            "[2FA] OIDC email-match refused for administrator '{User}': admins must link OIDC explicitly from Setup, not via IdP-asserted email.",
+                            u.Username);
+                    }
+                    else
+                    {
+                        return u;
                     }
                 }
             }
@@ -1238,7 +1271,11 @@ public class OidcService : IDisposable
         }
 
         var sub = jwt.Subject;
-        var email = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value ?? string.Empty;
+        // [v2.5.11] (#70) honor the provider's configured email claim name,
+        // falling back to the standard OIDC `email` claim.
+        var emailClaimName = string.IsNullOrWhiteSpace(provider.EmailClaim) ? "email" : provider.EmailClaim;
+        var email = jwt.Claims.FirstOrDefault(c => c.Type == emailClaimName)?.Value
+            ?? jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value ?? string.Empty;
         var emailVerified = jwt.Claims.FirstOrDefault(c => c.Type == "email_verified")?.Value == "true";
         var username = jwt.Claims.FirstOrDefault(c => c.Type == provider.UsernameClaim)?.Value
             ?? jwt.Claims.FirstOrDefault(c => c.Type == "preferred_username")?.Value
@@ -1269,7 +1306,7 @@ public class OidcService : IDisposable
     // (by default) emit some or all of these only at /userinfo — Authelia,
     // Keycloak, Authentik. Returns an empty bundle on any failure; userinfo
     // is best-effort and must never block sign-in for a verified id_token.
-    private async Task<UserInfoExtract> FetchUserInfoClaimsAsync(string endpoint, string accessToken)
+    private async Task<UserInfoExtract> FetchUserInfoClaimsAsync(string endpoint, string accessToken, string emailClaimName = "email")
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, endpoint);
         req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
@@ -1280,7 +1317,7 @@ public class OidcService : IDisposable
             return UserInfoExtract.Empty;
         }
         var json = await resp.Content.ReadFromJsonAsync<JsonElement>().ConfigureAwait(false);
-        return ExtractClaimsFromUserInfo(json);
+        return ExtractClaimsFromUserInfo(json, emailClaimName);
     }
 
     internal record UserInfoExtract(string[] Groups, string Email, bool EmailVerified, string Username, string Picture)
@@ -1292,7 +1329,7 @@ public class OidcService : IDisposable
     /// JSON document. Handles both JSON-array and comma-separated-string
     /// representations for groups. Internal for direct testing via
     /// InternalsVisibleTo.</summary>
-    internal static UserInfoExtract ExtractClaimsFromUserInfo(JsonElement json)
+    internal static UserInfoExtract ExtractClaimsFromUserInfo(JsonElement json, string emailClaimName = "email")
     {
         if (json.ValueKind != JsonValueKind.Object) return UserInfoExtract.Empty;
 
@@ -1326,9 +1363,18 @@ public class OidcService : IDisposable
             }
         }
 
-        var email = json.TryGetProperty("email", out var em) && em.ValueKind == JsonValueKind.String
-            ? em.GetString() ?? string.Empty
-            : string.Empty;
+        // [v2.5.11] (#70) honor the configured email claim name, falling back
+        // to the standard OIDC `email` claim.
+        var emailKey = string.IsNullOrWhiteSpace(emailClaimName) ? "email" : emailClaimName;
+        string email = string.Empty;
+        if (json.TryGetProperty(emailKey, out var em) && em.ValueKind == JsonValueKind.String)
+        {
+            email = em.GetString() ?? string.Empty;
+        }
+        else if (json.TryGetProperty("email", out var em2) && em2.ValueKind == JsonValueKind.String)
+        {
+            email = em2.GetString() ?? string.Empty;
+        }
 
         // email_verified can be bool true, bool false, or the strings "true"/"false".
         var emailVerified = false;

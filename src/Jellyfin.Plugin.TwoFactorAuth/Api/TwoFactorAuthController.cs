@@ -4534,7 +4534,147 @@ public class TwoFactorAuthController : ControllerBase
             // still works regardless of these flags.
             hideBuiltInTwoFactorButton = cfg.HideBuiltInTwoFactorButton,
             hideBuiltInPasskeyButton = cfg.HideBuiltInPasskeyButton,
+            // [v2.5.11] (#69, ZEROX7) UI gate: hide the username/password form on
+            // the login page for this client when password sign-in is disabled.
+            // LAN / exempt-CIDR exemptions are resolved per request IP; the admin
+            // exemption can't be known before login, so an admin on a blocked
+            // network uses inject.js's "sign in with a password" reveal link
+            // (the server still allows them via AllowAdminPasswordLogin).
+            passwordLoginDisabled = ComputePasswordLoginDisabledForRequest(cfg),
+            // [v2.5.11] (#71, ZEROX7) show the login-page "Forgot password?" link
+            // only when recovery is enabled AND SMTP is configured.
+            passwordRecoveryEnabled = cfg.EnablePasswordRecovery
+                && !string.IsNullOrEmpty(cfg.SmtpHost)
+                && !string.IsNullOrEmpty(cfg.SmtpFromAddress),
         });
+    }
+
+    /// <summary>[v2.5.11] (#69) whether the login-page password form should be
+    /// hidden for THIS request's client. Mirrors the server-side enforcement in
+    /// LockoutMessageMiddleware minus the admin check (unknowable pre-login).</summary>
+    private bool ComputePasswordLoginDisabledForRequest(Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration cfg)
+    {
+        if (!cfg.DisablePasswordLogin)
+        {
+            return false;
+        }
+
+        try
+        {
+            var ip = Jellyfin.Plugin.TwoFactorAuth.Services.BypassEvaluator.ResolveClientIp(HttpContext);
+            if (!string.IsNullOrEmpty(ip))
+            {
+                if (cfg.AllowPasswordLoginOnLan && cfg.LanBypassCidrs is { Length: > 0 })
+                {
+                    foreach (var c in cfg.LanBypassCidrs)
+                    {
+                        if (Jellyfin.Plugin.TwoFactorAuth.Services.BypassEvaluator.IsIpInCidr(ip, c))
+                        {
+                            return false;
+                        }
+                    }
+                }
+
+                if (cfg.PasswordLoginExemptCidrs is { Length: > 0 })
+                {
+                    foreach (var c in cfg.PasswordLoginExemptCidrs)
+                    {
+                        if (Jellyfin.Plugin.TwoFactorAuth.Services.BypassEvaluator.IsIpInCidr(ip, c))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Fall through — report disabled (the reveal link still lets admins in).
+        }
+
+        return true;
+    }
+
+    // =====================================================================
+    // [v2.5.11] (#71, ZEROX7) Self-service password recovery by email.
+    // All anonymous; the service is SMTP-gated and rate-limited, and responses
+    // are generic so they never reveal whether an account/email exists.
+    // =====================================================================
+
+    /// <summary>Body for POST PasswordReset/Request.</summary>
+    public sealed class PasswordResetRequestBody
+    {
+        public string? Identifier { get; set; }
+    }
+
+    /// <summary>Body for POST PasswordReset/Complete.</summary>
+    public sealed class PasswordResetCompleteBody
+    {
+        public string? Token { get; set; }
+
+        public string? NewPassword { get; set; }
+    }
+
+    private static PasswordResetService? ResolvePasswordResetService(HttpContext ctx)
+        => ctx.RequestServices.GetService(typeof(PasswordResetService)) as PasswordResetService;
+
+    [HttpPost("PasswordReset/Request")]
+    [AllowAnonymous]
+    public async Task<IActionResult> RequestPasswordReset([FromBody] PasswordResetRequestBody body)
+    {
+        var svc = ResolvePasswordResetService(HttpContext);
+        if (svc is not null)
+        {
+            var origin = $"{Request.Scheme}://{Request.Host}";
+            var ip = RateLimiter.ClientKey(HttpContext);
+            await svc.RequestResetAsync(body?.Identifier, origin, ip).ConfigureAwait(false);
+        }
+
+        // Always identical — anti-enumeration.
+        return Ok(new { message = "If an account with that name or email exists and has an email on file, a reset link has been sent." });
+    }
+
+    [HttpGet("PasswordReset/Validate")]
+    [AllowAnonymous]
+    public IActionResult ValidatePasswordResetToken([FromQuery] string? token)
+    {
+        var svc = ResolvePasswordResetService(HttpContext);
+        Response.Headers["Cache-Control"] = "no-store";
+        return Ok(new { valid = svc is not null && svc.ValidateToken(token) });
+    }
+
+    [HttpGet("PasswordReset")]
+    [AllowAnonymous]
+    [Produces("text/html")]
+    public IActionResult PasswordResetPage() => ServeEmbeddedPage("password-reset.html");
+
+    [HttpPost("PasswordReset/Complete")]
+    [AllowAnonymous]
+    public async Task<IActionResult> CompletePasswordReset([FromBody] PasswordResetCompleteBody body)
+    {
+        if (body is null || string.IsNullOrWhiteSpace(body.Token) || string.IsNullOrEmpty(body.NewPassword))
+        {
+            return BadRequest(new { message = "Missing reset token or new password." });
+        }
+
+        if (body.NewPassword.Length < 4)
+        {
+            return BadRequest(new { message = "Please choose a longer password." });
+        }
+
+        var svc = ResolvePasswordResetService(HttpContext);
+        if (svc is null)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Password recovery is unavailable." });
+        }
+
+        var ok = await svc.CompleteResetAsync(body.Token, body.NewPassword).ConfigureAwait(false);
+        if (!ok)
+        {
+            return BadRequest(new { message = "This reset link is invalid or has expired. Please request a new one." });
+        }
+
+        return Ok(new { message = "Your password has been reset. You can now sign in." });
     }
 
     // v2.5.0: shared anonymous i18n helper script. Serves an embedded JS

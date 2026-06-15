@@ -1009,6 +1009,21 @@
                         page.querySelector('#cfgExemptAdminLockout').checked = c.ExemptAdministratorsFromLockout !== false;
                         // [v2.5.10] (#68) block empty-password sign-in (default false).
                         page.querySelector('#cfgBlockEmptyPassword').checked = c.BlockEmptyPasswordLogin === true;
+                        // [v2.5.11] (#69) disable password login + escape hatches.
+                        var disPwEl = page.querySelector('#cfgDisablePasswordLogin');
+                        if (disPwEl) {
+                            disPwEl.checked = c.DisablePasswordLogin === true;
+                            page.querySelector('#cfgAllowAdminPasswordLogin').checked = c.AllowAdminPasswordLogin !== false;
+                            page.querySelector('#cfgAllowPasswordLoginOnLan').checked = c.AllowPasswordLoginOnLan !== false;
+                            page.querySelector('#cfgPasswordExemptCidrs').value = (c.PasswordLoginExemptCidrs || []).join('\n');
+                            var escRow = page.querySelector('#cfgPwLoginEscapeRow');
+                            var syncEsc = function () { if (escRow) escRow.style.display = disPwEl.checked ? '' : 'none'; };
+                            syncEsc();
+                            if (!disPwEl.__tfaBound) { disPwEl.addEventListener('change', syncEsc); disPwEl.__tfaBound = true; }
+                        }
+                        // [v2.5.11] (#71) email password recovery.
+                        var enRec = page.querySelector('#cfgEnablePasswordRecovery');
+                        if (enRec) enRec.checked = c.EnablePasswordRecovery === true;
                         page.querySelector('#cfgAuditMax').value = c.AuditLogMaxEntries || 1000;
                         page.querySelector('#cfgSmtpHost').value = c.SmtpHost || '';
                         page.querySelector('#cfgSmtpPort').value = c.SmtpPort || 587;
@@ -1148,6 +1163,17 @@
                         c.ExemptAdministratorsFromLockout = page.querySelector('#cfgExemptAdminLockout').checked;
                         // [v2.5.10] (#68) block empty-password sign-in.
                         c.BlockEmptyPasswordLogin = page.querySelector('#cfgBlockEmptyPassword').checked;
+                        // [v2.5.11] (#69) disable password login + escape hatches.
+                        if (page.querySelector('#cfgDisablePasswordLogin')) {
+                            c.DisablePasswordLogin = page.querySelector('#cfgDisablePasswordLogin').checked;
+                            c.AllowAdminPasswordLogin = page.querySelector('#cfgAllowAdminPasswordLogin').checked;
+                            c.AllowPasswordLoginOnLan = page.querySelector('#cfgAllowPasswordLoginOnLan').checked;
+                            c.PasswordLoginExemptCidrs = page.querySelector('#cfgPasswordExemptCidrs').value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+                        }
+                        // [v2.5.11] (#71) email password recovery.
+                        if (page.querySelector('#cfgEnablePasswordRecovery')) {
+                            c.EnablePasswordRecovery = page.querySelector('#cfgEnablePasswordRecovery').checked;
+                        }
                         c.AuditLogMaxEntries = parseInt(page.querySelector('#cfgAuditMax').value) || 1000;
                         c.SmtpHost = page.querySelector('#cfgSmtpHost').value.trim();
                         c.SmtpPort = parseInt(page.querySelector('#cfgSmtpPort').value) || 587;
@@ -1467,6 +1493,16 @@
                     // [v2.5.10] (#66) profile-picture sync.
                     page.querySelector('#ssoSyncPicture').checked = prov ? !!prov.syncProfilePicture : false;
                     page.querySelector('#ssoPictureClaim').value = prov ? (prov.pictureClaim || 'picture') : 'picture';
+                    // [v2.5.11] (#70) configurable email claim + auto-fill.
+                    var emClaimEl = page.querySelector('#ssoEmailClaim');
+                    if (emClaimEl) emClaimEl.value = prov ? (prov.emailClaim || 'email') : 'email';
+                    var syncEmailEl = page.querySelector('#ssoSyncEmail');
+                    if (syncEmailEl) syncEmailEl.checked = prov ? prov.syncEmailFromClaim !== false : true;
+                    // [v2.5.11] (#69) custom login-button text + icon.
+                    var btnTextEl = page.querySelector('#ssoButtonText');
+                    if (btnTextEl) btnTextEl.value = prov ? (prov.buttonText || '') : '';
+                    var btnIconEl = page.querySelector('#ssoButtonIcon');
+                    if (btnIconEl) btnIconEl.value = prov ? (prov.buttonIconUrl || '') : '';
                     // [v2.5.10] (#65) role→library access.
                     page.querySelector('#ssoApplyRoleLib').checked = prov ? !!prov.applyRoleLibraryAccess : false;
                     loadLibrariesOnce().then(function() {
@@ -1534,6 +1570,12 @@
                         PictureClaim: page.querySelector('#ssoPictureClaim').value.trim() || 'picture',
                         ApplyRoleLibraryAccess: page.querySelector('#ssoApplyRoleLib').checked,
                         RoleLibraryMappings: collectRoleLibMappings(),
+                        // [v2.5.11] (#70) configurable email claim + auto-fill.
+                        EmailClaim: (page.querySelector('#ssoEmailClaim') ? page.querySelector('#ssoEmailClaim').value.trim() : '') || 'email',
+                        SyncEmailFromClaim: (page.querySelector('#ssoSyncEmail') || {}).checked === true,
+                        // [v2.5.11] (#69) custom login-button text + icon.
+                        ButtonText: (page.querySelector('#ssoButtonText') ? page.querySelector('#ssoButtonText').value.trim() : ''),
+                        ButtonIconUrl: (page.querySelector('#ssoButtonIcon') ? page.querySelector('#ssoButtonIcon').value.trim() : ''),
                     };
                     if (!body.DisplayName) { alert(_tr('tfa.admin.sso.alert_display_required', 'Display name is required.')); return; }
                     if (!body.ClientId) { alert(_tr('tfa.admin.sso.alert_client_id_required', 'Client ID is required.')); return; }

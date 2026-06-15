@@ -155,6 +155,29 @@ public class OidcProvider
     /// case-insensitive) to a set of Jellyfin library IDs the role grants.</summary>
     public List<OidcRoleLibraryMapping> RoleLibraryMappings { get; set; } = new();
 
+    /// <summary>[v2.5.11] (issue #70, ZEROX7): claim name holding the user's
+    /// email address. Standard OIDC is `email`; some IdPs expose it under a
+    /// custom claim (e.g. `internal_email`). Used both for the email-match
+    /// resolve path and for <see cref="SyncEmailFromClaim"/>.</summary>
+    public string EmailClaim { get; set; } = "email";
+
+    /// <summary>[v2.5.11] (issue #70): when true, on each successful sign-in the
+    /// plugin fills the Jellyfin user's plugin email (used for email OTP and
+    /// shown in the admin Users tab) from <see cref="EmailClaim"/> if it is not
+    /// already set. An existing, admin-entered email is never overwritten.
+    /// Default true — this is the expected behaviour ZEROX7 reported missing.</summary>
+    public bool SyncEmailFromClaim { get; set; } = true;
+
+    /// <summary>[v2.5.11] (issue #69, ZEROX7): override the text on the
+    /// "Sign in with X" login button. Empty = use "Sign in with {DisplayName}".</summary>
+    public string ButtonText { get; set; } = string.Empty;
+
+    /// <summary>[v2.5.11] (issue #69): optional icon/logo shown on the login
+    /// button. An absolute https URL to an image, or a data: URI. Empty = no
+    /// icon (a generic key glyph is used). Rendered client-side in inject.js;
+    /// constrained to https / data: to avoid mixed-content + SSRF surprises.</summary>
+    public string ButtonIconUrl { get; set; } = string.Empty;
+
     public DateTime CreatedAt { get; set; }
 }
 

@@ -4,6 +4,29 @@
 
     console.log('[2FA] inject.js v1.4.0 loaded');
 
+    // [v2.5.11] (ZEROX7) Capture an OIDC sign-in error from the redirect hash
+    // IMMEDIATELY at script load — BEFORE Jellyfin's SPA router can bounce to
+    // the user-select screen and strip the query string. A failed SSO sign-in
+    // (no matching account, ambiguous email, not-in-group, MFA required, …)
+    // used to vanish silently. handleOidcCallback() surfaces this as a toast
+    // on whatever screen the SPA settles on.
+    var _tfaOidcError = (function () {
+        try {
+            var h = window.location.hash || '';
+            var q = h.indexOf('?');
+            if (q < 0) return null;
+            var pairs = h.substring(q + 1).split('&');
+            for (var i = 0; i < pairs.length; i++) {
+                var kv = pairs[i].split('=');
+                if (decodeURIComponent(kv[0]) === 'oidcError') {
+                    return decodeURIComponent((kv[1] || '').replace(/\+/g, ' '));
+                }
+            }
+        } catch (e) {}
+        return null;
+    })();
+    var _tfaOidcErrorShown = false;
+
     // ============================================================
     // 1a. v2.4.12 — TFA-pending sessionStorage flag + client-side
     //     short-circuit. Issue #36 (Wibbles42 / SWAG fail2ban):
@@ -582,12 +605,102 @@
         return _tfaPublicCfgPromise;
     }
 
+    // [v2.5.11] (#69, ZEROX7) hide the username/password form when password
+    // sign-in is disabled for this client — leaving only the SSO + Quick Connect
+    // affordances. A discreet "sign in with a password instead" link reveals it
+    // again (the server still allows admins / LAN / exempt IPs via the escape
+    // hatches; everyone else gets a clear 403 if they submit).
+    function _tfaFieldWrap(form, sel) {
+        var el = form.querySelector(sel);
+        if (!el) return null;
+        return el.closest('.inputContainer') || el;
+    }
+    function applyPasswordLoginGate() {
+        if (!isLoginPage() || _tfaPublicCfg === null) return;
+        var form = document.querySelector('.manualLoginForm') || document.querySelector('form');
+        if (!form) return;
+        var REVEAL_ID = '__tfa_pw_reveal';
+        var wraps = [
+            _tfaFieldWrap(form, 'input#txtManualName, input[name="username"], input#username'),
+            _tfaFieldWrap(form, 'input[type="password"], input#txtManualPassword, input[name="password"]'),
+            form.querySelector('button[type="submit"]')
+        ];
+        if (!_tfaPublicCfg.passwordLoginDisabled || window.__tfaPwRevealed) {
+            // Not gated (or the user revealed it): make sure everything is visible.
+            wraps.forEach(function (w) { if (w) w.style.display = ''; });
+            var ex0 = document.getElementById(REVEAL_ID); if (ex0 && _tfaPublicCfg.passwordLoginDisabled !== true) ex0.remove();
+            return;
+        }
+        wraps.forEach(function (w) { if (w) w.style.display = 'none'; });
+        if (!document.getElementById(REVEAL_ID)) {
+            var link = document.createElement('a');
+            link.id = REVEAL_ID;
+            link.href = '#';
+            link.textContent = (_tfaPublicCfg.passwordLoginRevealText || 'Sign in with a password instead');
+            link.style.cssText = 'display:block;margin-top:12px;text-align:center;color:#7d828b;font-size:13px;cursor:pointer;';
+            link.addEventListener('click', function (e) {
+                e.preventDefault();
+                window.__tfaPwRevealed = true;
+                wraps.forEach(function (w) { if (w) w.style.display = ''; });
+                link.remove();
+            });
+            form.appendChild(link);
+        }
+    }
+
+    // [v2.5.11] (#71, ZEROX7) "Forgot password?" link → reveals a small inline
+    // form that emails a one-time reset link. Shown only when the server reports
+    // recovery is enabled (EnablePasswordRecovery + SMTP configured). The
+    // response is always generic, so this can't be used to probe for accounts.
+    function addForgotPasswordLink() {
+        if (!isLoginPage() || _tfaPublicCfg === null) return;
+        if (!_tfaPublicCfg.passwordRecoveryEnabled) return;
+        var form = document.querySelector('.manualLoginForm') || document.querySelector('form');
+        if (!form || document.getElementById('__tfa_forgot')) return;
+        var wrap = document.createElement('div');
+        wrap.id = '__tfa_forgot';
+        wrap.style.cssText = 'margin-top:12px;text-align:center;';
+        var link = document.createElement('a');
+        link.href = '#';
+        link.textContent = 'Forgot password?';
+        link.style.cssText = 'color:#7d828b;font-size:13px;cursor:pointer;';
+        var panel = document.createElement('div');
+        panel.style.cssText = 'display:none;margin-top:10px;text-align:left;';
+        panel.innerHTML =
+            '<input id="__tfa_forgot_id" type="text" placeholder="Username or email" autocomplete="username" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a2d33;background:#0e1014;color:#e6e6e6;" />'
+            + '<button id="__tfa_forgot_send" type="button" class="raised block emby-button" style="margin-top:8px;width:100%;">Email me a reset link</button>'
+            + '<div id="__tfa_forgot_msg" style="margin-top:8px;font-size:13px;color:#aeb4bd;"></div>';
+        link.addEventListener('click', function (e) {
+            e.preventDefault();
+            panel.style.display = (panel.style.display === 'none') ? 'block' : 'none';
+        });
+        wrap.appendChild(link);
+        wrap.appendChild(panel);
+        form.appendChild(wrap);
+        panel.querySelector('#__tfa_forgot_send').addEventListener('click', function () {
+            var idv = (panel.querySelector('#__tfa_forgot_id').value || '').trim();
+            var m = panel.querySelector('#__tfa_forgot_msg');
+            if (!idv) { m.textContent = 'Enter your username or email first.'; return; }
+            m.textContent = 'Sending…';
+            fetch('/TwoFactorAuth/PasswordReset/Request', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'omit',
+                body: JSON.stringify({ Identifier: idv })
+            }).then(function (r) { return r.json().catch(function () { return {}; }); })
+              .then(function (j) { m.textContent = (j && j.message) || 'If an account exists, a reset link has been sent.'; })
+              .catch(function () { m.textContent = 'If an account exists, a reset link has been sent.'; });
+        });
+    }
+
     function addLoginButton() {
         if (!isLoginPage()) return;
         // [v2.5.7] (issue #48 feature, Gaarindor): while the public-config
         // fetch is in flight (_tfaPublicCfg === null) skip injecting — the
         // next polling tick will re-enter once the response arrives.
         if (_tfaPublicCfg === null) { fetchTfaPublicConfig(); return; }
+        // [v2.5.11] (#69) hide/reveal the password form per the public-config gate.
+        applyPasswordLoginGate();
+        // [v2.5.11] (#71) add the "Forgot password?" affordance when enabled.
+        addForgotPasswordLink();
         var hideTwoFa = !!_tfaPublicCfg.hideBuiltInTwoFactorButton;
         var hidePasskey = !!_tfaPublicCfg.hideBuiltInPasskeyButton;
         var signInBtn = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
@@ -921,7 +1034,17 @@
                 btn.className = 'raised block emby-button';
                 btn.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;padding:0.9em 1em;text-decoration:none;';
                 btn.href = '/TwoFactorAuth/Oidc/Login/' + encodeURIComponent(p.id);
-                btn.innerHTML = '<span class="material-icons" style="font-family:Material Icons;font-size:18px;">login</span><span>Sign in with ' + (p.displayName || p.id).replace(/[<>&"]/g, '') + '</span>';
+                // [v2.5.11] (#69, ZEROX7): honor the provider's custom button
+                // text + icon. Label defaults to "Sign in with {name}". Icon is
+                // an <img> when an https/data: URL is configured (server already
+                // restricts the scheme), else the default login glyph.
+                var _esc = function (s) { return String(s || '').replace(/[<>&"]/g, ''); };
+                var _label = p.buttonText ? _esc(p.buttonText) : ('Sign in with ' + _esc(p.displayName || p.id));
+                var _iconUrl = p.buttonIconUrl || '';
+                var _icon = (/^https:\/\//i.test(_iconUrl) || /^data:image\//i.test(_iconUrl))
+                    ? '<img src="' + _iconUrl.replace(/"/g, '%22') + '" alt="" style="width:18px;height:18px;object-fit:contain;border-radius:3px;" />'
+                    : '<span class="material-icons" style="font-family:Material Icons;font-size:18px;">login</span>';
+                btn.innerHTML = _icon + '<span>' + _label + '</span>';
                 // [v2.5.9] (issue #64): in an embedded app webview, a full-page
                 // nav off /web/ bounces the app to server-select. Detect the
                 // native shell and run the flow in-page (modal + device-poll)
@@ -937,20 +1060,28 @@
     }
 
     function handleOidcCallback() {
-        if (!isLoginPage()) return;
-        var err = getQueryParam('oidcError');
-        if (err) {
-            // Show error banner once.
-            var existing = document.getElementById('__twofactor_oidc_error');
-            if (existing) return;
-            var box = document.createElement('div');
-            box.id = '__twofactor_oidc_error';
-            box.style.cssText = 'background:rgba(244,67,54,0.15);border:1px solid rgba(244,67,54,0.4);color:#f44336;padding:10px 14px;border-radius:4px;margin-bottom:14px;font-size:14px;';
-            box.textContent = 'Sign-in failed: ' + err;
-            var form = document.querySelector('.manualLoginForm') || document.querySelector('form');
-            if (form && form.parentNode) form.parentNode.insertBefore(box, form);
+        // [v2.5.11] Surface a failed OIDC sign-in on ANY screen the SPA lands on
+        // (the login form OR the user-select grid), using the early-captured
+        // _tfaOidcError so it survives the router stripping the hash query. The
+        // toast (showLockoutToast) is fixed-position and works regardless of
+        // which view rendered; when the login form is present we also drop an
+        // inline banner above it for good measure.
+        if (_tfaOidcError && !_tfaOidcErrorShown) {
+            _tfaOidcErrorShown = true;
+            showLockoutToast('Sign-in failed: ' + _tfaOidcError);
+            try {
+                var efForm = document.querySelector('.manualLoginForm') || document.querySelector('form');
+                if (efForm && efForm.parentNode && !document.getElementById('__twofactor_oidc_error')) {
+                    var box = document.createElement('div');
+                    box.id = '__twofactor_oidc_error';
+                    box.style.cssText = 'background:rgba(244,67,54,0.15);border:1px solid rgba(244,67,54,0.4);color:#f44336;padding:10px 14px;border-radius:4px;margin:0 0 14px;font-size:14px;';
+                    box.textContent = 'Sign-in failed: ' + _tfaOidcError;
+                    efForm.parentNode.insertBefore(box, efForm);
+                }
+            } catch (e) {}
             return;
         }
+        if (!isLoginPage()) return;
         var user = getQueryParam('oidcUser');
         var token = getQueryParam('oidcToken');
         if (!user || !token) return;

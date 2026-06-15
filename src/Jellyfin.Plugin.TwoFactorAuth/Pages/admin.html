@@ -389,6 +389,16 @@
                                 <label data-i18n-key="tfa.admin.sso.lbl_username_claim">Username claim</label>
                                 <input type="text" id="ssoUsernameClaim" class="tfa-input" style="width:240px;" />
                             </div>
+                            <!-- [v2.5.11] (issue #70, ZEROX7): configurable email claim + auto-fill. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label data-i18n-key="tfa.admin.sso.lbl_email_claim">Email claim</label>
+                                <input type="text" id="ssoEmailClaim" class="tfa-input" style="width:240px;" placeholder="email" />
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.email_claim_help">Claim name holding the user's email. Standard OIDC is <code>email</code>; override only if your IdP uses a different claim (e.g. <code>internal_email</code>). Used for matching users by email and for the auto-fill below.</div>
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="ssoSyncEmail" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_sync_email">Fill the user's email from the IdP on sign-in</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.sync_email_help">On sign-in, copy the IdP email into the Jellyfin user's email field (used for email OTP and shown in the Users tab) when it isn't already set. An email you entered manually is never overwritten.</div>
+                            </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.sso.lbl_acr">acr_values (optional)</label>
                                 <input type="text" id="ssoAcr" class="tfa-input" style="width:240px;" placeholder="e.g. mfa" data-i18n-placeholder="tfa.admin.sso.ph_acr" />
@@ -413,6 +423,17 @@
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="ssoEnabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_show_button">Show button on login page</span></label>
                             </div>
+                            <!-- [v2.5.11] (issue #69, ZEROX7): customize the login button text + icon. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label data-i18n-key="tfa.admin.sso.lbl_button_text">Login button text (optional)</label>
+                                <input type="text" id="ssoButtonText" class="tfa-input" style="width:360px;" placeholder="Sign in with …" data-i18n-placeholder="tfa.admin.sso.ph_button_text" />
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.button_text_help">What the login-page button says. Leave blank to use "Sign in with {provider name}".</div>
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label data-i18n-key="tfa.admin.sso.lbl_button_icon">Login button icon URL (optional)</label>
+                                <input type="text" id="ssoButtonIcon" class="tfa-input" style="width:360px;" placeholder="https://… or data:image/…" data-i18n-placeholder="tfa.admin.sso.ph_button_icon" />
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.button_icon_help">An https image URL (or a data: URI) shown on the button — e.g. your IdP's logo. Must be https to avoid mixed-content warnings; anything else is ignored and the default key icon is used.</div>
+                            </div>
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="ssoForceHttps" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_force_https">Force HTTPS on redirect_uri (only if your reverse proxy doesn't propagate X-Forwarded-Proto)</span></label>
                             </div>
@@ -430,7 +451,7 @@
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="ssoSyncPicture" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_sync_picture">Sync the IdP profile picture to the Jellyfin avatar on sign-in</span></label>
                             </div>
-                            <div class="tfa-row" id="ssoPictureClaimRow" style="display:none;">
+                            <div class="tfa-row tfa-row-stack" id="ssoPictureClaimRow" style="display:none;">
                                 <label data-i18n-key="tfa.admin.sso.lbl_picture_claim">Picture claim</label>
                                 <input type="text" id="ssoPictureClaim" class="tfa-input" style="width:240px;" placeholder="picture" />
                                 <div class="tfa-help" data-i18n-key="tfa.admin.sso.picture_claim_help">Claim name holding the avatar URL. Standard OIDC is <code>picture</code>; override only if your IdP uses a different claim. The image is fetched through the same network-safety guard as the other IdP calls.</div>
@@ -534,6 +555,25 @@
                             <div class="tfa-row tfa-row-stack">
                                 <label><input type="checkbox" id="cfgBlockEmptyPassword" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_block_empty_password">Block sign-in with an empty password</span></label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.settings.block_empty_password_help">Rejects any sign-in attempt with a blank password, for every user. Closes the flaw where an account with no stored password hash (some OIDC-provisioned or imported accounts) can be signed into by anyone who knows the username. Leave OFF only if you rely on Jellyfin's passwordless "tap a user tile" kiosk login.</div>
+                            </div>
+                            <!-- [v2.5.11] (issue #69, ZEROX7): disable password login (OIDC-only). -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgDisablePasswordLogin" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_disable_password_login">Disable password sign-in (use SSO / Quick Connect only)</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.disable_password_login_help">Refuses username+password sign-in so users go through your identity provider (or Quick Connect). OIDC sign-in and Quick Connect are never blocked. Always keep at least one escape hatch below enabled so a failed IdP can't lock you out — and the plugin's own /TwoFactorAuth/Login page still works regardless.</div>
+                            </div>
+                            <div class="tfa-row" id="cfgPwLoginEscapeRow" style="display:none;">
+                                <div class="tfa-row-stack" style="padding-left:18px;border-left:2px solid #2a2d33;">
+                                    <label><input type="checkbox" id="cfgAllowAdminPasswordLogin" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_allow_admin_password">Administrators can always sign in with a password</span></label>
+                                    <label style="margin-top:8px;"><input type="checkbox" id="cfgAllowPasswordLoginOnLan" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_allow_lan_password">Allow password sign-in from the LAN (disable for remote users only)</span></label>
+                                    <label data-i18n-key="tfa.admin.settings.lbl_password_exempt_cidrs" style="margin-top:10px;">Extra IP ranges that may always use a password (CIDR, one per line)</label>
+                                    <textarea id="cfgPasswordExemptCidrs" class="tfa-input" style="width:360px;height:64px;" placeholder="203.0.113.5/32"></textarea>
+                                    <div class="tfa-help" data-i18n-key="tfa.admin.settings.password_exempt_cidrs_help">Clients in these ranges can always sign in with a password even when it's disabled — e.g. your home IP. Matched against the real client IP (proxy-aware when Trust X-Forwarded-For is configured).</div>
+                                </div>
+                            </div>
+                            <!-- [v2.5.11] (issue #71, ZEROX7): email password recovery. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgEnablePasswordRecovery" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_enable_password_recovery">Allow password recovery by email</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.enable_password_recovery_help">Adds a "Forgot password?" link to the login page. The user enters their username or email and is emailed a one-time, 30-minute reset link. Requires SMTP (below) and an email on file for the user. The response is always generic, so it can't be used to discover which accounts exist.</div>
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_audit_max">Audit log max entries</label>

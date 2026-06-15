@@ -3,6 +3,9 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -83,6 +86,27 @@ public class LockoutMessageMiddleware
         // username → the lockout/record steps below no-op).
         var user = ResolveUserSafe(username);
 
+        // 0b. DISABLE-PASSWORD-LOGIN GATE [v2.5.11] (issue #69, ZEROX7). When the
+        //     admin has turned off password sign-in, refuse it here so only
+        //     OIDC/SSO + Quick Connect remain. Three things are NEVER blocked:
+        //     (a) OIDC bridge tokens — SSO completes via this same endpoint with
+        //         a one-time token as the "password"; LooksLikeBridgeToken lets
+        //         it through. (Quick Connect uses a different endpoint entirely.)
+        //     (b) the configured escape hatches (admin / LAN / exempt CIDRs).
+        //     The plugin's own /TwoFactorAuth/Login page is unaffected either way.
+        if (config.DisablePasswordLogin
+            && !OidcLoginTokenStore.LooksLikeBridgeToken(password)
+            && !IsPasswordLoginExempt(context, config, user))
+        {
+            _logger.LogWarning("[2FA] Password sign-in refused (DisablePasswordLogin) for '{User}'.", username ?? "(unknown)");
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(
+                "{\"message\":\"Password sign-in is disabled on this server. Please sign in with your identity provider.\",\"passwordLoginDisabled\":true}")
+                .ConfigureAwait(false);
+            return;
+        }
+
         // 1. PRE-CHECK: a locked account is refused BEFORE the password is even
         //    checked, with a recognizable body so inject.js can show a
         //    "temporarily locked" message (Jellyfin strips the provider's
@@ -155,6 +179,60 @@ public class LockoutMessageMiddleware
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "[2FA] lockout record/reset after login failed (non-fatal)");
+        }
+    }
+
+    /// <summary>[v2.5.11] (#69) true when password login should still be allowed
+    /// for this request despite DisablePasswordLogin — via the admin, LAN, or
+    /// explicit-CIDR escape hatches. Fails OPEN (returns true) on any error so a
+    /// bug here can never lock everyone out of password sign-in.</summary>
+    private bool IsPasswordLoginExempt(HttpContext context, PluginConfiguration config, Jellyfin.Database.Implementations.Entities.User? user)
+    {
+        try
+        {
+            // Admin escape hatch (toggleable).
+            if (config.AllowAdminPasswordLogin && user is not null
+                && user.HasPermission(PermissionKind.IsAdministrator))
+            {
+                return true;
+            }
+
+            var clientIp = BypassEvaluator.ResolveClientIp(context);
+            if (string.IsNullOrEmpty(clientIp))
+            {
+                return false;
+            }
+
+            // LAN escape hatch (toggleable) — "disable for remote users only".
+            if (config.AllowPasswordLoginOnLan && config.LanBypassCidrs is { Length: > 0 })
+            {
+                foreach (var cidr in config.LanBypassCidrs)
+                {
+                    if (BypassEvaluator.IsIpInCidr(clientIp, cidr))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            // Explicit exempt CIDRs.
+            if (config.PasswordLoginExemptCidrs is { Length: > 0 })
+            {
+                foreach (var cidr in config.PasswordLoginExemptCidrs)
+                {
+                    if (BypassEvaluator.IsIpInCidr(clientIp, cidr))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[2FA] password-login-exempt check threw; allowing the request");
+            return true;
         }
     }
 

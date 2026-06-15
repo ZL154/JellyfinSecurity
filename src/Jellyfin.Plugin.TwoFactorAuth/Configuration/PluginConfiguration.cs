@@ -247,6 +247,39 @@ public class PluginConfiguration : BasePluginConfiguration
     /// exempt admins, so a brute-force attempt is still visible.</summary>
     public bool ExemptAdministratorsFromLockout { get; set; } = true;
 
+    /// <summary>[v2.5.11] (issue #69, ZEROX7): master switch to refuse
+    /// username+password sign-in so only OIDC/SSO + Quick Connect remain. OIDC
+    /// bridge tokens and Quick Connect are never blocked. Default false.
+    /// Always paired with the escape hatches below so a dead IdP can't lock
+    /// everyone out — and the plugin's own /TwoFactorAuth/Login page still
+    /// works regardless of this flag.</summary>
+    public bool DisablePasswordLogin { get; set; } = false;
+
+    /// <summary>[v2.5.11] (#69) escape hatch (toggleable): administrators can
+    /// always sign in with a password even when <see cref="DisablePasswordLogin"/>
+    /// is on, so an admin can still get in if the IdP is unreachable. Default
+    /// true.</summary>
+    public bool AllowAdminPasswordLogin { get; set; } = true;
+
+    /// <summary>[v2.5.11] (#69) escape hatch (toggleable): password sign-in is
+    /// still allowed from LAN clients (matched against <see cref="LanBypassCidrs"/>)
+    /// even when <see cref="DisablePasswordLogin"/> is on. With this on, the
+    /// effect is "disable password login for REMOTE users only" — ZEROX7's
+    /// requested scope. Turn off to disable password login for everyone
+    /// (subject only to the admin + explicit-CIDR exemptions). Default true.</summary>
+    public bool AllowPasswordLoginOnLan { get; set; } = true;
+
+    /// <summary>[v2.5.11] (#69) escape hatch: explicit CIDRs that may always
+    /// password-login even when <see cref="DisablePasswordLogin"/> is on (e.g.
+    /// an admin's home IP). Empty by default.</summary>
+    public string[] PasswordLoginExemptCidrs { get; set; } = Array.Empty<string>();
+
+    /// <summary>[v2.5.11] (issue #71, ZEROX7): enable self-service password
+    /// recovery by email. Requires SMTP configured. When on, the login page
+    /// shows a "Forgot password?" link that emails a one-time, expiring reset
+    /// link. Default false.</summary>
+    public bool EnablePasswordRecovery { get; set; } = false;
+
     public int AuditLogMaxEntries { get; set; } = 1000;
 
     public string NtfyUrl { get; set; } = string.Empty;
