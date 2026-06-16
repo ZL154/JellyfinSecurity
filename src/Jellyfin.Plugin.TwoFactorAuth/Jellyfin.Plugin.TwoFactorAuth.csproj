@@ -44,7 +44,7 @@
     <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Fido2" Version="4.0.1" />
     <PackageReference Include="MaxMind.Db" Version="5.1.0" />
-    <PackageReference Include="QuestPDF" Version="2026.5.0" />
+    <PackageReference Include="QuestPDF" Version="2026.6.0" />
     <PackageReference Include="IdentityModel.OidcClient" Version="6.0.0" />
     <!-- [v2.5.10] Reverted Dependabot #62's bump (8.18.0 -> 8.19.1). 8.19.1
          broke OIDC id_token signature validation (IDX10511: "Signature
