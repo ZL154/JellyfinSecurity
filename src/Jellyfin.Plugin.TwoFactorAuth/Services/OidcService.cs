@@ -783,9 +783,26 @@ public class OidcService : IDisposable
         user.SetPreference(PreferenceKind.EnabledFolders, finalIds);
         await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
 
+        // [v2.5.12] (#65, Bgabor997): read the policy BACK after persisting so the
+        // log is conclusive when a user reports "it says set N but I see nothing".
+        // This pins down whether the GUIDs persisted, in what form, and whether
+        // they match the libraries Jellyfin actually knows about — an ItemId vs
+        // CollectionFolder-Id mismatch shows up here as granted ids that are
+        // absent from the available-libraries list logged at Debug.
+        var readBack = user.GetPreference(PreferenceKind.EnabledFolders) ?? Array.Empty<string>();
+        var enableAll = user.HasPermission(PermissionKind.EnableAllFolders);
         _logger.LogInformation(
-            "[2FA] OIDC set {Count} librar(ies) for {User} from {GroupCount} IdP group claim(s) via provider {Provider}",
-            finalIds.Length, user.Username, groups.Length, provider.Id);
+            "[2FA] OIDC set {Count} librar(ies) for {User} from {GroupCount} IdP group claim(s) via provider {Provider}; granted=[{Granted}] persisted=[{Persisted}] enableAllFolders={EnableAll}",
+            finalIds.Length, user.Username, groups.Length, provider.Id,
+            string.Join(",", finalIds), string.Join(",", readBack), enableAll);
+
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            var avail = _libraryManager.GetVirtualFolders()
+                .Select(v => (v.Name ?? "(unnamed)") + ":" + (v.ItemId ?? "(no-id)"));
+            _logger.LogDebug("[2FA] OIDC available libraries (name:itemId) for #65 diagnosis: [{Libraries}]",
+                string.Join(" | ", avail));
+        }
     }
 
     /// <summary>[v2.5.10] (issue #65) Pure mapping: given the user's IdP
