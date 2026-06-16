@@ -131,8 +131,13 @@ public class OidcLoginTokenStore : IDisposable
         if (!_deviceByState.TryGetValue(state, out var entry)) return false;
         entry.Username = username;
         entry.BridgeToken = bridgeToken;
-        // Fresh short window for the app to poll-pick the token.
-        entry.ExpiresAt = DateTime.UtcNow.AddSeconds(90);
+        // [v2.5.12] (issue #64): window for the app to poll-pick the token after
+        // the user manually returns from the system browser. Kept in lockstep
+        // with the device-flow bridge-token TTL minted in the callback (3 min) —
+        // if this window were longer than the token TTL, a slow return would
+        // poll-pick a token that AuthenticateByName then rejects as expired
+        // (the original 90s-vs-60s mismatch that 403'd app logins).
+        entry.ExpiresAt = DateTime.UtcNow.AddMinutes(3);
         return true;
     }
 

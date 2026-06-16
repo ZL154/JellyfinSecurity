@@ -761,11 +761,25 @@ public class SecurityController : ControllerBase
             });
         }
 
+        // [v2.5.12] (issue #64): device-poll logins put a HUMAN in the loop —
+        // the user finishes consent in the SYSTEM browser, then manually
+        // switches back to the app, which only THEN poll-picks the token and
+        // calls /Users/AuthenticateByName. Android also throttles/pauses the
+        // webview's poll timer while the app is backgrounded. That round-trip
+        // routinely exceeds the default 60s bridge-token TTL, so the token
+        // expired before the app could spend it → AuthenticateByName 401/403
+        // AFTER a successful consent ("you're signed in, then 403 in the app").
+        // Give device-flow tokens a TTL that matches the poll window (3 min);
+        // the desktop bridge auto-submits in the same tab within ~1s and keeps
+        // the tight 60s default.
+        var isDeviceFlow = _oidcBridge.HasDeviceFlow(state);
+
         // Mint a one-shot bridge token.
         var token = _oidcBridge.Mint(
             result.UserId.Value,
             result.Username,
             providerId,
+            ttl: isDeviceFlow ? TimeSpan.FromMinutes(3) : null,
             bypassPluginTwoFa: provider.BypassPluginTwoFa);
 
         // [v2.5.9] (issue #64): if this login was started from an app webview
@@ -774,7 +788,7 @@ public class SecurityController : ControllerBase
         // flow's secret poll token so the app's webview poll picks it up, and
         // show the browser a "return to your app" page instead of logging the
         // browser in.
-        if (_oidcBridge.HasDeviceFlow(state))
+        if (isDeviceFlow)
         {
             _oidcBridge.CompleteDeviceFlow(state, result.Username, token);
             _logger.LogInformation("[2FA] OIDC device-poll completed in browser for {User} — app will pick up the session", result.Username);
