@@ -27,6 +27,11 @@ updates:
       # Floating wildcards on the Jellyfin SDK are intentional — pin/upgrade via csproj.
       - dependency-name: "Jellyfin.Controller"
       - dependency-name: "Jellyfin.Model"
+      # Microsoft.IdentityModel 8.19.x breaks OIDC id_token validation — pinned to
+      # 8.18 and upgraded deliberately via csproj after re-testing SSO. (Auto-bump
+      # PRs #74/#78 were closed for this reason.)
+      - dependency-name: "Microsoft.IdentityModel.Tokens"
+      - dependency-name: "System.IdentityModel.Tokens.Jwt"
 
   - package-ecosystem: "nuget"
     directory: "/tests/Jellyfin.Plugin.TwoFactorAuth.Tests"
