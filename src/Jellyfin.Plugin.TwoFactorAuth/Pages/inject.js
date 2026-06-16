@@ -28,6 +28,54 @@
     var _tfaOidcErrorShown = false;
 
     // ============================================================
+    // [v2.5.12] (#79, ZEROX7) i18n for the login page.
+    //   The injected login UI (SSO buttons, 2FA/passkey buttons, the
+    //   forgot-password panel, the OIDC modal) was hardcoded English. The rest
+    //   of the plugin already localizes via the shared tfa-i18n.js helper, which
+    //   now follows Jellyfin's own UI language pre-auth. Load that helper here
+    //   and translate the injected strings through it.
+    //
+    //   T(key, fallback) returns the localized string, falling back to the
+    //   English literal until the bundle has loaded (tfa-i18n is async). Static
+    //   injected elements also carry data-i18n-key so the 'tfa-i18n-ready' hook
+    //   can re-translate them once the bundle arrives.
+    function ensureI18n() {
+        try {
+            if (window.tfaI18n) return;
+            if (document.getElementById('__tfa_i18n_js')) return;
+            var s = document.createElement('script');
+            s.id = '__tfa_i18n_js';
+            s.src = '/TwoFactorAuth/tfa-i18n.js';
+            s.async = true;
+            (document.head || document.documentElement).appendChild(s);
+        } catch (e) { /* ignore — strings fall back to English */ }
+    }
+    function T(key, fallback) {
+        try {
+            if (window.tfaI18n && typeof window.tfaI18n.tr === 'function') {
+                return window.tfaI18n.tr(key, fallback);
+            }
+        } catch (e) { /* ignore */ }
+        return fallback;
+    }
+    // Interpolate "{name}"-style placeholders into a translated template.
+    function Tf(key, fallback, vars) {
+        var s = T(key, fallback);
+        if (vars) {
+            for (var k in vars) {
+                if (Object.prototype.hasOwnProperty.call(vars, k)) {
+                    s = s.split('{' + k + '}').join(String(vars[k]));
+                }
+            }
+        }
+        return s;
+    }
+    // Re-translate the [data-i18n-key] nodes we injected, once the bundle loads.
+    document.addEventListener('tfa-i18n-ready', function () {
+        try { if (window.tfaI18n) window.tfaI18n.applyTranslations(document); } catch (e) { /* ignore */ }
+    });
+
+    // ============================================================
     // 1a. v2.4.12 — TFA-pending sessionStorage flag + client-side
     //     short-circuit. Issue #36 (Wibbles42 / SWAG fail2ban):
     //     once the server has signalled "two-factor authentication
@@ -546,7 +594,7 @@
             tile.innerHTML =
                 '<span class="material-icons listItemIcon listItemIcon-transparent" aria-hidden="true" style="font-family:\'Material Icons\';">security</span>' +
                 '<div class="listItemBody">' +
-                    '<div class="listItemBodyText">Two-Factor Authentication</div>' +
+                    '<div class="listItemBodyText" data-i18n-key="tfa.login.settings_tile">' + T('tfa.login.settings_tile', 'Two-Factor Authentication') + '</div>' +
                 '</div>' +
                 '<span class="material-icons" aria-hidden="true" style="font-family:\'Material Icons\';margin-left:auto;opacity:0.5;">chevron_right</span>';
 
@@ -636,7 +684,7 @@
             var link = document.createElement('a');
             link.id = REVEAL_ID;
             link.href = '#';
-            link.textContent = (_tfaPublicCfg.passwordLoginRevealText || 'Sign in with a password instead');
+            link.textContent = (_tfaPublicCfg.passwordLoginRevealText || T('tfa.login.pw_reveal', 'Sign in with a password instead'));
             link.style.cssText = 'display:block;margin-top:12px;text-align:center;color:#7d828b;font-size:13px;cursor:pointer;';
             link.addEventListener('click', function (e) {
                 e.preventDefault();
@@ -662,13 +710,14 @@
         wrap.style.cssText = 'margin-top:12px;text-align:center;';
         var link = document.createElement('a');
         link.href = '#';
-        link.textContent = 'Forgot password?';
+        link.setAttribute('data-i18n-key', 'tfa.login.forgot');
+        link.textContent = T('tfa.login.forgot', 'Forgot password?');
         link.style.cssText = 'color:#7d828b;font-size:13px;cursor:pointer;';
         var panel = document.createElement('div');
         panel.style.cssText = 'display:none;margin-top:10px;text-align:left;';
         panel.innerHTML =
-            '<input id="__tfa_forgot_id" type="text" placeholder="Username or email" autocomplete="username" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a2d33;background:#0e1014;color:#e6e6e6;" />'
-            + '<button id="__tfa_forgot_send" type="button" class="raised block emby-button" style="margin-top:8px;width:100%;">Email me a reset link</button>'
+            '<input id="__tfa_forgot_id" type="text" placeholder="' + T('tfa.login.forgot_id_ph', 'Username or email') + '" data-i18n-placeholder="tfa.login.forgot_id_ph" autocomplete="username" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2a2d33;background:#0e1014;color:#e6e6e6;" />'
+            + '<button id="__tfa_forgot_send" type="button" class="raised block emby-button" data-i18n-key="tfa.login.forgot_send" style="margin-top:8px;width:100%;">' + T('tfa.login.forgot_send', 'Email me a reset link') + '</button>'
             + '<div id="__tfa_forgot_msg" style="margin-top:8px;font-size:13px;color:#aeb4bd;"></div>';
         link.addEventListener('click', function (e) {
             e.preventDefault();
@@ -680,15 +729,42 @@
         panel.querySelector('#__tfa_forgot_send').addEventListener('click', function () {
             var idv = (panel.querySelector('#__tfa_forgot_id').value || '').trim();
             var m = panel.querySelector('#__tfa_forgot_msg');
-            if (!idv) { m.textContent = 'Enter your username or email first.'; return; }
-            m.textContent = 'Sending…';
+            if (!idv) { m.textContent = T('tfa.login.forgot_enter_id', 'Enter your username or email first.'); return; }
+            m.textContent = T('tfa.login.sending', 'Sending…');
             fetch('/TwoFactorAuth/PasswordReset/Request', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'omit',
                 body: JSON.stringify({ Identifier: idv })
             }).then(function (r) { return r.json().catch(function () { return {}; }); })
-              .then(function (j) { m.textContent = (j && j.message) || 'If an account exists, a reset link has been sent.'; })
-              .catch(function () { m.textContent = 'If an account exists, a reset link has been sent.'; });
+              .then(function (j) { m.textContent = (j && j.message) || T('tfa.login.reset_sent', 'If an account exists, a reset link has been sent.'); })
+              .catch(function () { m.textContent = T('tfa.login.reset_sent', 'If an account exists, a reset link has been sent.'); });
         });
+    }
+
+    // [v2.5.12] (#80, ZEROX7) When the plugin offers its OWN password recovery
+    // (#71 reset-link flow, surfaced by addForgotPasswordLink), Jellyfin's native
+    // "Forgot password?" link is redundant and confusing — it kicks off Jellyfin's
+    // built-in reset which the admin may not have wired up. Hide the native link
+    // whenever our recovery is enabled, leaving only the plugin's flow. Our own
+    // link lives inside #__tfa_forgot, so it is never matched here.
+    function hideNativeForgotPassword() {
+        if (!isLoginPage() || _tfaPublicCfg === null) return;
+        if (!_tfaPublicCfg.passwordRecoveryEnabled) return;
+        try {
+            var native = document.querySelectorAll('.btnForgotPassword');
+            for (var i = 0; i < native.length; i++) {
+                if (!native[i].closest('#__tfa_forgot')) native[i].style.display = 'none';
+            }
+            // Fallback: themes/older builds may not use .btnForgotPassword — match
+            // an anchor whose visible text is the native "Forgot password" label,
+            // skipping our own injected link.
+            var anchors = document.querySelectorAll('.manualLoginForm a, form a, a[is="emby-linkbutton"]');
+            for (var j = 0; j < anchors.length; j++) {
+                var a = anchors[j];
+                if (a.closest('#__tfa_forgot')) continue;
+                var t = (a.textContent || '').trim().toLowerCase();
+                if (t === 'forgot password' || t === 'forgot password?') a.style.display = 'none';
+            }
+        } catch (e) { /* ignore */ }
     }
 
     function addLoginButton() {
@@ -701,6 +777,8 @@
         applyPasswordLoginGate();
         // [v2.5.11] (#71) add the "Forgot password?" affordance when enabled.
         addForgotPasswordLink();
+        // [v2.5.12] (#80) hide Jellyfin's native forgot-password link when ours is active.
+        hideNativeForgotPassword();
         var hideTwoFa = !!_tfaPublicCfg.hideBuiltInTwoFactorButton;
         var hidePasskey = !!_tfaPublicCfg.hideBuiltInPasskeyButton;
         var signInBtn = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
@@ -720,7 +798,7 @@
             btn.id = BUTTON_ID;
             btn.setAttribute('is', 'emby-linkbutton');
             btn.className = (signInBtn.className || 'raised block').replace(/button-submit|button-cancel|emby-button/g, '').trim();
-            btn.innerHTML = '<span class="tfa-icon">🔐</span>Sign in with Two-Factor Authentication';
+            btn.innerHTML = '<span class="tfa-icon">🔐</span><span data-i18n-key="tfa.login.btn_2fa">' + T('tfa.login.btn_2fa', 'Sign in with Two-Factor Authentication') + '</span>';
             btn.href = '/TwoFactorAuth/Login';
             (function () {
                 function updateHref() {
@@ -759,13 +837,13 @@
         btn.id = '__twofactor_passkey_btn';
         btn.setAttribute('is', 'emby-linkbutton');
         btn.className = twoFaBtn.className;
-        btn.innerHTML = '<span class="tfa-icon">🔑</span>Sign in with passkey';
+        btn.innerHTML = '<span class="tfa-icon">🔑</span><span data-i18n-key="tfa.login.btn_passkey">' + T('tfa.login.btn_passkey', 'Sign in with passkey') + '</span>';
         btn.style.cursor = 'pointer';
         btn.href = '#';
         btn.addEventListener('click', async function(e) {
             e.preventDefault();
             var u = findUsername();
-            if (!u) { alert('Enter your username first, then click Sign in with passkey.'); return; }
+            if (!u) { alert(T('tfa.login.passkey_enter_user', 'Enter your username first, then click Sign in with passkey.')); return; }
             var orig = btn.innerHTML;
             btn.innerHTML = '<span class="tfa-icon">🔑</span>Waiting for authenticator…';
             try {
@@ -914,20 +992,20 @@
         ov.id = OIDC_MODAL_ID;
         ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.72);display:flex;align-items:center;justify-content:center;padding:24px;';
         ov.innerHTML = '<div style="background:#16181c;border:1px solid #2a2d33;border-radius:14px;max-width:420px;width:100%;padding:24px;box-sizing:border-box;color:#e6e6e6;font-family:system-ui,-apple-system,sans-serif;">'
-            + '<h2 style="font-size:19px;margin:0 0 10px;">Sign in with ' + safeName + '</h2>'
-            + '<p style="color:#aeb4bd;font-size:14px;line-height:1.5;margin:0 0 14px;">Your browser will open to finish sign-in. Approve there, then come back to this screen — it completes automatically.</p>'
-            + '<button id="' + OIDC_MODAL_ID + '_open" style="width:100%;padding:13px;border-radius:10px;border:0;background:#00a4dc;color:#fff;font-weight:600;font-size:15px;cursor:pointer;">Open sign-in in browser</button>'
-            + '<button id="' + OIDC_MODAL_ID + '_copy" style="width:100%;padding:12px;border-radius:10px;border:1px solid #2a2d33;background:#23262c;color:#e6e6e6;font-weight:600;font-size:14px;cursor:pointer;margin-top:10px;">Copy sign-in link</button>'
+            + '<h2 style="font-size:19px;margin:0 0 10px;">' + Tf('tfa.login.oidc_title', 'Sign in with {name}', { name: safeName }) + '</h2>'
+            + '<p style="color:#aeb4bd;font-size:14px;line-height:1.5;margin:0 0 14px;">' + T('tfa.login.oidc_help', 'Your browser will open to finish sign-in. Approve there, then come back to this screen — it completes automatically.') + '</p>'
+            + '<button id="' + OIDC_MODAL_ID + '_open" style="width:100%;padding:13px;border-radius:10px;border:0;background:#00a4dc;color:#fff;font-weight:600;font-size:15px;cursor:pointer;">' + T('tfa.login.oidc_open', 'Open sign-in in browser') + '</button>'
+            + '<button id="' + OIDC_MODAL_ID + '_copy" style="width:100%;padding:12px;border-radius:10px;border:1px solid #2a2d33;background:#23262c;color:#e6e6e6;font-weight:600;font-size:14px;cursor:pointer;margin-top:10px;">' + T('tfa.login.oidc_copy', 'Copy sign-in link') + '</button>'
             + '<div id="' + OIDC_MODAL_ID + '_st" style="font-size:13px;color:#9aa0a8;margin-top:14px;min-height:18px;"></div>'
-            + '<button id="' + OIDC_MODAL_ID + '_cancel" style="width:100%;padding:10px;border-radius:10px;border:0;background:transparent;color:#7d828b;font-size:13px;cursor:pointer;margin-top:6px;">Cancel</button>'
+            + '<button id="' + OIDC_MODAL_ID + '_cancel" style="width:100%;padding:10px;border-radius:10px;border:0;background:transparent;color:#7d828b;font-size:13px;cursor:pointer;margin-top:6px;">' + T('tfa.login.cancel', 'Cancel') + '</button>'
             + '</div>';
         document.body.appendChild(ov);
         document.getElementById(OIDC_MODAL_ID + '_open').addEventListener('click', function () {
-            oidcModalStatus('Opening your browser…');
+            oidcModalStatus(T('tfa.login.oidc_opening', 'Opening your browser…'));
             openExternalUrl(authUrl);
         });
         document.getElementById(OIDC_MODAL_ID + '_copy').addEventListener('click', function () {
-            function ok() { oidcModalStatus('Link copied — paste it into Chrome, sign in, then return here.'); }
+            function ok() { oidcModalStatus(T('tfa.login.oidc_copied', 'Link copied — paste it into Chrome, sign in, then return here.')); }
             try { navigator.clipboard.writeText(authUrl).then(ok, ok); } catch (e) { ok(); }
         });
         document.getElementById(OIDC_MODAL_ID + '_cancel').addEventListener('click', closeOidcModal);
@@ -963,10 +1041,10 @@
             .then(function (res) {
                 var server = { Id: res.ServerId, Name: 'Jellyfin', AccessToken: res.AccessToken, UserId: res.User.Id, Type: 'Server', DateLastAccessed: Date.now(), LastConnectionMode: 1, ManualAddress: window.location.origin, LocalAddress: window.location.origin };
                 localStorage.setItem('jellyfin_credentials', JSON.stringify({ Servers: [server] }));
-                oidcModalStatus('Signed in as ' + (res.User && res.User.Name ? res.User.Name : user) + ' — opening Jellyfin…');
+                oidcModalStatus(Tf('tfa.login.oidc_signed_as', 'Signed in as {name} — opening Jellyfin…', { name: (res.User && res.User.Name ? res.User.Name : user) }));
                 setTimeout(function () { closeOidcModal(); window.location.href = '/web/index.html'; }, 300);
             })
-            .catch(function (e) { oidcModalStatus('Sign-in failed: ' + (e && e.message ? e.message : 'error') + '. Tap the button to retry.'); });
+            .catch(function (e) { oidcModalStatus(Tf('tfa.login.oidc_failed', 'Sign-in failed: {msg}. Tap the button to retry.', { msg: (e && e.message ? e.message : 'error') })); });
     }
 
     function pollDeviceFlow(pollToken) {
@@ -974,11 +1052,11 @@
         var tries = 0, MAX = 150;
         (function tick() {
             if (!window.__tfaOidcPolling) return;
-            if (tries++ > MAX) { oidcModalStatus('Timed out — tap “Open sign-in in browser” to try again.'); return; }
+            if (tries++ > MAX) { oidcModalStatus(T('tfa.login.oidc_timeout', 'Timed out — tap “Open sign-in in browser” to try again.')); return; }
             fetch('/TwoFactorAuth/Oidc/DevicePoll?pt=' + encodeURIComponent(pollToken), { headers: { 'Accept': 'application/json' } })
                 .then(function (r) { return r.json(); })
                 .then(function (j) {
-                    if (j && j.ready) { window.__tfaOidcPolling = false; oidcModalStatus('Signing you in…'); completeWithBridgeToken(j.username, j.token); }
+                    if (j && j.ready) { window.__tfaOidcPolling = false; oidcModalStatus(T('tfa.login.oidc_signing', 'Signing you in…')); completeWithBridgeToken(j.username, j.token); }
                     else { setTimeout(tick, 2500); }
                 })
                 .catch(function () { setTimeout(tick, 2500); });
@@ -987,17 +1065,17 @@
 
     function startInAppOidc(id, name) {
         showOidcModal(name, '#');
-        oidcModalStatus('Starting…');
+        oidcModalStatus(T('tfa.login.oidc_starting', 'Starting…'));
         fetch('/TwoFactorAuth/Oidc/LoginInfo/' + encodeURIComponent(id), { headers: { 'Accept': 'application/json' } })
             .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(function (info) {
                 if (!info || !info.authUrl || !info.pollToken) throw new Error('bad response');
                 showOidcModal(name, info.authUrl);
-                oidcModalStatus('Opening your browser…');
+                oidcModalStatus(T('tfa.login.oidc_opening', 'Opening your browser…'));
                 openExternalUrl(info.authUrl);
                 pollDeviceFlow(info.pollToken);
             })
-            .catch(function () { oidcModalStatus('Could not start sign-in. Please try again.'); });
+            .catch(function () { oidcModalStatus(T('tfa.login.oidc_could_not_start', 'Could not start sign-in. Please try again.')); });
     }
 
     function injectOidcButtons() {
@@ -1039,7 +1117,7 @@
                 // an <img> when an https/data: URL is configured (server already
                 // restricts the scheme), else the default login glyph.
                 var _esc = function (s) { return String(s || '').replace(/[<>&"]/g, ''); };
-                var _label = p.buttonText ? _esc(p.buttonText) : ('Sign in with ' + _esc(p.displayName || p.id));
+                var _label = p.buttonText ? _esc(p.buttonText) : Tf('tfa.login.oidc_title', 'Sign in with {name}', { name: _esc(p.displayName || p.id) });
                 var _iconUrl = p.buttonIconUrl || '';
                 var _icon = (/^https:\/\//i.test(_iconUrl) || /^data:image\//i.test(_iconUrl))
                     ? '<img src="' + _iconUrl.replace(/"/g, '%22') + '" alt="" style="width:18px;height:18px;object-fit:contain;border-radius:3px;" />'
@@ -1068,14 +1146,14 @@
         // inline banner above it for good measure.
         if (_tfaOidcError && !_tfaOidcErrorShown) {
             _tfaOidcErrorShown = true;
-            showLockoutToast('Sign-in failed: ' + _tfaOidcError);
+            showLockoutToast(T('tfa.login.signin_failed_prefix', 'Sign-in failed: ') + _tfaOidcError);
             try {
                 var efForm = document.querySelector('.manualLoginForm') || document.querySelector('form');
                 if (efForm && efForm.parentNode && !document.getElementById('__twofactor_oidc_error')) {
                     var box = document.createElement('div');
                     box.id = '__twofactor_oidc_error';
                     box.style.cssText = 'background:rgba(244,67,54,0.15);border:1px solid rgba(244,67,54,0.4);color:#f44336;padding:10px 14px;border-radius:4px;margin:0 0 14px;font-size:14px;';
-                    box.textContent = 'Sign-in failed: ' + _tfaOidcError;
+                    box.textContent = T('tfa.login.signin_failed_prefix', 'Sign-in failed: ') + _tfaOidcError;
                     efForm.parentNode.insertBefore(box, efForm);
                 }
             } catch (e) {}
@@ -1121,6 +1199,7 @@
     }
 
     function start() {
+        ensureI18n();
         tryInject();
 
         var attempts = 0;

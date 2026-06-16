@@ -8,8 +8,9 @@
 //   - renderLanguagePicker(host, opts)  — appends a <select> styled for the host page
 //   - getEffectiveLanguage()            — returns the resolved language code (after loadTranslations)
 //
-// Resolution order (most specific wins): per-user preference (if signed in) → URL ?lang=
-//   → localStorage["tfa.lang"] → /public-config defaultLanguage → "en".
+// Resolution order (most specific wins): URL ?lang= → per-user preference (if
+//   signed in) → localStorage["tfa.lang"] → a SPECIFIC non-English admin default
+//   → [v2.5.12 #79] Jellyfin <html lang> / browser language → admin default → "en".
 
 (function () {
     var SUPPORTED = ['en', 'de', 'es', 'fr', 'it', 'ja', 'pt', 'zh'];
@@ -22,6 +23,12 @@
     var _bundle = null;
     var _lang = 'en';
     var _loaded = false;
+    // [v2.5.12] (#79) Capture Jellyfin's <html lang> exactly ONCE at load, before
+    // applyTranslations() ever overwrites it with our own resolved language. It's
+    // the most direct signal of the language Jellyfin is currently showing (and
+    // it's present pre-auth on the login page); navigator.language is the fallback.
+    var _initialHtmlLang = '';
+    try { _initialHtmlLang = document.documentElement.getAttribute('lang') || ''; } catch (e) { /* ignore */ }
     // v2.5.0: callers (setup.html, pairconfirm.html, …) need to defer their
     // dynamic-row rendering until the bundle is fetched + applyTranslations()
     // has run once. Otherwise _tr() falls back to the English literal because
@@ -65,6 +72,25 @@
         catch (e) { /* private mode etc. — ignore */ }
     }
 
+    function detectJellyfinLanguage() {
+        // [v2.5.12] (#79, ZEROX7): "let jellyfin say which lang should be used."
+        // Follow Jellyfin's UI culture (its <html lang>, captured before we
+        // touched it) then the browser's Accept-Language list. Strip any region
+        // suffix ("de-DE" -> "de") and keep only languages we ship.
+        try {
+            var h = sanitizeLang(String(_initialHtmlLang || '').split('-')[0]);
+            if (h) return h;
+        } catch (e) { /* ignore */ }
+        try {
+            var langs = navigator.languages || [navigator.language || navigator.userLanguage || ''];
+            for (var i = 0; i < langs.length; i++) {
+                var c = sanitizeLang(String(langs[i] || '').split('-')[0]);
+                if (c) return c;
+            }
+        } catch (e) { /* ignore */ }
+        return '';
+    }
+
     function getCurrentUserId() {
         if (hasApiClient() && typeof window.ApiClient.getCurrentUserId === 'function') {
             try { return window.ApiClient.getCurrentUserId(); } catch (e) { return null; }
@@ -94,12 +120,26 @@
         var pubP = fetchJson(buildUrl('TwoFactorAuth/public-config'));
         return Promise.all([prefP, pubP]).then(function (parts) {
             var pref = parts[0], pub = parts[1];
-            var pubDefault = sanitizeLang(pub && pub.defaultLanguage) || 'en';
+            // 1. A signed-in user's explicit plugin language wins.
             if (pref && pref.language) {
                 var prefLang = sanitizeLang(pref.language);
                 if (prefLang) return prefLang;
             }
-            return readStorageLang() || pubDefault;
+            // 2. An explicit prior choice from the plugin's own picker.
+            var stored = readStorageLang();
+            if (stored) return stored;
+            // 3. [v2.5.12] (#79) An admin who FORCED a specific non-English
+            //    default still wins (deliberate choice). "en"/unset is treated
+            //    as "no forced default" so auto-detection can take over.
+            var pubDefault = sanitizeLang(pub && pub.defaultLanguage);
+            if (pubDefault && pubDefault !== 'en') return pubDefault;
+            // 4. [v2.5.12] (#79, ZEROX7) Otherwise follow Jellyfin's / the
+            //    browser's language so the login page + admin UI match the rest
+            //    of Jellyfin instead of falling back to English.
+            var detected = detectJellyfinLanguage();
+            if (detected) return detected;
+            // 5. Final fallback: admin default ("en") then "en".
+            return pubDefault || 'en';
         });
     }
 
