@@ -13,3 +13,6 @@ Jellyfin.Plugin.TwoFactorAuth*.zip
 # Stryker mutation-testing output (regenerable) + local tool manifest
 StrykerOutput/
 .config/dotnet-tools.json
+
+# local scratch (release-download artifacts)
+.tmp/

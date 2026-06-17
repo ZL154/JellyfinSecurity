@@ -770,5 +770,7 @@
   "tfa.admin.settings.lbl_password_exempt_cidrs": "始终允许使用密码的额外 IP 范围（CIDR，每行一个）",
   "tfa.admin.settings.password_exempt_cidrs_help": "这些范围内的客户端即使在禁用时也可始终使用密码登录——例如你的家庭 IP。与真实客户端 IP 匹配（配置 Trust X-Forwarded-For 时支持代理）。",
   "tfa.admin.settings.opt_enable_password_recovery": "允许通过邮箱找回密码",
-  "tfa.admin.settings.enable_password_recovery_help": "在登录页添加“忘记密码？”链接。用户输入用户名或邮箱，即可收到一次性、有效期 30 分钟的重置链接。需要 SMTP（见下方）和已登记的邮箱。响应始终是通用的，因此无法用于探测哪些账户存在。"
+  "tfa.admin.settings.enable_password_recovery_help": "在登录页添加“忘记密码？”链接。用户输入用户名或邮箱，即可收到一次性、有效期 30 分钟的重置链接。需要 SMTP（见下方）和已登记的邮箱。响应始终是通用的，因此无法用于探测哪些账户存在。",
+  "tfa.admin.settings.opt_hide_builtin_forgot": "在登录页隐藏 Jellyfin 内置的“忘记密码？”链接",
+  "tfa.admin.settings.hide_builtin_forgot_help": "仅在启用上方选项时生效。移除 Jellyfin 原生的忘记密码链接，使用户只看到插件的重置流程。关闭可同时保留两者。"
 }

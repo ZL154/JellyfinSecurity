@@ -770,5 +770,7 @@
   "tfa.admin.settings.lbl_password_exempt_cidrs": "Plages d'IP supplémentaires autorisées à toujours utiliser un mot de passe (CIDR, une par ligne)",
   "tfa.admin.settings.password_exempt_cidrs_help": "Les clients de ces plages peuvent toujours se connecter par mot de passe même lorsque c'est désactivé — ex. votre IP domicile. Comparé à l'IP réelle du client (compatible proxy si Trust X-Forwarded-For est configuré).",
   "tfa.admin.settings.opt_enable_password_recovery": "Autoriser la récupération du mot de passe par e-mail",
-  "tfa.admin.settings.enable_password_recovery_help": "Ajoute un lien \"Mot de passe oublié ?\" à la page de connexion. L'utilisateur saisit son identifiant ou son e-mail et reçoit un lien à usage unique (valable 30 minutes). Nécessite SMTP (ci-dessous) et un e-mail enregistré. La réponse est toujours générique, elle ne révèle donc pas quels comptes existent."
+  "tfa.admin.settings.enable_password_recovery_help": "Ajoute un lien \"Mot de passe oublié ?\" à la page de connexion. L'utilisateur saisit son identifiant ou son e-mail et reçoit un lien à usage unique (valable 30 minutes). Nécessite SMTP (ci-dessous) et un e-mail enregistré. La réponse est toujours générique, elle ne révèle donc pas quels comptes existent.",
+  "tfa.admin.settings.opt_hide_builtin_forgot": "Masquer le lien intégré « Mot de passe oublié ? » de Jellyfin sur la page de connexion",
+  "tfa.admin.settings.hide_builtin_forgot_help": "S’applique uniquement lorsque l’option ci-dessus est activée. Supprime le lien natif de mot de passe oublié de Jellyfin afin que les utilisateurs ne voient que le flux de réinitialisation du plugin. Désactivez pour conserver les deux."
 }

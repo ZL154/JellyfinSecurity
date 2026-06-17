@@ -770,5 +770,7 @@
   "tfa.admin.settings.lbl_password_exempt_cidrs": "Extra IP ranges that may always use a password (CIDR, one per line)",
   "tfa.admin.settings.password_exempt_cidrs_help": "Clients in these ranges can always sign in with a password even when it's disabled — e.g. your home IP. Matched against the real client IP (proxy-aware when Trust X-Forwarded-For is configured).",
   "tfa.admin.settings.opt_enable_password_recovery": "Allow password recovery by email",
-  "tfa.admin.settings.enable_password_recovery_help": "Adds a \"Forgot password?\" link to the login page. The user enters their username or email and is emailed a one-time, 30-minute reset link. Requires SMTP (below) and an email on file for the user. The response is always generic, so it can't be used to discover which accounts exist."
+  "tfa.admin.settings.enable_password_recovery_help": "Adds a \"Forgot password?\" link to the login page. The user enters their username or email and is emailed a one-time, 30-minute reset link. Requires SMTP (below) and an email on file for the user. The response is always generic, so it can't be used to discover which accounts exist.",
+  "tfa.admin.settings.opt_hide_builtin_forgot": "Hide Jellyfin's built-in \"Forgot password?\" link on the login page",
+  "tfa.admin.settings.hide_builtin_forgot_help": "Only applies when the above is enabled. Removes Jellyfin's native forgot-password link so users see only the plugin's reset flow. Turn off to keep both."
 }

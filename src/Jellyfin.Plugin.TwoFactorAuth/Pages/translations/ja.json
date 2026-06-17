@@ -770,5 +770,7 @@
   "tfa.admin.settings.lbl_password_exempt_cidrs": "常にパスワードを使用できる追加の IP 範囲（CIDR、1 行に 1 つ）",
   "tfa.admin.settings.password_exempt_cidrs_help": "これらの範囲のクライアントは、無効時でも常にパスワードでサインインできます——例: 自宅の IP。実際のクライアント IP と照合されます（Trust X-Forwarded-For 設定時はプロキシ対応）。",
   "tfa.admin.settings.opt_enable_password_recovery": "メールによるパスワードリカバリーを許可",
-  "tfa.admin.settings.enable_password_recovery_help": "ログインページに「パスワードをお忘れですか？」リンクを追加します。ユーザーがユーザー名またはメールを入力すると、一回限り（30 分有効）のリセットリンクがメールされます。SMTP（下記）と登録済みメールが必要です。応答は常に汎用的なため、どのアカウントが存在するかを特定できません。"
+  "tfa.admin.settings.enable_password_recovery_help": "ログインページに「パスワードをお忘れですか？」リンクを追加します。ユーザーがユーザー名またはメールを入力すると、一回限り（30 分有効）のリセットリンクがメールされます。SMTP（下記）と登録済みメールが必要です。応答は常に汎用的なため、どのアカウントが存在するかを特定できません。",
+  "tfa.admin.settings.opt_hide_builtin_forgot": "Jellyfin 標準の「パスワードをお忘れですか？」リンクをログインページで非表示にする",
+  "tfa.admin.settings.hide_builtin_forgot_help": "上記を有効にしている場合のみ適用されます。Jellyfin 本来のパスワード忘れリンクを削除し、ユーザーにはプラグインのリセットフローだけを表示します。両方を残すにはオフにします。"
 }

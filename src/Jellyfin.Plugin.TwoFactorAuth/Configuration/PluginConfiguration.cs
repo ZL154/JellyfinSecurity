@@ -280,6 +280,13 @@ public class PluginConfiguration : BasePluginConfiguration
     /// link. Default false.</summary>
     public bool EnablePasswordRecovery { get; set; } = false;
 
+    /// <summary>[v2.5.12] (issue #80, ZEROX7): when the plugin's own email
+    /// password recovery is enabled, also hide Jellyfin's built-in "Forgot
+    /// password?" link on the login page so users see only one recovery flow.
+    /// Sub-option of <see cref="EnablePasswordRecovery"/> — only takes effect
+    /// when that is on. Default true.</summary>
+    public bool HideBuiltInForgotPassword { get; set; } = true;
+
     public int AuditLogMaxEntries { get; set; } = 1000;
 
     public string NtfyUrl { get; set; } = string.Empty;

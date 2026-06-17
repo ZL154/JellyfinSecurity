@@ -4546,6 +4546,9 @@ public class TwoFactorAuthController : ControllerBase
             passwordRecoveryEnabled = cfg.EnablePasswordRecovery
                 && !string.IsNullOrEmpty(cfg.SmtpHost)
                 && !string.IsNullOrEmpty(cfg.SmtpFromAddress),
+            // [v2.5.12] (#80, ZEROX7) sub-option: hide Jellyfin's native
+            // forgot-password link (only meaningful when recovery is on).
+            hideBuiltInForgotPassword = cfg.HideBuiltInForgotPassword,
         });
     }
 

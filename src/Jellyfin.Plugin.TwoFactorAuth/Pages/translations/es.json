@@ -770,5 +770,7 @@
   "tfa.admin.settings.lbl_password_exempt_cidrs": "Rangos de IP adicionales que siempre pueden usar contraseña (CIDR, uno por línea)",
   "tfa.admin.settings.password_exempt_cidrs_help": "Los clientes en estos rangos siempre pueden iniciar sesión con contraseña aunque esté desactivada — p. ej. tu IP de casa. Se compara con la IP real del cliente (consciente del proxy cuando Trust X-Forwarded-For está configurado).",
   "tfa.admin.settings.opt_enable_password_recovery": "Permitir recuperación de contraseña por correo",
-  "tfa.admin.settings.enable_password_recovery_help": "Añade un enlace \"¿Olvidaste tu contraseña?\" a la página de inicio de sesión. El usuario introduce su usuario o correo y recibe un enlace de un solo uso (válido 30 minutos). Requiere SMTP (abajo) y un correo registrado. La respuesta siempre es genérica, así que no revela qué cuentas existen."
+  "tfa.admin.settings.enable_password_recovery_help": "Añade un enlace \"¿Olvidaste tu contraseña?\" a la página de inicio de sesión. El usuario introduce su usuario o correo y recibe un enlace de un solo uso (válido 30 minutos). Requiere SMTP (abajo) y un correo registrado. La respuesta siempre es genérica, así que no revela qué cuentas existen.",
+  "tfa.admin.settings.opt_hide_builtin_forgot": "Ocultar el enlace integrado de Jellyfin «¿Olvidaste tu contraseña?» en la página de inicio de sesión",
+  "tfa.admin.settings.hide_builtin_forgot_help": "Solo se aplica cuando la opción anterior está activada. Quita el enlace nativo de Jellyfin para olvido de contraseña, de modo que los usuarios solo vean el flujo de restablecimiento del plugin. Desactívalo para conservar ambos."
 }

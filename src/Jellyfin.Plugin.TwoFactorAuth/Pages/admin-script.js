@@ -1024,6 +1024,9 @@
                         // [v2.5.11] (#71) email password recovery.
                         var enRec = page.querySelector('#cfgEnablePasswordRecovery');
                         if (enRec) enRec.checked = c.EnablePasswordRecovery === true;
+                        // [v2.5.12] (#80) hide-built-in-forgot sub-option (default on).
+                        var hideFp = page.querySelector('#cfgHideBuiltInForgotPassword');
+                        if (hideFp) hideFp.checked = c.HideBuiltInForgotPassword !== false;
                         page.querySelector('#cfgAuditMax').value = c.AuditLogMaxEntries || 1000;
                         page.querySelector('#cfgSmtpHost').value = c.SmtpHost || '';
                         page.querySelector('#cfgSmtpPort').value = c.SmtpPort || 587;
@@ -1173,6 +1176,9 @@
                         // [v2.5.11] (#71) email password recovery.
                         if (page.querySelector('#cfgEnablePasswordRecovery')) {
                             c.EnablePasswordRecovery = page.querySelector('#cfgEnablePasswordRecovery').checked;
+                        }
+                        if (page.querySelector('#cfgHideBuiltInForgotPassword')) {
+                            c.HideBuiltInForgotPassword = page.querySelector('#cfgHideBuiltInForgotPassword').checked;
                         }
                         c.AuditLogMaxEntries = parseInt(page.querySelector('#cfgAuditMax').value) || 1000;
                         c.SmtpHost = page.querySelector('#cfgSmtpHost').value.trim();

@@ -770,5 +770,7 @@
   "tfa.admin.settings.lbl_password_exempt_cidrs": "Zusätzliche IP-Bereiche, die immer ein Passwort verwenden dürfen (CIDR, eine pro Zeile)",
   "tfa.admin.settings.password_exempt_cidrs_help": "Clients in diesen Bereichen können sich immer mit Passwort anmelden, auch wenn es deaktiviert ist — z. B. deine Heim-IP. Abgeglichen mit der echten Client-IP (Proxy-bewusst, wenn Trust X-Forwarded-For konfiguriert ist).",
   "tfa.admin.settings.opt_enable_password_recovery": "Passwort-Wiederherstellung per E-Mail erlauben",
-  "tfa.admin.settings.enable_password_recovery_help": "Fügt der Anmeldeseite einen Link \"Passwort vergessen?\" hinzu. Der Benutzer gibt Benutzername oder E-Mail ein und erhält einen einmaligen Link (30 Minuten gültig). Erfordert SMTP (unten) und eine hinterlegte E-Mail. Die Antwort ist immer generisch und verrät nicht, welche Konten existieren."
+  "tfa.admin.settings.enable_password_recovery_help": "Fügt der Anmeldeseite einen Link \"Passwort vergessen?\" hinzu. Der Benutzer gibt Benutzername oder E-Mail ein und erhält einen einmaligen Link (30 Minuten gültig). Erfordert SMTP (unten) und eine hinterlegte E-Mail. Die Antwort ist immer generisch und verrät nicht, welche Konten existieren.",
+  "tfa.admin.settings.opt_hide_builtin_forgot": "Jellyfins integrierten Link „Passwort vergessen?“ auf der Anmeldeseite ausblenden",
+  "tfa.admin.settings.hide_builtin_forgot_help": "Gilt nur, wenn die obige Option aktiviert ist. Entfernt Jellyfins nativen „Passwort vergessen?“-Link, sodass Benutzer nur den Zurücksetzen-Ablauf des Plugins sehen. Deaktivieren, um beide zu behalten."
 }

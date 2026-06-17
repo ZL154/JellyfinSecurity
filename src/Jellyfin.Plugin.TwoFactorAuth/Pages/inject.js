@@ -748,7 +748,10 @@
     // link lives inside #__tfa_forgot, so it is never matched here.
     function hideNativeForgotPassword() {
         if (!isLoginPage() || _tfaPublicCfg === null) return;
+        // [v2.5.12] (#80) only when our recovery is on AND the admin left the
+        // "hide built-in link" sub-option enabled (default on).
         if (!_tfaPublicCfg.passwordRecoveryEnabled) return;
+        if (_tfaPublicCfg.hideBuiltInForgotPassword === false) return;
         try {
             var native = document.querySelectorAll('.btnForgotPassword');
             for (var i = 0; i < native.length; i++) {

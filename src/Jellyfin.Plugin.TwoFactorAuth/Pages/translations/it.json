@@ -770,5 +770,7 @@
   "tfa.admin.settings.lbl_password_exempt_cidrs": "Intervalli IP aggiuntivi che possono sempre usare la password (CIDR, uno per riga)",
   "tfa.admin.settings.password_exempt_cidrs_help": "I client in questi intervalli possono sempre accedere con la password anche quando è disattivata — es. il tuo IP di casa. Confrontato con l'IP reale del client (consapevole del proxy quando Trust X-Forwarded-For è configurato).",
   "tfa.admin.settings.opt_enable_password_recovery": "Consenti il recupero della password via e-mail",
-  "tfa.admin.settings.enable_password_recovery_help": "Aggiunge un link \"Password dimenticata?\" alla pagina di accesso. L'utente inserisce nome utente o e-mail e riceve un link monouso (valido 30 minuti). Richiede SMTP (sotto) e un'e-mail registrata. La risposta è sempre generica, quindi non rivela quali account esistono."
+  "tfa.admin.settings.enable_password_recovery_help": "Aggiunge un link \"Password dimenticata?\" alla pagina di accesso. L'utente inserisce nome utente o e-mail e riceve un link monouso (valido 30 minuti). Richiede SMTP (sotto) e un'e-mail registrata. La risposta è sempre generica, quindi non rivela quali account esistono.",
+  "tfa.admin.settings.opt_hide_builtin_forgot": "Nascondi il link integrato «Password dimenticata?» di Jellyfin nella pagina di accesso",
+  "tfa.admin.settings.hide_builtin_forgot_help": "Si applica solo quando l’opzione sopra è attiva. Rimuove il link nativo di Jellyfin per la password dimenticata, così gli utenti vedono solo il flusso di reimpostazione del plugin. Disattivalo per mantenere entrambi."
 }

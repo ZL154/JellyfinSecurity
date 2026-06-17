@@ -770,5 +770,7 @@
   "tfa.admin.settings.lbl_password_exempt_cidrs": "Faixas de IP adicionais que sempre podem usar senha (CIDR, uma por linha)",
   "tfa.admin.settings.password_exempt_cidrs_help": "Clientes nessas faixas sempre podem entrar com senha mesmo quando desativada — ex.: o IP da sua casa. Comparado com o IP real do cliente (ciente de proxy quando Trust X-Forwarded-For está configurado).",
   "tfa.admin.settings.opt_enable_password_recovery": "Permitir recuperação de senha por e-mail",
-  "tfa.admin.settings.enable_password_recovery_help": "Adiciona um link \"Esqueceu a senha?\" à página de login. O usuário informa o nome de usuário ou e-mail e recebe um link de uso único (válido por 30 minutos). Requer SMTP (abaixo) e um e-mail cadastrado. A resposta é sempre genérica, então não revela quais contas existem."
+  "tfa.admin.settings.enable_password_recovery_help": "Adiciona um link \"Esqueceu a senha?\" à página de login. O usuário informa o nome de usuário ou e-mail e recebe um link de uso único (válido por 30 minutos). Requer SMTP (abaixo) e um e-mail cadastrado. A resposta é sempre genérica, então não revela quais contas existem.",
+  "tfa.admin.settings.opt_hide_builtin_forgot": "Ocultar o link interno do Jellyfin \"Esqueceu a senha?\" na página de login",
+  "tfa.admin.settings.hide_builtin_forgot_help": "Aplica-se apenas quando a opção acima está ativada. Remove o link nativo de esquecimento de senha do Jellyfin, para que os usuários vejam apenas o fluxo de redefinição do plugin. Desative para manter ambos."
 }
