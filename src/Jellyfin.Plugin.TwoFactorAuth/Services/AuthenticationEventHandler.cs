@@ -2,7 +2,11 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using Jellyfin.Data.Queries;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Devices;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
@@ -21,6 +25,7 @@ public class AuthenticationEventHandler : IHostedService
     private readonly NotificationService _notificationService;
     private readonly PendingPairingService _pendingPairings;
     private readonly IDeviceManager _deviceManager;
+    private readonly IUserManager _userManager;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<AuthenticationEventHandler> _logger;
 
@@ -32,6 +37,7 @@ public class AuthenticationEventHandler : IHostedService
         NotificationService notificationService,
         PendingPairingService pendingPairings,
         IDeviceManager deviceManager,
+        IUserManager userManager,
         IHttpContextAccessor httpContextAccessor,
         ILogger<AuthenticationEventHandler> logger)
     {
@@ -42,6 +48,7 @@ public class AuthenticationEventHandler : IHostedService
         _notificationService = notificationService;
         _pendingPairings = pendingPairings;
         _deviceManager = deviceManager;
+        _userManager = userManager;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
     }
@@ -151,17 +158,34 @@ public class AuthenticationEventHandler : IHostedService
         // EnforcementScope.All but legacy flag false) get an early-return,
         // bypassing 2FA on the SessionStarted fail-safe.
         //
-        // We don't have IUserManager here to check isAdmin, so we use a
-        // conservative gate: don't early-return if scope is anything other
-        // than Optional. For Admins/All scopes, the downstream
-        // TwoFactorAuthProvider.Authenticate path does the precise
-        // per-user policy check; we just don't want this fail-safe to
-        // short-circuit the bypass evaluator before that runs.
+        // [v2.5.12] (#81, cpb34): resolve whether THIS user is actually required
+        // to do 2FA, honouring admin status. Earlier this couldn't check isAdmin,
+        // so under EnforcementScope.Admins it conservatively did NOT early-return
+        // for non-admins either — their session then fell through to the block
+        // path and hung ("Server Unavailable") even though Admins-only 2FA
+        // shouldn't touch them. Now we look up admin status (IUserManager) and
+        // exempt non-admins under Admins scope. FAIL SAFE: if the user can't be
+        // resolved, treat as required so a real admin can never be exempted.
         var hasPasskey = userData.Passkeys.Count > 0;
         var has2fa = userData.TotpEnabled || hasPasskey;
-        var policyActive = config.EnforcementScope != Configuration.EnforcementScope.Optional || config.RequireForAllUsers;
-        if (!has2fa && !policyActive)
+        bool requiredByScope;
+        if (config.RequireForAllUsers || config.EnforcementScope == Configuration.EnforcementScope.All)
         {
+            requiredByScope = true;
+        }
+        else if (config.EnforcementScope == Configuration.EnforcementScope.Admins)
+        {
+            var u = _userManager.GetUserById(info.UserId);
+            requiredByScope = u is null || u.HasPermission(PermissionKind.IsAdministrator);
+        }
+        else
+        {
+            requiredByScope = false; // Optional
+        }
+        if (!has2fa && !requiredByScope)
+        {
+            // No enrolled factor AND not required by policy for this user → 2FA
+            // doesn't apply; let the session proceed untouched.
             return;
         }
 
