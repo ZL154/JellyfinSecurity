@@ -679,7 +679,19 @@ public class OidcService : IDisposable
         // OTP and shown in the admin Users tab) from the IdP email claim when
         // it isn't already set. Never overwrites an admin-entered address.
         // Best-effort: a failure must never block a sign-in.
-        if (provider.SyncEmailFromClaim && !string.IsNullOrWhiteSpace(claims.Email))
+        // [v2.5.12] (#80, ZEROX7): explain WHY the auto-fill no-ops, so "email
+        // claim didn't work" is diagnosable from the log instead of being silent.
+        if (!provider.SyncEmailFromClaim)
+        {
+            _logger.LogDebug("[2FA] OIDC email auto-fill OFF for provider {Provider} (enable 'sync email from claim')", provider.Id);
+        }
+        else if (string.IsNullOrWhiteSpace(claims.Email))
+        {
+            _logger.LogInformation(
+                "[2FA] OIDC email auto-fill: no email in claims for {User} — IdP sent nothing under claim '{Claim}' (or /userinfo). Check the 'email' scope is requested and the claim name matches.",
+                matchedUser.Username, string.IsNullOrWhiteSpace(provider.EmailClaim) ? "email" : provider.EmailClaim);
+        }
+        else
         {
             try
             {
@@ -690,6 +702,10 @@ public class OidcService : IDisposable
                     cfg.SetUserEmail(userKey, claims.Email);
                     Plugin.Instance!.SaveConfiguration();
                     _logger.LogInformation("[2FA] OIDC filled email for {User} from IdP claim '{Claim}'", matchedUser.Username, provider.EmailClaim);
+                }
+                else
+                {
+                    _logger.LogDebug("[2FA] OIDC email auto-fill skipped for {User} — a plugin email is already set (never overwrites a manual address)", matchedUser.Username);
                 }
             }
             catch (Exception ex)
