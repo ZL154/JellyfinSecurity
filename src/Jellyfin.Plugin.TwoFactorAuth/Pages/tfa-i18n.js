@@ -118,7 +118,17 @@
         // QA/share-links can preview another language without nuking the
         // user's stored choice.
         var urlLang = readQueryLang();
-        if (urlLang) return Promise.resolve(urlLang);
+        if (urlLang) {
+            // [v2.5.12] (#79) Persist the ?lang inject.js passed (= Jellyfin's
+            // current UI culture) so the language STICKS across a full browser
+            // close/reopen. Without this the plugin re-derived the language live
+            // each load, so a cold open that reached a plugin page before any
+            // ?lang signal fell back to English even though Jellyfin was set to
+            // e.g. German. A later ?lang (Jellyfin language change) overrides +
+            // re-persists, so it still follows Jellyfin.
+            writeStorageLang(urlLang);
+            return Promise.resolve(urlLang);
+        }
 
         var uid = getCurrentUserId();
         var prefP = uid

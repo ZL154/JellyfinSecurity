@@ -523,6 +523,10 @@
             a.className = anchorItem.className || 'navMenuOption emby-button';
             a.setAttribute('role', 'menuitem');
             a.style.cursor = 'pointer';
+            // [v2.5.12] (#79) Recompute ?lang at CLICK time — the entry may be
+            // injected before jellyfin-web finishes localizing (cold load), which
+            // would otherwise bake in a stale ?lang=en.
+            a.addEventListener('click', function () { try { a.href = withLang('/TwoFactorAuth/Setup'); } catch (e) {} });
             a.innerHTML =
                 '<span class="material-icons navMenuOptionIcon" style="font-family:Material Icons;" aria-hidden="true">security</span>' +
                 '<span class="navMenuOptionText">Two-Factor Auth</span>';
