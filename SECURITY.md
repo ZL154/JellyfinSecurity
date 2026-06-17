@@ -9,7 +9,7 @@ gives attackers a head start before users can upgrade.
 
 Use one of the following private channels:
 
-1. **GitHub Private Vulnerability Reporting** (preferred) — open
+1. **GitHub Private Vulnerability Reporting** (preferred) - open
    <https://github.com/ZL154/JellyfinSecurity/security/advisories/new>
    and submit the advisory. Only repository maintainers can see it.
 2. **Discord** - DM **`@zack154`** on Discord with a description of the issue.
