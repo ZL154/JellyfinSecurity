@@ -4695,7 +4695,15 @@ public class TwoFactorAuthController : ControllerBase
         if (stream is null) return NotFound();
         using var reader = new System.IO.StreamReader(stream);
         var js = reader.ReadToEnd();
-        Response.Headers["Cache-Control"] = "no-cache, must-revalidate";
+        // [v2.5.12] (#79): tfa-i18n.js drives the UI language + login-page
+        // strings and changes every upgrade. The previous "no-cache,
+        // must-revalidate" (no no-store, no max-age=0) still let browsers serve
+        // a stale copy, so language/i18n fixes didn't take effect until the
+        // cache aged out. Match inject.js — tell every intermediary never to
+        // store it.
+        Response.Headers.CacheControl = "no-store, no-cache, must-revalidate, max-age=0";
+        Response.Headers.Pragma = "no-cache";
+        Response.Headers.Expires = "0";
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         return Content(js, "application/javascript; charset=utf-8");
     }
