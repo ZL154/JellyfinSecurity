@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <!-- Static version badge — bump on each release. Switched from img.shields.io/github/v/release because that endpoint periodically returns 'unable to select next GitHub token from pool'. -->
-  <img src="https://img.shields.io/badge/Version-v2.5.11-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-v2.5.12-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -66,13 +66,14 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.5.11
+## 🆕 What's new in v2.5.12
 
-- **Disable password sign-in** *(feature #69, ZEROX7)* — refuse username+password login so users go through your identity provider (or Quick Connect) — for OIDC-only deployments. The login page hides the password fields, leaving a discreet "Sign in with a password instead" link. Three independently-toggleable escape hatches stop a dead IdP locking everyone out: **admins-always**, **LAN-always** ("disable for remote users only"), and an explicit **exempt-CIDR list**. OIDC and Quick Connect are never blocked, and `/TwoFactorAuth/Login` always works.
-- **Custom login button** *(feature #69)* — per-provider button text + icon/logo (an https or `data:` image URL) instead of the generic "Sign in with …".
-- **Password recovery by email** *(feature #71, ZEROX7)* — an optional "Forgot password?" link that emails a one-time, 30-minute, single-use reset link. SMTP-gated, rate-limited per IP and per identifier, and responses are always generic so it can't be used to discover which accounts exist.
-- **IdP email auto-fill** *(fix #70, ZEROX7)* — the email claim now populates the Jellyfin user's email on sign-in (used for email OTP and shown in the Users tab) when it isn't already set; a manually-entered email is never overwritten. Per-provider configurable email claim (default `email`) for IdPs that use a custom claim.
-- **Clear OIDC sign-in errors** — a refused SSO sign-in now shows *why* (no matching account, ambiguous email, not in an allowed group, MFA required, expired session) instead of silently bouncing to the login page. Also fixed: a stale email record left by a **deleted** account no longer counts as a duplicate that blocked sign-in for the surviving real user.
+- **Fully translated login & setup UI** *(fix #79, ZEROX7)* — the login page, the 2FA setup page, the admin config UI, **and** the injected "Two-Factor Auth" sidebar entry now all follow Jellyfin's display language (auto-detected, and remembered across restarts), across all 8 languages. Also fixed so the language fixes actually reach users behind a CDN (the scripts are served on cache-immune paths instead of being frozen by a `*.js` edge-cache rule).
+- **Passwordless 2FA login** *(bug #82, cpb34)* — users whose password is disabled can now sign in through the 2FA portal with a blank password, matching Jellyfin's standard login page (both the page and the server endpoint were over-requiring a password).
+- **Admins-Only enforcement no longer blocks non-admins** *(bug #81, cpb34)* — with scope set to *Admins Only*, a non-admin without 2FA logging in through the standard portal used to hang ("Server Unavailable"); the session fail-safe now checks admin status (and fails safe so an admin is never accidentally exempted).
+- **Hide Jellyfin's built-in "Forgot password?"** *(feature #80, ZEROX7)* — an optional sub-toggle (under email recovery) removes Jellyfin's native recovery link so users see only the plugin's flow. Plus clearer diagnostics when IdP email auto-fill doesn't populate (points at a missing `email` scope or wrong claim name).
+- **Android SSO fallback** *(bug #64, fx-xt)* — when an embedded app WebView triggers Google's `disallowed_useragent`, the sign-in modal now reliably routes you to *"Copy sign-in link → open in Chrome."*
+- **Dependency hygiene** — QuestPDF pinned (a newer build produced a broken recovery-codes PDF); analyzer + test-only bumps merged; Microsoft.IdentityModel auto-bumps blocked (8.19.x breaks OIDC token validation).
 - 266/266 tests pass. In-place upgrade — every persisted record carries over.
 
 > Full version history is in the [Changelog](#-changelog) below and on [GitHub Releases](https://github.com/ZL154/JellyfinSecurity/releases).
@@ -128,6 +129,13 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ---
 
 ## 🧩 Features
+
+### New in v2.5.12
+- **Login/setup/admin/sidebar i18n** — every plugin surface follows Jellyfin's language (auto-detect + persist); CDN-cache-immune so updates aren't served stale (#79).
+- **Passwordless 2FA login** — the 2FA portal accepts users whose password is disabled, matching the standard login page (#82).
+- **Admins-Only scope fix** — non-admins are no longer blocked/hung under *Admins Only* enforcement; fail-safe admin check (#81).
+- **Hide Jellyfin's built-in "Forgot password?"** — optional sub-toggle under email recovery; clearer email-claim auto-fill diagnostics (#80).
+- **Android SSO copy-link fallback** — reliable path when an app WebView trips Google's `disallowed_useragent` (#64).
 
 ### New in v2.5.11
 - **Disable password sign-in** — OIDC / Quick-Connect-only mode with independently-toggleable **admin / LAN / exempt-CIDR** escape hatches (#69).
