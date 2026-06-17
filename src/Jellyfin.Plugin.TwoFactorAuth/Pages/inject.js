@@ -75,6 +75,23 @@
         try { if (window.tfaI18n) window.tfaI18n.applyTranslations(document); } catch (e) { /* ignore */ }
     });
 
+    // [v2.5.12] (#79) Carry Jellyfin's UI language to our STANDALONE pages.
+    //   jellyfin-web sets <html lang> to the active UI culture on its OWN pages
+    //   (where inject.js runs) but does NOT persist it to a localStorage key we
+    //   can read, and our standalone pages (Setup/Login/Challenge) aren't
+    //   rendered by jellyfin-web so they never see that <html lang>. So read the
+    //   culture HERE and pass it through as ?lang=, which tfa-i18n honours first.
+    function jfUiLang() {
+        try { var h = (document.documentElement.getAttribute('lang') || '').split('-')[0].toLowerCase(); if (h) return h; } catch (e) {}
+        try { return (navigator.language || '').split('-')[0].toLowerCase(); } catch (e) {}
+        return '';
+    }
+    function withLang(url) {
+        var l = jfUiLang();
+        if (!l) return url;
+        return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'lang=' + encodeURIComponent(l);
+    }
+
     // ============================================================
     // 1a. v2.4.12 — TFA-pending sessionStorage flag + client-side
     //     short-circuit. Issue #36 (Wibbles42 / SWAG fail2ban):
@@ -502,7 +519,7 @@
 
             var a = document.createElement('a');
             a.id = SIDEBAR_ID;
-            a.href = '/TwoFactorAuth/Setup';
+            a.href = withLang('/TwoFactorAuth/Setup');
             a.className = anchorItem.className || 'navMenuOption emby-button';
             a.setAttribute('role', 'menuitem');
             a.style.cursor = 'pointer';
@@ -588,7 +605,7 @@
             tile.style.cursor = 'pointer';
             tile.addEventListener('click', function (e) {
                 e.preventDefault();
-                window.location.assign('/TwoFactorAuth/Setup');
+                window.location.assign(withLang('/TwoFactorAuth/Setup'));
             });
             tile.className = 'listItem listItem-border listItem-button';
             tile.innerHTML =
@@ -802,11 +819,11 @@
             btn.setAttribute('is', 'emby-linkbutton');
             btn.className = (signInBtn.className || 'raised block').replace(/button-submit|button-cancel|emby-button/g, '').trim();
             btn.innerHTML = '<span class="tfa-icon">🔐</span><span data-i18n-key="tfa.login.btn_2fa">' + T('tfa.login.btn_2fa', 'Sign in with Two-Factor Authentication') + '</span>';
-            btn.href = '/TwoFactorAuth/Login';
+            btn.href = withLang('/TwoFactorAuth/Login');
             (function () {
                 function updateHref() {
                     var u = findUsername();
-                    btn.href = u ? '/TwoFactorAuth/Login?username=' + encodeURIComponent(u) : '/TwoFactorAuth/Login';
+                    btn.href = withLang(u ? '/TwoFactorAuth/Login?username=' + encodeURIComponent(u) : '/TwoFactorAuth/Login');
                 }
                 btn.addEventListener('click', function (e) { e.preventDefault(); updateHref(); window.location.assign(btn.href); });
                 var userInput = document.querySelector('input#txtManualName, input[name="username"], input#username');

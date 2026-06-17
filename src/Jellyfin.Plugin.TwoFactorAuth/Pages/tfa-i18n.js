@@ -74,33 +74,20 @@
 
     function detectJellyfinLanguage() {
         // [v2.5.12] (#79, ZEROX7): "let jellyfin say which lang should be used."
-        // Resolve the language Jellyfin is actually showing, from most to least
-        // authoritative. Strip any region suffix ("de-DE" -> "de"), keep only
-        // languages we ship.
-        // 1. Jellyfin's <html lang>, captured before we overwrote it. This is set
-        //    by jellyfin-web on EMBEDDED pages (the login page, the injected
-        //    sidebar) — incl. pre-auth. STANDALONE plugin pages (setup, etc.)
-        //    leave it blank so we fall through to localStorage.
+        // 1. Jellyfin's <html lang>, captured before we overwrote it. jellyfin-web
+        //    sets it to the active UI culture on its OWN pages (login page,
+        //    injected sidebar) — incl. pre-auth. (Verified: jellyfin-web does NOT
+        //    persist the chosen UI language to a readable localStorage key or the
+        //    user-settings blob, so <html lang> is the authoritative signal on
+        //    embedded pages.) Our STANDALONE pages (setup/login/challenge) aren't
+        //    rendered by jellyfin-web, so they receive the culture via ?lang= that
+        //    inject.js appends when navigating to them (honoured above by
+        //    readQueryLang) — they leave <html lang> blank and fall through here.
         try {
             var h = sanitizeLang(String(_initialHtmlLang || '').split('-')[0]);
             if (h) return h;
         } catch (e) { /* ignore */ }
-        // 2. jellyfin-web persists the signed-in user's UI language in
-        //    localStorage under a "<userId>-language" key (same origin, so our
-        //    STANDALONE pages can read it). Scan for any "*language" key — this
-        //    is what makes the setup page follow Jellyfin without a separate
-        //    plugin language setting. Our own picker uses "tfa.lang" (ends in
-        //    "lang", not "language") so there is no collision.
-        try {
-            for (var s = 0; s < window.localStorage.length; s++) {
-                var key = window.localStorage.key(s);
-                if (key && /(^|[-_.])language$/i.test(key)) {
-                    var lv = sanitizeLang(String(window.localStorage.getItem(key) || '').replace(/^"|"$/g, '').split('-')[0]);
-                    if (lv) return lv;
-                }
-            }
-        } catch (e) { /* ignore */ }
-        // 3. Browser Accept-Language list.
+        // 2. Browser Accept-Language list.
         try {
             var langs = navigator.languages || [navigator.language || navigator.userLanguage || ''];
             for (var i = 0; i < langs.length; i++) {
