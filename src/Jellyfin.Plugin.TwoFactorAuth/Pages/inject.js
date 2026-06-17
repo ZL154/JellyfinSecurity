@@ -45,7 +45,7 @@
             if (document.getElementById('__tfa_i18n_js')) return;
             var s = document.createElement('script');
             s.id = '__tfa_i18n_js';
-            s.src = '/TwoFactorAuth/tfa-i18n.js';
+            s.src = '/TwoFactorAuth/tfa-i18n';
             s.async = true;
             (document.head || document.documentElement).appendChild(s);
         } catch (e) { /* ignore — strings fall back to English */ }

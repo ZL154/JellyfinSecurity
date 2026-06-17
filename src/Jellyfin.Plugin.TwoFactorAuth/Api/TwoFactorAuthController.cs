@@ -4690,6 +4690,12 @@ public class TwoFactorAuthController : ControllerBase
     // resource so pre-login pages (login.html, challenge.html, setup.html)
     // can share a single tr() loader. The .js file is added in a follow-up
     // commit — until then this endpoint returns 404, which is harmless.
+    // [v2.5.12] (#79) Also served at the EXTENSIONLESS path so a CDN cache rule
+    // matching "*.js" (e.g. Cloudflare's default) can't edge-cache it and freeze
+    // the UI language / login strings for days, overriding our no-store header.
+    // Same dodge inject.js already uses with "/inject". Pages reference the
+    // extensionless URL; the ".js" route stays for back-compat / direct access.
+    [HttpGet("tfa-i18n")]
     [HttpGet("tfa-i18n.js")]
     [AllowAnonymous]
     [Produces("application/javascript")]
@@ -4727,6 +4733,9 @@ public class TwoFactorAuthController : ControllerBase
     // PURE JAVASCRIPT UI code shipped to every admin browser anyway — there
     // is nothing to gate. CodeQL #255 stays dismissed as a false-positive
     // (the named-resource heuristic flagged the "admin-" prefix).
+    // [v2.5.12] (#79) Extensionless alias too — see GetSharedI18nScript: keeps a
+    // CDN "*.js" cache rule from freezing the admin UI script.
+    [HttpGet("admin-script")]
     [HttpGet("admin-script.js")]
     [AllowAnonymous]
     [Produces("application/javascript")]
