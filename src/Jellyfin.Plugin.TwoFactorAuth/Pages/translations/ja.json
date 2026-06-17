@@ -604,6 +604,8 @@
   "tfa.login.oidc_help": "サインインを完了するためにブラウザが開きます。そこで承認してから、この画面に戻ってください — 自動的に完了します。",
   "tfa.login.oidc_open": "ブラウザでサインインを開く",
   "tfa.login.oidc_copy": "サインインリンクをコピー",
+  "tfa.login.error_missing_username": "ユーザー名を入力してください。",
+  "tfa.login.oidc_use_copy": "ブラウザにセキュリティエラーが表示される場合は、\"サインインリンクをコピー\" をタップして Chrome で開いてください。",
   "tfa.login.cancel": "キャンセル",
   "tfa.login.oidc_opening": "ブラウザを開いています…",
   "tfa.login.oidc_copied": "リンクをコピーしました — Chrome に貼り付けてサインインし、ここに戻ってください。",

@@ -604,6 +604,8 @@
   "tfa.login.oidc_help": "Votre navigateur va s'ouvrir pour terminer la connexion. Approuvez-la là-bas, puis revenez à cet écran — elle se termine automatiquement.",
   "tfa.login.oidc_open": "Ouvrir la connexion dans le navigateur",
   "tfa.login.oidc_copy": "Copier le lien de connexion",
+  "tfa.login.error_missing_username": "Saisissez votre nom d'utilisateur.",
+  "tfa.login.oidc_use_copy": "Si votre navigateur affiche une erreur de sécurité, appuyez sur \"Copier le lien de connexion\" et ouvrez-le dans Chrome.",
   "tfa.login.cancel": "Annuler",
   "tfa.login.oidc_opening": "Ouverture de votre navigateur…",
   "tfa.login.oidc_copied": "Lien copié — collez-le dans Chrome, connectez-vous, puis revenez ici.",

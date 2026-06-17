@@ -604,6 +604,8 @@
   "tfa.login.oidc_help": "Ihr Browser wird geöffnet, um die Anmeldung abzuschließen. Bestätigen Sie dort und kehren Sie dann zu diesem Bildschirm zurück — der Vorgang wird automatisch abgeschlossen.",
   "tfa.login.oidc_open": "Anmeldung im Browser öffnen",
   "tfa.login.oidc_copy": "Anmeldelink kopieren",
+  "tfa.login.error_missing_username": "Geben Sie Ihren Benutzernamen ein.",
+  "tfa.login.oidc_use_copy": "Wenn Ihr Browser einen Sicherheitsfehler anzeigt, tippen Sie auf \"Anmeldelink kopieren\" und öffnen Sie ihn in Chrome.",
   "tfa.login.cancel": "Abbrechen",
   "tfa.login.oidc_opening": "Ihr Browser wird geöffnet…",
   "tfa.login.oidc_copied": "Link kopiert — fügen Sie ihn in Chrome ein, melden Sie sich an und kehren Sie dann hierher zurück.",

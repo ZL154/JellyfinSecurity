@@ -604,6 +604,8 @@
   "tfa.login.oidc_help": "Il tuo browser si aprirà per completare l'accesso. Approva lì, poi torna a questa schermata — si completa automaticamente.",
   "tfa.login.oidc_open": "Apri l'accesso nel browser",
   "tfa.login.oidc_copy": "Copia il link di accesso",
+  "tfa.login.error_missing_username": "Inserisci il tuo nome utente.",
+  "tfa.login.oidc_use_copy": "Se il tuo browser mostra un errore di sicurezza, tocca \"Copia il link di accesso\" e aprilo in Chrome.",
   "tfa.login.cancel": "Annulla",
   "tfa.login.oidc_opening": "Apertura del browser…",
   "tfa.login.oidc_copied": "Link copiato — incollalo in Chrome, accedi e poi torna qui.",

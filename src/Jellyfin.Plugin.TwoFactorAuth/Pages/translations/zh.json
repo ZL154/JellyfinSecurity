@@ -604,6 +604,8 @@
   "tfa.login.oidc_help": "您的浏览器将打开以完成登录。请在那里批准，然后返回此屏幕——登录会自动完成。",
   "tfa.login.oidc_open": "在浏览器中打开登录",
   "tfa.login.oidc_copy": "复制登录链接",
+  "tfa.login.error_missing_username": "请输入您的用户名。",
+  "tfa.login.oidc_use_copy": "如果您的浏览器显示安全错误，请点按 \"复制登录链接\" 并在 Chrome 中打开。",
   "tfa.login.cancel": "取消",
   "tfa.login.oidc_opening": "正在打开您的浏览器…",
   "tfa.login.oidc_copied": "链接已复制——粘贴到 Chrome 中，登录后再返回此处。",

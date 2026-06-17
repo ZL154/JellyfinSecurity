@@ -999,10 +999,20 @@
         return false;
     }
 
+    // [v2.5.12] (#64) Returns true only if a NATIVE bridge handled the open (which
+    // hands off to the real external browser). Returns false if we could only fall
+    // back to window.open — on an Android app WebView that loads the URL IN the
+    // WebView, which Google rejects with "disallowed_useragent". Callers use the
+    // result to steer the user to the copy-link fallback. Try multiple bridge
+    // shapes/arities since app builds differ (some expose openUrl(url) 1-arg).
     function openExternalUrl(url) {
-        try { if (window.NativeShell && typeof window.NativeShell.openUrl === 'function') { window.NativeShell.openUrl(url, '_blank'); return; } } catch (e) {}
-        try { if (window.NativeInterface && typeof window.NativeInterface.openUrl === 'function') { window.NativeInterface.openUrl(url); return; } } catch (e) {}
-        try { window.open(url, '_blank'); } catch (e) {}
+        try { if (window.NativeShell && typeof window.NativeShell.openUrl === 'function') { window.NativeShell.openUrl(url, '_blank'); return true; } } catch (e) {}
+        try { if (window.NativeShell && typeof window.NativeShell.openUrl === 'function') { window.NativeShell.openUrl(url); return true; } } catch (e) {}
+        try { if (window.NativeInterface && typeof window.NativeInterface.openUrl === 'function') { window.NativeInterface.openUrl(url); return true; } } catch (e) {}
+        try { if (window.NativeShell && typeof window.NativeShell.openExternalUrl === 'function') { window.NativeShell.openExternalUrl(url); return true; } } catch (e) {}
+        // Last resort — may open inside the WebView (Google "disallowed_useragent").
+        try { window.open(url, '_blank', 'noopener'); } catch (e) {}
+        return false;
     }
 
     function closeOidcModal() {
@@ -1033,7 +1043,12 @@
         document.body.appendChild(ov);
         document.getElementById(OIDC_MODAL_ID + '_open').addEventListener('click', function () {
             oidcModalStatus(T('tfa.login.oidc_opening', 'Opening your browser…'));
-            openExternalUrl(authUrl);
+            // [v2.5.12] (#64) if no native bridge handled it, window.open may have
+            // loaded inside the WebView (Google blocks that) — point the user at
+            // the copy-link path, which always opens a real browser.
+            if (!openExternalUrl(authUrl)) {
+                oidcModalStatus(T('tfa.login.oidc_use_copy', 'If your browser shows a security error, tap "Copy sign-in link" and open it in Chrome.'));
+            }
         });
         document.getElementById(OIDC_MODAL_ID + '_copy').addEventListener('click', function () {
             function ok() { oidcModalStatus(T('tfa.login.oidc_copied', 'Link copied — paste it into Chrome, sign in, then return here.')); }
@@ -1103,7 +1118,12 @@
                 if (!info || !info.authUrl || !info.pollToken) throw new Error('bad response');
                 showOidcModal(name, info.authUrl);
                 oidcModalStatus(T('tfa.login.oidc_opening', 'Opening your browser…'));
-                openExternalUrl(info.authUrl);
+                // [v2.5.12] (#64) if no native bridge opened a real browser, the
+                // auto window.open likely loaded inside the WebView (Google
+                // "disallowed_useragent") — guide the user to the copy-link path.
+                if (!openExternalUrl(info.authUrl)) {
+                    oidcModalStatus(T('tfa.login.oidc_use_copy', 'If your browser shows a security error, tap "Copy sign-in link" and open it in Chrome.'));
+                }
                 pollDeviceFlow(info.pollToken);
             })
             .catch(function () { oidcModalStatus(T('tfa.login.oidc_could_not_start', 'Could not start sign-in. Please try again.')); });

@@ -250,8 +250,12 @@
             var password = document.getElementById('password').value;
             var code = document.getElementById('code').value.trim();
 
-            if (!username || !password) {
-                showError(_tr('tfa.login.error_missing_credentials', 'Enter your username and password.'));
+            // [v2.5.12] (#82, cpb34) Only the username is required. Jellyfin allows
+            // passwordless users (blank password) at the standard login portal, so
+            // the 2FA portal must accept a blank password too — the server still
+            // enforces the real password policy on AuthenticateByName.
+            if (!username) {
+                showError(_tr('tfa.login.error_missing_username', 'Enter your username.'));
                 return;
             }
 
