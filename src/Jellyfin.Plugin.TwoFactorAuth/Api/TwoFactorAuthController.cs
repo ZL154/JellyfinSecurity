@@ -613,9 +613,15 @@ public class TwoFactorAuthController : ControllerBase
                 });
             }
 
-            if (req is null || string.IsNullOrEmpty(req.Username) || string.IsNullOrEmpty(req.Password))
+            // [v2.5.12] (#82, cpb34): only the username is required. Jellyfin
+            // supports passwordless users (admin-disabled password), who sign in
+            // with a blank password at the standard portal — so the 2FA portal
+            // must accept a blank password too. Jellyfin's own auth path below
+            // still rejects a blank password for users who DO have one, so this
+            // doesn't weaken anyone's real password policy.
+            if (req is null || string.IsNullOrEmpty(req.Username))
             {
-                return BadRequest(new { message = "Username and password are required." });
+                return BadRequest(new { message = "Username is required." });
             }
 
             // SEC-L8: cap submitted credential field lengths. Jellyfin's auth
@@ -623,7 +629,7 @@ public class TwoFactorAuthController : ControllerBase
             // burn server CPU per request. 1KB password / 256B username covers
             // realistic upper bounds (long passphrases ~200 chars) while
             // killing the DoS vector.
-            if (req.Password.Length > 1024
+            if ((req.Password?.Length ?? 0) > 1024
                 || req.Username.Length > 256
                 || (req.Code is not null && req.Code.Length > 64))
             {
