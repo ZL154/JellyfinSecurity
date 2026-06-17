@@ -38,15 +38,15 @@
 
 # 🔐 Jellyfin Security
 
-Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email OTP, **OIDC/SSO sign-in**, brute-force IP banning, impossible-travel detection, per-user IP allowlist, device pairing, trusted-browser cookies, and a full audit log — all from one plugin.
+Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email OTP, **OIDC/SSO sign-in**, brute-force IP banning, impossible-travel detection, per-user IP allowlist, device pairing, trusted-browser cookies, and a full audit log - all from one plugin.
 
-> **Why this exists:** for self-hosters who want a complete auth + hardening layer **without standing up a separate identity stack**. Full IdPs like Authentik (with OIDC or LDAP outposts) and Authelia work great with Jellyfin and offer features this plugin doesn't — they're often the right call for serious deployments. This plugin is for the case where you'd rather get TOTP, passkeys, OIDC sign-in, brute-force protection, impossible-travel detection, IP allowlist, audit logging, and a proper admin UI **as a single Jellyfin plugin** — no extra containers, no LDAP outpost, no proxy-auth header juggling, native Jellyfin user model end-to-end.
+> **Why this exists:** for self-hosters who want a complete auth + hardening layer **without standing up a separate identity stack**. Full IdPs like Authentik (with OIDC or LDAP outposts) and Authelia work great with Jellyfin and offer features this plugin doesn't - they're often the right call for serious deployments. This plugin is for the case where you'd rather get TOTP, passkeys, OIDC sign-in, brute-force protection, impossible-travel detection, IP allowlist, audit logging, and a proper admin UI **as a single Jellyfin plugin** — no extra containers, no LDAP outpost, no proxy-auth header juggling, native Jellyfin user model end-to-end.
 
 > 📖 **New: step-by-step guides live in the [Wiki](https://github.com/ZL154/JellyfinSecurity/wiki)** — [Installation](https://github.com/ZL154/JellyfinSecurity/wiki/Installation), [First-Time Setup](https://github.com/ZL154/JellyfinSecurity/wiki/First-Time-Setup), [OIDC / SSO](https://github.com/ZL154/JellyfinSecurity/wiki/OIDC-SSO), [Account Protection](https://github.com/ZL154/JellyfinSecurity/wiki/Account-Protection), [Admin Guide](https://github.com/ZL154/JellyfinSecurity/wiki/Admin-Guide), and [Troubleshooting](https://github.com/ZL154/JellyfinSecurity/wiki/Troubleshooting).
 
 ---
 
-## 🛡️ Security posture — what to check before you trust this with your server
+## 🛡️ Security posture - what to check before you trust this with your server
 
 You don't have to take my word for it. Every signal below is automated and
 visible to anyone, including you:
@@ -131,11 +131,11 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ## 🧩 Features
 
 ### New in v2.5.12
-- **Login/setup/admin/sidebar i18n** — every plugin surface follows Jellyfin's language (auto-detect + persist); CDN-cache-immune so updates aren't served stale (#79).
-- **Passwordless 2FA login** — the 2FA portal accepts users whose password is disabled, matching the standard login page (#82).
-- **Admins-Only scope fix** — non-admins are no longer blocked/hung under *Admins Only* enforcement; fail-safe admin check (#81).
-- **Hide Jellyfin's built-in "Forgot password?"** — optional sub-toggle under email recovery; clearer email-claim auto-fill diagnostics (#80).
-- **Android SSO copy-link fallback** — reliable path when an app WebView trips Google's `disallowed_useragent` (#64).
+- **Login/setup/admin/sidebar i18n** - every plugin surface follows Jellyfin's language (auto-detect + persist); CDN-cache-immune so updates aren't served stale (#79).
+- **Passwordless 2FA login** - the 2FA portal accepts users whose password is disabled, matching the standard login page (#82).
+- **Admins-Only scope fix** - non-admins are no longer blocked/hung under *Admins Only* enforcement; fail-safe admin check (#81).
+- **Hide Jellyfin's built-in "Forgot password?"** - optional sub-toggle under email recovery; clearer email-claim auto-fill diagnostics (#80).
+- **Android SSO copy-link fallback** - reliable path when an app WebView trips Google's `disallowed_useragent` (#64).
 
 ### New in v2.5.11
 - **Disable password sign-in** — OIDC / Quick-Connect-only mode with independently-toggleable **admin / LAN / exempt-CIDR** escape hatches (#69).
