@@ -589,6 +589,7 @@
   "tfa.login.low_codes_generate": "Generar más →",
   "tfa.login.low_codes_continue": "Continuar",
   "tfa.login.settings_tile": "Autenticación de dos factores",
+  "tfa.login.nav_entry": "Autenticación 2FA",
   "tfa.login.pw_reveal": "Iniciar sesión con contraseña en su lugar",
   "tfa.login.forgot": "¿Olvidaste tu contraseña?",
   "tfa.login.forgot_id_ph": "Nombre de usuario o correo electrónico",

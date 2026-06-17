@@ -589,6 +589,7 @@
   "tfa.login.low_codes_generate": "さらに生成 →",
   "tfa.login.low_codes_continue": "続行",
   "tfa.login.settings_tile": "二要素認証",
+  "tfa.login.nav_entry": "二要素認証",
   "tfa.login.pw_reveal": "代わりにパスワードでサインイン",
   "tfa.login.forgot": "パスワードをお忘れですか？",
   "tfa.login.forgot_id_ph": "ユーザー名またはメールアドレス",

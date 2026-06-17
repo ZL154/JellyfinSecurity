@@ -589,6 +589,7 @@
   "tfa.login.low_codes_generate": "生成更多 →",
   "tfa.login.low_codes_continue": "继续",
   "tfa.login.settings_tile": "双因素认证",
+  "tfa.login.nav_entry": "双因素认证",
   "tfa.login.pw_reveal": "改用密码登录",
   "tfa.login.forgot": "忘记密码？",
   "tfa.login.forgot_id_ph": "用户名或电子邮箱",

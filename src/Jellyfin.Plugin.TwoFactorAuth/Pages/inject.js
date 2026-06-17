@@ -480,10 +480,13 @@
             });
             a.innerHTML =
                 '<span class="material-icons navMenuOptionIcon" style="font-family:Material Icons;" aria-hidden="true">security</span>' +
-                '<span class="navMenuOptionText">Two-Factor Auth</span>';
+                '<span class="navMenuOptionText" data-i18n-key="tfa.login.nav_entry">' + T('tfa.login.nav_entry', 'Two-Factor Auth') + '</span>';
 
             if (anchor.nextSibling) parent.insertBefore(a, anchor.nextSibling);
             else parent.appendChild(a);
+            // [v2.5.12] (#79) translate the just-injected entry once the bundle
+            // is available (it may have loaded after the i18n-ready event fired).
+            try { if (window.tfaI18n) window.tfaI18n.applyTranslations(a); } catch (e) { /* ignore */ }
         } catch (e) {
             console.error('[2FA] injectDashboardNav error:', e);
         }
@@ -529,7 +532,7 @@
             a.addEventListener('click', function () { try { a.href = withLang('/TwoFactorAuth/Setup'); } catch (e) {} });
             a.innerHTML =
                 '<span class="material-icons navMenuOptionIcon" style="font-family:Material Icons;" aria-hidden="true">security</span>' +
-                '<span class="navMenuOptionText">Two-Factor Auth</span>';
+                '<span class="navMenuOptionText" data-i18n-key="tfa.login.nav_entry">' + T('tfa.login.nav_entry', 'Two-Factor Auth') + '</span>';
 
             if (placement === 'after') {
                 if (anchorItem.nextSibling) parent.insertBefore(a, anchorItem.nextSibling);
@@ -537,6 +540,9 @@
             } else {
                 parent.insertBefore(a, anchorItem);
             }
+            // [v2.5.12] (#79) translate the just-injected entry once the bundle
+            // is available (it may have loaded after the i18n-ready event fired).
+            try { if (window.tfaI18n) window.tfaI18n.applyTranslations(a); } catch (e) { /* ignore */ }
 
             console.log('[2FA] Sidebar entry inserted (anchor:', (anchorItem.textContent || '').trim(), placement + ')');
         } catch (e) {
@@ -621,6 +627,7 @@
 
             if (template.nextSibling) container.insertBefore(tile, template.nextSibling);
             else container.appendChild(tile);
+            try { if (window.tfaI18n) window.tfaI18n.applyTranslations(tile); } catch (e) { /* ignore */ }
             console.log('[2FA] Settings tile inserted next to Profile');
         } catch (e) {
             console.error('[2FA] injectSettingsTile error:', e);
