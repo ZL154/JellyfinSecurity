@@ -12,7 +12,7 @@ Use one of the following private channels:
 1. **GitHub Private Vulnerability Reporting** (preferred) — open
    <https://github.com/ZL154/JellyfinSecurity/security/advisories/new>
    and submit the advisory. Only repository maintainers can see it.
-2. **Discord** — DM **`@zack154`** on Discord with a description of the issue.
+2. **Discord** - DM **`@zack154`** on Discord with a description of the issue.
 
 ### What to include
 
@@ -44,23 +44,23 @@ plugin:
 - Reports against unsupported plugin versions (see table below)
 - Findings from automated scanners with no exploitable PoC
 
-## Threat model — what this plugin defends against
+## Threat model - what this plugin defends against
 
 In scope:
 
-- Password compromise — blocked by 2FA / passkey / OIDC requirement
-- Brute-force login — blocked by per-IP rate limit + IP ban
-- Stolen session cookie replay — bound to device, revocable
-- Trusted-browser cookie forgery — HMAC-SHA256 signed, length-checked
-- Replay of recovery codes — single-use, marked used on validation
-- TOTP code replay across restarts — persisted last-used time-step floor
-- TOTP secret swap between users on disk — AES-GCM with userId as AAD
-- OIDC token forgery — signature + issuer + audience + nonce validated
-- Stolen X-Forwarded-For header — only honoured when peer is a trusted
+- Password compromise - blocked by 2FA / passkey / OIDC requirement
+- Brute-force login - blocked by per-IP rate limit + IP ban
+- Stolen session cookie replay - bound to device, revocable
+- Trusted-browser cookie forgery - HMAC-SHA256 signed, length-checked
+- Replay of recovery codes - single-use, marked used on validation
+- TOTP code replay across restarts - persisted last-used time-step floor
+- TOTP secret swap between users on disk - AES-GCM with userId as AAD
+- OIDC token forgery - signature + issuer + audience + nonce validated
+- Stolen X-Forwarded-For header - only honoured when peer is a trusted
   proxy CIDR; real client picked right-to-left
-- Impossible travel — notification when consecutive sign-ins exceed
+- Impossible travel - notification when consecutive sign-ins exceed
   cruise-jet speed
-- IP allowlist bypass — high-value accounts can be pinned to CIDRs
+- IP allowlist bypass - high-value accounts can be pinned to CIDRs
 
 Out of scope (intentional limitations):
 
