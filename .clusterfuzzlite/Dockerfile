@@ -10,7 +10,7 @@
 # accepts csharp from its GitHub Action wrapper. Until that day this
 # Dockerfile exists primarily for OpenSSF Scorecard's Fuzzing-check
 # scaffolding detection (which looks at file presence, not behavior).
-FROM gcr.io/oss-fuzz-base/base-builder@sha256:c1cf4114d819ae23b99041489ce79ce23a739e39be915f7cbc24a4c47a09fcd9
+FROM gcr.io/oss-fuzz-base/base-builder@sha256:5ac81e0131429d2d727d61b20fd7e85ab883ff296bc9045214a1855ce2473114
 
 # Stage the repo and the build script at the paths CFLite expects.
 COPY . $SRC/JellyfinSecurity
