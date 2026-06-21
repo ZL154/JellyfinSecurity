@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <!-- Static version badge — bump on each release. Switched from img.shields.io/github/v/release because that endpoint periodically returns 'unable to select next GitHub token from pool'. -->
-  <img src="https://img.shields.io/badge/Version-v2.5.12-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-v2.5.13-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -32,7 +32,7 @@
 <p align="center">
   <a href="https://github.com/ZL154/JellyfinSecurity/stargazers"><img src="https://img.shields.io/github/stars/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Stars&color=00a4dc&logo=github&logoColor=white" alt="Stars" /></a>
   <!-- Static last-commit badge — bump when pushing meaningful changes. img.shields.io/github/last-commit is the most rate-limited GitHub-API endpoint in the shields family and has been intermittently unavailable. Static avoids it. -->
-  <a href="https://github.com/ZL154/JellyfinSecurity/commits/main"><img src="https://img.shields.io/badge/Last%20commit-2026--05--30-2b2b2b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=github&logoColor=white" alt="Last commit" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/commits/main"><img src="https://img.shields.io/badge/Last%20commit-2026--06--21-2b2b2b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=github&logoColor=white" alt="Last commit" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/security/advisories"><img src="https://img.shields.io/github/issues-search/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Open%20advisories&query=is%3Aopen%20label%3Asecurity&color=00a4dc&logo=github&logoColor=white" alt="Open security advisories" /></a>
 </p>
 
@@ -66,15 +66,16 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.5.12
+## 🆕 What's new in v2.5.13
 
-- **Fully translated login & setup UI** *(fix #79, ZEROX7)* — the login page, the 2FA setup page, the admin config UI, **and** the injected "Two-Factor Auth" sidebar entry now all follow Jellyfin's display language (auto-detected, and remembered across restarts), across all 8 languages. Also fixed so the language fixes actually reach users behind a CDN (the scripts are served on cache-immune paths instead of being frozen by a `*.js` edge-cache rule).
-- **Passwordless 2FA login** *(bug #82, cpb34)* — users whose password is disabled can now sign in through the 2FA portal with a blank password, matching Jellyfin's standard login page (both the page and the server endpoint were over-requiring a password).
-- **Admins-Only enforcement no longer blocks non-admins** *(bug #81, cpb34)* — with scope set to *Admins Only*, a non-admin without 2FA logging in through the standard portal used to hang ("Server Unavailable"); the session fail-safe now checks admin status (and fails safe so an admin is never accidentally exempted).
-- **Hide Jellyfin's built-in "Forgot password?"** *(feature #80, ZEROX7)* — an optional sub-toggle (under email recovery) removes Jellyfin's native recovery link so users see only the plugin's flow. Plus clearer diagnostics when IdP email auto-fill doesn't populate (points at a missing `email` scope or wrong claim name).
-- **Android SSO fallback** *(bug #64, fx-xt)* — when an embedded app WebView triggers Google's `disallowed_useragent`, the sign-in modal now reliably routes you to *"Copy sign-in link → open in Chrome."*
-- **Dependency hygiene** — QuestPDF pinned (a newer build produced a broken recovery-codes PDF); analyzer + test-only bumps merged; Microsoft.IdentityModel auto-bumps blocked (8.19.x breaks OIDC token validation).
-- 266/266 tests pass. In-place upgrade — every persisted record carries over.
+An OIDC/SSO release. Every new option is **opt-in**, so a default install behaves exactly like 2.5.12.
+
+- **Admins can link OIDC from the Setup page** *(bug #95, yannolerobot)* — "Link a new provider" now runs a proper authenticated link flow (popup → link by `sub`) instead of routing through the sign-in resolver, which deliberately refuses to implicitly link admin accounts as an anti-takeover measure. Admins can finally self-link; it still refuses if that identity is already linked to a different Jellyfin user.
+- **IdP group → Jellyfin administrator** *(bug #96, raffaeletani)* — a new per-provider **"Elevate matching users to administrator"** toggle (off by default) grants admin on sign-in to anyone whose IdP `groups` claim matches an **Admin groups** entry. Grant-only (never auto-revokes) and every elevation is logged at WARN. Only enable for an IdP you fully control.
+- **Template user for auto-created accounts** *(feature #93, Re4mstr)* — optionally copy an existing user's permissions + library access onto users auto-created on first OIDC sign-in, instead of Jellyfin's broad defaults.
+- **Separate "Enable SSO" from "Show built-in button"** *(feature #97, chrisbehectik)* — keep a provider's sign-in URL live for your own custom button while hiding the plugin's built-in "Sign in with…" button.
+- **No more silent OIDC bounce** *(bug #98, Re4mstr)* — when the IdP authenticated you but the browser's follow-up `AuthenticateByName` failed (commonly an auth proxy intercepting it), the bridge page now shows the real error + a hint instead of looping back to login.
+- New admin-UI strings translated across all 8 languages. 266/266 tests pass. In-place upgrade — every persisted record carries over.
 
 > Full version history is in the [Changelog](#-changelog) below and on [GitHub Releases](https://github.com/ZL154/JellyfinSecurity/releases).
 
@@ -129,6 +130,13 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ---
 
 ## 🧩 Features
+
+### New in v2.5.13
+- **Admin OIDC linking from Setup** — authenticated "Link a new provider" flow (popup, links by `sub`) so admins can self-link, bypassing the resolver's admin anti-takeover guard (#95).
+- **IdP-group → admin elevation** — opt-in per-provider toggle (default off), grant-only, WARN-logged (#96).
+- **Template user for auto-create** — new OIDC users inherit a chosen user's permissions / library access instead of Jellyfin defaults (#93).
+- **Enable-SSO / show-built-in-button split** — run SSO for your own custom button while hiding the plugin's built-in one (#97).
+- **Diagnosable OIDC bounce** — a failed post-auth `AuthenticateByName` now shows the real error + auth-proxy hint instead of a silent loop back to login (#98).
 
 ### New in v2.5.12
 - **Login/setup/admin/sidebar i18n** - every plugin surface follows Jellyfin's language (auto-detect + persist); CDN-cache-immune so updates aren't served stale (#79).
@@ -434,6 +442,8 @@ Lets users sign in with Google / Microsoft / Authelia / Authentik / Keycloak / P
 3. Nothing matched + "Auto-create Jellyfin users" is enabled → a new Jellyfin account is created
 4. Nothing matched + auto-create is OFF → sign-in refused with "No Jellyfin user matched"
 
+**Linking from the Setup page (v2.5.13, #95):** any signed-in user — **including admins** — can link a new provider from `/TwoFactorAuth/Setup` → **Linked Sign-In Methods → "Link a new provider"**. It opens the IdP in a popup and links by subject to the current account, so admins can link without tripping the anti-takeover guard that blocks implicit admin linking during a normal sign-in.
+
 ### Setting up a Google provider (walkthrough)
 
 **1. Register a Google OAuth client**
@@ -470,7 +480,11 @@ Lets users sign in with Google / Microsoft / Authelia / Authentik / Keycloak / P
 | Discord | ❌ | OAuth2 only, not OIDC — not yet supported |
 
 ### Per-provider options
+- **Enable SSO** *(v2.5.13, #97)* — master switch: the provider is active and its sign-in URL works (e.g. for your own custom button). Turn off to fully disable the provider while keeping its config saved.
+- **Show built-in button on login page** *(v2.5.13, #97)* — whether the plugin renders its own "Sign in with X" button. Turn off to keep SSO live (URL still works) but hide the built-in button so you can use your own.
 - **Allowed groups** — sign-in refused unless IdP's `groups` / `roles` claim contains at least one of these
+- **Admin groups + "Elevate matching users to administrator"** *(v2.5.13, #96)* — with the elevate toggle on (default off), any user whose `groups` claim matches an entry here is granted Jellyfin admin on sign-in. Grant-only (never auto-revokes); every elevation logged at WARN. Only enable for an IdP you fully control — a compromised IdP that controls the groups claim could elevate any account.
+- **Template user for auto-created accounts** *(v2.5.13, #93)* — when auto-create makes a new user, copy this user's permissions + library access instead of Jellyfin's broad defaults. Leave on "(Jellyfin defaults)" to keep built-in behaviour. Tip: pick a restricted, non-admin user.
 - **Require IdP MFA** — refuses sign-in unless the id_token's `amr` claim indicates MFA (`mfa`, `hwk`, `otp`, `sca`)
 - **Auto-create users** — creates a new Jellyfin account for unmatched IdP identities. **Only enable for IdPs where you trust everyone with an account** (not public Google).
 - **Skip plugin 2FA** — default ON; the IdP already authenticated. Disable only if you want belt-and-braces.
@@ -945,6 +959,16 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.5.13
+
+- **Admins can link OIDC from the Setup page** *(bug #95, yannolerobot)* — "Link a new provider" now runs a dedicated authenticated link flow (`Oidc/LinkBegin` → popup → link by `sub`) instead of the normal sign-in, which routes through the resolver that deliberately refuses implicit admin links. Refuses if the identity is already linked to a different Jellyfin user.
+- **IdP group → Jellyfin admin** *(bug #96, raffaeletani)* — `AdminGroups` is now consumed, behind a new opt-in **"Elevate matching users to administrator"** toggle (default off). Grant-only (never auto-revokes); every elevation logged at WARN. Off-by-default, so a default install is unchanged.
+- **Template user for auto-created accounts** *(feature #93, Re4mstr)* — optional per-provider template; auto-created OIDC users copy that user's permissions + preferences instead of Jellyfin defaults.
+- **Split "Enable SSO" from "Show built-in button on login page"** *(feature #97, chrisbehectik)* — a provider can stay enabled (its sign-in URL works for a custom button) while the plugin's built-in button is hidden.
+- **OIDC sign-in no longer silently bounces to login** *(bug #98, Re4mstr)* — when the post-auth `AuthenticateByName` fails (commonly an auth proxy intercepting it), the bridge page shows the real error + an auth-proxy hint + a manual link instead of an endless login loop.
+- **Not a code bug: "sing-in-with" callback URL** *(#94)* — the callback path is derived from the provider's Display Name, so it reflects a typo in that name; rename the provider for a clean URL.
+- New admin-UI strings translated across all 8 languages. 266/266 tests pass. In-place upgrade — every persisted record carries over. *(Shipped 2026-06-21.)*
 
 ### 2.5.8
 
