@@ -922,10 +922,37 @@
                 } else {
                     avail.innerHTML = '<span style="color:#888;font-size:13px;">' + _tr('tfa.setup.sso.link_new', 'Link a new provider:') + '</span>'
                         + canLink.map(function(p) {
-                            return ' <a class="btn-ghost btn-sm" href="/TwoFactorAuth/Oidc/Login/'
-                                + encodeURIComponent(p.id) + '?returnUrl=/TwoFactorAuth/Setup">'
-                                + escapeHtml(p.displayName) + '</a>';
+                            return ' <button type="button" class="btn-ghost btn-sm" data-link-prov="'
+                                + escapeHtml(p.id) + '">' + escapeHtml(p.displayName) + '</button>';
                         }).join('');
+                    // [v2.5.13] (#95) Link a NEW provider via the AUTHENTICATED link
+                    // flow in a popup — NOT /Oidc/Login (the sign-in flow), which runs
+                    // the resolver that refuses admin email/username matches and so
+                    // could never link an admin. LinkBegin binds this user server-side
+                    // and the callback links by sub directly.
+                    avail.querySelectorAll('[data-link-prov]').forEach(function(btn) {
+                        btn.addEventListener('click', function() {
+                            var pid = btn.getAttribute('data-link-prov');
+                            api('POST', 'TwoFactorAuth/Oidc/LinkBegin/' + encodeURIComponent(pid))
+                                .then(function(res) {
+                                    if (!res || !res.authUrl) { return; }
+                                    var pop = window.open(res.authUrl, 'tfaLink', 'width=520,height=680');
+                                    function onMsg(ev) {
+                                        if (ev.origin !== window.location.origin) return;
+                                        var d = ev.data || {};
+                                        if (d.type !== 'tfa-link-oidc') return;
+                                        window.removeEventListener('message', onMsg);
+                                        try { if (pop) pop.close(); } catch (e) {}
+                                        if (d.success) { loadSsoLinks(); }
+                                        else { alert(_tr('tfa.setup.sso.link_failed', 'Linking failed') + (d.message ? ': ' + d.message : '')); }
+                                    }
+                                    window.addEventListener('message', onMsg);
+                                })
+                                .catch(function(err) {
+                                    alert(_tr('tfa.setup.sso.link_failed', 'Could not start linking') + ': ' + (err.message || ''));
+                                });
+                        });
+                    });
                 }
             });
         }

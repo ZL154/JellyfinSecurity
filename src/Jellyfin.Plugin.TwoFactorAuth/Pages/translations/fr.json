@@ -271,7 +271,7 @@
   "tfa.admin.sso.opt_auto_create": "Créer automatiquement les utilisateurs Jellyfin à la première connexion (n'activer que pour des IdP de confiance)",
   "tfa.admin.sso.opt_require_mfa": "Exiger la MFA de l'IdP (refuser la connexion si le claim amr n'indique pas la MFA)",
   "tfa.admin.sso.opt_bypass_2fa": "Ignorer la 2FA du plugin (recommandé — l'IdP a déjà authentifié l'utilisateur)",
-  "tfa.admin.sso.opt_show_button": "Afficher le bouton sur la page de connexion",
+  "tfa.admin.sso.opt_show_button": "Afficher le bouton intégré sur la page de connexion",
   "tfa.admin.sso.opt_force_https": "Forcer HTTPS sur redirect_uri (uniquement si votre reverse-proxy ne propage pas X-Forwarded-Proto)",
   "tfa.admin.sso.btn_save": "Enregistrer le fournisseur",
   "tfa.admin.sso.alert_display_required": "Le nom affiché est requis.",
@@ -775,5 +775,14 @@
   "tfa.admin.settings.opt_enable_password_recovery": "Autoriser la récupération du mot de passe par e-mail",
   "tfa.admin.settings.enable_password_recovery_help": "Ajoute un lien \"Mot de passe oublié ?\" à la page de connexion. L'utilisateur saisit son identifiant ou son e-mail et reçoit un lien à usage unique (valable 30 minutes). Nécessite SMTP (ci-dessous) et un e-mail enregistré. La réponse est toujours générique, elle ne révèle donc pas quels comptes existent.",
   "tfa.admin.settings.opt_hide_builtin_forgot": "Masquer le lien intégré « Mot de passe oublié ? » de Jellyfin sur la page de connexion",
-  "tfa.admin.settings.hide_builtin_forgot_help": "S’applique uniquement lorsque l’option ci-dessus est activée. Supprime le lien natif de mot de passe oublié de Jellyfin afin que les utilisateurs ne voient que le flux de réinitialisation du plugin. Désactivez pour conserver les deux."
+  "tfa.admin.settings.hide_builtin_forgot_help": "S’applique uniquement lorsque l’option ci-dessus est activée. Supprime le lien natif de mot de passe oublié de Jellyfin afin que les utilisateurs ne voient que le flux de réinitialisation du plugin. Désactivez pour conserver les deux.",
+  "tfa.admin.sso.opt_enable_sso": "Activer le SSO (fournisseur actif — l'URL de connexion fonctionne)",
+  "tfa.admin.sso.opt_admin_elevation": "Élever les utilisateurs correspondants au rang d'administrateur",
+  "tfa.admin.sso.opt_admin_elevation_pill": "Avancé",
+  "tfa.admin.sso.opt_admin_elevation_help": "Désactivé par défaut. Lorsqu'il est activé, tout utilisateur dont la revendication de groupes de l'IdP correspond à une entrée « Groupes administrateurs » se voit accorder le rôle d'administrateur Jellyfin à la connexion (attribution uniquement — jamais révoqué ici), et chaque élévation est journalisée. À n'activer que pour un IdP que vous contrôlez entièrement : un IdP compromis qui contrôle la revendication de groupes pourrait élever n'importe quel compte.",
+  "tfa.admin.sso.lbl_template_user": "Utilisateur modèle pour les comptes créés automatiquement (facultatif)",
+  "tfa.admin.sso.template_user_help": "Lorsque « Création automatique » est activée, un nouvel utilisateur copie les autorisations et l'accès aux médiathèques de cet utilisateur au lieu des valeurs par défaut de Jellyfin. Laissez « (Valeurs par défaut de Jellyfin) » pour conserver le comportement intégré.",
+  "tfa.admin.sso.template_user_default": "(Valeurs par défaut de Jellyfin)",
+  "tfa.admin.sso.opt_show_button_help": "Décochez pour garder le SSO activé (l'URL de connexion fonctionne toujours pour votre propre bouton) tout en masquant le bouton intégré « Se connecter avec… » du plugin.",
+  "tfa.setup.sso.link_failed": "Échec de la liaison"
 }

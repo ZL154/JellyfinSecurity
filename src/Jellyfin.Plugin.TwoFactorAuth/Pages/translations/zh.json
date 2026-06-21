@@ -271,7 +271,7 @@
   "tfa.admin.sso.opt_auto_create": "首次登录时自动创建 Jellyfin 用户(仅对可信 IdP 启用)",
   "tfa.admin.sso.opt_require_mfa": "要求 IdP MFA(若 amr 声明未显示 MFA 则拒绝登录)",
   "tfa.admin.sso.opt_bypass_2fa": "跳过插件 2FA(推荐 — IdP 已对用户进行了认证)",
-  "tfa.admin.sso.opt_show_button": "在登录页显示按钮",
+  "tfa.admin.sso.opt_show_button": "在登录页面显示内置按钮",
   "tfa.admin.sso.opt_force_https": "强制 redirect_uri 使用 HTTPS(仅在反向代理不传递 X-Forwarded-Proto 时启用)",
   "tfa.admin.sso.btn_save": "保存提供方",
   "tfa.admin.sso.alert_display_required": "显示名称为必填项。",
@@ -775,5 +775,14 @@
   "tfa.admin.settings.opt_enable_password_recovery": "允许通过邮箱找回密码",
   "tfa.admin.settings.enable_password_recovery_help": "在登录页添加“忘记密码？”链接。用户输入用户名或邮箱，即可收到一次性、有效期 30 分钟的重置链接。需要 SMTP（见下方）和已登记的邮箱。响应始终是通用的，因此无法用于探测哪些账户存在。",
   "tfa.admin.settings.opt_hide_builtin_forgot": "在登录页隐藏 Jellyfin 内置的“忘记密码？”链接",
-  "tfa.admin.settings.hide_builtin_forgot_help": "仅在启用上方选项时生效。移除 Jellyfin 原生的忘记密码链接，使用户只看到插件的重置流程。关闭可同时保留两者。"
+  "tfa.admin.settings.hide_builtin_forgot_help": "仅在启用上方选项时生效。移除 Jellyfin 原生的忘记密码链接，使用户只看到插件的重置流程。关闭可同时保留两者。",
+  "tfa.admin.sso.opt_enable_sso": "启用 SSO（提供商已激活 — 登录 URL 可用）",
+  "tfa.admin.sso.opt_admin_elevation": "将匹配的用户提升为管理员",
+  "tfa.admin.sso.opt_admin_elevation_pill": "高级",
+  "tfa.admin.sso.opt_admin_elevation_help": "默认关闭。启用后，凡是 IdP 群组声明与上方“管理员群组”中某一项匹配的用户，登录时将被授予 Jellyfin 管理员权限（仅授予 — 此处不会撤销），且每次提升都会记入日志。仅对你完全掌控的 IdP 启用：被攻陷且能控制群组声明的 IdP 可能提升任意账户。",
+  "tfa.admin.sso.lbl_template_user": "自动创建账户的模板用户（可选）",
+  "tfa.admin.sso.template_user_help": "启用“自动创建”后，新创建的用户将复制此用户的权限和媒体库访问权限，而不是 Jellyfin 的默认值。保留“(Jellyfin 默认值)”以维持内置行为。",
+  "tfa.admin.sso.template_user_default": "(Jellyfin 默认值)",
+  "tfa.admin.sso.opt_show_button_help": "取消勾选可保持 SSO 启用（登录 URL 仍可用于你自己的自定义按钮），但隐藏插件内置的“使用…登录”按钮。",
+  "tfa.setup.sso.link_failed": "关联失败"
 }

@@ -1401,6 +1401,29 @@
                 }
                 // [v2.5.10] (#65/#66) library list cache + role-map editor.
                 var ssoLibrariesCache = null;
+                // [v2.5.13] (#93) user-list cache + template-user dropdown population.
+                var ssoUsersCache = null;
+                function loadSsoUsersOnce() {
+                    if (ssoUsersCache) return Promise.resolve(ssoUsersCache);
+                    return ApiClient.getUsers().then(function(users) {
+                        ssoUsersCache = (users || []).map(function(u) {
+                            return { id: u.Id || '', name: u.Name || '(unnamed)' };
+                        }).filter(function(x) { return x.id; });
+                        return ssoUsersCache;
+                    }).catch(function() { ssoUsersCache = []; return ssoUsersCache; });
+                }
+                function populateTemplateUserSelect(selectedId) {
+                    var sel = page.querySelector('#ssoTemplateUser');
+                    if (!sel) return Promise.resolve();
+                    return loadSsoUsersOnce().then(function(users) {
+                        var opts = ['<option value="">' + _tr('tfa.admin.sso.template_user_default', '(Jellyfin defaults)') + '</option>'];
+                        users.forEach(function(u) {
+                            opts.push('<option value="' + u.id + '">' + (u.name || '').replace(/</g, '&lt;') + '</option>');
+                        });
+                        sel.innerHTML = opts.join('');
+                        sel.value = selectedId || '';
+                    });
+                }
                 function loadLibrariesOnce() {
                     if (ssoLibrariesCache) return Promise.resolve(ssoLibrariesCache);
                     return ApiClient.getVirtualFolders().then(function(folders) {
@@ -1486,10 +1509,17 @@
                     page.querySelector('#ssoAcr').value = prov ? (prov.acrValues || '') : '';
                     page.querySelector('#ssoAllowedGroups').value = prov ? (prov.allowedGroups || '') : '';
                     page.querySelector('#ssoAdminGroups').value = prov ? (prov.adminGroups || '') : '';
+                    // [v2.5.13] (#96) admin-elevation opt-in + (#93) template user.
+                    var elevEl = page.querySelector('#ssoAllowAdminElevation');
+                    if (elevEl) elevEl.checked = prov ? !!prov.allowAdminGroupElevation : false;
+                    populateTemplateUserSelect(prov ? (prov.templateUserId || '') : '');
                     page.querySelector('#ssoAutoCreate').checked = prov ? !!prov.autoCreateUsers : false;
                     page.querySelector('#ssoRequireMfa').checked = prov ? !!prov.requireIdpMfa : false;
                     page.querySelector('#ssoBypass2fa').checked = prov ? prov.bypassPluginTwoFa !== false : true;
                     page.querySelector('#ssoEnabled').checked = prov ? prov.enabled !== false : true;
+                    // [v2.5.13] (#97) show built-in button toggle (default on).
+                    var showBtnEl = page.querySelector('#ssoShowButton');
+                    if (showBtnEl) showBtnEl.checked = prov ? prov.showLoginButton !== false : true;
                     page.querySelector('#ssoForceHttps').checked = prov ? !!prov.forceHttps : false;
                     // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
                     var allowPrivEl = page.querySelector('#ssoAllowPrivate');
@@ -1562,10 +1592,15 @@
                         AcrValues: page.querySelector('#ssoAcr').value.trim(),
                         AllowedGroups: page.querySelector('#ssoAllowedGroups').value.trim(),
                         AdminGroups: page.querySelector('#ssoAdminGroups').value.trim(),
+                        // [v2.5.13] (#96) admin-elevation opt-in + (#93) template user.
+                        AllowAdminGroupElevation: (page.querySelector('#ssoAllowAdminElevation') || {}).checked === true,
+                        TemplateUserId: (page.querySelector('#ssoTemplateUser') ? page.querySelector('#ssoTemplateUser').value : ''),
                         AutoCreateUsers: page.querySelector('#ssoAutoCreate').checked,
                         RequireIdpMfa: page.querySelector('#ssoRequireMfa').checked,
                         BypassPluginTwoFa: page.querySelector('#ssoBypass2fa').checked,
                         Enabled: page.querySelector('#ssoEnabled').checked,
+                        // [v2.5.13] (#97) show built-in button on login page.
+                        ShowLoginButton: (page.querySelector('#ssoShowButton') ? page.querySelector('#ssoShowButton').checked : true),
                         ForceHttps: page.querySelector('#ssoForceHttps').checked,
                         // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
                         AllowPrivateNetworks: (page.querySelector('#ssoAllowPrivate') || {}).checked === true,

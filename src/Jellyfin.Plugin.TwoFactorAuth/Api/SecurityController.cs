@@ -113,6 +113,8 @@ public class SecurityController : ControllerBase
         public bool RequireIdpMfa { get; set; }
         public bool BypassPluginTwoFa { get; set; } = true;
         public bool Enabled { get; set; } = true;
+        // [v2.5.13] (#97) separate "show built-in button" from "provider enabled".
+        public bool ShowLoginButton { get; set; } = true;
         // [v2.5.6] (issue #28): default true. Most Jellyfin servers sit behind
         // a TLS-terminating reverse proxy; old default left users with a
         // broken http:// redirect_uri and a confusing IdP error.
@@ -134,6 +136,10 @@ public class SecurityController : ControllerBase
         // [v2.5.11] (#69) custom login-button text + icon.
         public string ButtonText { get; set; } = string.Empty;
         public string ButtonIconUrl { get; set; } = string.Empty;
+        // [v2.5.13] (#96) opt-in: actually elevate users matched by AdminGroups.
+        public bool AllowAdminGroupElevation { get; set; }
+        // [v2.5.13] (#93) template user GUID for auto-created users.
+        public string TemplateUserId { get; set; } = string.Empty;
     }
 
     /// <summary>[v2.5.10] (#65) one role→libraries mapping as sent by the admin
@@ -161,7 +167,11 @@ public class SecurityController : ControllerBase
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null) return Ok(Array.Empty<object>());
-        var safe = config.OidcProviders.Where(p => p.Enabled).Select(p => new
+        // [v2.5.13] (#97) Only emit a button for providers that are enabled AND
+        // configured to show their built-in button. A provider with SSO enabled
+        // but ShowLoginButton=false stays fully usable via its URL (custom button)
+        // yet renders no button here.
+        var safe = config.OidcProviders.Where(p => p.Enabled && p.ShowLoginButton).Select(p => new
         {
             id = p.Id,
             displayName = p.DisplayName,
@@ -197,10 +207,13 @@ public class SecurityController : ControllerBase
             usernameClaim = p.UsernameClaim,
             allowedGroups = p.AllowedGroups,
             adminGroups = p.AdminGroups,
+            allowAdminGroupElevation = p.AllowAdminGroupElevation,
+            templateUserId = p.TemplateUserId,
             autoCreateUsers = p.AutoCreateUsers,
             requireIdpMfa = p.RequireIdpMfa,
             bypassPluginTwoFa = p.BypassPluginTwoFa,
             enabled = p.Enabled,
+            showLoginButton = p.ShowLoginButton,
             forceHttps = p.ForceHttps,
             allowPrivateNetworks = p.AllowPrivateNetworks,
             syncProfilePicture = p.SyncProfilePicture,
@@ -249,10 +262,13 @@ public class SecurityController : ControllerBase
             UsernameClaim = req.UsernameClaim,
             AllowedGroups = req.AllowedGroups,
             AdminGroups = req.AdminGroups,
+            AllowAdminGroupElevation = req.AllowAdminGroupElevation,
+            TemplateUserId = (req.TemplateUserId ?? string.Empty).Trim(),
             AutoCreateUsers = req.AutoCreateUsers,
             RequireIdpMfa = req.RequireIdpMfa,
             BypassPluginTwoFa = req.BypassPluginTwoFa,
             Enabled = req.Enabled,
+            ShowLoginButton = req.ShowLoginButton,
             ForceHttps = req.ForceHttps,
             // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
             AllowPrivateNetworks = req.AllowPrivateNetworks,
@@ -300,10 +316,13 @@ public class SecurityController : ControllerBase
         existing.UsernameClaim = req.UsernameClaim;
         existing.AllowedGroups = req.AllowedGroups;
         existing.AdminGroups = req.AdminGroups;
+        existing.AllowAdminGroupElevation = req.AllowAdminGroupElevation;
+        existing.TemplateUserId = (req.TemplateUserId ?? string.Empty).Trim();
         existing.AutoCreateUsers = req.AutoCreateUsers;
         existing.RequireIdpMfa = req.RequireIdpMfa;
         existing.BypassPluginTwoFa = req.BypassPluginTwoFa;
         existing.Enabled = req.Enabled;
+        existing.ShowLoginButton = req.ShowLoginButton;
         existing.ForceHttps = req.ForceHttps;
         // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
         existing.AllowPrivateNetworks = req.AllowPrivateNetworks;
@@ -592,6 +611,42 @@ public class SecurityController : ControllerBase
         }
     }
 
+    /// <summary>[v2.5.13] (#95, yannolerobot) Begin an EXPLICIT account-link for
+    /// the authenticated user (Setup → "Link a new provider"). No pre-existing
+    /// link is required — that's the point — but the user must be authenticated,
+    /// and the link is bound to THIS user in server-side state. This is how an
+    /// admin links OIDC: the regular sign-in resolver refuses admin email/username
+    /// matches (anti-takeover), and this path never goes through it.</summary>
+    [HttpPost("Oidc/LinkBegin/{providerId}")]
+    [Authorize]
+    public async Task<IActionResult> OidcLinkBegin([FromRoute] string providerId)
+    {
+        if (!Guid.TryParse(User.FindFirst("Jellyfin-UserId")?.Value, out var userId))
+        {
+            return Unauthorized();
+        }
+        var provider = Plugin.Instance?.Configuration.OidcProviders
+            .FirstOrDefault(p => p.Id == providerId && p.Enabled);
+        if (provider is null)
+        {
+            return NotFound(new { message = "Provider not found or disabled." });
+        }
+        var redirectUri = BuildRedirectUri(provider);
+        try
+        {
+            var (authUrl, _) = await _oidc.BeginUserLinkAsync(provider, userId, redirectUri).ConfigureAwait(false);
+            return Ok(new { authUrl });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[2FA] OIDC link begin failed for {Provider}", providerId);
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                message = "Failed to start OIDC linking — check server logs.",
+            });
+        }
+    }
+
     /// <summary>[v2.5.7] HTML response served to the OIDC step-up popup so
     /// it can postMessage the result back to the opener and close itself.
     /// Strict-mode JS, opener-relative origin check, no inline interactivity
@@ -614,6 +669,24 @@ public class SecurityController : ControllerBase
             + "document.getElementById('p').textContent=ok?'You can close this window.':(m||'Try again.');"
             + "try{if(window.opener){window.opener.postMessage({type:'tfa-stepup-oidc',success:ok,stepUpToken:t,message:m},window.location.origin);}}catch(e){}"
             + "setTimeout(function(){try{window.close();}catch(e){}},800);"
+            + "})();</script></body></html>";
+    }
+
+    /// <summary>[v2.5.13] (#95) HTML served to the explicit-link popup; it
+    /// postMessages the link result back to the Setup-page opener and closes.</summary>
+    private static string BuildLinkPopupHtml(bool success, string? message)
+    {
+        var msgJs = System.Text.Json.JsonSerializer.Serialize(message ?? string.Empty);
+        var successJs = success ? "true" : "false";
+        return "<!doctype html><html><head><meta charset=\"utf-8\"><title>Link account</title>"
+            + "<style>body{background:#111;color:#eee;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:20px;}"
+            + ".card{max-width:380px;}h1{font-size:18px;margin:0 0 8px;}p{margin:0;color:#aaa;font-size:14px;}</style>"
+            + "</head><body><div class=\"card\"><h1 id=\"h\"></h1><p id=\"p\"></p></div><script>(function(){"
+            + "var ok=" + successJs + ",m=" + msgJs + ";"
+            + "document.getElementById('h').textContent=ok?'Account linked':'Linking failed';"
+            + "document.getElementById('p').textContent=ok?'You can close this window.':(m||'Try again.');"
+            + "try{if(window.opener){window.opener.postMessage({type:'tfa-link-oidc',success:ok,message:m},window.location.origin);}}catch(e){}"
+            + "setTimeout(function(){try{window.close();}catch(e){}},900);"
             + "})();</script></body></html>";
     }
 
@@ -694,6 +767,21 @@ public class SecurityController : ControllerBase
             var stepUpToken = _challenges.MintUserStepUpToken(su.UserId.Value);
             return Content(BuildStepUpPopupHtml(success: true, stepUpToken: stepUpToken, message: null),
                 "text/html; charset=utf-8");
+        }
+
+        // [v2.5.13] (#95) Explicit account-link from Setup. The state was minted
+        // by an authenticated LinkBegin, so the Jellyfin user is already known —
+        // link by sub directly (the sign-in resolver, which refuses admin
+        // matches, is never consulted) and return a popup that reports the result.
+        if (_oidc.IsUserLinkState(state))
+        {
+            var lr = await _oidc.CompleteUserLinkAsync(provider, code, state, redirectUri).ConfigureAwait(false);
+            if (!lr.Success)
+            {
+                _bans.RecordFailure(callbackIp);
+                _logger.LogWarning("[2FA] OIDC explicit link failed: {Err}", lr.Error ?? "(unknown)");
+            }
+            return Content(BuildLinkPopupHtml(lr.Success, lr.Error), "text/html; charset=utf-8");
         }
 
         var result = await _oidc.CompleteAsync(provider, code, state, redirectUri).ConfigureAwait(false);
@@ -830,7 +918,20 @@ public class SecurityController : ControllerBase
             + "document.getElementById('msg').textContent='Signed in as '+res.User.Name+' — redirecting…';"
             + "setTimeout(function(){window.location.href='/web/index.html';},400);"
             + "})"
-            + ".catch(function(e){document.getElementById('msg').textContent='Sign-in failed.';document.getElementById('err').textContent=e.message;setTimeout(function(){window.location.href='/web/index.html#!/login.html';},3000);});"
+            // [v2.5.13] (#98) Do NOT silently bounce to login on failure — the IdP
+            // authenticated the user but this server's AuthenticateByName step
+            // failed (commonly an auth proxy intercepting /Users/AuthenticateByName,
+            // or an expired bridge token). Surface the real error + a manual link so
+            // the user (and we) can see why instead of an infinite login loop.
+            + ".catch(function(e){"
+            + "console.error('[2FA] OIDC bridge sign-in failed:', e);"
+            + "var sp=document.querySelector('.spin'); if(sp)sp.style.display='none';"
+            + "document.getElementById('msg').textContent='Sign-in could not be completed.';"
+            + "var err=document.getElementById('err'); err.innerHTML='';"
+            + "var d=document.createElement('div'); d.textContent=(e&&e.message)?('Error: '+e.message):'Unknown error.'; err.appendChild(d);"
+            + "var hint=document.createElement('div'); hint.style.cssText='margin-top:8px;color:#888;font-size:12px;line-height:1.4;'; hint.textContent='The identity provider authenticated you, but this server did not accept the sign-in token. If Jellyfin is behind an auth proxy (Authelia / Authentik), make sure it is not intercepting POST /Users/AuthenticateByName.'; err.appendChild(hint);"
+            + "var a=document.createElement('a'); a.href='/web/index.html#!/login.html'; a.textContent='Back to login'; a.style.cssText='display:inline-block;margin-top:14px;color:#00a4dc;text-decoration:none;'; err.appendChild(a);"
+            + "});"
             + "})();"
             + "</script></body></html>";
         // Stops browsers/proxies caching the bridge token in history or shared cache.

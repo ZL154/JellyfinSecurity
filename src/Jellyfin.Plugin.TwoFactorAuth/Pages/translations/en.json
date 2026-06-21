@@ -272,7 +272,7 @@
   "tfa.admin.sso.opt_auto_create": "Auto-create Jellyfin users on first sign-in (only enable for trusted IdPs)",
   "tfa.admin.sso.opt_require_mfa": "Require IdP MFA (refuse sign-in if amr claim doesn't show MFA)",
   "tfa.admin.sso.opt_bypass_2fa": "Skip plugin 2FA (recommended — IdP already authenticated the user)",
-  "tfa.admin.sso.opt_show_button": "Show button on login page",
+  "tfa.admin.sso.opt_show_button": "Show built-in button on login page",
   "tfa.admin.sso.opt_force_https": "Force HTTPS on redirect_uri (only if your reverse proxy doesn't propagate X-Forwarded-Proto)",
   "tfa.admin.sso.btn_save": "Save provider",
   "tfa.admin.sso.alert_display_required": "Display name is required.",
@@ -775,5 +775,14 @@
   "tfa.admin.settings.opt_enable_password_recovery": "Allow password recovery by email",
   "tfa.admin.settings.enable_password_recovery_help": "Adds a \"Forgot password?\" link to the login page. The user enters their username or email and is emailed a one-time, 30-minute reset link. Requires SMTP (below) and an email on file for the user. The response is always generic, so it can't be used to discover which accounts exist.",
   "tfa.admin.settings.opt_hide_builtin_forgot": "Hide Jellyfin's built-in \"Forgot password?\" link on the login page",
-  "tfa.admin.settings.hide_builtin_forgot_help": "Only applies when the above is enabled. Removes Jellyfin's native forgot-password link so users see only the plugin's reset flow. Turn off to keep both."
+  "tfa.admin.settings.hide_builtin_forgot_help": "Only applies when the above is enabled. Removes Jellyfin's native forgot-password link so users see only the plugin's reset flow. Turn off to keep both.",
+  "tfa.admin.sso.opt_enable_sso": "Enable SSO (provider active — sign-in URL works)",
+  "tfa.admin.sso.opt_admin_elevation": "Elevate matching users to administrator",
+  "tfa.admin.sso.opt_admin_elevation_pill": "Advanced",
+  "tfa.admin.sso.opt_admin_elevation_help": "Off by default. When on, any user whose IdP groups claim matches an \"Admin groups\" entry above is granted Jellyfin administrator on sign-in (granted only — never revoked here), and every elevation is logged. Only enable for an IdP you fully control: a compromised IdP that controls the groups claim could elevate any account.",
+  "tfa.admin.sso.lbl_template_user": "Template user for auto-created accounts (optional)",
+  "tfa.admin.sso.template_user_help": "When \"Auto-create\" is on, a newly created user copies this user's permissions and library access instead of Jellyfin's defaults. Leave as \"(Jellyfin defaults)\" to keep the built-in behaviour.",
+  "tfa.admin.sso.template_user_default": "(Jellyfin defaults)",
+  "tfa.admin.sso.opt_show_button_help": "Uncheck to keep SSO enabled (the sign-in URL still works for your own custom button) but hide the plugin's built-in \"Sign in with…\" button.",
+  "tfa.setup.sso.link_failed": "Linking failed"
 }

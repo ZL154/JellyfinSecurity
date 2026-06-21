@@ -271,7 +271,7 @@
   "tfa.admin.sso.opt_auto_create": "初回サインイン時にJellyfinユーザーを自動作成(信頼できるIdPのみ有効化)",
   "tfa.admin.sso.opt_require_mfa": "IdPのMFAを必須にする(amrクレームでMFAが示されない場合はサインインを拒否)",
   "tfa.admin.sso.opt_bypass_2fa": "プラグインの2FAをスキップ(推奨 — IdPがすでにユーザーを認証済み)",
-  "tfa.admin.sso.opt_show_button": "ログインページにボタンを表示",
+  "tfa.admin.sso.opt_show_button": "ログインページに組み込みボタンを表示",
   "tfa.admin.sso.opt_force_https": "redirect_uri を HTTPS に強制(リバースプロキシが X-Forwarded-Proto を伝播しない場合のみ)",
   "tfa.admin.sso.btn_save": "プロバイダーを保存",
   "tfa.admin.sso.alert_display_required": "表示名は必須です。",
@@ -775,5 +775,14 @@
   "tfa.admin.settings.opt_enable_password_recovery": "メールによるパスワードリカバリーを許可",
   "tfa.admin.settings.enable_password_recovery_help": "ログインページに「パスワードをお忘れですか？」リンクを追加します。ユーザーがユーザー名またはメールを入力すると、一回限り（30 分有効）のリセットリンクがメールされます。SMTP（下記）と登録済みメールが必要です。応答は常に汎用的なため、どのアカウントが存在するかを特定できません。",
   "tfa.admin.settings.opt_hide_builtin_forgot": "Jellyfin 標準の「パスワードをお忘れですか？」リンクをログインページで非表示にする",
-  "tfa.admin.settings.hide_builtin_forgot_help": "上記を有効にしている場合のみ適用されます。Jellyfin 本来のパスワード忘れリンクを削除し、ユーザーにはプラグインのリセットフローだけを表示します。両方を残すにはオフにします。"
+  "tfa.admin.settings.hide_builtin_forgot_help": "上記を有効にしている場合のみ適用されます。Jellyfin 本来のパスワード忘れリンクを削除し、ユーザーにはプラグインのリセットフローだけを表示します。両方を残すにはオフにします。",
+  "tfa.admin.sso.opt_enable_sso": "SSOを有効化（プロバイダー有効 — サインインURLが機能します）",
+  "tfa.admin.sso.opt_admin_elevation": "一致するユーザーを管理者に昇格",
+  "tfa.admin.sso.opt_admin_elevation_pill": "詳細設定",
+  "tfa.admin.sso.opt_admin_elevation_help": "既定ではオフです。オンにすると、IdPのグループクレームが上の「管理者グループ」のいずれかと一致するユーザーは、サインイン時にJellyfinの管理者権限が付与されます（付与のみ — ここでは取り消されません）。すべての昇格はログに記録されます。完全に管理下にあるIdPでのみ有効にしてください。グループクレームを制御する侵害されたIdPは、任意のアカウントを昇格できる可能性があります。",
+  "tfa.admin.sso.lbl_template_user": "自動作成アカウントのテンプレートユーザー（任意）",
+  "tfa.admin.sso.template_user_help": "「自動作成」が有効な場合、新しく作成されたユーザーはJellyfinの既定値ではなく、このユーザーの権限とライブラリアクセスをコピーします。標準の動作を維持するには「(Jellyfinの既定値)」のままにしてください。",
+  "tfa.admin.sso.template_user_default": "(Jellyfinの既定値)",
+  "tfa.admin.sso.opt_show_button_help": "チェックを外すと、SSOは有効なまま（サインインURLは独自のボタンで引き続き機能します）で、プラグインの組み込み「…でサインイン」ボタンを非表示にします。",
+  "tfa.setup.sso.link_failed": "リンクに失敗しました"
 }

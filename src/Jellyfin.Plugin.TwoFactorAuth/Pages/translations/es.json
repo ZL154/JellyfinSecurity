@@ -271,7 +271,7 @@
   "tfa.admin.sso.opt_auto_create": "Crear automáticamente usuarios de Jellyfin en el primer inicio de sesión (actívalo solo para IdPs de confianza)",
   "tfa.admin.sso.opt_require_mfa": "Exigir MFA del IdP (rechazar inicio si el claim amr no muestra MFA)",
   "tfa.admin.sso.opt_bypass_2fa": "Omitir el 2FA del plugin (recomendado — el IdP ya autenticó al usuario)",
-  "tfa.admin.sso.opt_show_button": "Mostrar botón en la página de inicio de sesión",
+  "tfa.admin.sso.opt_show_button": "Mostrar el botón integrado en la página de inicio de sesión",
   "tfa.admin.sso.opt_force_https": "Forzar HTTPS en redirect_uri (solo si tu proxy inverso no propaga X-Forwarded-Proto)",
   "tfa.admin.sso.btn_save": "Guardar proveedor",
   "tfa.admin.sso.alert_display_required": "El nombre para mostrar es obligatorio.",
@@ -775,5 +775,14 @@
   "tfa.admin.settings.opt_enable_password_recovery": "Permitir recuperación de contraseña por correo",
   "tfa.admin.settings.enable_password_recovery_help": "Añade un enlace \"¿Olvidaste tu contraseña?\" a la página de inicio de sesión. El usuario introduce su usuario o correo y recibe un enlace de un solo uso (válido 30 minutos). Requiere SMTP (abajo) y un correo registrado. La respuesta siempre es genérica, así que no revela qué cuentas existen.",
   "tfa.admin.settings.opt_hide_builtin_forgot": "Ocultar el enlace integrado de Jellyfin «¿Olvidaste tu contraseña?» en la página de inicio de sesión",
-  "tfa.admin.settings.hide_builtin_forgot_help": "Solo se aplica cuando la opción anterior está activada. Quita el enlace nativo de Jellyfin para olvido de contraseña, de modo que los usuarios solo vean el flujo de restablecimiento del plugin. Desactívalo para conservar ambos."
+  "tfa.admin.settings.hide_builtin_forgot_help": "Solo se aplica cuando la opción anterior está activada. Quita el enlace nativo de Jellyfin para olvido de contraseña, de modo que los usuarios solo vean el flujo de restablecimiento del plugin. Desactívalo para conservar ambos.",
+  "tfa.admin.sso.opt_enable_sso": "Habilitar SSO (proveedor activo — la URL de inicio de sesión funciona)",
+  "tfa.admin.sso.opt_admin_elevation": "Elevar a administrador a los usuarios coincidentes",
+  "tfa.admin.sso.opt_admin_elevation_pill": "Avanzado",
+  "tfa.admin.sso.opt_admin_elevation_help": "Desactivado por defecto. Si se activa, cualquier usuario cuyo claim de grupos del IdP coincida con una entrada de «Grupos de administrador» recibe permisos de administrador de Jellyfin al iniciar sesión (solo se concede — nunca se revoca aquí), y cada elevación se registra. Actívalo solo para un IdP que controles por completo: un IdP comprometido que controle el claim de grupos podría elevar cualquier cuenta.",
+  "tfa.admin.sso.lbl_template_user": "Usuario plantilla para cuentas creadas automáticamente (opcional)",
+  "tfa.admin.sso.template_user_help": "Cuando «Crear automáticamente» está activado, un usuario recién creado copia los permisos y el acceso a bibliotecas de este usuario en lugar de los valores predeterminados de Jellyfin. Deja «(Valores predeterminados de Jellyfin)» para mantener el comportamiento integrado.",
+  "tfa.admin.sso.template_user_default": "(Valores predeterminados de Jellyfin)",
+  "tfa.admin.sso.opt_show_button_help": "Desmarca para mantener el SSO activado (la URL de inicio de sesión sigue funcionando para tu propio botón) pero ocultar el botón integrado «Iniciar sesión con…» del plugin.",
+  "tfa.setup.sso.link_failed": "Error al vincular"
 }

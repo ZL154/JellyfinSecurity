@@ -411,6 +411,17 @@
                                 <label data-i18n-key="tfa.admin.sso.lbl_admin_groups">Admin groups (comma-separated, optional)</label>
                                 <input type="text" id="ssoAdminGroups" class="tfa-input" style="width:360px;" />
                             </div>
+                            <!-- [v2.5.13] (issue #96, raffaeletani): explicit opt-in before any admin elevation. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="ssoAllowAdminElevation" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_admin_elevation">Elevate matching users to administrator &nbsp;<span class="tfa-badge warn" style="font-size:10px;vertical-align:middle;" data-i18n-key="tfa.admin.sso.opt_admin_elevation_pill">Advanced</span></span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.opt_admin_elevation_help">Off by default. When on, any user whose IdP groups claim matches an "Admin groups" entry above is granted Jellyfin administrator on sign-in (granted only — never revoked here), and every elevation is logged. Only enable for an IdP you fully control: a compromised IdP that controls the groups claim could elevate any account.</div>
+                            </div>
+                            <!-- [v2.5.13] (issue #93, Re4mstr): template user for auto-created accounts. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label data-i18n-key="tfa.admin.sso.lbl_template_user">Template user for auto-created accounts (optional)</label>
+                                <select id="ssoTemplateUser" class="tfa-input" style="width:360px;"></select>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.template_user_help">When "Auto-create" is on, a newly created user copies this user's permissions and library access instead of Jellyfin's defaults. Leave as "(Jellyfin defaults)" to keep the built-in behaviour.</div>
+                            </div>
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="ssoAutoCreate" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_auto_create">Auto-create Jellyfin users on first sign-in (only enable for trusted IdPs)</span></label>
                             </div>
@@ -421,7 +432,12 @@
                                 <label><input type="checkbox" id="ssoBypass2fa" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_bypass_2fa">Skip plugin 2FA (recommended — IdP already authenticated the user)</span></label>
                             </div>
                             <div class="tfa-row">
-                                <label><input type="checkbox" id="ssoEnabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_show_button">Show button on login page</span></label>
+                                <label><input type="checkbox" id="ssoEnabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_enable_sso">Enable SSO (provider active — sign-in URL works)</span></label>
+                            </div>
+                            <!-- [v2.5.13] (issue #97, chrisbehectik): show/hide the built-in button independently of enabling SSO. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="ssoShowButton" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_show_button">Show built-in button on login page</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.opt_show_button_help">Uncheck to keep SSO enabled (the sign-in URL still works for your own custom button) but hide the plugin's built-in "Sign in with…" button.</div>
                             </div>
                             <!-- [v2.5.11] (issue #69, ZEROX7): customize the login button text + icon. -->
                             <div class="tfa-row tfa-row-stack">

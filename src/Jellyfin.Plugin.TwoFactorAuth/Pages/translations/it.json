@@ -271,7 +271,7 @@
   "tfa.admin.sso.opt_auto_create": "Crea automaticamente utenti Jellyfin al primo accesso (abilitare solo per IdP attendibili)",
   "tfa.admin.sso.opt_require_mfa": "Richiedi MFA dell'IdP (rifiuta l'accesso se il claim amr non indica MFA)",
   "tfa.admin.sso.opt_bypass_2fa": "Salta il 2FA del plugin (consigliato — l'IdP ha già autenticato l'utente)",
-  "tfa.admin.sso.opt_show_button": "Mostra pulsante nella pagina di accesso",
+  "tfa.admin.sso.opt_show_button": "Mostra il pulsante integrato nella pagina di accesso",
   "tfa.admin.sso.opt_force_https": "Forza HTTPS su redirect_uri (solo se il reverse proxy non propaga X-Forwarded-Proto)",
   "tfa.admin.sso.btn_save": "Salva provider",
   "tfa.admin.sso.alert_display_required": "Il nome visualizzato è obbligatorio.",
@@ -775,5 +775,14 @@
   "tfa.admin.settings.opt_enable_password_recovery": "Consenti il recupero della password via e-mail",
   "tfa.admin.settings.enable_password_recovery_help": "Aggiunge un link \"Password dimenticata?\" alla pagina di accesso. L'utente inserisce nome utente o e-mail e riceve un link monouso (valido 30 minuti). Richiede SMTP (sotto) e un'e-mail registrata. La risposta è sempre generica, quindi non rivela quali account esistono.",
   "tfa.admin.settings.opt_hide_builtin_forgot": "Nascondi il link integrato «Password dimenticata?» di Jellyfin nella pagina di accesso",
-  "tfa.admin.settings.hide_builtin_forgot_help": "Si applica solo quando l’opzione sopra è attiva. Rimuove il link nativo di Jellyfin per la password dimenticata, così gli utenti vedono solo il flusso di reimpostazione del plugin. Disattivalo per mantenere entrambi."
+  "tfa.admin.settings.hide_builtin_forgot_help": "Si applica solo quando l’opzione sopra è attiva. Rimuove il link nativo di Jellyfin per la password dimenticata, così gli utenti vedono solo il flusso di reimpostazione del plugin. Disattivalo per mantenere entrambi.",
+  "tfa.admin.sso.opt_enable_sso": "Abilita SSO (provider attivo — l'URL di accesso funziona)",
+  "tfa.admin.sso.opt_admin_elevation": "Promuovi ad amministratore gli utenti corrispondenti",
+  "tfa.admin.sso.opt_admin_elevation_pill": "Avanzato",
+  "tfa.admin.sso.opt_admin_elevation_help": "Disattivato per impostazione predefinita. Se attivo, qualsiasi utente il cui claim dei gruppi dell'IdP corrisponde a una voce in «Gruppi amministratore» riceve i permessi di amministratore Jellyfin all'accesso (solo concessione — mai revocata qui), e ogni elevazione viene registrata. Abilitalo solo per un IdP che controlli completamente: un IdP compromesso che controlla il claim dei gruppi potrebbe elevare qualsiasi account.",
+  "tfa.admin.sso.lbl_template_user": "Utente modello per gli account creati automaticamente (opzionale)",
+  "tfa.admin.sso.template_user_help": "Quando «Creazione automatica» è attiva, un nuovo utente copia i permessi e l'accesso alle librerie di questo utente invece dei valori predefiniti di Jellyfin. Lascia «(Predefiniti di Jellyfin)» per mantenere il comportamento integrato.",
+  "tfa.admin.sso.template_user_default": "(Predefiniti di Jellyfin)",
+  "tfa.admin.sso.opt_show_button_help": "Deseleziona per mantenere il SSO attivo (l'URL di accesso continua a funzionare per il tuo pulsante personalizzato) ma nascondere il pulsante integrato «Accedi con…» del plugin.",
+  "tfa.setup.sso.link_failed": "Collegamento non riuscito"
 }

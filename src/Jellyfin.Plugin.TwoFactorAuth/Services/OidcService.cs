@@ -104,6 +104,11 @@ public class OidcService : IDisposable
     private readonly ConcurrentDictionary<string, PendingFlow> _pendingFlows = new();
     private readonly ConcurrentDictionary<string, PendingUserStepUp> _pendingUserStepUps = new();
 
+    // [v2.5.13] (#95) Pending EXPLICIT account-link flows (Setup → "Link a new
+    // provider"). Separate from step-up so the callback can tell the two intents
+    // apart. Reuses the PendingUserStepUp shape (provider + bound user + PKCE).
+    private readonly ConcurrentDictionary<string, PendingUserStepUp> _pendingUserLinks = new();
+
     // SECURITY [v2.5.9]: hard cap on the in-memory pending maps. TTL + rate
     // limits already bound them, but a global cap makes DoS resistance
     // explicit: on insert we prune expired entries, then if still at the cap
@@ -454,6 +459,153 @@ public class OidcService : IDisposable
         return new StepUpResult(true, null, pending.UserId);
     }
 
+    /// <summary>[v2.5.13] (#95) Non-consuming peek so the shared /Oidc/Callback
+    /// can route an explicit-link callback here. Distinct dictionary from step-up
+    /// so the two intents never collide on a state token.</summary>
+    public bool IsUserLinkState(string state)
+        => !string.IsNullOrEmpty(state) && _pendingUserLinks.ContainsKey(state);
+
+    /// <summary>[v2.5.13] (#95, yannolerobot) Begin an EXPLICIT account-link for an
+    /// already-authenticated user (Setup → "Link a new provider"). The Jellyfin
+    /// user is fixed up-front and bound into single-use, server-side state, so the
+    /// callback can link by the IdP-returned <c>sub</c> WITHOUT the sign-in
+    /// resolver — which refuses admin email/username matches as an anti-takeover
+    /// measure and is exactly why admins couldn't link. prompt=login forces a
+    /// fresh authentication at the IdP.</summary>
+    public async Task<(string AuthUrl, string State)> BeginUserLinkAsync(
+        OidcProvider provider, Guid userId, string redirectUri)
+    {
+        var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
+
+        var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var codeChallenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier)));
+        var state = Base64Url(RandomNumberGenerator.GetBytes(24));
+        var nonce = Base64Url(RandomNumberGenerator.GetBytes(24));
+
+        PruneAndCap(_pendingUserLinks, p => p.ExpiresAt);
+        _pendingUserLinks[state] = new PendingUserStepUp(
+            provider.Id, userId, codeVerifier, nonce,
+            DateTime.UtcNow.AddMinutes(10));
+
+        var qs = new List<(string, string)>
+        {
+            ("client_id", provider.ClientId),
+            ("response_type", "code"),
+            ("scope", provider.Scopes),
+            ("redirect_uri", redirectUri),
+            ("state", state),
+            ("nonce", nonce),
+            ("code_challenge", codeChallenge),
+            ("code_challenge_method", "S256"),
+            ("prompt", "login"),
+        };
+        if (!string.IsNullOrWhiteSpace(provider.AcrValues))
+            qs.Add(("acr_values", provider.AcrValues));
+
+        var url = disc.AuthorizationEndpoint + "?" +
+            string.Join("&", qs.Select(kv => $"{Uri.EscapeDataString(kv.Item1)}={Uri.EscapeDataString(kv.Item2)}"));
+        return (url, state);
+    }
+
+    /// <summary>[v2.5.13] (#95) Complete an explicit account-link: token exchange,
+    /// id_token verification, then create the SsoLink for the bound (authenticated)
+    /// user by the returned subject. Refuses if that provider+subject is already
+    /// linked to a DIFFERENT Jellyfin user (one IdP identity → one account). This
+    /// is the sanctioned path for an admin to link OIDC from Setup.</summary>
+    public async Task<StepUpResult> CompleteUserLinkAsync(
+        OidcProvider provider, string code, string state, string redirectUri)
+    {
+        if (!_pendingUserLinks.TryRemove(state, out var pending))
+        {
+            return new StepUpResult(false, "Link state token not found or expired", null);
+        }
+        if (pending.ProviderId != provider.Id)
+        {
+            return new StepUpResult(false, "Link state belongs to a different provider", null);
+        }
+        if (pending.ExpiresAt <= DateTime.UtcNow)
+        {
+            return new StepUpResult(false, "Link flow timed out — try again", null);
+        }
+
+        var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
+        using var tokenForm = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "authorization_code",
+            ["code"] = code,
+            ["redirect_uri"] = redirectUri,
+            ["client_id"] = provider.ClientId,
+            ["client_secret"] = provider.ClientSecret,
+            ["code_verifier"] = pending.CodeVerifier,
+        });
+        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
+        var tokenResp = await _http.PostAsync(disc.TokenEndpoint, tokenForm).ConfigureAwait(false);
+        if (!tokenResp.IsSuccessStatusCode)
+        {
+            var body = await tokenResp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            _logger.LogWarning("[2FA] OIDC link token exchange failed: {Status} {Body}", tokenResp.StatusCode, body);
+            return new StepUpResult(false, "IdP token exchange failed", null);
+        }
+
+        using var tokenStream = await tokenResp.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        var tokenJson = await JsonSerializer.DeserializeAsync<JsonElement>(tokenStream).ConfigureAwait(false);
+        if (!tokenJson.TryGetProperty("id_token", out var idTokenEl))
+        {
+            return new StepUpResult(false, "IdP response missing id_token", null);
+        }
+
+        ClaimsBundle claims;
+        try
+        {
+            claims = await VerifyIdTokenAsync(provider, disc, idTokenEl.GetString() ?? string.Empty, pending.Nonce).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] OIDC link id_token verification failed");
+            return new StepUpResult(false, "Token verification failed: " + ex.Message, null);
+        }
+
+        // The IdP identity must not already belong to a DIFFERENT Jellyfin user.
+        var allUsers = await _store.GetAllUsersAsync().ConfigureAwait(false);
+        var ownedByOther = allUsers.Any(d => d.UserId != pending.UserId
+            && d.SsoLinks.Any(l => string.Equals(l.ProviderId, provider.Id, StringComparison.Ordinal)
+                && string.Equals(l.Subject, claims.Subject, StringComparison.Ordinal)));
+        if (ownedByOther)
+        {
+            _logger.LogWarning(
+                "[2FA] OIDC explicit link refused: {Provider} subject is already linked to a different Jellyfin user",
+                provider.Id);
+            return new StepUpResult(false, "That identity-provider account is already linked to another Jellyfin user", null);
+        }
+
+        await _store.MutateAsync(pending.UserId, ud =>
+        {
+            var existing = ud.SsoLinks.FirstOrDefault(l =>
+                string.Equals(l.ProviderId, provider.Id, StringComparison.Ordinal)
+                && string.Equals(l.Subject, claims.Subject, StringComparison.Ordinal));
+            if (existing is null)
+            {
+                ud.SsoLinks.Add(new SsoLink
+                {
+                    ProviderId = provider.Id,
+                    Subject = claims.Subject,
+                    Email = claims.Email,
+                    LinkedAt = DateTime.UtcNow,
+                    LastUsedAt = DateTime.UtcNow,
+                });
+            }
+            else
+            {
+                existing.Email = claims.Email;
+                existing.LastUsedAt = DateTime.UtcNow;
+            }
+        }).ConfigureAwait(false);
+
+        _logger.LogInformation("[2FA] OIDC explicit link created: user {UserId} linked to {Provider} (sub={Sub})",
+            pending.UserId, provider.Id, claims.Subject);
+        return new StepUpResult(true, null, pending.UserId);
+    }
+
     /// <summary>v2.5.1: RFC 8693-style token-exchange entry point for native
     /// clients (Swiftfin, Findroid, Tizen apps, …) that performed their own
     /// OIDC auth-code+PKCE flow at the IdP and now hold an id_token issued
@@ -714,6 +866,25 @@ public class OidcService : IDisposable
             }
         }
 
+        // [v2.5.13] (#96, raffaeletani) Grant Jellyfin admin from IdP admin-group
+        // claims. Runs BEFORE the role→library step so a user promoted to admin is
+        // then skipped by the (admin-exempt) library restriction below. Grant-only
+        // by design — we never auto-revoke admin here, to avoid demoting or locking
+        // out an admin who isn't represented in the IdP group.
+        // Best-effort: a failure must never block a sign-in. Requires BOTH the
+        // explicit opt-in toggle AND a configured group list (defence in depth).
+        if (provider.AllowAdminGroupElevation && !string.IsNullOrWhiteSpace(provider.AdminGroups))
+        {
+            try
+            {
+                await ApplyAdminGroupAsync(matchedUser, provider, claims.Groups).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[2FA] OIDC admin-group sync failed for {User}", matchedUser.Username);
+            }
+        }
+
         // [v2.5.10] (#65) Apply role→library access from the IdP group claims.
         // Best-effort: a failure must never block a sign-in.
         if (provider.ApplyRoleLibraryAccess)
@@ -819,6 +990,80 @@ public class OidcService : IDisposable
             _logger.LogDebug("[2FA] OIDC available libraries (name:itemId) for #65 diagnosis: [{Libraries}]",
                 string.Join(" | ", avail));
         }
+    }
+
+    /// <summary>[v2.5.13] (#96, raffaeletani) Grant Jellyfin administrator rights
+    /// when the user's IdP group claims contain one of the provider's configured
+    /// AdminGroups. Grant-only by design (never auto-revokes) so an admin who isn't
+    /// in the IdP group is not silently demoted or locked out.</summary>
+    private async Task ApplyAdminGroupAsync(User user, OidcProvider provider, string[] groups)
+    {
+        var adminGroups = (provider.AdminGroups ?? string.Empty)
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (adminGroups.Length == 0 || groups is null || groups.Length == 0)
+        {
+            return;
+        }
+
+        var inAdminGroup = groups.Any(g => g != null
+            && adminGroups.Any(a => a.Equals(g, StringComparison.OrdinalIgnoreCase)));
+        if (!inAdminGroup)
+        {
+            _logger.LogDebug(
+                "[2FA] OIDC admin-group: {User} is in none of the configured admin groups; leaving admin status unchanged",
+                user.Username);
+            return;
+        }
+
+        if (user.HasPermission(PermissionKind.IsAdministrator))
+        {
+            _logger.LogDebug("[2FA] OIDC admin-group: {User} is already an administrator", user.Username);
+            return;
+        }
+
+        user.SetPermission(PermissionKind.IsAdministrator, true);
+        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+        // [v2.5.13] Logged at WARN per the N-A13 security note on OidcProvider.AdminGroups:
+        // admin elevation is driven by an IdP-asserted group claim, so a compromised IdP
+        // that controls that claim could elevate. The admin opts in by configuring the
+        // group; surfacing every elevation makes it auditable.
+        _logger.LogWarning(
+            "[2FA] OIDC ELEVATED {User} to administrator via admin-group match (provider {Provider}). " +
+            "Driven by the IdP groups claim — ensure that claim is trustworthy.",
+            user.Username, provider.Id);
+    }
+
+    /// <summary>[v2.5.13] (#93, Re4mstr) Copy a template user's permissions and
+    /// preferences onto a freshly auto-created OIDC user, so new SSO users inherit
+    /// a chosen reference account's access instead of Jellyfin's broad defaults.
+    /// Iterates every PermissionKind/PreferenceKind with a per-item try/catch so an
+    /// enum value unknown to a given Jellyfin build can't abort the whole copy.</summary>
+    private async Task CopyUserPolicyAsync(Guid templateId, User target)
+    {
+        var template = _userManager.GetUserById(templateId);
+        if (template is null)
+        {
+            _logger.LogWarning("[2FA] OIDC template user {Id} not found — new user keeps Jellyfin defaults", templateId);
+            return;
+        }
+        if (template.Id == target.Id)
+        {
+            return;
+        }
+
+        foreach (PermissionKind k in Enum.GetValues<PermissionKind>())
+        {
+            try { target.SetPermission(k, template.HasPermission(k)); }
+            catch { /* permission not supported on this Jellyfin build */ }
+        }
+        foreach (PreferenceKind k in Enum.GetValues<PreferenceKind>())
+        {
+            try { target.SetPreference(k, template.GetPreference(k)); }
+            catch { /* preference not supported on this Jellyfin build */ }
+        }
+        await _userManager.UpdateUserAsync(target).ConfigureAwait(false);
+        _logger.LogInformation("[2FA] OIDC seeded new user {New} permissions from template user {Tpl}",
+            target.Username, template.Username);
     }
 
     /// <summary>[v2.5.10] (issue #65) Pure mapping: given the user's IdP
@@ -1099,6 +1344,23 @@ public class OidcService : IDisposable
                 // hardening exists to close. Returning the fresh entity (which
                 // carries the hash) makes those later writes preserve it.
                 u = _userManager.GetUserById(u.Id) ?? u;
+
+                // [v2.5.13] (#93, Re4mstr) Seed the brand-new user's permissions and
+                // preferences from a configured template user instead of Jellyfin's
+                // defaults. Best-effort: a copy failure must not abort the sign-in.
+                if (!string.IsNullOrWhiteSpace(provider.TemplateUserId)
+                    && Guid.TryParse(provider.TemplateUserId, out var templateUserId))
+                {
+                    try
+                    {
+                        await CopyUserPolicyAsync(templateUserId, u).ConfigureAwait(false);
+                        u = _userManager.GetUserById(u.Id) ?? u;
+                    }
+                    catch (Exception cpe)
+                    {
+                        _logger.LogWarning(cpe, "[2FA] OIDC template-policy copy failed for new user {User}", u.Username);
+                    }
+                }
 
                 _logger.LogInformation("[2FA] Auto-created Jellyfin user '{Username}' from OIDC provider {Provider} (password hardened)",
                     claims.Username, provider.Id);

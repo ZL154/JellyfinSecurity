@@ -56,17 +56,30 @@ public class OidcProvider
     public string AllowedGroups { get; set; } = string.Empty;
 
     /// <summary>If non-empty, the `groups` claim is checked against this list
-    /// to grant Jellyfin admin. Comma-separated. Otherwise no admin elevation.
+    /// to grant Jellyfin admin. Comma-separated.
     ///
-    /// SECURITY [v2.5.5] (N-A13): as of v2.5.5 this field is CONFIGURED but
-    /// NOT CONSUMED by the sign-in pipeline. The OIDC flow does not elevate
-    /// Jellyfin users to admin based on this list. Future implementer:
-    /// before wiring this up, REQUIRE a fresh TOTP / passkey step-up
-    /// challenge BEFORE applying admin elevation, and log every elevation
-    /// at WARN with the source claim. Without that guard, a malicious or
-    /// compromised IdP that controls the `groups` claim can elevate any
-    /// claimed user to Jellyfin administrator silently.</summary>
+    /// SECURITY [v2.5.5] (N-A13) / [v2.5.13] (#96): CONSUMED as of v2.5.13, but
+    /// ONLY when <see cref="AllowAdminGroupElevation"/> is also enabled (defence
+    /// in depth — setting a group name alone never elevates). A matching user is
+    /// granted admin on sign-in (grant-only; never auto-revoked here) and every
+    /// elevation is logged at WARN. RESIDUAL RISK: a compromised IdP that controls
+    /// the `groups` claim can elevate any claimed user; no fresh-factor step-up is
+    /// enforced (impractical for automatic SSO). Only enable for an IdP you fully
+    /// control and trust.</summary>
     public string AdminGroups { get; set; } = string.Empty;
+
+    /// <summary>[v2.5.13] (#96) Explicit opt-in for the <see cref="AdminGroups"/>
+    /// behaviour. Default false: even with AdminGroups configured, no user is ever
+    /// elevated to administrator unless an admin deliberately turns this on. This
+    /// is the guard the N-A13 note asked for — it makes silent elevation
+    /// impossible-by-default for anyone who didn't explicitly request it.</summary>
+    public bool AllowAdminGroupElevation { get; set; }
+
+    /// <summary>[v2.5.13] (#93, Re4mstr) Optional Jellyfin user GUID whose
+    /// permissions and preferences are copied onto a freshly auto-created OIDC
+    /// user, instead of leaving Jellyfin's defaults. Empty = use defaults. Applies
+    /// only to auto-create, never to existing users.</summary>
+    public string TemplateUserId { get; set; } = string.Empty;
 
     /// <summary>Auto-create a new Jellyfin user on first sign-in if the
     /// IdP-returned identity isn't linked yet. Default false (admin must
@@ -86,9 +99,18 @@ public class OidcProvider
     /// belt-and-braces (rare).</summary>
     public bool BypassPluginTwoFa { get; set; } = true;
 
-    /// <summary>Show the "Sign in with this" button on the Jellyfin login
-    /// page. Disable to hide a provider while keeping its config saved.</summary>
+    /// <summary>[v2.5.13] (#97) Master switch: the provider is active — its
+    /// sign-in/callback endpoints work and its SSO URL can be used (e.g. from a
+    /// custom button). Disable to fully turn the provider off while keeping its
+    /// config saved. Whether the plugin renders its OWN button is controlled
+    /// separately by <see cref="ShowLoginButton"/>.</summary>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>[v2.5.13] (#97, chrisbehectik) Whether the plugin injects its own
+    /// "Sign in with X" button on the login page. Default true. Set false to keep
+    /// SSO enabled (the URL still works for your own custom button) but hide the
+    /// built-in button. Only has effect when <see cref="Enabled"/> is true.</summary>
+    public bool ShowLoginButton { get; set; } = true;
 
     /// <summary>v2.5.1: force the redirect_uri scheme to https regardless of
     /// what the request / forwarded headers say. Needed when Jellyfin is
