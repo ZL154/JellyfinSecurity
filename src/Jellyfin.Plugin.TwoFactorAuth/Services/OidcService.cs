@@ -483,9 +483,17 @@ public class OidcService : IDisposable
         var nonce = Base64Url(RandomNumberGenerator.GetBytes(24));
 
         PruneAndCap(_pendingUserLinks, p => p.ExpiresAt);
+        // [v2.5.14] (#95) 15-min window (was 10). prompt=login forces a fresh IdP
+        // authentication, and an admin re-entering credentials / completing the
+        // IdP's own MFA can easily exceed 10 minutes; an expired link state silently
+        // falls the callback through to the sign-in resolver, which then refuses
+        // the admin (the exact symptom chrisbehectik reported).
         _pendingUserLinks[state] = new PendingUserStepUp(
             provider.Id, userId, codeVerifier, nonce,
-            DateTime.UtcNow.AddMinutes(10));
+            DateTime.UtcNow.AddMinutes(15));
+        _logger.LogInformation(
+            "[2FA] OIDC explicit-link flow started for user {UserId} via provider {Provider} (state bound server-side, 15-min TTL)",
+            userId, provider.Id);
 
         var qs = new List<(string, string)>
         {
@@ -920,10 +928,17 @@ public class OidcService : IDisposable
         try
         {
             var ourProviderId = typeof(TwoFactorAuthProvider).FullName!;
-            if (!string.Equals(matchedUser.AuthenticationProviderId, ourProviderId, StringComparison.Ordinal))
+            // CORRECTNESS [v2.5.14] (#65/#96): this is the LAST UpdateUserAsync of
+            // the sign-in, and it must not clobber the EnabledFolders / admin
+            // elevation the apply-steps above just persisted. Operate on a fresh
+            // DB-tracked fetch so persisting it writes back the just-saved policy
+            // rather than the stale (possibly detached) `matchedUser` whose
+            // Preferences/Permissions collections predate those grants.
+            var freshForProvider = _userManager.GetUserById(matchedUser.Id) ?? matchedUser;
+            if (!string.Equals(freshForProvider.AuthenticationProviderId, ourProviderId, StringComparison.Ordinal))
             {
-                matchedUser.AuthenticationProviderId = ourProviderId;
-                await _userManager.UpdateUserAsync(matchedUser).ConfigureAwait(false);
+                freshForProvider.AuthenticationProviderId = ourProviderId;
+                await _userManager.UpdateUserAsync(freshForProvider).ConfigureAwait(false);
                 _logger.LogInformation("[2FA] Reassigned {User} AuthenticationProviderId to TwoFactorAuthProvider for OIDC bridge", matchedUser.Username);
             }
         }
@@ -966,18 +981,36 @@ public class OidcService : IDisposable
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var finalIds = ComputeGrantedLibraryIds(provider.RoleLibraryMappings, groups, existing);
 
-        user.SetPermission(PermissionKind.EnableAllFolders, false);
-        user.SetPreference(PreferenceKind.EnabledFolders, finalIds);
-        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+        // CORRECTNESS [v2.5.14] (#65, Bgabor997): persist library access via the
+        // USER POLICY API, not SetPreference + UpdateUserAsync. Verified live on
+        // Jellyfin 10.11.11: SetPreference(EnabledFolders)/SetPermission(...) +
+        // UpdateUserAsync does NOT persist policy fields at all (a fresh read-back
+        // shows them empty) — UpdateUserAsync only saves the User's scalar columns,
+        // not the Permissions/Preferences that back the policy. That is the true
+        // cause of #65 (the user's log showed the right GUIDs because it read them
+        // straight off the in-memory object, never from the DB). Jellyfin's own
+        // dashboard sets library access through IUserManager.UpdatePolicyAsync, and
+        // that round-trips correctly. So: take the user's CURRENT policy (preserves
+        // every other field), set just EnableAllFolders + EnabledFolders, and
+        // persist via UpdatePolicyAsync.
+        var policy = _userManager.GetUserDto(user).Policy;
+        policy.EnableAllFolders = false;
+        // UserPolicy.EnabledFolders is Guid[]; finalIds are library ItemIds in
+        // "N" (32-hex) form already validated to exist, so parse them to Guids.
+        policy.EnabledFolders = finalIds
+            .Select(s => Guid.TryParse(s, out var g) ? (Guid?)g : null)
+            .Where(g => g.HasValue)
+            .Select(g => g!.Value)
+            .ToArray();
+        await _userManager.UpdatePolicyAsync(user.Id, policy).ConfigureAwait(false);
 
-        // [v2.5.12] (#65, Bgabor997): read the policy BACK after persisting so the
-        // log is conclusive when a user reports "it says set N but I see nothing".
-        // This pins down whether the GUIDs persisted, in what form, and whether
-        // they match the libraries Jellyfin actually knows about — an ItemId vs
-        // CollectionFolder-Id mismatch shows up here as granted ids that are
-        // absent from the available-libraries list logged at Debug.
-        var readBack = user.GetPreference(PreferenceKind.EnabledFolders) ?? Array.Empty<string>();
-        var enableAll = user.HasPermission(PermissionKind.EnableAllFolders);
+        // Read the policy BACK from a fresh DTO so the log is conclusive (this read
+        // goes through the same DTO mapping the dashboard uses, so it reflects what
+        // actually persisted — not an in-memory object).
+        var persistedPolicy = _userManager.GetUserDto(_userManager.GetUserById(user.Id) ?? user).Policy;
+        var readBack = (persistedPolicy.EnabledFolders ?? Array.Empty<Guid>())
+            .Select(g => g.ToString("N")).ToArray();
+        var enableAll = persistedPolicy.EnableAllFolders;
         _logger.LogInformation(
             "[2FA] OIDC set {Count} librar(ies) for {User} from {GroupCount} IdP group claim(s) via provider {Provider}; granted=[{Granted}] persisted=[{Persisted}] enableAllFolders={EnableAll}",
             finalIds.Length, user.Username, groups.Length, provider.Id,
@@ -1021,8 +1054,23 @@ public class OidcService : IDisposable
             return;
         }
 
-        user.SetPermission(PermissionKind.IsAdministrator, true);
-        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+        // CORRECTNESS [v2.5.14] (#96, raffaeletani): elevate via the USER POLICY
+        // API. Same root cause as #65 — SetPermission(IsAdministrator) +
+        // UpdateUserAsync does NOT persist on Jellyfin 10.11.11 (UpdateUserAsync
+        // doesn't save the policy-backing Permissions), so the elevation silently
+        // no-opped. That is why "admin group without effect" was reported even with
+        // the toggle on. Set IsAdministrator on the current policy and persist via
+        // UpdatePolicyAsync (what the dashboard's "Administrator" checkbox uses).
+        var policy = _userManager.GetUserDto(user).Policy;
+        policy.IsAdministrator = true;
+        await _userManager.UpdatePolicyAsync(user.Id, policy).ConfigureAwait(false);
+        var elevated = _userManager.GetUserDto(_userManager.GetUserById(user.Id) ?? user).Policy.IsAdministrator;
+        if (!elevated)
+        {
+            _logger.LogWarning(
+                "[2FA] OIDC admin-group: elevation of {User} did NOT persist (read-back still non-admin) — please report against #96",
+                user.Username);
+        }
         // [v2.5.13] Logged at WARN per the N-A13 security note on OidcProvider.AdminGroups:
         // admin elevation is driven by an IdP-asserted group claim, so a compromised IdP
         // that controls that claim could elevate. The admin opts in by configuring the
@@ -1051,17 +1099,15 @@ public class OidcService : IDisposable
             return;
         }
 
-        foreach (PermissionKind k in Enum.GetValues<PermissionKind>())
-        {
-            try { target.SetPermission(k, template.HasPermission(k)); }
-            catch { /* permission not supported on this Jellyfin build */ }
-        }
-        foreach (PreferenceKind k in Enum.GetValues<PreferenceKind>())
-        {
-            try { target.SetPreference(k, template.GetPreference(k)); }
-            catch { /* preference not supported on this Jellyfin build */ }
-        }
-        await _userManager.UpdateUserAsync(target).ConfigureAwait(false);
+        // CORRECTNESS [v2.5.14] (#93): copy via the USER POLICY API. The old
+        // SetPermission/SetPreference + UpdateUserAsync loop did NOT persist on
+        // Jellyfin 10.11.11 (UpdateUserAsync doesn't save the policy-backing
+        // Permissions/Preferences — same root cause as #65/#96), so template users
+        // silently inherited Jellyfin defaults instead of the template's policy.
+        // Copying the template's whole UserPolicy and persisting it via
+        // UpdatePolicyAsync is both correct AND simpler than the per-enum loop.
+        var templatePolicy = _userManager.GetUserDto(template).Policy;
+        await _userManager.UpdatePolicyAsync(target.Id, templatePolicy).ConfigureAwait(false);
         _logger.LogInformation("[2FA] OIDC seeded new user {New} permissions from template user {Tpl}",
             target.Username, template.Username);
     }
@@ -1359,6 +1405,25 @@ public class OidcService : IDisposable
                     catch (Exception cpe)
                     {
                         _logger.LogWarning(cpe, "[2FA] OIDC template-policy copy failed for new user {User}", u.Username);
+                    }
+                }
+
+                // [v2.5.14] (#100, Re4mstr) Flag the new user to set their own local
+                // Jellyfin password on first sign-in, when the provider opts in. The
+                // account currently has only a random hardened password (unusable for
+                // 3rd-party integrations that authenticate against the Jellyfin
+                // password); this lets the user choose a real one. Enforced at the
+                // bridge redirect (SecurityController) — best-effort, never blocks.
+                if (provider.ForcePasswordSetup)
+                {
+                    try
+                    {
+                        await _store.MutateAsync(u.Id, ud => ud.MustSetPassword = true).ConfigureAwait(false);
+                        _logger.LogInformation("[2FA] OIDC new user '{Username}' flagged to set a Jellyfin password on first sign-in (#100)", claims.Username);
+                    }
+                    catch (Exception fpe)
+                    {
+                        _logger.LogWarning(fpe, "[2FA] Could not set MustSetPassword flag for new OIDC user '{Username}'", claims.Username);
                     }
                 }
 

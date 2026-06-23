@@ -784,5 +784,17 @@
   "tfa.admin.sso.template_user_help": "When \"Auto-create\" is on, a newly created user copies this user's permissions and library access instead of Jellyfin's defaults. Leave as \"(Jellyfin defaults)\" to keep the built-in behaviour.",
   "tfa.admin.sso.template_user_default": "(Jellyfin defaults)",
   "tfa.admin.sso.opt_show_button_help": "Uncheck to keep SSO enabled (the sign-in URL still works for your own custom button) but hide the plugin's built-in \"Sign in with…\" button.",
-  "tfa.setup.sso.link_failed": "Linking failed"
+  "tfa.setup.sso.link_failed": "Linking failed",
+  "tfa.admin.sso.lbl_callback_url": "Callback / redirect URL",
+  "tfa.admin.sso.btn_copy": "Copy",
+  "tfa.admin.sso.lbl_callback_slug": "Callback slug",
+  "tfa.admin.sso.hint_callback_slug": "Editing this renames the last part of the callback URL (e.g. to fix a typo). Existing SSO links are migrated automatically — but you must update the redirect URI at your identity provider to match the new URL.",
+  "tfa.admin.sso.opt_force_password": "Force new users to set a Jellyfin password on first sign-in (for apps/integrations that need the password — complexity set under Settings)",
+  "tfa.admin.sso.alert_slug_renamed": "Callback slug renamed. Update the redirect URI at your identity provider to:\n\n",
+  "tfa.admin.settings.lbl_onboarding_pw": "OIDC onboarding password policy",
+  "tfa.admin.settings.onboarding_pw_help": "Applies when an OIDC provider has \"Force new users to set a Jellyfin password\" enabled. Controls the minimum strength of the password those users must choose on first sign-in.",
+  "tfa.admin.settings.lbl_onboarding_pw_minlen": "Minimum length",
+  "tfa.admin.settings.opt_onboarding_pw_upper": "Require an uppercase letter",
+  "tfa.admin.settings.opt_onboarding_pw_lower": "Require a lowercase letter",
+  "tfa.admin.settings.opt_onboarding_pw_digit": "Require a number"
 }

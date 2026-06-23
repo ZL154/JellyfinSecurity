@@ -140,6 +140,15 @@ public class SecurityController : ControllerBase
         public bool AllowAdminGroupElevation { get; set; }
         // [v2.5.13] (#93) template user GUID for auto-created users.
         public string TemplateUserId { get; set; } = string.Empty;
+        // [v2.5.14] (#100) force a new OIDC user to set a local Jellyfin password.
+        public bool ForcePasswordSetup { get; set; }
+        // [v2.5.14] (#94, Re4mstr) Optional explicit callback slug. The slug is the
+        // last segment of the OIDC redirect URI (…/Oidc/Callback/&lt;slug&gt;).
+        // Sending a non-empty value on UPDATE renames the provider's slug (e.g. to
+        // fix a typo'd "sing-in-with-…") in place — migrating existing SSO links —
+        // instead of forcing a delete + re-add. Ignored on create (the slug is
+        // derived from the display name there). Blank = leave the slug unchanged.
+        public string CallbackSlug { get; set; } = string.Empty;
     }
 
     /// <summary>[v2.5.10] (#65) one role→libraries mapping as sent by the admin
@@ -225,7 +234,15 @@ public class SecurityController : ControllerBase
             syncEmailFromClaim = p.SyncEmailFromClaim,
             buttonText = p.ButtonText,
             buttonIconUrl = p.ButtonIconUrl,
+            // [v2.5.14] (#100) force-password-on-onboarding opt-in.
+            forcePasswordSetup = p.ForcePasswordSetup,
             createdAt = p.CreatedAt,
+            // [v2.5.14] (#94/#98) Surface the exact callback/redirect URI the IdP
+            // must be configured with, and the editable slug. This kills the
+            // "wrong callback URL" / "sing-in-with-…" typo confusion: the admin can
+            // now see and copy the real value instead of reconstructing it by hand.
+            callbackSlug = p.Id,
+            callbackUrl = BuildRedirectUri(p),
         }).ToList<object>();
         return Ok(safe);
     }
@@ -283,6 +300,8 @@ public class SecurityController : ControllerBase
             SyncEmailFromClaim = req.SyncEmailFromClaim,
             ButtonText = (req.ButtonText ?? string.Empty).Trim(),
             ButtonIconUrl = SanitizeButtonIconUrl(req.ButtonIconUrl),
+            // [v2.5.14] (#100) force-password-on-onboarding opt-in.
+            ForcePasswordSetup = req.ForcePasswordSetup,
             CreatedAt = DateTime.UtcNow,
         };
         config.OidcProviders.Add(provider);
@@ -292,7 +311,7 @@ public class SecurityController : ControllerBase
 
     [HttpPut("Oidc/Providers/{id}")]
     [Authorize(Policy = "RequiresElevation")]
-    public ActionResult UpdateProvider([FromRoute] string id, [FromBody, Required] OidcProviderUpsertRequest req)
+    public async Task<ActionResult> UpdateProvider([FromRoute] string id, [FromBody, Required] OidcProviderUpsertRequest req)
     {
         // SECURITY [v2.5.6] (U3): require step-up before mutating an OIDC
         // provider. Editing the DiscoveryUrl or ClientSecret silently
@@ -337,10 +356,85 @@ public class SecurityController : ControllerBase
         existing.SyncEmailFromClaim = req.SyncEmailFromClaim;
         existing.ButtonText = (req.ButtonText ?? string.Empty).Trim();
         existing.ButtonIconUrl = SanitizeButtonIconUrl(req.ButtonIconUrl);
+        // [v2.5.14] (#100) force-password-on-onboarding opt-in.
+        existing.ForcePasswordSetup = req.ForcePasswordSetup;
+
+        // [v2.5.14] (#94, Re4mstr) Optional in-place callback-slug rename. The slug
+        // is BOTH the last segment of the OIDC redirect URI (…/Oidc/Callback/<slug>)
+        // AND the key SsoLinks are stored under, so renaming it must migrate those
+        // links or already-linked users get orphaned. This lets an admin fix a
+        // typo'd slug (e.g. "sing-in-with-…") without deleting + re-adding the
+        // provider and re-entering every field. The admin MUST then update the
+        // redirect_uri at their IdP to the new callback URL (returned below).
+        string? renamedTo = null;
+        var requestedSlug = (req.CallbackSlug ?? string.Empty).Trim();
+        if (!string.IsNullOrEmpty(requestedSlug))
+        {
+            var newId = SlugifyId(requestedSlug);
+            if (string.IsNullOrEmpty(newId))
+            {
+                return BadRequest(new { message = "Requested callback slug produces an empty id." });
+            }
+
+            if (!string.Equals(newId, existing.Id, StringComparison.Ordinal))
+            {
+                if (plugin.Configuration.OidcProviders.Any(p => p.Id == newId))
+                {
+                    return Conflict(new { message = $"Another OIDC provider already uses the slug '{newId}'." });
+                }
+
+                var oldId = existing.Id;
+                existing.Id = newId;
+                var migrated = await MigrateSsoLinkProviderIdAsync(oldId, newId).ConfigureAwait(false);
+                _oidc.InvalidateCache(oldId);
+                renamedTo = newId;
+                _logger.LogWarning(
+                    "[2FA] OIDC provider callback slug renamed '{Old}' -> '{New}' ({Count} SSO link(s) migrated). " +
+                    "The redirect_uri at the identity provider MUST be updated to the new callback URL or sign-in will fail.",
+                    oldId, newId, migrated);
+            }
+        }
+
         plugin.SaveConfiguration();
-        _oidc.InvalidateCache(id);
-        return Ok();
+        _oidc.InvalidateCache(existing.Id);
+        return Ok(new
+        {
+            id = existing.Id,
+            renamed = renamedTo is not null,
+            callbackUrl = BuildRedirectUri(existing),
+        });
     }
+
+    /// <summary>[v2.5.14] (#94) Re-point every user's SSO link from an old provider
+    /// slug to a new one after a callback-slug rename, so already-linked accounts
+    /// keep working. Returns the number of users whose links were migrated.</summary>
+    private async Task<int> MigrateSsoLinkProviderIdAsync(string oldId, string newId)
+    {
+        var users = await _store.GetAllUsersAsync().ConfigureAwait(false);
+        var count = 0;
+        foreach (var u in users)
+        {
+            if (!u.SsoLinks.Any(l => string.Equals(l.ProviderId, oldId, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            await _store.MutateAsync(u.UserId, ud =>
+            {
+                foreach (var l in ud.SsoLinks)
+                {
+                    if (string.Equals(l.ProviderId, oldId, StringComparison.Ordinal))
+                    {
+                        l.ProviderId = newId;
+                    }
+                }
+            }).ConfigureAwait(false);
+            count++;
+        }
+
+        return count;
+    }
+
 
     /// <summary>[v2.5.10] (#65) map admin-UI role→library DTOs to the stored
     /// model, dropping blank rows and normalizing the library-id list.</summary>
@@ -784,6 +878,18 @@ public class SecurityController : ControllerBase
             return Content(BuildLinkPopupHtml(lr.Success, lr.Error), "text/html; charset=utf-8");
         }
 
+        // [v2.5.14] (#95) Diagnostic: we reach here only when the callback state
+        // matched neither a pending step-up NOR a pending explicit-link flow, so
+        // it is treated as a normal sign-in (which runs the resolver that refuses
+        // admin email/username matches). If an admin clicked "Link a new provider"
+        // and still lands here, the link state was LOST between LinkBegin and this
+        // callback (plugin/server restart, a second instance, or TTL expiry) — that
+        // is the #95 fall-through. Logging it makes the cause unambiguous in the
+        // server log instead of surfacing only as the generic resolver refusal.
+        _logger.LogInformation(
+            "[2FA] OIDC callback state did not match a pending step-up or explicit-link flow — handling as a normal sign-in (provider {Provider}). If this was a Setup 'Link a new provider' attempt, the link state was lost before the callback (see #95).",
+            provider.Id);
+
         var result = await _oidc.CompleteAsync(provider, code, state, redirectUri).ConfigureAwait(false);
         if (!result.Success || result.UserId is null || result.Username is null)
         {
@@ -896,8 +1002,24 @@ public class SecurityController : ControllerBase
         // the wrong tool (doesn't escape `\\` / line terminators that break a
         // JS string literal). JsonSerializer.Serialize outputs a fully quoted
         // and escaped JS-safe string, including leading/trailing quotes.
+        // [v2.5.14] (#100) If this user must still choose a local Jellyfin password
+        // (flagged on auto-create for a ForcePasswordSetup provider), land them on
+        // the onboarding page instead of /web. They arrive with a valid session, so
+        // the set-password page can change the password and then forward to /web.
+        var mustSetPassword = false;
+        try
+        {
+            mustSetPassword = (await _store.GetUserDataAsync(result.UserId.Value).ConfigureAwait(false)).MustSetPassword;
+        }
+        catch (Exception mspEx)
+        {
+            _logger.LogDebug(mspEx, "[2FA] Could not read MustSetPassword for {User}; landing on /web", result.Username);
+        }
+        var landingPath = mustSetPassword ? "/TwoFactorAuth/SetPassword" : "/web/index.html";
+
         var uname = System.Text.Json.JsonSerializer.Serialize(result.Username);
         var tok = System.Text.Json.JsonSerializer.Serialize(token);
+        var land = System.Text.Json.JsonSerializer.Serialize(landingPath);
         var html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Signing in…</title>"
             + "<style>body{background:#0a0a0a;color:#e0e0e0;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}"
             + ".card{background:#1a1a1a;padding:32px 40px;border-radius:8px;text-align:center;border:1px solid #2a2a2a;}"
@@ -906,7 +1028,7 @@ public class SecurityController : ControllerBase
             + "<body><div class=\"card\"><div class=\"spin\"></div><div id=\"msg\">Completing sign-in…</div>"
             + "<div id=\"err\" class=\"err\"></div></div><script>"
             + "(function(){"
-            + "var u=" + uname + ",t=" + tok + ";"
+            + "var u=" + uname + ",t=" + tok + ",land=" + land + ";"
             + "var did=(function(){try{var x=localStorage.getItem('_deviceId2');if(!x){x=Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join('');localStorage.setItem('_deviceId2',x);}return x;}catch(e){return 'bridge-'+Date.now();}})();"
             + "var auth='MediaBrowser Client=\"Jellyfin Web\", Device=\"Browser\", DeviceId=\"'+did+'\", Version=\"10.11.0\"';"
             + "fetch('/Users/AuthenticateByName',{method:'POST',headers:{'Content-Type':'application/json','X-Emby-Authorization':auth,'Authorization':auth},body:JSON.stringify({Username:u,Pw:t})})"
@@ -915,8 +1037,17 @@ public class SecurityController : ControllerBase
             + "var server={Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:1,ManualAddress:window.location.origin,LocalAddress:window.location.origin};"
             + "var creds={Servers:[server]};"
             + "localStorage.setItem('jellyfin_credentials',JSON.stringify(creds));"
+            // [v2.5.14] (#98) Clear any STALE 2FA-pending flag before landing on
+            // /web. A leftover '__tfa_pending' (from an earlier failed/abandoned
+            // attempt on this browser) would otherwise make inject.js short-circuit
+            // the freshly-signed-in session's bootstrap API calls with synthetic
+            // 403s, and Jellyfin Web bounces straight back to login. This is the
+            // per-browser sessionStorage that explained why the same user worked on
+            // one device but not another (#98). The OIDC sign-in just succeeded, so
+            // there is by definition no pending 2FA challenge to preserve.
+            + "try{sessionStorage.removeItem('__tfa_pending');}catch(e){}"
             + "document.getElementById('msg').textContent='Signed in as '+res.User.Name+' — redirecting…';"
-            + "setTimeout(function(){window.location.href='/web/index.html';},400);"
+            + "setTimeout(function(){window.location.href=land;},400);"
             + "})"
             // [v2.5.13] (#98) Do NOT silently bounce to login on failure — the IdP
             // authenticated the user but this server's AuthenticateByName step

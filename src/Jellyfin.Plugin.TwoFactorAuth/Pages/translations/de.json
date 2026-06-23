@@ -784,5 +784,17 @@
   "tfa.admin.sso.template_user_help": "Wenn „Automatisch erstellen“ aktiviert ist, übernimmt ein neu erstellter Benutzer die Berechtigungen und den Bibliothekszugriff dieses Benutzers anstelle der Jellyfin-Standardwerte. Belassen Sie „(Jellyfin-Standard)“, um das Standardverhalten beizubehalten.",
   "tfa.admin.sso.template_user_default": "(Jellyfin-Standard)",
   "tfa.admin.sso.opt_show_button_help": "Deaktivieren, um SSO aktiviert zu lassen (die Anmelde-URL funktioniert weiterhin für Ihre eigene Schaltfläche), aber die integrierte „Anmelden mit …“-Schaltfläche des Plugins auszublenden.",
-  "tfa.setup.sso.link_failed": "Verknüpfung fehlgeschlagen"
+  "tfa.setup.sso.link_failed": "Verknüpfung fehlgeschlagen",
+  "tfa.admin.sso.lbl_callback_url": "Callback-/Weiterleitungs-URL",
+  "tfa.admin.sso.btn_copy": "Kopieren",
+  "tfa.admin.sso.lbl_callback_slug": "Callback-Slug",
+  "tfa.admin.sso.hint_callback_slug": "Wenn du dies änderst, wird der letzte Teil der Callback-URL umbenannt (z. B. um einen Tippfehler zu korrigieren). Bestehende SSO-Verknüpfungen werden automatisch migriert – du musst jedoch die Weiterleitungs-URI bei deinem Identitätsanbieter an die neue URL anpassen.",
+  "tfa.admin.sso.opt_force_password": "Neue Benutzer zwingen, bei der ersten Anmeldung ein Jellyfin-Passwort festzulegen (für Apps/Integrationen, die das Passwort benötigen – Komplexität unter Einstellungen)",
+  "tfa.admin.sso.alert_slug_renamed": "Callback-Slug umbenannt. Aktualisiere die Weiterleitungs-URI bei deinem Identitätsanbieter auf:\n\n",
+  "tfa.admin.settings.lbl_onboarding_pw": "OIDC-Onboarding-Passwortrichtlinie",
+  "tfa.admin.settings.onboarding_pw_help": "Gilt, wenn bei einem OIDC-Anbieter „Neue Benutzer zwingen, ein Jellyfin-Passwort festzulegen“ aktiviert ist. Legt die Mindeststärke des Passworts fest, das diese Benutzer bei der ersten Anmeldung wählen müssen.",
+  "tfa.admin.settings.lbl_onboarding_pw_minlen": "Mindestlänge",
+  "tfa.admin.settings.opt_onboarding_pw_upper": "Großbuchstaben erforderlich",
+  "tfa.admin.settings.opt_onboarding_pw_lower": "Kleinbuchstaben erforderlich",
+  "tfa.admin.settings.opt_onboarding_pw_digit": "Ziffer erforderlich"
 }

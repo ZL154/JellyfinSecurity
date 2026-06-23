@@ -784,5 +784,17 @@
   "tfa.admin.sso.template_user_help": "启用“自动创建”后，新创建的用户将复制此用户的权限和媒体库访问权限，而不是 Jellyfin 的默认值。保留“(Jellyfin 默认值)”以维持内置行为。",
   "tfa.admin.sso.template_user_default": "(Jellyfin 默认值)",
   "tfa.admin.sso.opt_show_button_help": "取消勾选可保持 SSO 启用（登录 URL 仍可用于你自己的自定义按钮），但隐藏插件内置的“使用…登录”按钮。",
-  "tfa.setup.sso.link_failed": "关联失败"
+  "tfa.setup.sso.link_failed": "关联失败",
+  "tfa.admin.sso.lbl_callback_url": "回调 / 重定向 URL",
+  "tfa.admin.sso.btn_copy": "复制",
+  "tfa.admin.sso.lbl_callback_slug": "回调标识符（slug）",
+  "tfa.admin.sso.hint_callback_slug": "编辑此项会重命名回调 URL 的最后一部分（例如修正拼写错误）。现有的 SSO 关联会自动迁移，但你必须在身份提供商处将重定向 URI 更新为新的 URL。",
+  "tfa.admin.sso.opt_force_password": "强制新用户在首次登录时设置 Jellyfin 密码（适用于需要该密码的应用/集成；复杂度在“设置”中配置）",
+  "tfa.admin.sso.alert_slug_renamed": "回调标识符已重命名。请在身份提供商处将重定向 URI 更新为：\n\n",
+  "tfa.admin.settings.lbl_onboarding_pw": "OIDC 初次登录密码策略",
+  "tfa.admin.settings.onboarding_pw_help": "当某个 OIDC 提供商启用了“强制新用户设置 Jellyfin 密码”时适用。控制这些用户在首次登录时必须选择的密码的最低强度。",
+  "tfa.admin.settings.lbl_onboarding_pw_minlen": "最小长度",
+  "tfa.admin.settings.opt_onboarding_pw_upper": "需要一个大写字母",
+  "tfa.admin.settings.opt_onboarding_pw_lower": "需要一个小写字母",
+  "tfa.admin.settings.opt_onboarding_pw_digit": "需要一个数字"
 }

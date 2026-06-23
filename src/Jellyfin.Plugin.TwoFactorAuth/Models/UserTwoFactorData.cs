@@ -56,6 +56,14 @@ public class UserTwoFactorData
     /// stripped from the available methods list. Cleared on successful recovery.</summary>
     public bool ForceRecoveryOnNextLogin { get; set; }
 
+    /// <summary>[v2.5.14] (#100, Re4mstr) When true, the user must set a local
+    /// Jellyfin password before normal use. Set on OIDC auto-create when the
+    /// provider has ForcePasswordSetup enabled (the auto-created account otherwise
+    /// only has a random hardened password the user can't use for 3rd-party
+    /// integrations that need the Jellyfin password). Cleared once the user sets a
+    /// password via the onboarding page.</summary>
+    public bool MustSetPassword { get; set; }
+
     /// <summary>Per-user override for max concurrent sessions. Null = use the
     /// plugin-wide default. Zero = unlimited (matches default semantics).</summary>
     public int? MaxConcurrentSessions { get; set; }

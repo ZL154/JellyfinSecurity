@@ -784,5 +784,17 @@
   "tfa.admin.sso.template_user_help": "Lorsque « Création automatique » est activée, un nouvel utilisateur copie les autorisations et l'accès aux médiathèques de cet utilisateur au lieu des valeurs par défaut de Jellyfin. Laissez « (Valeurs par défaut de Jellyfin) » pour conserver le comportement intégré.",
   "tfa.admin.sso.template_user_default": "(Valeurs par défaut de Jellyfin)",
   "tfa.admin.sso.opt_show_button_help": "Décochez pour garder le SSO activé (l'URL de connexion fonctionne toujours pour votre propre bouton) tout en masquant le bouton intégré « Se connecter avec… » du plugin.",
-  "tfa.setup.sso.link_failed": "Échec de la liaison"
+  "tfa.setup.sso.link_failed": "Échec de la liaison",
+  "tfa.admin.sso.lbl_callback_url": "URL de rappel / redirection",
+  "tfa.admin.sso.btn_copy": "Copier",
+  "tfa.admin.sso.lbl_callback_slug": "Slug de rappel",
+  "tfa.admin.sso.hint_callback_slug": "Modifier ceci renomme la dernière partie de l’URL de rappel (par ex. pour corriger une faute de frappe). Les liens SSO existants sont migrés automatiquement, mais vous devez mettre à jour l’URI de redirection chez votre fournisseur d’identité pour correspondre à la nouvelle URL.",
+  "tfa.admin.sso.opt_force_password": "Obliger les nouveaux utilisateurs à définir un mot de passe Jellyfin lors de la première connexion (pour les applis/intégrations qui en ont besoin ; la complexité se règle dans les Paramètres)",
+  "tfa.admin.sso.alert_slug_renamed": "Slug de rappel renommé. Mettez à jour l’URI de redirection chez votre fournisseur d’identité vers :\n\n",
+  "tfa.admin.settings.lbl_onboarding_pw": "Politique de mot de passe d’intégration OIDC",
+  "tfa.admin.settings.onboarding_pw_help": "S’applique lorsqu’un fournisseur OIDC a activé « Obliger les nouveaux utilisateurs à définir un mot de passe Jellyfin ». Contrôle la robustesse minimale du mot de passe que ces utilisateurs doivent choisir lors de la première connexion.",
+  "tfa.admin.settings.lbl_onboarding_pw_minlen": "Longueur minimale",
+  "tfa.admin.settings.opt_onboarding_pw_upper": "Exiger une lettre majuscule",
+  "tfa.admin.settings.opt_onboarding_pw_lower": "Exiger une lettre minuscule",
+  "tfa.admin.settings.opt_onboarding_pw_digit": "Exiger un chiffre"
 }

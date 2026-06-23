@@ -1027,6 +1027,15 @@
                         // [v2.5.12] (#80) hide-built-in-forgot sub-option (default on).
                         var hideFp = page.querySelector('#cfgHideBuiltInForgotPassword');
                         if (hideFp) hideFp.checked = c.HideBuiltInForgotPassword !== false;
+                        // [v2.5.14] (#100) OIDC onboarding password policy.
+                        var obLen = page.querySelector('#cfgOnboardingPwMinLen');
+                        if (obLen) obLen.value = c.OnboardingPasswordMinLength || 16;
+                        var obUp = page.querySelector('#cfgOnboardingPwUpper');
+                        if (obUp) obUp.checked = c.OnboardingPasswordRequireUppercase === true;
+                        var obLow = page.querySelector('#cfgOnboardingPwLower');
+                        if (obLow) obLow.checked = c.OnboardingPasswordRequireLowercase === true;
+                        var obDig = page.querySelector('#cfgOnboardingPwDigit');
+                        if (obDig) obDig.checked = c.OnboardingPasswordRequireDigit === true;
                         page.querySelector('#cfgAuditMax').value = c.AuditLogMaxEntries || 1000;
                         page.querySelector('#cfgSmtpHost').value = c.SmtpHost || '';
                         page.querySelector('#cfgSmtpPort').value = c.SmtpPort || 587;
@@ -1179,6 +1188,16 @@
                         }
                         if (page.querySelector('#cfgHideBuiltInForgotPassword')) {
                             c.HideBuiltInForgotPassword = page.querySelector('#cfgHideBuiltInForgotPassword').checked;
+                        }
+                        // [v2.5.14] (#100) OIDC onboarding password policy.
+                        if (page.querySelector('#cfgOnboardingPwMinLen')) {
+                            var obLenV = parseInt(page.querySelector('#cfgOnboardingPwMinLen').value, 10);
+                            if (isNaN(obLenV) || obLenV < 1) obLenV = 16;
+                            if (obLenV > 256) obLenV = 256;
+                            c.OnboardingPasswordMinLength = obLenV;
+                            c.OnboardingPasswordRequireUppercase = (page.querySelector('#cfgOnboardingPwUpper') || {}).checked === true;
+                            c.OnboardingPasswordRequireLowercase = (page.querySelector('#cfgOnboardingPwLower') || {}).checked === true;
+                            c.OnboardingPasswordRequireDigit = (page.querySelector('#cfgOnboardingPwDigit') || {}).checked === true;
                         }
                         c.AuditLogMaxEntries = parseInt(page.querySelector('#cfgAuditMax').value) || 1000;
                         c.SmtpHost = page.querySelector('#cfgSmtpHost').value.trim();
@@ -1500,6 +1519,16 @@
                     page.querySelector('#ssoFormSection').style.display = 'block';
                     page.querySelector('#ssoFormTitle').textContent = prov ? (_tr('tfa.admin.sso.form_title_edit', 'Edit') + ' ' + prov.displayName) : _tr('tfa.admin.sso.form_title_new', 'New provider');
                     page.querySelector('#ssoDisplay').value = prov ? (prov.displayName || '') : '';
+                    // [v2.5.14] (#94) Callback URL + editable slug — only meaningful
+                    // for an existing provider (a new one has no slug/URL yet).
+                    var cbRow = page.querySelector('#ssoCallbackRow');
+                    var slugRow = page.querySelector('#ssoSlugRow');
+                    var cbUrlEl = page.querySelector('#ssoCallbackUrl');
+                    var slugEl = page.querySelector('#ssoCallbackSlug');
+                    if (cbRow) cbRow.style.display = prov ? '' : 'none';
+                    if (slugRow) slugRow.style.display = prov ? '' : 'none';
+                    if (cbUrlEl) cbUrlEl.value = prov ? (prov.callbackUrl || '') : '';
+                    if (slugEl) slugEl.value = prov ? (prov.callbackSlug || prov.id || '') : '';
                     page.querySelector('#ssoPreset').value = prov ? (prov.preset || 'generic') : 'generic';
                     page.querySelector('#ssoDiscovery').value = prov ? (prov.discoveryUrl || '') : '';
                     page.querySelector('#ssoClientId').value = prov ? (prov.clientId || '') : '';
@@ -1514,6 +1543,9 @@
                     if (elevEl) elevEl.checked = prov ? !!prov.allowAdminGroupElevation : false;
                     populateTemplateUserSelect(prov ? (prov.templateUserId || '') : '');
                     page.querySelector('#ssoAutoCreate').checked = prov ? !!prov.autoCreateUsers : false;
+                    // [v2.5.14] (#100) force-password-on-onboarding opt-in.
+                    var forcePwEl = page.querySelector('#ssoForcePassword');
+                    if (forcePwEl) forcePwEl.checked = prov ? !!prov.forcePasswordSetup : false;
                     page.querySelector('#ssoRequireMfa').checked = prov ? !!prov.requireIdpMfa : false;
                     page.querySelector('#ssoBypass2fa').checked = prov ? prov.bypassPluginTwoFa !== false : true;
                     page.querySelector('#ssoEnabled').checked = prov ? prov.enabled !== false : true;
@@ -1575,6 +1607,22 @@
                 page.querySelector('#ssoCancelBtn').addEventListener('click', function() {
                     page.querySelector('#ssoFormSection').style.display = 'none';
                 });
+                // [v2.5.14] (#94) Copy the callback/redirect URL to the clipboard.
+                var copyCbBtn = page.querySelector('#ssoCopyCallbackBtn');
+                if (copyCbBtn) copyCbBtn.addEventListener('click', function() {
+                    var el = page.querySelector('#ssoCallbackUrl');
+                    if (!el || !el.value) return;
+                    try {
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(el.value);
+                        } else {
+                            el.removeAttribute('readonly'); el.select(); document.execCommand('copy'); el.setAttribute('readonly', '');
+                        }
+                        var orig = copyCbBtn.textContent;
+                        copyCbBtn.textContent = '✓';
+                        setTimeout(function() { copyCbBtn.textContent = orig; }, 1200);
+                    } catch (e) {}
+                });
                 page.querySelector('#ssoPreset').addEventListener('change', updateSsoHint);
                 // [v2.5.10] (#65/#66) conditional-row visibility + add-mapping.
                 page.querySelector('#ssoSyncPicture').addEventListener('change', toggleSsoConditionalRows);
@@ -1596,6 +1644,8 @@
                         AllowAdminGroupElevation: (page.querySelector('#ssoAllowAdminElevation') || {}).checked === true,
                         TemplateUserId: (page.querySelector('#ssoTemplateUser') ? page.querySelector('#ssoTemplateUser').value : ''),
                         AutoCreateUsers: page.querySelector('#ssoAutoCreate').checked,
+                        // [v2.5.14] (#100) force-password-on-onboarding opt-in.
+                        ForcePasswordSetup: (page.querySelector('#ssoForcePassword') || {}).checked === true,
                         RequireIdpMfa: page.querySelector('#ssoRequireMfa').checked,
                         BypassPluginTwoFa: page.querySelector('#ssoBypass2fa').checked,
                         Enabled: page.querySelector('#ssoEnabled').checked,
@@ -1617,6 +1667,11 @@
                         // [v2.5.11] (#69) custom login-button text + icon.
                         ButtonText: (page.querySelector('#ssoButtonText') ? page.querySelector('#ssoButtonText').value.trim() : ''),
                         ButtonIconUrl: (page.querySelector('#ssoButtonIcon') ? page.querySelector('#ssoButtonIcon').value.trim() : ''),
+                        // [v2.5.14] (#94) Only send the slug when editing — pre-filled
+                        // with the current slug, so an untouched value is a no-op
+                        // rename on the server. Blank on create (slug derives from
+                        // the display name).
+                        CallbackSlug: (ssoEditingId && page.querySelector('#ssoCallbackSlug')) ? page.querySelector('#ssoCallbackSlug').value.trim() : '',
                     };
                     if (!body.DisplayName) { alert(_tr('tfa.admin.sso.alert_display_required', 'Display name is required.')); return; }
                     if (!body.ClientId) { alert(_tr('tfa.admin.sso.alert_client_id_required', 'Client ID is required.')); return; }
@@ -1629,9 +1684,18 @@
                             { method: 'POST', headers: getHeaders(), body: JSON.stringify(body) });
                     p.then(function(r) {
                         if (!r.ok) throw r;
+                        return r.json().catch(function() { return {}; });
+                    }).then(function(res) {
                         status.style.color = '#4caf50'; status.textContent = '✓ ' + _tr('tfa.admin.settings.saved', 'Saved');
                         setTimeout(function() { status.textContent = ''; }, 2000);
                         page.querySelector('#ssoFormSection').style.display = 'none';
+                        // [v2.5.14] (#94) If the callback slug was renamed, the IdP's
+                        // redirect_uri no longer matches — make the admin update it.
+                        if (res && res.renamed && res.callbackUrl) {
+                            alert(_tr('tfa.admin.sso.alert_slug_renamed',
+                                'Callback slug renamed. Update the redirect URI at your identity provider to:\n\n')
+                                + res.callbackUrl);
+                        }
                         loadSso();
                     }).catch(function(err) {
                         status.style.color = '#f44336'; status.textContent = '✗ ' + _tr('tfa.admin.common.save_failed', 'Save failed');

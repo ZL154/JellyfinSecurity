@@ -141,6 +141,26 @@
     function clearTfaPending() {
         try { sessionStorage.removeItem(TFA_PENDING_KEY); } catch (e) {}
     }
+    // [v2.5.14] (#99/#98) Escape hatch for the soft-lock. When the pending flag
+    // is armed, every non-auth fetch/XHR is short-circuited with a synthetic 403.
+    // If the user is NOT actively on a 2FA page completing the challenge, that
+    // means the whole app's bootstrap API calls fail and Jellyfin Web reports
+    // "server cannot be reached" (issue #99) — a dead-end the user could only
+    // escape by restarting the server (which cleared the in-memory blocked token)
+    // or waiting out the 5-min TTL. Instead, navigate ONCE to the 2FA portal so
+    // there is always a forward path to complete (or recover from) 2FA. One-shot
+    // + skip when already on a /TwoFactorAuth/* page so it can never loop, and
+    // inject.js is not loaded on those pages so no further interception fires.
+    var __tfaRedirecting = false;
+    function redirectToTfaPortal() {
+        if (__tfaRedirecting) return;
+        try {
+            var p = (window.location.pathname || '').toLowerCase();
+            if (p.indexOf('/twofactorauth/') === 0) return;
+        } catch (e) { return; }
+        __tfaRedirecting = true;
+        try { window.location.href = '/TwoFactorAuth/Login'; } catch (e) {}
+    }
     function isAlwaysAllowedPath(url) {
         if (!url) return true;
         try {
@@ -287,6 +307,10 @@
             // auth paths through (so the user can re-authenticate) and the
             // /TwoFactorAuth/* paths that complete the challenge.
             if (isTfaPending() && !isAlwaysAllowedPath(url) && !isAuthPath(url)) {
+                // [v2.5.14] (#99) Don't just dead-end every call with a synthetic
+                // 403 (which Jellyfin Web surfaces as "server cannot be reached");
+                // move the user to the 2FA portal so they can actually complete it.
+                redirectToTfaPortal();
                 return Promise.resolve(syntheticTfaBlockedResponse());
             }
 
@@ -316,6 +340,16 @@
                     // before the redirect happens.
                     if (body && (body.twoFactorRequired || body.TwoFactorRequired)) {
                         setTfaPending();
+                        // [v2.5.14] (#99) A non-auth endpoint reporting 2FA-required
+                        // (RequestBlockerMiddleware 403, no challenge token) means the
+                        // user has a blocked session with no in-band way forward.
+                        // handleTwoFactorBody() below only redirects auth-path
+                        // responses (those carry a ChallengeToken); for everything
+                        // else, send them to the portal instead of silently arming
+                        // the flag and freezing the app.
+                        if (!isAuthPath(url)) {
+                            redirectToTfaPortal();
+                        }
                     }
                     // [v2.5.10] (#55) account-lockout message on the login page.
                     if (body && (body.accountLocked || body.AccountLocked)) {
@@ -391,6 +425,10 @@
                     var body = JSON.parse(xhr.responseText || '{}');
                     if (body && (body.twoFactorRequired || body.TwoFactorRequired)) {
                         setTfaPending();
+                        // [v2.5.14] (#99) Same soft-lock escape as the fetch path —
+                        // a non-auth XHR reporting 2FA-required has no challenge
+                        // token to redirect to, so route the user to the portal.
+                        redirectToTfaPortal();
                     }
                     // Clear flag on a successful 2FA completion observed via XHR.
                     if (xhr.status >= 200 && xhr.status < 300 && isTfaCompletionPath(xhr.__tfa_url)) {
@@ -572,15 +610,38 @@
             // leaked at least one decorative icon. Building from scratch with
             // only Jellyfin's base classes avoids all theme targeting.
             var profile = null;
-            var all = document.querySelectorAll('a, button');
-            for (var i = 0; i < all.length; i++) {
-                var txt = (all[i].textContent || '').trim().toLowerCase();
-                if (txt === 'profile' || txt.indexOf('profile') === 0) {
-                    profile = all[i];
-                    break;
+            // [v2.5.14] (#101) Anchor primarily by HREF, not by the literal English
+            // word "profile". The text-only match silently failed on every
+            // non-English Jellyfin UI (e.g. "Profil"/"Perfil"/"プロフィール"), which
+            // is why the "Two-Factor Authentication" entry went missing from the
+            // user-preferences list for affected users. Hrefs are locale-stable.
+            var hrefAnchor = document.querySelector(
+                'a[href*="myprofile"], a[href*="mypreferencesmenu"], a[href*="userprofile"]');
+            if (hrefAnchor) {
+                profile = hrefAnchor;
+            }
+            if (!profile) {
+                var all = document.querySelectorAll('a, button');
+                for (var i = 0; i < all.length; i++) {
+                    var txt = (all[i].textContent || '').trim().toLowerCase();
+                    if (txt === 'profile' || txt.indexOf('profile') === 0) {
+                        profile = all[i];
+                        break;
+                    }
                 }
             }
-            if (!profile) return;
+            if (!profile) {
+                // Last resort: anchor to any other preferences sub-page link so the
+                // tile still lands in the list even when neither href nor English
+                // text matched.
+                profile = document.querySelector(
+                    'a[href*="mypreferences"], a[href*="#/myprofile"], a[href*="quickconnect"]');
+            }
+            if (!profile) {
+                console.warn('[2FA] injectSettingsTile: no profile/preferences anchor found — '
+                    + 'Two-Factor entry not injected (issue #101). hash=' + (window.location.hash || ''));
+                return;
+            }
 
             // Walk up from Profile to the real row (direct child of the list).
             var template = profile;

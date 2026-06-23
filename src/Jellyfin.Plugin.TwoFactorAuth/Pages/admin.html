@@ -369,6 +369,21 @@
                                 <label data-i18n-key="tfa.admin.sso.lbl_display_name">Display name</label>
                                 <input type="text" id="ssoDisplay" class="tfa-input" style="width:280px;" placeholder="Sign in with Google" data-i18n-placeholder="tfa.admin.sso.ph_display_name" />
                             </div>
+                            <!-- [v2.5.14] (#94) Callback/redirect URL + editable slug. Shown only when editing an existing provider. -->
+                            <div class="tfa-row" id="ssoCallbackRow" style="display:none;">
+                                <label data-i18n-key="tfa.admin.sso.lbl_callback_url">Callback / redirect URL</label>
+                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                                    <input type="text" id="ssoCallbackUrl" class="tfa-input" style="width:480px;font-family:monospace;font-size:12px;" readonly />
+                                    <button type="button" class="tfa-btn" id="ssoCopyCallbackBtn" data-i18n-key="tfa.admin.sso.btn_copy">Copy</button>
+                                </div>
+                            </div>
+                            <div class="tfa-row" id="ssoSlugRow" style="display:none;">
+                                <label data-i18n-key="tfa.admin.sso.lbl_callback_slug">Callback slug</label>
+                                <div style="display:flex;flex-direction:column;gap:4px;">
+                                    <input type="text" id="ssoCallbackSlug" class="tfa-input" style="width:280px;font-family:monospace;" placeholder="sign-in-with-google" />
+                                    <span style="font-size:12px;color:#888;" data-i18n-key="tfa.admin.sso.hint_callback_slug">Editing this renames the last part of the callback URL (e.g. to fix a typo). Existing SSO links are migrated automatically — but you must update the redirect URI at your identity provider to match the new URL.</span>
+                                </div>
+                            </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.sso.lbl_discovery_url">Discovery URL</label>
                                 <input type="text" id="ssoDiscovery" class="tfa-input" style="width:480px;" placeholder="https://example.com/.well-known/openid-configuration" />
@@ -424,6 +439,10 @@
                             </div>
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="ssoAutoCreate" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_auto_create">Auto-create Jellyfin users on first sign-in (only enable for trusted IdPs)</span></label>
+                            </div>
+                            <!-- [v2.5.14] (#100) Force a new OIDC user to set a local Jellyfin password. -->
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="ssoForcePassword" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_force_password">Force new users to set a Jellyfin password on first sign-in (for apps/integrations that need the password — complexity set under Settings)</span></label>
                             </div>
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="ssoRequireMfa" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_require_mfa">Require IdP MFA (refuse sign-in if amr claim doesn't show MFA)</span></label>
@@ -594,6 +613,18 @@
                                     <label><input type="checkbox" id="cfgHideBuiltInForgotPassword" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_hide_builtin_forgot">Hide Jellyfin's built-in "Forgot password?" link on the login page</span></label>
                                     <div class="tfa-help" data-i18n-key="tfa.admin.settings.hide_builtin_forgot_help">Only applies when the above is enabled. Removes Jellyfin's native forgot-password link so users see only the plugin's reset flow. Turn off to keep both.</div>
                                 </div>
+                            </div>
+                            <!-- [v2.5.14] (issue #100, Re4mstr): OIDC onboarding password policy. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label data-i18n-key="tfa.admin.settings.lbl_onboarding_pw">OIDC onboarding password policy</label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.onboarding_pw_help">Applies when an OIDC provider has "Force new users to set a Jellyfin password" enabled. Controls the minimum strength of the password those users must choose on first sign-in.</div>
+                                <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                                    <label for="cfgOnboardingPwMinLen" style="margin:0;" data-i18n-key="tfa.admin.settings.lbl_onboarding_pw_minlen">Minimum length</label>
+                                    <input type="number" id="cfgOnboardingPwMinLen" class="tfa-input" style="width:80px;" min="1" max="256" />
+                                </div>
+                                <label style="margin-top:8px;"><input type="checkbox" id="cfgOnboardingPwUpper" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_onboarding_pw_upper">Require an uppercase letter</span></label>
+                                <label><input type="checkbox" id="cfgOnboardingPwLower" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_onboarding_pw_lower">Require a lowercase letter</span></label>
+                                <label><input type="checkbox" id="cfgOnboardingPwDigit" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_onboarding_pw_digit">Require a number</span></label>
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_audit_max">Audit log max entries</label>

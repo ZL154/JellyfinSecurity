@@ -200,6 +200,15 @@ public class OidcProvider
     /// constrained to https / data: to avoid mixed-content + SSRF surprises.</summary>
     public string ButtonIconUrl { get; set; } = string.Empty;
 
+    /// <summary>[v2.5.14] (issue #100, Re4mstr): when enabled, a user signing in
+    /// through this provider for the first time (auto-created) is required to set a
+    /// local Jellyfin password before normal use. Lets OIDC users obtain a usable
+    /// Jellyfin password for 3rd-party integrations that authenticate against it,
+    /// instead of being stuck with the random hardened password we set on
+    /// auto-create. The complexity policy is plugin-global (see
+    /// PluginConfiguration.OnboardingPassword*). Default off.</summary>
+    public bool ForcePasswordSetup { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }
 

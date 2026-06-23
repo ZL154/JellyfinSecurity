@@ -169,19 +169,27 @@
 
     function applyTranslations(root) {
         var scope = root || document;
+        // [v2.5.14] When a key is MISSING from the active-language bundle, tr(key,
+        // null) returns the key itself. Previously we then stamped that raw key
+        // over the element — so any key not yet present in a given language's
+        // translation file rendered as e.g. "tfa.admin.sso.lbl_callback_url"
+        // instead of readable text (in EVERY language, including English when the
+        // key is absent from en.json). Now we only overwrite when tr returned an
+        // actual translation (v !== key); otherwise we keep the element's authored
+        // (English) default text/attribute. Strict improvement, graceful fallback.
         var nodes = scope.querySelectorAll('[data-i18n-key]');
         for (var i = 0; i < nodes.length; i++) {
             var el = nodes[i];
             var key = el.getAttribute('data-i18n-key');
             var v = tr(key, null);
-            if (v != null) el.textContent = v;
+            if (v != null && v !== key) el.textContent = v;
         }
         var phs = scope.querySelectorAll('[data-i18n-placeholder]');
         for (var j = 0; j < phs.length; j++) {
             var pel = phs[j];
             var pkey = pel.getAttribute('data-i18n-placeholder');
             var pv = tr(pkey, null);
-            if (pv != null) pel.setAttribute('placeholder', pv);
+            if (pv != null && pv !== pkey) pel.setAttribute('placeholder', pv);
         }
         // v2.5.0: title (tooltip) and aria-label attribute conventions.
         var titles = scope.querySelectorAll('[data-i18n-title]');
@@ -189,14 +197,14 @@
             var tel = titles[t];
             var tkey = tel.getAttribute('data-i18n-title');
             var tv = tr(tkey, null);
-            if (tv != null) tel.setAttribute('title', tv);
+            if (tv != null && tv !== tkey) tel.setAttribute('title', tv);
         }
         var arias = scope.querySelectorAll('[data-i18n-aria-label]');
         for (var a = 0; a < arias.length; a++) {
             var ael = arias[a];
             var akey = ael.getAttribute('data-i18n-aria-label');
             var av = tr(akey, null);
-            if (av != null) ael.setAttribute('aria-label', av);
+            if (av != null && av !== akey) ael.setAttribute('aria-label', av);
         }
         // Update <html lang> for assistive tech.
         try { document.documentElement.setAttribute('lang', _lang); } catch (e) { /* ignore */ }

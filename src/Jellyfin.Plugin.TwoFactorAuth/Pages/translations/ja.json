@@ -784,5 +784,17 @@
   "tfa.admin.sso.template_user_help": "「自動作成」が有効な場合、新しく作成されたユーザーはJellyfinの既定値ではなく、このユーザーの権限とライブラリアクセスをコピーします。標準の動作を維持するには「(Jellyfinの既定値)」のままにしてください。",
   "tfa.admin.sso.template_user_default": "(Jellyfinの既定値)",
   "tfa.admin.sso.opt_show_button_help": "チェックを外すと、SSOは有効なまま（サインインURLは独自のボタンで引き続き機能します）で、プラグインの組み込み「…でサインイン」ボタンを非表示にします。",
-  "tfa.setup.sso.link_failed": "リンクに失敗しました"
+  "tfa.setup.sso.link_failed": "リンクに失敗しました",
+  "tfa.admin.sso.lbl_callback_url": "コールバック / リダイレクト URL",
+  "tfa.admin.sso.btn_copy": "コピー",
+  "tfa.admin.sso.lbl_callback_slug": "コールバックスラッグ",
+  "tfa.admin.sso.hint_callback_slug": "これを編集すると、コールバック URL の末尾部分の名前が変更されます（誤字の修正など）。既存の SSO リンクは自動的に移行されますが、新しい URL に合わせて ID プロバイダー側のリダイレクト URI を更新する必要があります。",
+  "tfa.admin.sso.opt_force_password": "新規ユーザーに初回サインイン時に Jellyfin パスワードの設定を必須にする（パスワードを必要とするアプリ/連携向け。複雑さは設定で指定）",
+  "tfa.admin.sso.alert_slug_renamed": "コールバックスラッグの名前を変更しました。ID プロバイダーのリダイレクト URI を次に更新してください:\n\n",
+  "tfa.admin.settings.lbl_onboarding_pw": "OIDC オンボーディングのパスワードポリシー",
+  "tfa.admin.settings.onboarding_pw_help": "OIDC プロバイダーで「新規ユーザーに Jellyfin パスワードの設定を必須にする」が有効な場合に適用されます。これらのユーザーが初回サインイン時に選択するパスワードの最低強度を制御します。",
+  "tfa.admin.settings.lbl_onboarding_pw_minlen": "最小文字数",
+  "tfa.admin.settings.opt_onboarding_pw_upper": "大文字を必須にする",
+  "tfa.admin.settings.opt_onboarding_pw_lower": "小文字を必須にする",
+  "tfa.admin.settings.opt_onboarding_pw_digit": "数字を必須にする"
 }

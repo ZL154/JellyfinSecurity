@@ -4686,6 +4686,115 @@ public class TwoFactorAuthController : ControllerBase
         return Ok(new { message = "Your password has been reset. You can now sign in." });
     }
 
+    // =====================================================================
+    // [v2.5.14] (#100, Re4mstr) OIDC onboarding — set a local Jellyfin password.
+    // An OIDC-auto-created user (provider has ForcePasswordSetup on) is flagged
+    // MustSetPassword and landed here by the bridge. The page authenticates with
+    // the just-minted session token and POSTs a chosen password; we validate it
+    // against the plugin-global policy, set it, and clear the flag.
+    // =====================================================================
+
+    [HttpGet("SetPassword")]
+    [AllowAnonymous]
+    [Produces("text/html")]
+    public IActionResult SetPasswordPage() => ServeEmbeddedPage("setpassword.html");
+
+    [HttpGet("SetPassword/Policy")]
+    [Authorize]
+    public IActionResult GetOnboardingPasswordPolicy()
+    {
+        var c = Plugin.Instance?.Configuration;
+        Response.Headers["Cache-Control"] = "no-store";
+        return Ok(new
+        {
+            minLength = Math.Clamp(c?.OnboardingPasswordMinLength ?? 16, 1, 256),
+            requireUppercase = c?.OnboardingPasswordRequireUppercase ?? false,
+            requireLowercase = c?.OnboardingPasswordRequireLowercase ?? false,
+            requireDigit = c?.OnboardingPasswordRequireDigit ?? false,
+        });
+    }
+
+    [HttpPost("SetPassword")]
+    [Authorize]
+    public async Task<IActionResult> SetOnboardingPassword([FromBody] SetPasswordBody body)
+    {
+        Guid userId;
+        try { userId = GetCurrentUserId(); }
+        catch (UnauthorizedAccessException) { return Unauthorized(); }
+
+        // Authenticated, but still rate-limit so a hijacked session can't brute the
+        // endpoint or spam ChangePassword.
+        var rl = _rateLimiter.CheckAndRecord("setpw:" + userId.ToString("N"), 10, TimeSpan.FromMinutes(5));
+        if (!rl.allowed)
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { message = "Too many attempts. Please try again shortly." });
+        }
+
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (!data.MustSetPassword)
+        {
+            // Not pending (already set, or never flagged) — don't let this be a
+            // generic password-change backdoor that skips Jellyfin's own checks.
+            return BadRequest(new { message = "No password setup is pending for this account." });
+        }
+
+        var pw = body?.Password ?? string.Empty;
+        var policyErr = ValidateOnboardingPassword(pw);
+        if (policyErr is not null)
+        {
+            return BadRequest(new { message = policyErr });
+        }
+
+        try
+        {
+            await _userManager.ChangePassword(userId, pw).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] (#100) Failed to set onboarding password for {UserId}", userId);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Could not set the password. Please try again." });
+        }
+
+        await _store.MutateAsync(userId, ud => ud.MustSetPassword = false).ConfigureAwait(false);
+        _logger.LogInformation("[2FA] (#100) User {UserId} set a local Jellyfin password during OIDC onboarding", userId);
+        return Ok(new { ok = true });
+    }
+
+    /// <summary>[v2.5.14] (#100) Validate an onboarding password against the
+    /// plugin-global policy. Returns null when valid, else a user-facing reason.</summary>
+    private static string? ValidateOnboardingPassword(string pw)
+    {
+        var c = Plugin.Instance?.Configuration;
+        var min = Math.Clamp(c?.OnboardingPasswordMinLength ?? 16, 1, 256);
+        if (string.IsNullOrEmpty(pw) || pw.Length < min)
+        {
+            return $"Password must be at least {min} characters.";
+        }
+
+        if ((c?.OnboardingPasswordRequireUppercase ?? false) && !pw.Any(char.IsUpper))
+        {
+            return "Password must contain an uppercase letter.";
+        }
+
+        if ((c?.OnboardingPasswordRequireLowercase ?? false) && !pw.Any(char.IsLower))
+        {
+            return "Password must contain a lowercase letter.";
+        }
+
+        if ((c?.OnboardingPasswordRequireDigit ?? false) && !pw.Any(char.IsDigit))
+        {
+            return "Password must contain a number.";
+        }
+
+        return null;
+    }
+
+    /// <summary>[v2.5.14] (#100) Body for POST /TwoFactorAuth/SetPassword.</summary>
+    public sealed class SetPasswordBody
+    {
+        public string Password { get; set; } = string.Empty;
+    }
+
     // v2.5.0: shared anonymous i18n helper script. Serves an embedded JS
     // resource so pre-login pages (login.html, challenge.html, setup.html)
     // can share a single tr() loader. The .js file is added in a follow-up

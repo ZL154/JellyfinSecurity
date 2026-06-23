@@ -465,4 +465,24 @@ public class PluginConfiguration : BasePluginConfiguration
     /// HMAC-only signing (current v1.4 behaviour). Asymmetric is preferred
     /// for SIEMs that want to verify without holding the shared secret.</summary>
     public string WebhookEd25519PrivateKey { get; set; } = string.Empty;
+
+    // ===================================================================
+    // [v2.5.14] (#100, Re4mstr) OIDC onboarding password policy. Applied
+    // when an OIDC provider has ForcePasswordSetup on and the auto-created
+    // user is asked to choose a local Jellyfin password. Global so a single
+    // policy covers every provider.
+    // ===================================================================
+
+    /// <summary>Minimum length for an onboarding-set password. Default 16.
+    /// Clamped to [1, 256] at validation time.</summary>
+    public int OnboardingPasswordMinLength { get; set; } = 16;
+
+    /// <summary>Require at least one uppercase letter. Default off.</summary>
+    public bool OnboardingPasswordRequireUppercase { get; set; }
+
+    /// <summary>Require at least one lowercase letter. Default off.</summary>
+    public bool OnboardingPasswordRequireLowercase { get; set; }
+
+    /// <summary>Require at least one digit. Default off.</summary>
+    public bool OnboardingPasswordRequireDigit { get; set; }
 }
