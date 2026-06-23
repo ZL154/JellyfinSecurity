@@ -1403,21 +1403,28 @@
             // to. iframe.print() always targets the iframe's document.
             var codes = window.__recoveryCodes || [];
             if (!codes.length) { alert(_tr('tfa.setup.recovery.no_codes_to_print', 'No codes to print.')); return; }
-            // Build the HTML in pieces so no single string literal contains
-            // the closing body or script tag — other plugins (Achievement
-            // Badges, StarTrack, JellyFlare) injection middlewares do naive
-            // substring searches for those tags and corrupt our page if they
-            // find them inside our own inline JS strings.
-            var endBody = '<' + '/body>';
-            var endHtml = '<' + '/html>';
-            var html = '<!DOCTYPE html><html><head><title>' + _tr('tfa.setup.recovery.export_title', 'Jellyfin 2FA Recovery Codes') + '</title>' +
-                '<style>body{font-family:sans-serif;padding:32px;color:#000;background:#fff;}' +
+            // Build the HTML so NO structural tag appears as a literal substring in
+            // our inline-JS source (this comment itself avoids literal closing tags
+            // for the same reason). Two classes of rewriter corrupt the page
+            // otherwise: (1) other plugins' injection middleware (Achievement Badges
+            // / StarTrack / JellyFlare) doing naive substring searches, and
+            // (2) [v2.5.15] (#95, chrisbehectik) a REVERSE-PROXY sub_filter that
+            // rewrites the head-closing tag to inject a browser-title-rebrand
+            // script. Such a filter finds that tag inside this very string and
+            // injects a script-closing tag, which prematurely ends THIS page's
+            // script element, dumps the rest of the page as raw text, and breaks all
+            // of Setup. Previously only the body/html closing tags were split; the
+            // head-region tags (head, title, style) were missed. tag() splits every
+            // one so the literal tag never appears contiguously in the source.
+            var tag = function (n) { return '<' + n + '>'; };
+            var html = '<!DOCTYPE html>' + tag('html') + tag('head') + tag('title') + _tr('tfa.setup.recovery.export_title', 'Jellyfin 2FA Recovery Codes') + tag('/title') +
+                tag('style') + 'body{font-family:sans-serif;padding:32px;color:#000;background:#fff;}' +
                 'h1{color:#000;}code{display:inline-block;font-size:18px;padding:6px 12px;border:1px solid #ccc;margin:4px;font-family:monospace;}' +
-                '</style></head><body><h1>' + _tr('tfa.setup.recovery.print_h1', 'Jellyfin Recovery Codes') + '</h1>' +
-                '<p>' + _tr('tfa.setup.recovery.print_generated_prefix', 'Generated') + ' ' + new Date().toLocaleString() + '. ' + _tr('tfa.setup.recovery.print_each_once', 'Each code works once.') + '</p>' +
-                codes.map(function(c){return '<code>' + c.replace(/[<>&]/g, '') + '</code>';}).join(' ') +
-                '<p style="margin-top:20px;color:#666;font-size:12px;">' + _tr('tfa.setup.recovery.print_secret_note', 'Keep these secret. If you lose them AND your authenticator, an admin must reset 2FA from the server.') + '</p>' +
-                endBody + endHtml;
+                tag('/style') + tag('/head') + tag('body') + tag('h1') + _tr('tfa.setup.recovery.print_h1', 'Jellyfin Recovery Codes') + tag('/h1') +
+                tag('p') + _tr('tfa.setup.recovery.print_generated_prefix', 'Generated') + ' ' + new Date().toLocaleString() + '. ' + _tr('tfa.setup.recovery.print_each_once', 'Each code works once.') + tag('/p') +
+                codes.map(function(c){return tag('code') + c.replace(/[<>&]/g, '') + tag('/code');}).join(' ') +
+                '<p style="margin-top:20px;color:#666;font-size:12px;">' + _tr('tfa.setup.recovery.print_secret_note', 'Keep these secret. If you lose them AND your authenticator, an admin must reset 2FA from the server.') + tag('/p') +
+                tag('/body') + tag('/html');
             var existing = document.getElementById('__printFrame');
             if (existing) existing.remove();
             var iframe = document.createElement('iframe');
