@@ -20,7 +20,7 @@
          runs as a post-build step via the `sharpfuzz` CLI inside the
          ClusterFuzzLite Docker image; the SharpFuzz NuGet package itself only
          provides the `Fuzzer.Run` entry point we call from Program.Main. -->
-    <PackageReference Include="SharpFuzz" Version="2.2.0" />
+    <PackageReference Include="SharpFuzz" Version="2.3.0" />
   </ItemGroup>
 
   <ItemGroup>
