@@ -139,6 +139,23 @@ public class OidcProvider
     /// Authentik can coexist without weakening Google's guard.</summary>
     public bool AllowPrivateNetworks { get; set; }
 
+    /// <summary>[v2.5.15] (#103, andrewdunndev): comma-separated additional
+    /// CIDRs (e.g. <c>169.254.1.2/32</c>) to permit in the outbound SSRF
+    /// guard, supplementing whatever <see cref="AllowPrivateNetworks"/> already
+    /// allows. Empty or whitespace-only = no change in behaviour (current guard
+    /// runs as-is). Addresses that fall within a listed CIDR are allowed
+    /// through without further safety checks.
+    ///
+    /// SECURITY: each listed CIDR gives the plugin permission to reach those
+    /// addresses on behalf of every OIDC call (discovery / token / userinfo /
+    /// jwks / picture). Only list addresses you own and trust. The primary use
+    /// case is rootless Podman deployments where the host-gateway is the
+    /// link-local address <c>169.254.1.2</c> (<c>host.containers.internal</c>),
+    /// which the SSRF guard correctly blocks even when AllowPrivateNetworks is
+    /// on — this field provides a surgical opt-in for that specific
+    /// address.</summary>
+    public string AdditionalAllowedCidrs { get; set; } = string.Empty;
+
     /// <summary>[v2.5.10] (issue #66, ZEROX7): when true, on each successful
     /// sign-in the plugin copies the IdP-provided profile picture into the
     /// Jellyfin user's avatar. The URL is read from <see cref="PictureClaim"/>

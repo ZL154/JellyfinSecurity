@@ -1556,6 +1556,9 @@
                     // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
                     var allowPrivEl = page.querySelector('#ssoAllowPrivate');
                     if (allowPrivEl) allowPrivEl.checked = prov ? !!prov.allowPrivateNetworks : false;
+                    // [v2.5.15] (#103): operator SSRF allowlist.
+                    var addCidrsEl = page.querySelector('#ssoAdditionalCidrs');
+                    if (addCidrsEl) addCidrsEl.value = prov ? (prov.additionalAllowedCidrs || '') : '';
                     // [v2.5.10] force account chooser.
                     page.querySelector('#ssoPromptSelect').checked = prov ? !!prov.promptSelectAccount : false;
                     // [v2.5.10] (#66) profile-picture sync.
@@ -1654,6 +1657,8 @@
                         ForceHttps: page.querySelector('#ssoForceHttps').checked,
                         // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
                         AllowPrivateNetworks: (page.querySelector('#ssoAllowPrivate') || {}).checked === true,
+                        // [v2.5.15] (#103): operator SSRF allowlist.
+                        AdditionalAllowedCidrs: (page.querySelector('#ssoAdditionalCidrs') ? page.querySelector('#ssoAdditionalCidrs').value.trim() : ''),
                         // [v2.5.10] force account chooser (prompt=select_account).
                         PromptSelectAccount: page.querySelector('#ssoPromptSelect').checked,
                         // [v2.5.10] (#66) profile-picture sync + (#65) role→library access.
