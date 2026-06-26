@@ -1835,6 +1835,17 @@ public class OidcService : IDisposable
         var ipStr = addr.IsIPv4MappedToIPv6 ? addr.MapToIPv4().ToString() : addr.ToString();
         foreach (var raw in additionalCidrs.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
+            // [v2.5.15] (#103): BypassEvaluator.IsIpInCidr is exception-free (it
+            // returns false on unparseable input), so without this pre-check a
+            // syntactically malformed entry would be skipped SILENTLY and the
+            // operator would never learn their CIDR typo was ignored. Pre-validate
+            // so the warning actually fires; a bad entry still can't block the
+            // other (valid) entries or the outbound call.
+            if (!IsSyntacticallyValidCidr(raw))
+            {
+                _logger.LogWarning("[2FA] SSRF allowlist: skipping malformed CIDR entry '{Cidr}'", raw);
+                continue;
+            }
             try
             {
                 if (BypassEvaluator.IsIpInCidr(ipStr, raw)) return true;
@@ -1845,6 +1856,22 @@ public class OidcService : IDisposable
             }
         }
         return false;
+    }
+
+    // [v2.5.15] (#103): a CIDR entry is "ip" (bare host) or "ip/prefix". Valid
+    // syntax does NOT guarantee a match (e.g. 0.0.0.0/0 is rejected by
+    // IsIpInCidr by design); this only catches genuinely unparseable entries so
+    // they can be logged rather than silently ignored.
+    private static bool IsSyntacticallyValidCidr(string entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry)) return false;
+        var slash = entry.IndexOf('/');
+        var ipPart = slash >= 0 ? entry[..slash] : entry;
+        if (!IPAddress.TryParse(ipPart, out var ip)) return false;
+        if (slash < 0) return true; // bare host address (treated as /32 or /128)
+        if (!int.TryParse(entry[(slash + 1)..], out var prefix)) return false;
+        var maxPrefix = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 128 : 32;
+        return prefix >= 0 && prefix <= maxPrefix;
     }
 
     private async Task EnsureSafeOutboundAsync(string urlString, bool allowPrivate = false, string? additionalAllowedCidrs = null)
