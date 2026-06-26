@@ -2682,6 +2682,43 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
+    // 12a. POST /TwoFactorAuth/Users/{id}/RequirePasswordSetup [Authorize(Policy = "RequiresElevation")]
+    // -------------------------------------------------------------------------
+    // (#104) Re-arm MustSetPassword so an admin can let a returning user who
+    // forgot their Jellyfin-local password set a new one on next OIDC login,
+    // without SMTP. The existing no-old-password gate in SetOnboardingPassword
+    // (the MustSetPassword check) is unchanged; this only sets the flag the
+    // same way new-user OIDC provision already does. The old password stays
+    // valid until the user completes setup, so no one is locked out.
+
+    [HttpPost("Users/{id}/RequirePasswordSetup")]
+    [Authorize(Policy = "RequiresElevation")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult> RequirePasswordSetup([FromRoute] Guid id)
+    {
+        // SECURITY (#104): require step-up. Re-arming MustSetPassword on behalf
+        // of another user is a privileged action — same classification as
+        // ToggleUser / ResetOtherUser2fa.
+        var guard = StepUpGuard(StepUpAction.ResetOtherUser2fa);
+        if (guard is not null) return guard;
+
+        var ju = _userManager.GetUserById(id);
+        await _store.MutateAsync(id, ud => ud.MustSetPassword = true).ConfigureAwait(false);
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = id,
+            Username = ju?.Username ?? id.ToString(),
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            Result = AuditResult.ConfigChanged,
+            Method = "admin_require_pw_setup",
+        }).ConfigureAwait(false);
+
+        return Ok();
+    }
+
+    // -------------------------------------------------------------------------
     // 13. GET /TwoFactorAuth/AuditLog [Authorize(Policy = "RequiresElevation")]
     // -------------------------------------------------------------------------
 
