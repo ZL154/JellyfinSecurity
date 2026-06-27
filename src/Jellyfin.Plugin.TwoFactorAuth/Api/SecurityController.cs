@@ -122,6 +122,9 @@ public class SecurityController : ControllerBase
         // [v2.5.7] (issue #54, cwildfoerster): per-provider opt-in to bypass
         // the v2.5.5 SSRF guard for LAN/VPN IdPs. Default false.
         public bool AllowPrivateNetworks { get; set; }
+        // [v2.5.15] (#103): operator-controlled SSRF allowlist (comma-separated
+        // CIDRs) for non-RFC1918 / link-local IdP addresses the guard rejects.
+        public string AdditionalAllowedCidrs { get; set; } = string.Empty;
         // [v2.5.10] (#66) sync IdP avatar into the Jellyfin profile picture.
         public bool SyncProfilePicture { get; set; }
         public string PictureClaim { get; set; } = "picture";
@@ -225,6 +228,7 @@ public class SecurityController : ControllerBase
             showLoginButton = p.ShowLoginButton,
             forceHttps = p.ForceHttps,
             allowPrivateNetworks = p.AllowPrivateNetworks,
+            additionalAllowedCidrs = p.AdditionalAllowedCidrs,
             syncProfilePicture = p.SyncProfilePicture,
             pictureClaim = p.PictureClaim,
             applyRoleLibraryAccess = p.ApplyRoleLibraryAccess,
@@ -289,6 +293,8 @@ public class SecurityController : ControllerBase
             ForceHttps = req.ForceHttps,
             // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
             AllowPrivateNetworks = req.AllowPrivateNetworks,
+            // [v2.5.15] (#103): per-provider SSRF allowlist (extra CIDRs).
+            AdditionalAllowedCidrs = req.AdditionalAllowedCidrs,
             // [v2.5.10] (#66 / #65)
             SyncProfilePicture = req.SyncProfilePicture,
             PictureClaim = string.IsNullOrWhiteSpace(req.PictureClaim) ? "picture" : req.PictureClaim.Trim(),
@@ -345,6 +351,8 @@ public class SecurityController : ControllerBase
         existing.ForceHttps = req.ForceHttps;
         // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
         existing.AllowPrivateNetworks = req.AllowPrivateNetworks;
+        // [v2.5.15] (#103): per-provider SSRF allowlist (extra CIDRs).
+        existing.AdditionalAllowedCidrs = req.AdditionalAllowedCidrs;
         // [v2.5.10] (#66 / #65)
         existing.SyncProfilePicture = req.SyncProfilePicture;
         existing.PictureClaim = string.IsNullOrWhiteSpace(req.PictureClaim) ? "picture" : req.PictureClaim.Trim();

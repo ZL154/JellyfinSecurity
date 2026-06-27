@@ -274,7 +274,7 @@ public class OidcService : IDisposable
         // 127.0.0.1 / 169.254.169.254 / a private IP and the cached URL would
         // happily POST credentials there. GetJwksAsync already does this; the
         // token + userinfo paths were the gap.
-        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
         var tokenResp = await _http.PostAsync(disc.TokenEndpoint, tokenForm).ConfigureAwait(false);
 
         if (!tokenResp.IsSuccessStatusCode)
@@ -403,7 +403,7 @@ public class OidcService : IDisposable
             ["client_secret"] = provider.ClientSecret,
             ["code_verifier"] = pending.CodeVerifier,
         });
-        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
         var tokenResp = await _http.PostAsync(disc.TokenEndpoint, tokenForm).ConfigureAwait(false);
         if (!tokenResp.IsSuccessStatusCode)
         {
@@ -546,7 +546,7 @@ public class OidcService : IDisposable
             ["client_secret"] = provider.ClientSecret,
             ["code_verifier"] = pending.CodeVerifier,
         });
-        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
         var tokenResp = await _http.PostAsync(disc.TokenEndpoint, tokenForm).ConfigureAwait(false);
         if (!tokenResp.IsSuccessStatusCode)
         {
@@ -718,7 +718,7 @@ public class OidcService : IDisposable
                 // SECURITY [v2.5.6] (ext review #6): re-validate userinfo
                 // endpoint before each fetch — same DNS-rebind window as the
                 // token endpoint. See GetJwksAsync for the same pattern.
-                await EnsureSafeOutboundAsync(disc.UserInfoEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
+                await EnsureSafeOutboundAsync(disc.UserInfoEndpoint, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
                 var extra = await FetchUserInfoClaimsAsync(disc.UserInfoEndpoint, accessToken, provider.EmailClaim).ConfigureAwait(false);
                 if (extra.Groups.Length > 0)
                 {
@@ -1173,7 +1173,7 @@ public class OidcService : IDisposable
         }
 
         // SSRF guard — same egress policy as discovery/token/userinfo fetches.
-        await EnsureSafeOutboundAsync(pictureUrl, provider.AllowPrivateNetworks).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(pictureUrl, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
 
         using var resp = await _http.GetAsync(pictureUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
@@ -1784,7 +1784,7 @@ public class OidcService : IDisposable
         // DiscoveryUrl at http://169.254.169.254/latest/meta-data (AWS IMDS)
         // or http://10.0.0.1:8080/internal-api or file:// and exfiltrate
         // those targets via the Discovery response shape.
-        await EnsureSafeOutboundAsync(provider.DiscoveryUrl, provider.AllowPrivateNetworks).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(provider.DiscoveryUrl, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
 
         var resp = await _http.GetFromJsonAsync<JsonElement>(provider.DiscoveryUrl).ConfigureAwait(false);
         var disc = new Discovery(
@@ -1800,12 +1800,12 @@ public class OidcService : IDisposable
         // (e.g. accounts.google.com/.well-known/openid-configuration) but
         // a malicious or compromised IdP could still return jwks_uri /
         // token_endpoint pointing at private IPs to pivot SSRF.
-        await EnsureSafeOutboundAsync(disc.AuthorizationEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
-        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
-        await EnsureSafeOutboundAsync(disc.JwksUri, provider.AllowPrivateNetworks).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.AuthorizationEndpoint, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.JwksUri, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
         if (!string.IsNullOrEmpty(disc.UserInfoEndpoint))
         {
-            await EnsureSafeOutboundAsync(disc.UserInfoEndpoint, provider.AllowPrivateNetworks).ConfigureAwait(false);
+            await EnsureSafeOutboundAsync(disc.UserInfoEndpoint, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
         }
 
         _discoveryCache[provider.Id] = disc;
@@ -1823,7 +1823,58 @@ public class OidcService : IDisposable
     /// = true to opt out of the HTTPS-only + public-unicast-IP checks for
     /// providers whose <c>AllowPrivateNetworks</c> is set (LAN/VPN IdPs).
     /// The URL syntax check still runs; the safety filters are skipped.</summary>
-    private async Task EnsureSafeOutboundAsync(string urlString, bool allowPrivate = false)
+    // [v2.5.15] (#103): returns true when <paramref name="addr"/> falls within
+    // any of the operator-listed CIDRs in <paramref name="additionalCidrs"/>
+    // (comma-separated). Malformed entries are skipped and logged rather than
+    // throwing, so a typo in one CIDR can't block all outbound calls. Returns
+    // false when the list is null/empty (no change in behaviour for existing
+    // providers that haven't set the field).
+    private bool IsInAllowlist(IPAddress addr, string? additionalCidrs)
+    {
+        if (string.IsNullOrWhiteSpace(additionalCidrs)) return false;
+        var ipStr = addr.IsIPv4MappedToIPv6 ? addr.MapToIPv4().ToString() : addr.ToString();
+        foreach (var raw in additionalCidrs.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            // [v2.5.15] (#103): BypassEvaluator.IsIpInCidr is exception-free (it
+            // returns false on unparseable input), so without this pre-check a
+            // syntactically malformed entry would be skipped SILENTLY and the
+            // operator would never learn their CIDR typo was ignored. Pre-validate
+            // so the warning actually fires; a bad entry still can't block the
+            // other (valid) entries or the outbound call.
+            if (!IsSyntacticallyValidCidr(raw))
+            {
+                _logger.LogWarning("[2FA] SSRF allowlist: skipping malformed CIDR entry '{Cidr}'", raw);
+                continue;
+            }
+            try
+            {
+                if (BypassEvaluator.IsIpInCidr(ipStr, raw)) return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[2FA] SSRF allowlist: skipping malformed CIDR entry '{Cidr}'", raw);
+            }
+        }
+        return false;
+    }
+
+    // [v2.5.15] (#103): a CIDR entry is "ip" (bare host) or "ip/prefix". Valid
+    // syntax does NOT guarantee a match (e.g. 0.0.0.0/0 is rejected by
+    // IsIpInCidr by design); this only catches genuinely unparseable entries so
+    // they can be logged rather than silently ignored.
+    private static bool IsSyntacticallyValidCidr(string entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry)) return false;
+        var slash = entry.IndexOf('/');
+        var ipPart = slash >= 0 ? entry[..slash] : entry;
+        if (!IPAddress.TryParse(ipPart, out var ip)) return false;
+        if (slash < 0) return true; // bare host address (treated as /32 or /128)
+        if (!int.TryParse(entry[(slash + 1)..], out var prefix)) return false;
+        var maxPrefix = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 128 : 32;
+        return prefix >= 0 && prefix <= maxPrefix;
+    }
+
+    private async Task EnsureSafeOutboundAsync(string urlString, bool allowPrivate = false, string? additionalAllowedCidrs = null)
     {
         if (string.IsNullOrWhiteSpace(urlString))
         {
@@ -1849,9 +1900,12 @@ public class OidcService : IDisposable
             // Even in this mode we still refuse loopback, link-local / IMDS
             // (169.254.169.254), multicast, and the unspecified address — the
             // classic SSRF pivots. Only genuinely-private unicast is allowed.
+            // [v2.5.15] (#103): an address that the operator explicitly listed
+            // in AdditionalAllowedCidrs bypasses the dangerous-IP check.
             if (IPAddress.TryParse(uri.Host, out var litPriv))
             {
-                EnsureNotDangerousIp(litPriv, uri.Host);
+                if (!IsInAllowlist(litPriv, additionalAllowedCidrs))
+                    EnsureNotDangerousIp(litPriv, uri.Host);
                 return;
             }
             IPAddress[] privAddrs;
@@ -1870,7 +1924,8 @@ public class OidcService : IDisposable
             }
             foreach (var addr in privAddrs)
             {
-                EnsureNotDangerousIp(addr, uri.Host);
+                if (!IsInAllowlist(addr, additionalAllowedCidrs))
+                    EnsureNotDangerousIp(addr, uri.Host);
             }
             return;
         }
@@ -1884,9 +1939,11 @@ public class OidcService : IDisposable
                 $"Outbound URL must use HTTPS, got '{uri.Scheme}' for host '{uri.Host}'.");
         }
         // If the host is a literal IP, validate directly without DNS.
+        // [v2.5.15] (#103): allowlisted addresses bypass EnsurePublicIp too.
         if (IPAddress.TryParse(uri.Host, out var literal))
         {
-            EnsurePublicIp(literal, uri.Host);
+            if (!IsInAllowlist(literal, additionalAllowedCidrs))
+                EnsurePublicIp(literal, uri.Host);
             return;
         }
         // Resolve all A/AAAA records and refuse if any is private. This
@@ -1909,7 +1966,8 @@ public class OidcService : IDisposable
         }
         foreach (var addr in addresses)
         {
-            EnsurePublicIp(addr, uri.Host);
+            if (!IsInAllowlist(addr, additionalAllowedCidrs))
+                EnsurePublicIp(addr, uri.Host);
         }
     }
 
@@ -2026,7 +2084,7 @@ public class OidcService : IDisposable
         // SECURITY [v2.5.5] (Finding 3): re-validate even though Discovery
         // also validated — DNS could have changed between cache populate
         // and now, and the cache TTL on Discovery (1h) is independent.
-        await EnsureSafeOutboundAsync(disc.JwksUri, provider.AllowPrivateNetworks).ConfigureAwait(false);
+        await EnsureSafeOutboundAsync(disc.JwksUri, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
         var json = await _http.GetStringAsync(disc.JwksUri).ConfigureAwait(false);
         var jwks = new JsonWebKeySet(json);
         _jwksCache[provider.Id] = new JwksCacheEntry(jwks, DateTime.UtcNow);
