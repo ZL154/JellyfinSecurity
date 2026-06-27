@@ -1241,6 +1241,7 @@ If you're on Tizen / Jellyfin for Smart TV and couldn't sign in after v1.4, this
 Contributors who have shipped substantive changes to this plugin:
 
 - **[@glauciocampos](https://github.com/glauciocampos)** — multi-architecture QuestPDF runtime fix and fat-package build flow ([v2.2.1](#221--multi-architecture-support)). Originally cut as `v2.1.0.1` in [their fork](https://github.com/glauciocampos/JellyfinSecurity). Pi / Apple-Silicon-Linux / Alpine deployments work because of this.
+- **[@andrewdunndev](https://github.com/andrewdunndev)** — configurable SSRF allowlist for non-RFC1918 / link-local IdP addresses ([#103](https://github.com/ZL154/JellyfinSecurity/pull/106)), and an admin endpoint to re-arm local-password recovery for SMTP-less setups ([#104](https://github.com/ZL154/JellyfinSecurity/pull/105)).
 
 Maintained by **[@ZL154](https://github.com/ZL154)**. PRs and issue reports welcome.
 
