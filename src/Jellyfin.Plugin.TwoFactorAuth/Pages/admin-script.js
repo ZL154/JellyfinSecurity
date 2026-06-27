@@ -650,7 +650,8 @@
                               '<button class="tfa-btn tfa-btn-primary tfa-toggle" data-id="' + uid + '" data-next="' + !totp + '">' + escapeHtml(totp ? tDisable : tEnable) + '</button> ' +
                               '<button class="tfa-btn tfa-btn-danger tfa-force-logout" data-id="' + uid + '">' + escapeHtml(tForceLogout) + '</button> ' +
                               '<button class="tfa-btn tfa-revoke-all" data-id="' + uid + '">' + escapeHtml(tRevokeAll) + '</button> ' +
-                              '<button class="tfa-btn tfa-export-user" data-id="' + uid + '">' + escapeHtml(tExport) + '</button>' +
+                              '<button class="tfa-btn tfa-export-user" data-id="' + uid + '">' + escapeHtml(tExport) + '</button> ' +
+                              '<button class="tfa-btn tfa-require-pw-setup" data-id="' + uid + '">' + escapeHtml(_tr('tfa.admin.users.require_pw_setup', 'Require password setup')) + '</button>' +
                             '</td>' +
                             '</tr>' +
                             // Hidden details row — populated lazily on first toggle
@@ -693,6 +694,16 @@
                     body.querySelectorAll('.tfa-export-user').forEach(function(b) {
                         b.addEventListener('click', function() {
                             downloadGet('TwoFactorAuth/Users/' + encodeURIComponent(b.dataset.id) + '/Export', '2fa-export-' + b.dataset.id + '.json');
+                        });
+                    });
+                    // (#104) Re-arm MustSetPassword so the user is routed to
+                    // /TwoFactorAuth/SetPassword on next OIDC login.
+                    body.querySelectorAll('.tfa-require-pw-setup').forEach(function(b) {
+                        b.addEventListener('click', function() {
+                            if (!confirm(_tr('tfa.admin.users.confirm_require_pw_setup', 'Flag this user to set a new local Jellyfin password on their next OIDC login? Their existing password remains valid until they complete setup.'))) return;
+                            apiPost('TwoFactorAuth/Users/' + b.dataset.id + '/RequirePasswordSetup').then(function() {
+                                alert(_tr('tfa.admin.users.require_pw_setup_done', 'Done. The user will be prompted to set a new password on their next sign-in.'));
+                            }).catch(function() { alert(_tr('tfa.admin.common.error', 'An error occurred. Check that step-up is satisfied.')); });
                         });
                     });
                     wireUsersRowExtras();
