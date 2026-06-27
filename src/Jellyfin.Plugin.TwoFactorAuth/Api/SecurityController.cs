@@ -1036,7 +1036,7 @@ public class SecurityController : ControllerBase
             + "<body><div class=\"card\"><div class=\"spin\"></div><div id=\"msg\">Completing sign-in…</div>"
             + "<div id=\"err\" class=\"err\"></div></div><script>"
             + "(function(){"
-            + "var u=" + uname + ",t=" + tok + ",land=" + land + ";"
+            + "var u=" + uname + ",t=" + tok + ",land=" + land + ",forcePw=" + (mustSetPassword ? "true" : "false") + ";"
             + "var did=(function(){try{var x=localStorage.getItem('_deviceId2');if(!x){x=Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join('');localStorage.setItem('_deviceId2',x);}return x;}catch(e){return 'bridge-'+Date.now();}})();"
             + "var auth='MediaBrowser Client=\"Jellyfin Web\", Device=\"Browser\", DeviceId=\"'+did+'\", Version=\"10.11.0\"';"
             + "fetch('/Users/AuthenticateByName',{method:'POST',headers:{'Content-Type':'application/json','X-Emby-Authorization':auth,'Authorization':auth},body:JSON.stringify({Username:u,Pw:t})})"
@@ -1054,6 +1054,12 @@ public class SecurityController : ControllerBase
             // one device but not another (#98). The OIDC sign-in just succeeded, so
             // there is by definition no pending 2FA challenge to preserve.
             + "try{sessionStorage.removeItem('__tfa_pending');}catch(e){}"
+            // [v2.5.16] (#100, Re4mstr) For a force-password user, set a marker so
+            // inject.js bounces them back to /SetPassword if they later reach /web
+            // (e.g. by pressing Back) without completing it. Cleared by the
+            // set-password page on a successful set, or if the server reports no
+            // setup pending (stale). This makes the forced step inescapable.
+            + "try{if(forcePw)localStorage.setItem('__tfa_set_pw_required','1');}catch(e){}"
             + "document.getElementById('msg').textContent='Signed in as '+res.User.Name+' — redirecting…';"
             + "setTimeout(function(){window.location.href=land;},400);"
             + "})"

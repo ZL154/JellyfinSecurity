@@ -3062,6 +3062,36 @@ public class TwoFactorAuthController : ControllerBase
             return BadRequest(new { message = "Limit reached. Revoke an existing app password first." });
         }
 
+        // [v2.5.16] (#102/#107/#108) Route this user's auth through our provider so
+        // the app-password credential check in TwoFactorAuthProvider actually runs on
+        // /Users/AuthenticateByName. A TOTP-only user otherwise stays on Jellyfin's
+        // DefaultAuthenticationProvider (only the passkey + OIDC paths reassigned
+        // before), which validates the submitted app password against their REAL
+        // password and rejects it — so native / third-party apps (Symfonium, Seerr,
+        // …) could never sign in with an app password, even though the web client
+        // worked. Mirrors the passkey/OIDC reassignment; TwoFactorAuthProvider
+        // delegates real-password logins back to the default provider, so normal
+        // sign-in is unaffected. Best-effort: a failure here must not fail the
+        // create (the password is already stored).
+        try
+        {
+            var ourProviderId = typeof(TwoFactorAuthProvider).FullName!;
+            var routedUser = _userManager.GetUserById(userId);
+            if (routedUser is not null
+                && !string.Equals(routedUser.AuthenticationProviderId, ourProviderId, StringComparison.Ordinal))
+            {
+                routedUser.AuthenticationProviderId = ourProviderId;
+                await _userManager.UpdateUserAsync(routedUser).ConfigureAwait(false);
+                _logger.LogInformation(
+                    "[2FA] Routed {User} through TwoFactorAuthProvider so app passwords work on native clients",
+                    routedUser.Username);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Could not reassign AuthenticationProviderId on app-password create for {UserId}", userId);
+        }
+
         await _store.AddAuditEntryAsync(new AuditEntry
         {
             Timestamp = DateTime.UtcNow,
@@ -4592,6 +4622,9 @@ public class TwoFactorAuthController : ControllerBase
             // [v2.5.12] (#80, ZEROX7) sub-option: hide Jellyfin's native
             // forgot-password link (only meaningful when recovery is on).
             hideBuiltInForgotPassword = cfg.HideBuiltInForgotPassword,
+            // [v2.5.16] (#79, ZEROX7) UI gate: place the injected login links
+            // below the Quick Connect button. Opt-in, default false.
+            loginLinksBelowQuickConnect = cfg.LoginLinksBelowQuickConnect,
         });
     }
 

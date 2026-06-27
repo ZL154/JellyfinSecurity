@@ -714,6 +714,14 @@
                                 </label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.hardening.hide_builtin_passkey_help">Hides only the passkey shortcut button. Combine with the 2FA toggle above for full OIDC-only mode where only your configured IdP buttons remain visible.</div>
                             </div>
+                            <!-- [v2.5.16] (#79, ZEROX7): place injected login links below Quick Connect. -->
+                            <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
+                                <label class="tfa-check-label">
+                                    <input type="checkbox" id="cfgLoginLinksBelowQuickConnect" is="emby-checkbox" />
+                                    <span data-i18n-key="tfa.admin.hardening.links_below_qc_label">Show the SSO / 2FA / passkey links below the "Use Quick Connect" button</span>
+                                </label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.hardening.links_below_qc_help">Moves the plugin's injected login links beneath Jellyfin's Quick Connect button instead of directly under Sign In. Purely cosmetic; leave off to keep the default placement.</div>
+                            </div>
                         </div>
 
                         <div class="tfa-section">

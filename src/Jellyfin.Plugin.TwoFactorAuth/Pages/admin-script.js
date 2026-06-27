@@ -1038,6 +1038,9 @@
                         // [v2.5.12] (#80) hide-built-in-forgot sub-option (default on).
                         var hideFp = page.querySelector('#cfgHideBuiltInForgotPassword');
                         if (hideFp) hideFp.checked = c.HideBuiltInForgotPassword !== false;
+                        // [v2.5.16] (#79) place injected login links below Quick Connect (opt-in).
+                        var lbqc = page.querySelector('#cfgLoginLinksBelowQuickConnect');
+                        if (lbqc) lbqc.checked = c.LoginLinksBelowQuickConnect === true;
                         // [v2.5.14] (#100) OIDC onboarding password policy.
                         var obLen = page.querySelector('#cfgOnboardingPwMinLen');
                         if (obLen) obLen.value = c.OnboardingPasswordMinLength || 16;
@@ -1199,6 +1202,10 @@
                         }
                         if (page.querySelector('#cfgHideBuiltInForgotPassword')) {
                             c.HideBuiltInForgotPassword = page.querySelector('#cfgHideBuiltInForgotPassword').checked;
+                        }
+                        // [v2.5.16] (#79) links-below-Quick-Connect opt-in.
+                        if (page.querySelector('#cfgLoginLinksBelowQuickConnect')) {
+                            c.LoginLinksBelowQuickConnect = page.querySelector('#cfgLoginLinksBelowQuickConnect').checked;
                         }
                         // [v2.5.14] (#100) OIDC onboarding password policy.
                         if (page.querySelector('#cfgOnboardingPwMinLen')) {

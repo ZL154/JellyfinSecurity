@@ -161,6 +161,23 @@
         __tfaRedirecting = true;
         try { window.location.href = '/TwoFactorAuth/Login'; } catch (e) {}
     }
+    // [v2.5.16] (#100, Re4mstr) Enforce the OIDC force-password-onboarding step so
+    // a flagged user can't escape it by pressing Back. The OIDC bridge sets
+    // localStorage['__tfa_set_pw_required'] before landing a flagged user on
+    // /TwoFactorAuth/SetPassword; if they instead reach /web (Back button, typed
+    // URL, an existing session), bounce them straight back to the set-password
+    // page. One-shot + skipped on /TwoFactorAuth/* so it can't loop, and the
+    // set-password page clears the flag on a successful set (or if the server says
+    // no setup is pending), so a stale flag self-heals.
+    function enforceForcedPasswordSetup() {
+        if (__tfaRedirecting) return;
+        try {
+            if ((window.location.pathname || '').toLowerCase().indexOf('/twofactorauth/') === 0) return;
+            if (localStorage.getItem('__tfa_set_pw_required') !== '1') return;
+        } catch (e) { return; }
+        __tfaRedirecting = true;
+        try { window.location.href = '/TwoFactorAuth/SetPassword'; } catch (e) {}
+    }
     function isAlwaysAllowedPath(url) {
         if (!url) return true;
         try {
@@ -859,6 +876,43 @@
         } catch (e) { /* ignore */ }
     }
 
+    // [v2.5.16] (#79, ZEROX7) Hide the native "Forgot password" control when there
+    // is no visible password field to recover — e.g. password login is hidden
+    // (OIDC-only mode) or collapsed behind "Sign in with a password instead". A
+    // reset link is meaningless when the user has no password box to type into.
+    // Only acts when NO visible password input exists, so normal password logins
+    // are untouched.
+    function hideForgotPasswordWhenNoPassword() {
+        if (!isLoginPage()) return;
+        try {
+            var pw = document.querySelector('input[type="password"]');
+            if (pw && pw.offsetParent !== null) return; // a password field is visible — leave it
+            var native = document.querySelectorAll('.btnForgotPassword');
+            for (var i = 0; i < native.length; i++) {
+                if (!native[i].closest('#__tfa_forgot')) native[i].style.display = 'none';
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    // [v2.5.16] (#79, ZEROX7) Opt-in: move the injected login links (OIDC / 2FA /
+    // passkey) to just below Jellyfin's "Use Quick Connect" button, in that order.
+    // Default off (flag from public config). Idempotent + theme-safe: if Quick
+    // Connect isn't found it leaves the links where they are. Runs each inject tick.
+    function repositionLinksBelowQuickConnect() {
+        try {
+            if (!_tfaPublicCfg || !_tfaPublicCfg.loginLinksBelowQuickConnect) return;
+            var qc = document.querySelector('.btnQuick');
+            if (!qc || qc.offsetParent === null || !qc.parentNode) return;
+            var after = qc;
+            [OIDC_BUTTONS_ID, BUTTON_ID, '__twofactor_passkey_btn'].forEach(function (id) {
+                var el = document.getElementById(id);
+                if (!el) return;
+                if (after.nextSibling !== el) { after.parentNode.insertBefore(el, after.nextSibling); }
+                after = el;
+            });
+        } catch (e) { /* ignore */ }
+    }
+
     function addLoginButton() {
         if (!isLoginPage()) return;
         // [v2.5.7] (issue #48 feature, Gaarindor): while the public-config
@@ -871,6 +925,8 @@
         addForgotPasswordLink();
         // [v2.5.12] (#80) hide Jellyfin's native forgot-password link when ours is active.
         hideNativeForgotPassword();
+        // [v2.5.16] (#79) also hide it when there's no visible password field at all.
+        hideForgotPasswordWhenNoPassword();
         var hideTwoFa = !!_tfaPublicCfg.hideBuiltInTwoFactorButton;
         var hidePasskey = !!_tfaPublicCfg.hideBuiltInPasskeyButton;
         var signInBtn = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
@@ -914,6 +970,9 @@
             addStyles();
             addPasskeyButton(signInBtn, anchorAbove);
         }
+
+        // [v2.5.16] (#79) optionally relocate the injected links below Quick Connect.
+        repositionLinksBelowQuickConnect();
     }
 
     // v2.1: passkey primary login button — sits below the 2FA button. Click
@@ -1151,7 +1210,19 @@
                 oidcModalStatus(Tf('tfa.login.oidc_signed_as', 'Signed in as {name} — opening Jellyfin…', { name: (res.User && res.User.Name ? res.User.Name : user) }));
                 setTimeout(function () { closeOidcModal(); window.location.href = '/web/index.html'; }, 300);
             })
-            .catch(function (e) { oidcModalStatus(Tf('tfa.login.oidc_failed', 'Sign-in failed: {msg}. Tap the button to retry.', { msg: (e && e.message ? e.message : 'error') })); });
+            .catch(function (e) {
+                var msg = (e && e.message ? e.message : 'error');
+                // [v2.5.16] (#64) The bridge token is single-use + short-lived. A
+                // 401/403 here means it was already consumed, has expired, or a
+                // reverse proxy (e.g. Cloudflare) blocked the call — retrying the
+                // SAME token can never succeed, so don't tell the user to "retry".
+                // Steer them to restart, which mints a fresh token via startInAppOidc.
+                if (/HTTP 40[13]/.test(msg)) {
+                    oidcModalStatus(T('tfa.login.oidc_expired', 'That sign-in code expired or was blocked. Close this and tap “Sign in with your provider” again to restart. If it keeps failing, a reverse proxy (e.g. Cloudflare) may be blocking the request.'));
+                } else {
+                    oidcModalStatus(Tf('tfa.login.oidc_failed', 'Sign-in failed: {msg}. Tap the button to retry.', { msg: msg }));
+                }
+            });
     }
 
     function pollDeviceFlow(pollToken) {
@@ -1311,6 +1382,10 @@
     }
 
     function start() {
+        // [v2.5.16] (#100) Enforce force-password-onboarding before anything else,
+        // so a flagged user who lands on /web (e.g. via Back) is bounced to the
+        // set-password page instead of slipping past the forced step.
+        enforceForcedPasswordSetup();
         ensureI18n();
         tryInject();
 

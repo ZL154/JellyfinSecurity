@@ -287,6 +287,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// when that is on. Default true.</summary>
     public bool HideBuiltInForgotPassword { get; set; } = true;
 
+    /// <summary>[v2.5.16] (issue #79, ZEROX7): when true, the plugin's injected
+    /// login links (SSO / 2FA / passkey) are placed BELOW Jellyfin's "Use Quick
+    /// Connect" button instead of directly under the Sign In button. Opt-in —
+    /// default false keeps the existing layout for everyone else.</summary>
+    public bool LoginLinksBelowQuickConnect { get; set; }
+
     public int AuditLogMaxEntries { get; set; } = 1000;
 
     public string NtfyUrl { get; set; } = string.Empty;
