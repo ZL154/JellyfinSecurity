@@ -66,16 +66,17 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.5.13
+## 🆕 What's new in v2.5.16
 
-An OIDC/SSO release. Every new option is **opt-in**, so a default install behaves exactly like 2.5.12.
+App passwords on native clients, sturdier OIDC onboarding, and two community-contributed features. Every new option is **opt-in**; in-place upgrade from any 2.5.x.
 
-- **Admins can link OIDC from the Setup page** *(bug #95, yannolerobot)* — "Link a new provider" now runs a proper authenticated link flow (popup → link by `sub`) instead of routing through the sign-in resolver, which deliberately refuses to implicitly link admin accounts as an anti-takeover measure. Admins can finally self-link; it still refuses if that identity is already linked to a different Jellyfin user.
-- **IdP group → Jellyfin administrator** *(bug #96, raffaeletani)* — a new per-provider **"Elevate matching users to administrator"** toggle (off by default) grants admin on sign-in to anyone whose IdP `groups` claim matches an **Admin groups** entry. Grant-only (never auto-revokes) and every elevation is logged at WARN. Only enable for an IdP you fully control.
-- **Template user for auto-created accounts** *(feature #93, Re4mstr)* — optionally copy an existing user's permissions + library access onto users auto-created on first OIDC sign-in, instead of Jellyfin's broad defaults.
-- **Separate "Enable SSO" from "Show built-in button"** *(feature #97, chrisbehectik)* — keep a provider's sign-in URL live for your own custom button while hiding the plugin's built-in "Sign in with…" button.
-- **No more silent OIDC bounce** *(bug #98, Re4mstr)* — when the IdP authenticated you but the browser's follow-up `AuthenticateByName` failed (commonly an auth proxy intercepting it), the bridge page now shows the real error + a hint instead of looping back to login.
-- New admin-UI strings translated across all 8 languages. 266/266 tests pass. In-place upgrade — every persisted record carries over.
+- **App passwords now work with native / third-party clients** *(bug #102, #107, #108)* — Symfonium, Seerr / Jellyseerr and the mobile apps were rejecting valid app passwords ("invalid password"). A TOTP-only account stayed on Jellyfin's default auth provider, so its app password was checked against the *real* password; creating an app password now routes the account through the plugin's provider so the check actually runs. **Re-create any existing app password after updating.**
+- **Sturdier OIDC "set your password" onboarding** *(bug #100, Re4mstr)* — the page always shows the *configured* complexity rules (not a hardcoded "16"), surfaces a clear error with an escape hatch if the policy can't load (so you can't get locked out), and the step can't be skipped with the browser Back button.
+- **Operator-configurable SSRF egress allowlist** *(feature #103, andrewdunndev)* — a per-provider **"Additional allowed CIDRs"** field permits specific non-RFC1918 / link-local IdP addresses (e.g. the rootless Podman host-gateway `169.254.1.2/32`) that the SSRF guard otherwise blocks. Opt-in and surgical (`/0` rejected).
+- **Admin "require password setup"** *(feature #104, andrewdunndev)* — re-arm an existing user's "set a new local password on next OIDC sign-in" from the Users tab — SMTP-less local-password recovery. Their current password stays valid until they finish.
+- **Login-page tidy-ups** *(feature #79, ZEROX7)* — opt-in setting to place the injected SSO / 2FA / passkey links *below* "Use Quick Connect", and the native "Forgot password" link is hidden when there's no password field.
+- **Android in-app sign-in** *(bug #64)* — clearer recovery when a one-time sign-in code expires or is blocked by a reverse proxy.
+- Translations completed + aligned across all 8 languages. 266/266 tests pass. In-place upgrade — every persisted record carries over.
 
 > Full version history is in the [Changelog](#-changelog) below and on [GitHub Releases](https://github.com/ZL154/JellyfinSecurity/releases).
 
@@ -130,6 +131,13 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ---
 
 ## 🧩 Features
+
+### New in v2.5.16
+- **App passwords work on native / third-party clients** — creating an app password routes the account through the plugin's auth provider so the credential check runs; fixes Symfonium / Seerr / Jellyseerr / mobile-app rejections (#102, #107, #108). *(Re-create existing app passwords after updating.)*
+- **Configurable, fail-safe OIDC onboarding password page** — shows the configured complexity policy (not a fixed "16"), errors clearly with an escape hatch if the policy can't load, and can't be skipped via Back (#100).
+- **Per-provider SSRF egress allowlist** — "Additional allowed CIDRs" permits specific link-local / non-RFC1918 IdP addresses (rootless Podman host-gateway) that the guard blocks; opt-in, `/0` rejected (#103, andrewdunndev).
+- **Admin "require password setup"** — SMTP-less local-password recovery: re-arm a user to set a new password on next OIDC sign-in (#104, andrewdunndev).
+- **Login-page options** — opt-in "links below Quick Connect" placement + hide "Forgot password" when there's no password field (#79, ZEROX7).
 
 ### New in v2.5.13
 - **Admin OIDC linking from Setup** — authenticated "Link a new provider" flow (popup, links by `sub`) so admins can self-link, bypassing the resolver's admin anti-takeover guard (#95).
@@ -411,6 +419,7 @@ The admin dashboard at **Dashboard → Plugins → Two-Factor Authentication** h
 Per-user 2FA status: TOTP on/off, trusted device count, recovery codes remaining, email address (for OTP), lockout status.
 - **Set per-user email** — for email OTP delivery (admin sets these manually)
 - **Toggle 2FA on/off** — disabling wipes all 2FA state for that user (secret, codes, devices)
+- **Require password setup** *(v2.5.16, #104, andrewdunndev)* — flags the user to set a new local Jellyfin password on their next OIDC sign-in (SMTP-less local-password recovery). Their existing password stays valid until they complete setup. Step-up gated, like other privileged user actions.
 
 ### Trusted Devices
 Every trusted device across all users with last-used time and expiry. Revoke any to force 2FA on that browser's next login.
@@ -488,6 +497,8 @@ Lets users sign in with Google / Microsoft / Authelia / Authentik / Keycloak / P
 - **Require IdP MFA** — refuses sign-in unless the id_token's `amr` claim indicates MFA (`mfa`, `hwk`, `otp`, `sca`)
 - **Auto-create users** — creates a new Jellyfin account for unmatched IdP identities. **Only enable for IdPs where you trust everyone with an account** (not public Google).
 - **Skip plugin 2FA** — default ON; the IdP already authenticated. Disable only if you want belt-and-braces.
+- **Force password setup on first sign-in** *(v2.5.14 / hardened v2.5.16, #100)* — flag auto-created OIDC users to set a local Jellyfin password on first sign-in, with a configurable complexity policy under **Settings** (min length + require upper/lower/digit). The set-password page shows the *configured* rules, fails safe if the policy can't load, and can't be skipped with the Back button.
+- **Additional allowed CIDRs** *(v2.5.16, #103, andrewdunndev — Advanced)* — comma-separated CIDRs the SSRF guard will permit for this provider's endpoints, on top of "Allow private endpoints". For addresses the guard correctly rejects but you deliberately trust — e.g. the rootless Podman host-gateway `169.254.1.2/32`. `/0` is rejected; each listed CIDR bypasses safety checks for matching addresses, so only list addresses you own. See [OIDC private / VPN / LAN endpoints](#-oidc-private--vpn--lan-endpoints-v257).
 
 ---
 
@@ -714,6 +725,8 @@ For OIDC-only deployments where every user signs in through your IdP and the plu
 
 Each is independent — pick any combination. Configured OIDC provider buttons stay visible regardless of these flags.
 
+**Login-link placement & Forgot-password (v2.5.16, #79, ZEROX7):** an opt-in **Settings → Hardening → "Show the SSO / 2FA / passkey links below the Use Quick Connect button"** toggle (default off) moves the injected links beneath Quick Connect instead of directly under Sign In. Separately, the native "Forgot password" link is now hidden automatically when there's no visible password field (e.g. OIDC-only login), since there'd be nothing to recover.
+
 ⚠ **The `/TwoFactorAuth/Login` page still works directly** even when both toggles are on. Admins/fallback users can always reach it by URL, so you don't lock yourself out of the plugin's login flow if your IdP becomes unreachable.
 
 ---
@@ -727,6 +740,8 @@ Lets you point the plugin at an IdP that lives on a private network (Tailscale, 
 **Granularity**: per-provider. A public Google + a private Authentik can coexist — Google keeps the strict SSRF guard, Authentik gets the bypass. The toggle scopes to ONE provider's discovery / token / userinfo / jwks fetches; other providers are unaffected.
 
 ⚠ **Trade-off** — enabling this for a provider whose discovery URL gets tampered with would let an attacker pivot the plugin into your internal services (e.g. AWS IMDS at 169.254.169.254, internal admin APIs, the Docker daemon socket via host networking). Only enable for IdPs you intentionally host on private networks where the network boundary IS the security boundary.
+
+**Finer-grained alternative (v2.5.16, #103, andrewdunndev)** — even with "Allow private networks" on, the guard still blocks **link-local** addresses (`169.254.0.0/16`, the IMDS range), which catches the rootless-Podman host-gateway `169.254.1.2` (`host.containers.internal`). Rather than open the whole private bypass, use the per-provider **"Additional allowed CIDRs"** field to allowlist exactly that one address (`169.254.1.2/32`). It's surgical (`/0` and out-of-range prefixes are rejected) and each listed CIDR only bypasses the check for matching addresses.
 
 The OIDC spec doesn't let admins mix-and-match per-endpoint — the IdP's discovery document dictates which token / userinfo / jwks URLs the plugin fetches, and they all live in the same network as discovery. So per-provider is the natural granularity.
 
@@ -959,6 +974,28 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.5.16
+
+- **App passwords now work with native / third-party clients** *(bug #102, #107, #108)* — a TOTP-only account stayed on Jellyfin's `DefaultAuthenticationProvider`, where the app-password check (which lives in the plugin's provider) never runs, so the submitted app password was validated against the real password and rejected. Creating an app password now reassigns the user's `AuthenticationProviderId` to the plugin provider (same as the passkey / OIDC paths). **Re-create any existing app password after updating.**
+- **OIDC set-password onboarding hardened** *(bug #100, Re4mstr)* — shows the configured complexity policy instead of a hardcoded "16"; on a policy-fetch failure it shows a clear error + a "Continue to Jellyfin" escape instead of silently using a weak default; back-button can no longer skip the forced step.
+- **Operator-configurable SSRF egress allowlist** *(feature #103, @andrewdunndev)* — per-provider "Additional allowed CIDRs" permits chosen non-RFC1918 / link-local IdP addresses; `/0` and out-of-range prefixes rejected.
+- **Admin re-arm for SMTP-less recovery** *(feature #104, @andrewdunndev)* — "Require password setup" on the Users tab flags a user to set a new local password on next OIDC sign-in; existing password stays valid until completion.
+- **Login-page tidy-ups** *(feature #79, ZEROX7)* — opt-in "links below Quick Connect"; hide native "Forgot password" when there's no password field.
+- **In-app sign-in recovery** *(bug #64)* — an expired / proxy-blocked one-time sign-in code now prompts a restart instead of a dead retry.
+- Translations completed and aligned across all 8 languages (incl. the #103/#104 admin UI that was English-only). 266/266 tests pass. In-place upgrade. *(Shipped 2026-06-27.)*
+
+### 2.5.15
+
+- **Setup page survives reverse-proxy HTML rewriting** *(bug #95, chrisbehectik)* — an nginx `sub_filter` on the head-closing tag (common for rebranding "Jellyfin" in the browser tab) was also matching that tag where it appeared inside one of the Setup page's own inline-JS strings (the recovery-codes print template), injecting a script-closing tag mid-script — which dumped the rest of the page as raw text and left "Linked Sign-In Methods" stuck on "Loading…". The print template now builds every structural tag in split pieces, so no closing `head`/`title`/`style`/`script` tag appears as a literal substring for a proxy `sub_filter` to latch onto. 266/266 tests pass. In-place upgrade. *(Shipped 2026-06-23.)*
+
+### 2.5.14
+
+- **Web client no longer bricked by a stale pending-2FA flag** *(bug #99, #98)* — a per-browser pending-2FA state could short-circuit every API call ("server cannot be reached"); the client now routes you to the 2FA portal instead of dead-ending, and the OIDC bridge clears the stale flag before loading the app.
+- **OIDC group→library, group→admin, and template-user copy now persist** *(bug #65, #96, #93)* — these were written via an API that doesn't save user-policy fields on Jellyfin 10.11.x; now applied via `UpdatePolicyAsync` (the same path the dashboard uses).
+- **"Two-Factor Authentication" entry returns on non-English UIs** *(bug #101)* — it was anchored to the English word "Profile"; now anchored by href.
+- **Editable callback slug** *(bug #94)* — rename a provider's callback/redirect URL in place (migrating existing SSO links) to fix a typo'd slug without delete+re-add.
+- **Force-password-on-OIDC-onboarding** *(feature #100)* — optional per-provider toggle + configurable complexity policy. 266/266 tests pass. In-place upgrade. *(Shipped 2026-06-23.)*
 
 ### 2.5.13
 
