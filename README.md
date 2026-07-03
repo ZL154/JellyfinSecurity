@@ -51,10 +51,10 @@ Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email O
 You don't have to take my word for it. Every signal below is automated and
 visible to anyone, including you:
 
-- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (254 tests covering crypto, parsers, and middleware). Green = tests pass.
+- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (266 tests covering crypto, parsers, and middleware). Green = tests pass.
 - **[CodeQL badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml)** — GitHub's static security scanner runs the `security-extended` + `security-and-quality` C# query packs on every push, PR, and weekly. Green = no security findings.
 - **[OpenSSF Scorecard](https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity)** — the Linux Foundation's automated security-posture rating (0–10). Scores branch protection, CodeQL, dependency updates, pinned actions, signed releases, security policy, token permissions, and more. Click the badge to see the per-check breakdown.
-- **[Test suite](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — 254 xUnit tests covering the security-critical code paths (cookie HMAC, TOTP replay protection, recovery-code PBKDF2, CIDR parser, X-Forwarded-For trust-walk, refuse-LAN-bypass-when-XFF-missing guard, device-token binding, AES-GCM v2 AAD, HIBP k-anonymity hashing, atomic challenge consumption, OIDC redirect_uri proxy-header resolution, OIDC userinfo claim merge, SMTP port 465 socket-option mapping, step-up code verification, step-up action classification, ChallengeStore step-up tokens). Runs on every PR + push.
+- **[Test suite](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — 266 xUnit tests covering the security-critical code paths (cookie HMAC, TOTP replay protection, recovery-code PBKDF2, CIDR parser, X-Forwarded-For trust-walk, refuse-LAN-bypass-when-XFF-missing guard, device-token binding, AES-GCM v2 AAD, HIBP k-anonymity hashing, atomic challenge consumption, OIDC redirect_uri proxy-header resolution, OIDC userinfo claim merge, SMTP port 465 socket-option mapping, step-up code verification, step-up action classification, ChallengeStore step-up tokens). Runs on every PR + push.
 - **[Open security advisories](https://github.com/ZL154/JellyfinSecurity/security/advisories)** — historical vulnerabilities filed via [SECURITY.md](SECURITY.md), with patch versions, severity, and CVE references.
 - **[Dependabot PRs](https://github.com/ZL154/JellyfinSecurity/pulls?q=is%3Apr+author%3Aapp%2Fdependabot)** — security and version updates for every NuGet dependency. Frequent merges = vulnerabilities don't sit unpatched.
 - **[Pull request review history](https://github.com/ZL154/JellyfinSecurity/pulls?q=is%3Apr+is%3Aclosed)** — non-trivial changes go through review even when the maintainer is solo, and the diff is public.
@@ -66,17 +66,24 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.5.16
+## 🆕 What's new in v2.5.18
 
-App passwords on native clients, sturdier OIDC onboarding, and two community-contributed features. Every new option is **opt-in**; in-place upgrade from any 2.5.x.
+Recovery codes on the verify screen and a more accurate security score — plus, from v2.5.17, self-hosted push notifications, a native-client app-password fix, and better Keycloak / verified-email OIDC sign-in. Every new option is **opt-in**; in-place upgrade from any 2.5.x.
 
-- **App passwords now work with native / third-party clients** *(bug #102, #107, #108)* — Symfonium, Seerr / Jellyseerr and the mobile apps were rejecting valid app passwords ("invalid password"). A TOTP-only account stayed on Jellyfin's default auth provider, so its app password was checked against the *real* password; creating an app password now routes the account through the plugin's provider so the check actually runs. **Re-create any existing app password after updating.**
-- **Sturdier OIDC "set your password" onboarding** *(bug #100, Re4mstr)* — the page always shows the *configured* complexity rules (not a hardcoded "16"), surfaces a clear error with an escape hatch if the policy can't load (so you can't get locked out), and the step can't be skipped with the browser Back button.
-- **Operator-configurable SSRF egress allowlist** *(feature #103, andrewdunndev)* — a per-provider **"Additional allowed CIDRs"** field permits specific non-RFC1918 / link-local IdP addresses (e.g. the rootless Podman host-gateway `169.254.1.2/32`) that the SSRF guard otherwise blocks. Opt-in and surgical (`/0` rejected).
-- **Admin "require password setup"** *(feature #104, andrewdunndev)* — re-arm an existing user's "set a new local password on next OIDC sign-in" from the Users tab — SMTP-less local-password recovery. Their current password stays valid until they finish.
-- **Login-page tidy-ups** *(feature #79, ZEROX7)* — opt-in setting to place the injected SSO / 2FA / passkey links *below* "Use Quick Connect", and the native "Forgot password" link is hidden when there's no password field.
-- **Android in-app sign-in** *(bug #64)* — clearer recovery when a one-time sign-in code expires or is blocked by a reverse proxy.
-- Translations completed + aligned across all 8 languages. 266/266 tests pass. In-place upgrade — every persisted record carries over.
+**v2.5.18**
+
+- **Recovery codes on the "verify your identity" screen** — when an already-signed-in session is asked to confirm 2FA, a **Recovery** tab now appears (next to Authenticator / Email) whenever the account has unused recovery codes, so a lost authenticator no longer strands you mid-session. Previously that tab only showed during an emergency lockout, even though the full login portal always offered it.
+- **Accurate security-posture score** — the "2FA coverage" factor no longer counts leftover 2FA records from deleted accounts, so the score reflects your *current* users instead of being artificially capped (e.g. "enroll 8 users" when everyone was already enrolled).
+- **SSO redirect-URI hint renders correctly** in all eight languages (was showing raw `<code>` markup on the Sign-in Methods tab).
+
+**v2.5.17**
+
+- **Self-hosted ntfy / Gotify / webhooks now deliver** *(bug #116, Arson31)* — a new **"Allow notifications to private/LAN addresses"** toggle (off by default) lets notifications reach a self-hosted target that resolves to a private LAN IP, which the SSRF guard otherwise refuses; link-local / cloud-metadata addresses stay blocked either way. ntfy also now publishes to `{server}/{topic}` correctly.
+- **App passwords on native clients — the follow-up fix** *(bug #107, DarkJackal87)* — after the login succeeded, some clients (Symfonium) still got a 403 on the very next request when their device id differed from the login request; the app-password session is now recognised as 2FA-satisfied regardless.
+- **OIDC verified-email account linking** *(bug #95, chrisbehectik)* — a boolean `email_verified: true` is now read correctly, so a first-time OIDC sign-in matches an existing Jellyfin user by their verified email instead of failing to match or creating a duplicate.
+- **Keycloak realm/client roles** *(feature #95, BoBeR182)* — nested `realm_access` / `resource_access` roles now drive "Allowed groups", "Admin groups", and role→library mapping (request the built-in `roles` scope on the provider and enable "Add to ID token" on the realm-roles mapper).
+
+266/266 tests pass. In-place upgrade — every persisted record carries over.
 
 > Full version history is in the [Changelog](#-changelog) below and on [GitHub Releases](https://github.com/ZL154/JellyfinSecurity/releases).
 
@@ -132,6 +139,17 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ---
 
 ## 🧩 Features
+
+### New in v2.5.18
+- **Recovery codes on the verify-identity screen** — the mid-session 2FA challenge now offers a **Recovery** tab whenever the account has unused recovery codes, matching the full login portal (previously that tab only appeared during an emergency lockout).
+- **Deleted-user-safe security score** — the "2FA coverage" posture factor counts live Jellyfin users only, so removing an account no longer permanently drags the score down.
+- **HTML-capable UI translations** — an opt-in `data-i18n-html` path fixes the SSO redirect-URI hint (and any future rich strings) rendering raw markup as literal text.
+
+### New in v2.5.17
+- **Private / LAN notification targets** — opt-in "Allow notifications to private/LAN addresses" so a self-hosted ntfy / Gotify / webhook on a LAN IP can deliver; link-local / cloud-metadata stay blocked either way; ntfy publishes to `{server}/{topic}` (#116, Arson31).
+- **App-password sessions survive on native clients** — a follow-up request no longer 403s when the client's device id differs from the login request; the session is treated as 2FA-satisfied for itself only, with no carry-over to a later login (#107, DarkJackal87).
+- **OIDC verified-email account linking** — a boolean `email_verified: true` is parsed correctly, so a first-time OIDC sign-in links to an existing user by verified email instead of duplicating (#95, chrisbehectik).
+- **Keycloak nested roles** — `realm_access` / `resource_access` roles feed "Allowed groups", "Admin groups", and role→library mapping, read from the id_token and `/userinfo` (#95, BoBeR182).
 
 ### New in v2.5.16
 - **App passwords work on native / third-party clients** — creating an app password routes the account through the plugin's auth provider so the credential check runs; fixes Symfonium / Seerr / Jellyseerr / mobile-app rejections (#102, #107, #108). *(Re-create existing app passwords after updating.)*
@@ -230,7 +248,8 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 - Settings page tile so users can find Setup from their preferences
 
 ### Notifications
-- Push notifications for login attempts via **ntfy** or **Gotify**
+- Push notifications for login attempts via **ntfy**, **Gotify**, generic **webhooks** (HMAC-signed), or **email**
+- **Self-hosted targets on a private LAN IP are supported** — opt-in "Allow notifications to private/LAN addresses" toggle (default off; link-local / cloud-metadata always blocked) *(v2.5.17)*
 - Audit log of every 2FA-related event (1000 entries default, FIFO, 90-day prune)
 
 ---
@@ -517,7 +536,8 @@ Lets users sign in with Google / Microsoft / Authelia / Authentik / Keycloak / P
 ### Per-provider options
 - **Enable SSO** *(v2.5.13, #97)* — master switch: the provider is active and its sign-in URL works (e.g. for your own custom button). Turn off to fully disable the provider while keeping its config saved.
 - **Show built-in button on login page** *(v2.5.13, #97)* — whether the plugin renders its own "Sign in with X" button. Turn off to keep SSO live (URL still works) but hide the built-in button so you can use your own.
-- **Allowed groups** — sign-in refused unless IdP's `groups` / `roles` claim contains at least one of these
+- **Allowed groups** — sign-in refused unless the IdP's `groups` / `roles` claim contains at least one of these. *(v2.5.17)* **Keycloak** nests roles under `realm_access` / `resource_access` rather than a flat claim — the plugin now reads those too (here, and for Admin groups + role→library mapping); request the built-in `roles` scope on the provider and enable "Add to ID token" on the realm-roles mapper.
+- **Verified-email account linking** *(v2.5.17, #95)* — a first-time OIDC sign-in whose **verified** email (`email_verified: true`) matches a Jellyfin user's configured email is linked to that account instead of creating a duplicate.
 - **Admin groups + "Elevate matching users to administrator"** *(v2.5.13, #96)* — with the elevate toggle on (default off), any user whose `groups` claim matches an entry here is granted Jellyfin admin on sign-in. Grant-only (never auto-revokes); every elevation logged at WARN. Only enable for an IdP you fully control — a compromised IdP that controls the groups claim could elevate any account.
 - **Template user for auto-created accounts** *(v2.5.13, #93)* — when auto-create makes a new user, copy this user's permissions + library access instead of Jellyfin's broad defaults. Leave on "(Jellyfin defaults)" to keep built-in behaviour. Tip: pick a restricted, non-admin user.
 - **Require IdP MFA** — refuses sign-in unless the id_token's `amr` claim indicates MFA (`mfa`, `hwk`, `otp`, `sca`)
@@ -623,7 +643,7 @@ A 12-factor security score (raw 130 points, normalized to 100) and a live auth-a
 
 | Factor | Points | What it checks |
 |---|---:|---|
-| Coverage | 30 | % of users enrolled in 2FA |
+| Coverage | 30 | % of **live** users enrolled in 2FA (deleted accounts are no longer counted, v2.5.18) |
 | Admin coverage | 20 | All admins specifically have 2FA on |
 | Enforcement | 15 | `RequireForAll` is on |
 | Audit chain | 10 | Hash chain is intact (no breakage) |
@@ -821,7 +841,7 @@ Email OTP needs the user's email address. In **Admin → Users**, edit each user
 ## 🆘 Recovery — locked out
 
 ### Lost authenticator app + have recovery codes
-Sign in via `/TwoFactorAuth/Login`. In the code field, enter one of your recovery codes (format: `XXXXX-XXXXX`). Click "Use a recovery code instead" if your authenticator app field is showing.
+Sign in via `/TwoFactorAuth/Login`. In the code field, enter one of your recovery codes (format: `XXXXX-XXXXX`). Click "Use a recovery code instead" if your authenticator app field is showing. *(v2.5.18)* If you're already signed in and hit the "Verify your identity" screen, it now shows a **Recovery** tab too (whenever you have unused recovery codes), so you can fall back to a recovery code mid-session.
 
 ### Lost authenticator AND lost recovery codes (admin)
 SSH into the Jellyfin server and edit the user data file:
@@ -1000,6 +1020,19 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.5.18
+
+- **Recovery codes on the verify-identity challenge** — `TwoFactorEnforcementMiddleware` and `TwoFactorAuthProvider` now add `recovery` to the challenge's method list whenever the user has unused recovery codes, not only during an emergency lockout (`ForceRecoveryOnNextLogin`). The Recovery tab in the challenge UI is therefore reachable in the normal verify flow, matching the login portal (which always offered "Use a recovery code instead").
+- **Security-score coverage counts live users** — the "2FA coverage" factor previously divided by every stored `UserTwoFactorData` record, including orphaned records left behind by deleted accounts, which capped the score; it now counts live Jellyfin users via the ABI-safe `EnumerateUsers()` shim.
+- **HTML-capable translations** — the i18n loader gained an opt-in `data-i18n-html` attribute (innerHTML) so the SSO redirect-URI hint renders its `<code>` snippet instead of literal markup, in all 8 languages. 266/266 tests pass. In-place upgrade. *(Shipped 2026-07-03.)*
+
+### 2.5.17
+
+- **App-password sessions on native clients** *(bug #107, DarkJackal87)* — after a successful app-password login, follow-up requests returned 403 ("Two-factor authentication required") when the client's device id differed from the login request. A user-scoped one-shot now marks the session 2FA-satisfied regardless, and is consumed only by its own session so it can't leak to an unrelated later login.
+- **Self-hosted ntfy / Gotify / webhooks deliver** *(bug #116, Arson31)* — a target resolving to a private LAN IP was refused by the SSRF guard, silently dropping every notification. New opt-in "Allow notifications to private/LAN addresses" (default off) permits private / loopback targets while keeping link-local / cloud-metadata blocked; honoured in both the dispatch guard and the pinned client's connect-time re-resolution. ntfy now publishes to `{server}/{topic}` (topic as a path segment, not a header).
+- **OIDC verified-email linking** *(bug #95, chrisbehectik)* — a boolean `email_verified` surfaced as the C# string "True", so the exact `== "true"` check read verified emails as unverified and skipped account matching; now compared case-insensitively.
+- **Keycloak nested roles** *(feature #95, BoBeR182)* — Keycloak nests roles under `realm_access.roles` / `resource_access.{client}.roles` rather than a flat claim; these are now read from the id_token and `/userinfo` to drive "Allowed groups", "Admin groups", and role→library mapping. 266/266 tests pass. In-place upgrade. *(Shipped 2026-07-03.)*
 
 ### 2.5.16
 
@@ -1242,7 +1275,7 @@ If you're on Tizen / Jellyfin for Smart TV and couldn't sign in after v1.4, this
 - **User search + filter** in the Users tab.
 - **Force-logout user** button per row — kills every session, clears trust state.
 - **Per-user GDPR export** — JSON dump of everything we have on file (no secrets).
-- **Webhook events** — POST `{event, user, ip, timestamp, payload}` to any URL. Optional HMAC-SHA256 signature header (`X-2FA-Signature: sha256=...`) computed over `<unix-timestamp>.<body>`. The unix timestamp is also exposed as `X-2FA-Timestamp` so receivers can do replay/skew checks without parsing the JSON body. Events: lockout, new device, recovery used, suspicious login, passkey registered, TOTP rotated, emergency lockout, admin force-logout.<br><br>**Privacy note:** webhook payloads include the username, source IP, device name, and (for suspicious-login events) ASN + country code. Don't send webhooks to a third-party service you wouldn't share that data with. The plugin refuses to dispatch to RFC1918, loopback, link-local (incl. cloud metadata 169.254/16) or IPv6 private/link-local addresses as a basic SSRF guard.
+- **Webhook events** — POST `{event, user, ip, timestamp, payload}` to any URL. Optional HMAC-SHA256 signature header (`X-2FA-Signature: sha256=...`) computed over `<unix-timestamp>.<body>`. The unix timestamp is also exposed as `X-2FA-Timestamp` so receivers can do replay/skew checks without parsing the JSON body. Events: lockout, new device, recovery used, suspicious login, passkey registered, TOTP rotated, emergency lockout, admin force-logout.<br><br>**Privacy note:** webhook payloads include the username, source IP, device name, and (for suspicious-login events) ASN + country code. Don't send webhooks to a third-party service you wouldn't share that data with. By default the plugin refuses to dispatch to RFC1918, loopback, link-local (incl. cloud metadata 169.254/16) or IPv6 private/link-local addresses as a basic SSRF guard. *(v2.5.17)* If your ntfy/Gotify/webhook is self-hosted on a private LAN IP, opt in with the **"Allow notifications to private/LAN addresses"** setting — link-local / cloud-metadata stay blocked either way.
 - **Suspicious-login alerts** — first sign-in from a never-seen ASN/country fires a notification. Requires admin to drop free MaxMind GeoLite2 .mmdb files into the config dir (paths configurable in Settings).
 
 **Security & integrity**
