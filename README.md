@@ -83,7 +83,6 @@ Recovery codes on the verify screen and a more accurate security score — plus,
 - **OIDC verified-email account linking** *(bug #95, chrisbehectik)* — a boolean `email_verified: true` is now read correctly, so a first-time OIDC sign-in matches an existing Jellyfin user by their verified email instead of failing to match or creating a duplicate.
 - **Keycloak realm/client roles** *(feature #95, BoBeR182)* — nested `realm_access` / `resource_access` roles now drive "Allowed groups", "Admin groups", and role→library mapping (request the built-in `roles` scope on the provider and enable "Add to ID token" on the realm-roles mapper).
 
-266/266 tests pass. In-place upgrade — every persisted record carries over.
 
 > Full version history is in the [Changelog](#-changelog) below and on [GitHub Releases](https://github.com/ZL154/JellyfinSecurity/releases).
 
