@@ -245,10 +245,12 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 | Sign in — SSO / 2FA / passkey | Verify your identity (2FA) |
 | :---: | :---: |
 | [![Login page with SSO, 2FA and passkey buttons](assets/screenshots/02-login.png)](assets/screenshots/02-login.png) | [![2FA verify-identity challenge](assets/screenshots/12-verify-identity.png)](assets/screenshots/12-verify-identity.png) |
-| **Authenticator (TOTP) enrollment** | **Per-user 2FA management** |
-| [![Scan-the-QR TOTP setup](assets/screenshots/04-2fa-qr.png)](assets/screenshots/04-2fa-qr.png) | [![Per-user 2FA status table](assets/screenshots/06-users.png)](assets/screenshots/06-users.png) |
-| **OIDC / SSO providers** | **Login audit log** |
-| [![OIDC / SSO provider configuration](assets/screenshots/07-sso.png)](assets/screenshots/07-sso.png) | [![Login audit log](assets/screenshots/08-audit.png)](assets/screenshots/08-audit.png) |
+| **Authenticator (TOTP) enrollment** | **2FA login portal** |
+| [![Scan-the-QR TOTP setup](assets/screenshots/04-2fa-qr.png)](assets/screenshots/04-2fa-qr.png) | [![2FA login portal](assets/screenshots/05-2fa-login-portal.png)](assets/screenshots/05-2fa-login-portal.png) |
+| **Per-user 2FA management** | **Login audit log** |
+| [![Per-user 2FA status table](assets/screenshots/06-users.png)](assets/screenshots/06-users.png) | [![Login audit log](assets/screenshots/08-audit.png)](assets/screenshots/08-audit.png) |
+| **OIDC / SSO providers** | **Settings** |
+| [![OIDC / SSO provider configuration](assets/screenshots/07-sso.png)](assets/screenshots/07-sso.png) | [![Settings](assets/screenshots/09-settings.png)](assets/screenshots/09-settings.png) |
 
 Every screen is fully translated across 8 languages (example — German):
 
