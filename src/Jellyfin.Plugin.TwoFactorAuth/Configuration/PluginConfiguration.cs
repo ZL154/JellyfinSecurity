@@ -303,6 +303,17 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public string GotifyAppToken { get; set; } = string.Empty;
 
+    /// <summary>[v2.5.17] (#116): allow notification targets (ntfy / Gotify /
+    /// webhook) that resolve to private/LAN/loopback addresses. Default false
+    /// keeps the v2.5.6 SSRF guard, which refuses RFC1918 / loopback / ULA so a
+    /// tampered admin config can't make the server hit internal panels. But that
+    /// makes a self-hosted ntfy behind a reverse proxy on a LAN IP
+    /// (ntfy.mydomain.com → 192.168.x.x, the single most common setup)
+    /// undeliverable. When true, private/loopback targets are permitted while
+    /// link-local / cloud-metadata (169.254.0.0/16, fe80::/10) stay blocked
+    /// unconditionally, and DNS-rebinding pinning is still applied.</summary>
+    public bool AllowPrivateNotificationTargets { get; set; }
+
     public string[] NotifyEmailAddresses { get; set; } = Array.Empty<string>();
 
     // SMTP settings for sending email OTP codes to users.

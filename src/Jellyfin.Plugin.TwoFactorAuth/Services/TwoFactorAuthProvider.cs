@@ -291,6 +291,15 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                     _challengeStore.MarkDevicePreVerified(earlyUser.Id, apDeviceId);
                 }
 
+                // [v2.5.17] (#107, #102) Also arm the user-scoped one-shot flag so
+                // the session Jellyfin creates for this app-password login is
+                // recognised as 2FA-satisfied even when its assigned deviceId
+                // differs from the one on the auth request (Symfonium, Seerr and
+                // other native clients). Without this the new token gets blocked by
+                // RequestBlockerMiddleware and every follow-up call (e.g.
+                // /System/Info) returns 403 "Two-factor authentication required".
+                _challengeStore.MarkAppPasswordPending(earlyUser.Id);
+
                 await _store.AddAuditEntryAsync(new AuditEntry
                 {
                     Timestamp = DateTime.UtcNow,

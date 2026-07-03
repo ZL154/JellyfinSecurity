@@ -55,10 +55,18 @@ public class NotificationService
                     throw new System.Net.Sockets.SocketException(
                         (int)System.Net.Sockets.SocketError.HostNotFound);
                 }
+                // [v2.5.17] (#116): connect-time re-resolution is the DNS-rebinding
+                // defence. Link-local / cloud-metadata is rejected unconditionally;
+                // other private/loopback is rejected only when the admin has NOT
+                // opted into private notification targets. Either way the address
+                // must still be in the pinned `allowed` set vetted at dispatch time,
+                // so opting in cannot be abused to reach an unpinned host.
+                var allowPrivateConnect = Plugin.Instance?.Configuration?.AllowPrivateNotificationTargets ?? false;
                 System.Net.IPAddress? pick = null;
                 foreach (var ip in resolved)
                 {
-                    if (IsPrivateOrLoopback(ip)) continue;
+                    if (IsAlwaysBlockedAddress(ip)) continue;
+                    if (!allowPrivateConnect && IsPrivateOrLoopback(ip)) continue;
                     foreach (var safe in allowed)
                     {
                         if (ip.Equals(safe)) { pick = ip; break; }
@@ -224,9 +232,22 @@ public class NotificationService
             {
                 try
                 {
-                    using var request = new HttpRequestMessage(HttpMethod.Post, config.NtfyUrl);
+                    // [v2.5.17] (#116, Arson31) ntfy publishes by POSTing to
+                    // {server}/{topic} — the topic is a URL path segment, NOT a
+                    // header. The previous code POSTed to the bare base URL with a
+                    // non-existent "X-Topic" header, so self-hosted (and ntfy.sh)
+                    // instances received a message with no topic and dropped it —
+                    // the test notification never arrived. Build the publish URL
+                    // from the base + topic; tolerate an admin who already put the
+                    // topic in the URL so we don't double it. Host is unchanged, so
+                    // the SSRF address-pinning above still applies.
+                    var ntfyBase = config.NtfyUrl.TrimEnd('/');
+                    var ntfyTopic = config.NtfyTopic.Trim();
+                    var ntfyPublishUrl = ntfyBase.EndsWith("/" + ntfyTopic, StringComparison.OrdinalIgnoreCase)
+                        ? ntfyBase
+                        : ntfyBase + "/" + Uri.EscapeDataString(ntfyTopic);
+                    using var request = new HttpRequestMessage(HttpMethod.Post, ntfyPublishUrl);
                     request.Headers.TryAddWithoutValidation("X-Title", title);
-                    request.Headers.TryAddWithoutValidation("X-Topic", config.NtfyTopic);
                     request.Content = new StringContent(message, Encoding.UTF8, "text/plain");
                     _pinnedAllowedAddresses.Value = ntfyAddrs;
                     try
@@ -445,11 +466,22 @@ public class NotificationService
         {
             var addrs = System.Net.Dns.GetHostAddresses(u.Host);
             if (addrs is null || addrs.Length == 0) return null;
+            // [v2.5.17] (#116): self-hosted ntfy/Gotify/webhook behind a reverse
+            // proxy usually resolves to a private LAN IP (192.168.x.x). The
+            // default SSRF guard refuses those, silently dropping every
+            // notification. Admins can opt in to trust private targets; even
+            // then, link-local / cloud-metadata addresses stay blocked.
+            var allowPrivate = Plugin.Instance?.Configuration?.AllowPrivateNotificationTargets ?? false;
             foreach (var a in addrs)
             {
-                if (IsPrivateOrLoopback(a))
+                if (IsAlwaysBlockedAddress(a))
                 {
-                    _logger.LogWarning("[2FA] Webhook URL {Url} resolves to private address {Ip} — refusing to dispatch (SSRF guard)", url, a);
+                    _logger.LogWarning("[2FA] Webhook URL {Url} resolves to link-local/metadata address {Ip} — refusing to dispatch (SSRF guard, always blocked)", url, a);
+                    return null;
+                }
+                if (!allowPrivate && IsPrivateOrLoopback(a))
+                {
+                    _logger.LogWarning("[2FA] Webhook URL {Url} resolves to private address {Ip} — refusing to dispatch (SSRF guard). Enable 'Allow private notification targets' in the plugin settings for a self-hosted LAN ntfy/webhook.", url, a);
                     return null;
                 }
             }
@@ -492,6 +524,28 @@ public class NotificationService
             var b = a.GetAddressBytes();
             if ((b[0] & 0xFE) == 0xFC) return true;
             if (b[0] == 0xFE && (b[1] & 0xC0) == 0x80) return true;
+        }
+        return false;
+    }
+
+    /// <summary>[v2.5.17] (#116): the subset of blocked ranges that stay blocked
+    /// even when AllowPrivateNotificationTargets is on — link-local IPv4/IPv6
+    /// (which includes the 169.254.169.254 cloud-metadata endpoint) and the
+    /// 0.0.0.0/8 "this host" range. These have no legitimate self-hosted-ntfy
+    /// use and are the highest-value SSRF targets, so opting into private LAN
+    /// delivery never unlocks them.</summary>
+    private static bool IsAlwaysBlockedAddress(System.Net.IPAddress a)
+    {
+        if (a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            var b = a.GetAddressBytes();
+            if (b[0] == 169 && b[1] == 254) return true; // 169.254.0.0/16 link-local + cloud metadata
+            if (b[0] == 0) return true;                  // 0.0.0.0/8
+        }
+        else if (a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            var b = a.GetAddressBytes();
+            if (b[0] == 0xFE && (b[1] & 0xC0) == 0x80) return true; // fe80::/10 link-local
         }
         return false;
     }

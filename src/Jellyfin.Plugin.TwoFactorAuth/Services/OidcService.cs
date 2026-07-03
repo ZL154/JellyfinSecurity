@@ -1636,18 +1636,32 @@ public class OidcService : IDisposable
         var emailClaimName = string.IsNullOrWhiteSpace(provider.EmailClaim) ? "email" : provider.EmailClaim;
         var email = jwt.Claims.FirstOrDefault(c => c.Type == emailClaimName)?.Value
             ?? jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value ?? string.Empty;
-        var emailVerified = jwt.Claims.FirstOrDefault(c => c.Type == "email_verified")?.Value == "true";
+        // [v2.5.17] (#95, chrisbehectik) A JSON boolean `email_verified: true` in
+        // an id_token is surfaced by the JWT handler as the C# string "True"
+        // (capital T), NOT "true" — so the old exact "== true" check read Google
+        // (and others) as UNVERIFIED, skipping the whole email-match step and
+        // producing "no email account match". Compare case-insensitively.
+        var emailVerified = string.Equals(
+            jwt.Claims.FirstOrDefault(c => c.Type == "email_verified")?.Value,
+            "true", StringComparison.OrdinalIgnoreCase);
         var username = jwt.Claims.FirstOrDefault(c => c.Type == provider.UsernameClaim)?.Value
             ?? jwt.Claims.FirstOrDefault(c => c.Type == "preferred_username")?.Value
             ?? (email.Contains('@') ? email.Split('@')[0] : email);
 
         // Groups can come as "groups" array or comma-separated string. Roles too.
-        var groups = jwt.Claims
+        var groupList = jwt.Claims
             .Where(c => c.Type == "groups" || c.Type == "roles")
             .SelectMany(c => c.Value.Contains(',') ? c.Value.Split(',') : new[] { c.Value })
             .Select(s => s.Trim())
             .Where(s => s.Length > 0)
-            .ToArray();
+            .ToList();
+        // [v2.5.17] (#95, BoBeR182) Keycloak nests roles under realm_access.roles
+        // and resource_access.{client}.roles rather than a flat "groups"/"roles"
+        // claim, so group->admin / group->library mapping silently found nothing.
+        // Read those too. (In Keycloak, request the built-in `roles` scope — NOT
+        // `groups`, which isn't a valid Keycloak scope — to have these emitted.)
+        AddNestedRealmRoles(jwt.Claims, groupList);
+        var groups = groupList.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
         var amr = jwt.Claims.Where(c => c.Type == "amr").Select(c => c.Value).ToArray();
 
@@ -1689,6 +1703,68 @@ public class OidcService : IDisposable
     /// JSON document. Handles both JSON-array and comma-separated-string
     /// representations for groups. Internal for direct testing via
     /// InternalsVisibleTo.</summary>
+    // [v2.5.17] (#95, BoBeR182) Keycloak nests roles as realm_access={"roles":[…]}
+    // and resource_access={"client":{"roles":[…]}}. In a raw JWT the whole object
+    // is the claim's Value (JSON text); parse defensively and skip non-JSON.
+    private static void AddNestedRealmRoles(IEnumerable<System.Security.Claims.Claim> claims, List<string> into)
+    {
+        foreach (var c in claims)
+        {
+            if (c.Type != "realm_access" && c.Type != "resource_access") continue;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(c.Value);
+                AddRolesFromAccessObject(c.Type, doc.RootElement, into);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // Not JSON (some IdPs flatten it) — ignore.
+            }
+        }
+    }
+
+    // Same, from a parsed userinfo/JSON object carrying realm_access/resource_access.
+    private static void AddNestedRealmRolesFromJson(JsonElement obj, List<string> into)
+    {
+        if (obj.ValueKind != JsonValueKind.Object) return;
+        if (obj.TryGetProperty("realm_access", out var ra)) AddRolesFromAccessObject("realm_access", ra, into);
+        if (obj.TryGetProperty("resource_access", out var resa)) AddRolesFromAccessObject("resource_access", resa, into);
+    }
+
+    private static void AddRolesFromAccessObject(string kind, JsonElement el, List<string> into)
+    {
+        if (el.ValueKind != JsonValueKind.Object) return;
+        if (kind == "realm_access")
+        {
+            if (el.TryGetProperty("roles", out var rr)) AddStringArray(rr, into);
+        }
+        else
+        {
+            // resource_access: { "<client>": { "roles": [ … ] }, … }
+            foreach (var client in el.EnumerateObject())
+            {
+                if (client.Value.ValueKind == JsonValueKind.Object
+                    && client.Value.TryGetProperty("roles", out var cr))
+                {
+                    AddStringArray(cr, into);
+                }
+            }
+        }
+    }
+
+    private static void AddStringArray(JsonElement arr, List<string> into)
+    {
+        if (arr.ValueKind != JsonValueKind.Array) return;
+        foreach (var r in arr.EnumerateArray())
+        {
+            if (r.ValueKind == JsonValueKind.String)
+            {
+                var v = r.GetString();
+                if (!string.IsNullOrWhiteSpace(v)) into.Add(v.Trim());
+            }
+        }
+    }
+
     internal static UserInfoExtract ExtractClaimsFromUserInfo(JsonElement json, string emailClaimName = "email")
     {
         if (json.ValueKind != JsonValueKind.Object) return UserInfoExtract.Empty;
@@ -1722,6 +1798,11 @@ public class OidcService : IDisposable
                     break;
             }
         }
+
+        // [v2.5.17] (#95, BoBeR182) Keycloak nested roles at realm_access.roles /
+        // resource_access.{client}.roles (userinfo can carry these when a roles
+        // mapper is added). Merge them into the group list.
+        AddNestedRealmRolesFromJson(json, groups);
 
         // [v2.5.11] (#70) honor the configured email claim name, falling back
         // to the standard OIDC `email` claim.

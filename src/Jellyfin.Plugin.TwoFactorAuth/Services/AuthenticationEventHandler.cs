@@ -196,6 +196,14 @@ public class AuthenticationEventHandler : IHostedService
         if (_challengeStore.IsDevicePreVerified(info.UserId, info.DeviceId))
         {
             _logger.LogDebug("[2FA] {Name} within device-verified window — session allowed", info.UserName);
+            // [v2.5.17] (#107): the app-password fast path in TwoFactorAuthProvider
+            // arms BOTH a device pre-verify AND the user-scoped one-shot below (the
+            // session's deviceId may differ from the auth request's). When THIS
+            // device matches the pre-verify, the one-shot is never reached by its
+            // own branch — so consume it here too. Otherwise it lingers up to its
+            // TTL and the next session for the same user (even an unrelated
+            // real-password login on another device) would wrongly bypass 2FA.
+            _challengeStore.ConsumeAppPasswordPending(info.UserId);
             if (approvedToken is not null)
             {
                 _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
@@ -241,6 +249,33 @@ public class AuthenticationEventHandler : IHostedService
                 DeviceName = info.DeviceName ?? string.Empty,
                 Result = AuditResult.Bypassed,
                 Method = "quickconnect",
+            }).ConfigureAwait(false);
+            return;
+        }
+
+        // [v2.5.17] (#107, #102) App-password one-shot flag: set by the app-password
+        // fast path in TwoFactorAuthProvider. The session Jellyfin created for that
+        // login can carry a different deviceId than the auth request, so the
+        // deviceId-scoped pre-verify above may miss; consume the user-scoped flag
+        // here to verify the token, otherwise every follow-up request is blocked.
+        if (_challengeStore.ConsumeAppPasswordPending(info.UserId))
+        {
+            _logger.LogDebug("[2FA] {Name} app-password session — allowed (app password is the factor)", info.UserName);
+            if (approvedToken is not null)
+            {
+                _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
+                _challengeStore.MarkTokenVerified(approvedToken);
+            }
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = info.UserId,
+                Username = info.UserName ?? string.Empty,
+                RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                DeviceId = info.DeviceId ?? string.Empty,
+                DeviceName = info.DeviceName ?? string.Empty,
+                Result = AuditResult.Bypassed,
+                Method = "app_password",
             }).ConfigureAwait(false);
             return;
         }

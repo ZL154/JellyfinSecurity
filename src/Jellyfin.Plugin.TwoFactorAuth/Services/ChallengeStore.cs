@@ -23,6 +23,15 @@ public class ChallengeStore : IDisposable
     // session that completes after phone approval has a different device id.
     private readonly ConcurrentDictionary<Guid, DateTime> _quickConnectPending = new();
 
+    // [v2.5.17] (#107, #102) One-shot, user-scoped "the next session for this user
+    // is 2FA-satisfied because they just authenticated with an app password".
+    // App passwords ARE the 2FA factor for native / third-party clients, but the
+    // deviceId the app-password login carried doesn't always match the deviceId
+    // Jellyfin assigns the resulting session (Symfonium et al.), so the deviceId-
+    // scoped pre-verify can miss and the new token gets blocked. This flag is the
+    // same device-id-independent escape hatch used for Quick Connect.
+    private readonly ConcurrentDictionary<Guid, DateTime> _appPasswordPending = new();
+
     // Blocked devices — only the specific device that failed 2FA gets 401'd.
     // Previously user-scoped, which signed every other device out on failure.
     private readonly ConcurrentDictionary<string, DateTime> _blockedDevices = new();
@@ -199,6 +208,21 @@ public class ChallengeStore : IDisposable
         return false;
     }
 
+    /// <summary>[v2.5.17] (#107) Mark that this user just authenticated with an app
+    /// password, so the next session created for them is treated as 2FA-satisfied.
+    /// Single consume, 2-minute window.</summary>
+    public void MarkAppPasswordPending(Guid userId)
+    {
+        _appPasswordPending[userId] = DateTime.UtcNow.AddMinutes(2);
+    }
+
+    public bool ConsumeAppPasswordPending(Guid userId)
+    {
+        if (_appPasswordPending.TryRemove(userId, out var exp) && exp > DateTime.UtcNow)
+            return true;
+        return false;
+    }
+
     public void BlockDevice(Guid userId, string? deviceId)
     {
         _blockedDevices[DeviceKey(userId, deviceId)] = DateTime.UtcNow.AddHours(24);
@@ -231,6 +255,7 @@ public class ChallengeStore : IDisposable
     {
         UnblockAllForUser(userId);
         _quickConnectPending.TryRemove(userId, out _);
+        _appPasswordPending.TryRemove(userId, out _);
         var prefix = $"{userId:N}|";
         var userless = $"user:{userId:N}";
         foreach (var kv in _preVerifiedDevices)
@@ -587,6 +612,10 @@ public class ChallengeStore : IDisposable
         foreach (var kv in _quickConnectPending)
         {
             if (kv.Value <= now) _quickConnectPending.TryRemove(kv.Key, out _);
+        }
+        foreach (var kv in _appPasswordPending)
+        {
+            if (kv.Value <= now) _appPasswordPending.TryRemove(kv.Key, out _);
         }
         foreach (var kv in _blockedDevices)
         {

@@ -990,6 +990,7 @@
                     ApiClient.getPluginConfiguration(pluginId).then(function(c) {
                         c.WebhookUrl = url;
                         c.WebhookSecret = page.querySelector('#cfgWebhookSecret').value.trim();
+                        c.AllowPrivateNotificationTargets = page.querySelector('#cfgAllowPrivateNotifTargets').checked;
                         return ApiClient.updatePluginConfiguration(pluginId, c);
                     }).then(function() {
                         return apiPost('TwoFactorAuth/Admin/WebhookTest');
@@ -1067,6 +1068,7 @@
                         // v1.4 fields
                         page.querySelector('#cfgWebhookUrl').value = c.WebhookUrl || '';
                         page.querySelector('#cfgWebhookSecret').value = c.WebhookSecret || '';
+                        page.querySelector('#cfgAllowPrivateNotifTargets').checked = !!c.AllowPrivateNotificationTargets;
                         page.querySelector('#cfgGeoAsn').value = c.GeoIpAsnDbPath || '';
                         page.querySelector('#cfgGeoCountry').value = c.GeoIpCountryDbPath || '';
                         page.querySelector('#cfgRpId').value = c.WebAuthnRpId || '';
@@ -1234,6 +1236,7 @@
                         // v1.4 fields
                         c.WebhookUrl = page.querySelector('#cfgWebhookUrl').value.trim();
                         c.WebhookSecret = page.querySelector('#cfgWebhookSecret').value.trim();
+                        c.AllowPrivateNotificationTargets = page.querySelector('#cfgAllowPrivateNotifTargets').checked;
                         c.GeoIpAsnDbPath = page.querySelector('#cfgGeoAsn').value.trim();
                         c.GeoIpCountryDbPath = page.querySelector('#cfgGeoCountry').value.trim();
                         c.WebAuthnRpId = page.querySelector('#cfgRpId').value.trim();

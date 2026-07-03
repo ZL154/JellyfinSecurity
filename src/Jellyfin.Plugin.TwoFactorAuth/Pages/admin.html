@@ -803,6 +803,10 @@
                                 <label data-i18n-key="tfa.admin.settings.lbl_webhook_secret">Webhook secret (optional — adds X-2FA-Signature HMAC)</label>
                                 <input type="text" id="cfgWebhookSecret" class="tfa-input" style="width:300px;" />
                             </div>
+                            <div style="margin-top:10px;">
+                                <label><input type="checkbox" id="cfgAllowPrivateNotifTargets" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_allow_private_notif">Allow notifications to private/LAN addresses &nbsp;<span class="tfa-badge warn" style="font-size:10px;vertical-align:middle;" data-i18n-key="tfa.admin.settings.opt_allow_private_notif_pill">Self-hosted</span></span></label>
+                                <div class="tfa-note" data-i18n-key="tfa.admin.settings.opt_allow_private_notif_note">Off by default: ntfy/Gotify/webhook targets resolving to a private LAN or loopback IP are refused (SSRF protection). Enable this for a self-hosted ntfy/Gotify behind a reverse proxy on your LAN (e.g. ntfy.mydomain.com → 192.168.x.x). Link-local / cloud-metadata addresses (169.254.x, fe80::) stay blocked either way.</div>
+                            </div>
                             <div style="margin-top:8px;">
                                 <button type="button" class="tfa-btn" id="btnTestWebhook" data-i18n-key="tfa.admin.settings.btn_test_webhook">Send test event</button>
                                 <span id="webhookTestResult" style="margin-left:10px;font-size:13px;"></span>
