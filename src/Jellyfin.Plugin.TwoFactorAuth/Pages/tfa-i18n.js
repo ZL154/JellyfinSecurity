@@ -184,6 +184,19 @@
             var v = tr(key, null);
             if (v != null && v !== key) el.textContent = v;
         }
+        // [v2.5.18] Opt-in HTML translations. Elements marked [data-i18n-html] get
+        // innerHTML instead of textContent, so a string can carry inline markup
+        // (e.g. a styled <code> snippet in the SSO redirect-URI hint) instead of
+        // rendering the raw tags as literal text. Safe: translation bundles are
+        // static plugin assets, never user input. Same graceful-fallback rule —
+        // only overwrite the authored default when a real translation is returned.
+        var htmlNodes = scope.querySelectorAll('[data-i18n-html]');
+        for (var h = 0; h < htmlNodes.length; h++) {
+            var hel = htmlNodes[h];
+            var hkey = hel.getAttribute('data-i18n-html');
+            var hv = tr(hkey, null);
+            if (hv != null && hv !== hkey) hel.innerHTML = hv;
+        }
         var phs = scope.querySelectorAll('[data-i18n-placeholder]');
         for (var j = 0; j < phs.length; j++) {
             var pel = phs[j];

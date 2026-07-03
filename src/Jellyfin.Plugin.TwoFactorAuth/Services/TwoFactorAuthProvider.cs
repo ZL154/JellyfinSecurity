@@ -591,6 +591,16 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             methods.Add("totp");
         }
 
+        // [v2.5.18] Surface recovery codes on the challenge when the user has unused
+        // ones, matching the login portal (login.html always offers "Use a recovery
+        // code instead"). Without this the Recovery tab never appeared in the normal
+        // verify-identity flow, so a user who lost their authenticator had no way to
+        // fall back to a valid recovery code.
+        if (!enrollmentRequired && userData.RecoveryCodes.Any(rc => !rc.Used))
+        {
+            methods.Add("recovery");
+        }
+
         if (!enrollmentRequired && config.EmailOtpEnabled)
         {
             methods.Add("email");

@@ -656,6 +656,13 @@ public class TwoFactorEnforcementMiddleware
                 if (userData.TotpVerified) methods.Add("totp");
                 if (userData.Passkeys.Count > 0) methods.Add("passkey");
                 if (config.EmailOtpEnabled) methods.Add("email");
+                // [v2.5.18] Offer recovery codes on the "verify your identity"
+                // challenge when the user has unused ones. Previously recovery was
+                // only surfaced on lockout (ForceRecoveryOnNextLogin above), so a
+                // user who lost their authenticator couldn't reach the Recovery tab
+                // here even though the full login portal (login.html) always offers
+                // it — leaving valid recovery codes unusable mid-session.
+                if (userData.RecoveryCodes.Any(rc => !rc.Used)) methods.Add("recovery");
             }
             if (methods.Count == 0) methods.Add("email");
 

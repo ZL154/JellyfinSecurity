@@ -105,8 +105,21 @@ public class SecurityScoreService : IDisposable
         // can localize the breakdown card. NextActionData ships the interpolation
         // payload (e.g., { count = N }) for actions that include dynamic numbers.
         var users = await _store.GetAllUsersAsync().ConfigureAwait(false);
-        int enrolled = users.Count(u => u.TotpEnabled || u.Passkeys.Count > 0);
-        int totalUsers = users.Count;
+        // [v2.5.18] Count LIVE Jellyfin users as the denominator, not every stored
+        // UserData record. A deleted account leaves its UserData behind (same class
+        // of stale-record bug as OIDC phantom-dup #37), so counting all stored
+        // records inflated the total and told admins to "enroll N users" who no
+        // longer exist — capping the 2FA-coverage score at a fraction of 30 no
+        // matter how many real users actually enrolled. Fall back to the stored
+        // list only on the test seam (no IUserManager) to preserve test semantics.
+        var enrolledIds = new HashSet<Guid>(users
+            .Where(u => u.TotpEnabled || u.Passkeys.Count > 0)
+            .Select(u => u.UserId));
+        var liveUserIds = _userManager is null
+            ? users.Select(u => u.UserId).ToList()
+            : EnumerateUsers().Select(u => u.Id).ToList();
+        int totalUsers = liveUserIds.Count;
+        int enrolled = liveUserIds.Count(id => enrolledIds.Contains(id));
         double pctEnrolled = totalUsers > 0 ? (double)enrolled / totalUsers : 0;
         int coverage = (int)Math.Round(30 * pctEnrolled);
         int remainingToEnroll = totalUsers - enrolled;
