@@ -103,9 +103,9 @@
       },
       "QuestPDF": {
         "type": "Direct",
-        "requested": "[2026.5.0, )",
-        "resolved": "2026.5.0",
-        "contentHash": "QddELSgpJ7YFrNaqlqUik/OOhK2/yVDqdqGjtdH+V3nxml2cvjUorFp2yiK8xnTLLvR139SXpVt3G/0oVCynig=="
+        "requested": "[2026.6.1, )",
+        "resolved": "2026.6.1",
+        "contentHash": "EuGtkJcYNF/IV5Sd4WzshYJcqG5FNutBrRFPqzzlFxIEV9FOrN1pbPIYf38LVKEz9WCpHZN5SZjcISUefoHQvQ=="
       },
       "System.IdentityModel.Tokens.Jwt": {
         "type": "Direct",
