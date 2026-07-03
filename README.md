@@ -82,34 +82,11 @@ App passwords on native clients, sturdier OIDC onboarding, and two community-con
 
 ---
 
-## 📸 Screenshots
-
-<p align="center">
-  <img src="assets/screenshots/01-overview.png" alt="Admin security-posture dashboard" width="820"><br>
-  <em>Admin overview — a live security-posture score with an actionable breakdown of every hardening factor.</em>
-</p>
-
-| Sign in with 2FA / SSO / passkey | Authenticator (TOTP) enrollment |
-| :---: | :---: |
-| [![Login page with SSO, 2FA and passkey buttons](assets/screenshots/02-login.png)](assets/screenshots/02-login.png) | [![Scan-the-QR TOTP setup](assets/screenshots/04-2fa-qr.png)](assets/screenshots/04-2fa-qr.png) |
-| **Per-user 2FA management** | **Login audit log** |
-| [![Per-user 2FA status table](assets/screenshots/06-users.png)](assets/screenshots/06-users.png) | [![Login audit log](assets/screenshots/08-audit.png)](assets/screenshots/08-audit.png) |
-| **OIDC / SSO providers** | **2FA login portal** |
-| [![OIDC / SSO provider configuration](assets/screenshots/07-sso.png)](assets/screenshots/07-sso.png) | [![2FA login portal](assets/screenshots/05-2fa-login-portal.png)](assets/screenshots/05-2fa-login-portal.png) |
-
-Every screen is fully translated across 8 languages (example — German):
-
-<p align="center">
-  <img src="assets/screenshots/10-settings-de.png" alt="Settings translated into German" width="820">
-</p>
-
----
-
 ## 📑 Table of contents
 
-- [Screenshots](#-screenshots)
 - [How it works](#-how-it-works)
 - [Features](#-features)
+- [Screenshots](#-screenshots)
 - [Installation](#%EF%B8%8F-installation)
 - [First-time setup](#-first-time-setup)
 - [Daily use](#-daily-use)
@@ -255,6 +232,29 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ### Notifications
 - Push notifications for login attempts via **ntfy** or **Gotify**
 - Audit log of every 2FA-related event (1000 entries default, FIFO, 90-day prune)
+
+---
+
+## 📸 Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/01-overview.png" alt="Admin security-posture dashboard" width="820"><br>
+  <em>Admin overview — a live security-posture score with an actionable breakdown of every hardening factor.</em>
+</p>
+
+| Sign in — SSO / 2FA / passkey | Verify your identity (2FA) |
+| :---: | :---: |
+| [![Login page with SSO, 2FA and passkey buttons](assets/screenshots/02-login.png)](assets/screenshots/02-login.png) | [![2FA verify-identity challenge](assets/screenshots/12-verify-identity.png)](assets/screenshots/12-verify-identity.png) |
+| **Authenticator (TOTP) enrollment** | **Per-user 2FA management** |
+| [![Scan-the-QR TOTP setup](assets/screenshots/04-2fa-qr.png)](assets/screenshots/04-2fa-qr.png) | [![Per-user 2FA status table](assets/screenshots/06-users.png)](assets/screenshots/06-users.png) |
+| **OIDC / SSO providers** | **Login audit log** |
+| [![OIDC / SSO provider configuration](assets/screenshots/07-sso.png)](assets/screenshots/07-sso.png) | [![Login audit log](assets/screenshots/08-audit.png)](assets/screenshots/08-audit.png) |
+
+Every screen is fully translated across 8 languages (example — German):
+
+<p align="center">
+  <img src="assets/screenshots/10-settings-de.png" alt="Settings translated into German" width="820">
+</p>
 
 ---
 
