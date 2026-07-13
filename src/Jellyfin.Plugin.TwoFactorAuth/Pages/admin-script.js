@@ -1582,6 +1582,7 @@
                     if (addCidrsEl) addCidrsEl.value = prov ? (prov.additionalAllowedCidrs || '') : '';
                     // [v2.5.10] force account chooser.
                     page.querySelector('#ssoPromptSelect').checked = prov ? !!prov.promptSelectAccount : false;
+                    page.querySelector('#ssoOmitPromptLogin').checked = prov ? !!prov.omitPromptLogin : false;
                     // [v2.5.10] (#66) profile-picture sync.
                     page.querySelector('#ssoSyncPicture').checked = prov ? !!prov.syncProfilePicture : false;
                     page.querySelector('#ssoPictureClaim').value = prov ? (prov.pictureClaim || 'picture') : 'picture';
@@ -1682,6 +1683,7 @@
                         AdditionalAllowedCidrs: (page.querySelector('#ssoAdditionalCidrs') ? page.querySelector('#ssoAdditionalCidrs').value.trim() : ''),
                         // [v2.5.10] force account chooser (prompt=select_account).
                         PromptSelectAccount: page.querySelector('#ssoPromptSelect').checked,
+                        OmitPromptLogin: page.querySelector('#ssoOmitPromptLogin').checked,
                         // [v2.5.10] (#66) profile-picture sync + (#65) role→library access.
                         SyncProfilePicture: page.querySelector('#ssoSyncPicture').checked,
                         PictureClaim: page.querySelector('#ssoPictureClaim').value.trim() || 'picture',

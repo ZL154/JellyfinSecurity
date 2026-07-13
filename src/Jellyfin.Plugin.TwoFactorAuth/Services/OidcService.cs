@@ -355,12 +355,16 @@ public class OidcService : IDisposable
             ("nonce", nonce),
             ("code_challenge", codeChallenge),
             ("code_challenge_method", "S256"),
-            // Force the IdP to actually re-authenticate even if there's an
-            // active SSO session. Without prompt=login a clever attacker
-            // who hijacked a browser session could click "Sign in with X"
-            // and have the IdP silently confirm. prompt=login closes that.
-            ("prompt", "login"),
         };
+        // Force the IdP to actually re-authenticate even if there's an active
+        // SSO session. Without prompt=login a clever attacker who hijacked a
+        // browser session could click "Sign in with X" and have the IdP
+        // silently confirm. prompt=login closes that. [#119] Suppressible
+        // per-provider (OmitPromptLogin) for IdPs that mishandle it — notably
+        // Authentik (upstream bug #18507 returns a 404 on the authorize
+        // redirect when prompt=login is present).
+        if (!provider.OmitPromptLogin)
+            qs.Add(("prompt", "login"));
         if (!string.IsNullOrWhiteSpace(provider.AcrValues))
             qs.Add(("acr_values", provider.AcrValues));
 
@@ -505,8 +509,12 @@ public class OidcService : IDisposable
             ("nonce", nonce),
             ("code_challenge", codeChallenge),
             ("code_challenge_method", "S256"),
-            ("prompt", "login"),
         };
+        // [#119] prompt=login forces a fresh IdP auth for the link flow too;
+        // suppressible per-provider (OmitPromptLogin) for IdPs like Authentik
+        // that 404 on it (upstream bug #18507).
+        if (!provider.OmitPromptLogin)
+            qs.Add(("prompt", "login"));
         if (!string.IsNullOrWhiteSpace(provider.AcrValues))
             qs.Add(("acr_values", provider.AcrValues));
 
@@ -1867,13 +1875,59 @@ public class OidcService : IDisposable
         // those targets via the Discovery response shape.
         await EnsureSafeOutboundAsync(provider.DiscoveryUrl, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
 
-        var resp = await _http.GetFromJsonAsync<JsonElement>(provider.DiscoveryUrl).ConfigureAwait(false);
+        var discoveryUrl = provider.DiscoveryUrl;
+        var resp = await _http.GetFromJsonAsync<JsonElement>(discoveryUrl).ConfigureAwait(false);
+
+        // [#120] Admins commonly paste the issuer / realm root (e.g. Keycloak
+        // ".../realms/master") instead of the discovery document. That returns
+        // valid-but-wrong JSON with no "authorization_endpoint", which used to
+        // surface as a bare KeyNotFoundException in the logs. If the required
+        // key is absent and the URL isn't already a well-known path, retry once
+        // with the standard discovery suffix appended before giving up.
+        if ((resp.ValueKind != JsonValueKind.Object
+                || !resp.TryGetProperty("authorization_endpoint", out _))
+            && discoveryUrl.IndexOf(".well-known", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            var normalized = discoveryUrl.TrimEnd('/') + "/.well-known/openid-configuration";
+            await EnsureSafeOutboundAsync(normalized, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
+            try
+            {
+                var retry = await _http.GetFromJsonAsync<JsonElement>(normalized).ConfigureAwait(false);
+                if (retry.ValueKind == JsonValueKind.Object && retry.TryGetProperty("authorization_endpoint", out _))
+                {
+                    _logger.LogInformation(
+                        "[2FA] OIDC Discovery URL for provider {Id} looked like an issuer/realm root; auto-resolved via {Url}. Update the provider's Discovery URL to the full openid-configuration path to silence this.",
+                        provider.Id, normalized);
+                    resp = retry;
+                    discoveryUrl = normalized;
+                }
+            }
+            catch
+            {
+                // Fall through to the clear, actionable error below (raised
+                // against the ORIGINAL url the admin actually configured).
+            }
+        }
+
+        // [#120] Validate each required endpoint with an actionable message
+        // instead of letting GetProperty throw a bare KeyNotFoundException.
+        static string RequireEndpoint(JsonElement doc, string key, string url) =>
+            doc.ValueKind == JsonValueKind.Object
+                && doc.TryGetProperty(key, out var v)
+                && v.ValueKind == JsonValueKind.String
+                && !string.IsNullOrEmpty(v.GetString())
+                    ? v.GetString()!
+                    : throw new InvalidOperationException(
+                        $"OpenID discovery document at '{url}' is missing the required '{key}' field. "
+                        + "Verify the provider's Discovery URL points to the OpenID configuration document "
+                        + "(it usually ends with '/.well-known/openid-configuration'), not the issuer / realm root.");
+
         var disc = new Discovery(
-            resp.GetProperty("authorization_endpoint").GetString()!,
-            resp.GetProperty("token_endpoint").GetString()!,
+            RequireEndpoint(resp, "authorization_endpoint", discoveryUrl),
+            RequireEndpoint(resp, "token_endpoint", discoveryUrl),
             resp.TryGetProperty("userinfo_endpoint", out var ui) ? ui.GetString() ?? "" : "",
-            resp.GetProperty("jwks_uri").GetString()!,
-            resp.GetProperty("issuer").GetString()!,
+            RequireEndpoint(resp, "jwks_uri", discoveryUrl),
+            RequireEndpoint(resp, "issuer", discoveryUrl),
             DateTime.UtcNow);
 
         // Also validate the IdP-supplied endpoint URLs from the discovery

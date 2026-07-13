@@ -810,5 +810,7 @@
   "tfa.admin.settings.lbl_onboarding_pw_minlen": "Comprimento mínimo",
   "tfa.admin.settings.opt_onboarding_pw_upper": "Exigir uma letra maiúscula",
   "tfa.admin.settings.opt_onboarding_pw_lower": "Exigir uma letra minúscula",
-  "tfa.admin.settings.opt_onboarding_pw_digit": "Exigir um número"
+  "tfa.admin.settings.opt_onboarding_pw_digit": "Exigir um número",
+  "tfa.admin.sso.opt_omit_prompt_login": "Não forçar a reautenticação (omitir prompt=login)",
+  "tfa.admin.sso.omit_prompt_login_help": "Por padrão, o plugin envia <code>prompt=login</code> para que o IdP sempre reautentique o utilizador (uma medida de segurança — impede que uma sessão de IdP sequestrada seja confirmada silenciosamente). Alguns IdPs tratam mal este parâmetro: <strong>Authentik</strong> devolve um 404 no redirecionamento de início de sessão (bug upstream <a href=\"https://github.com/goauthentik/authentik/issues/18507\" target=\"_blank\" rel=\"noopener\">goauthentik/authentik#18507</a>). Ative isto apenas se o início de sessão falhar com esse IdP — troca o login forçado por compatibilidade. Deixe desativado para os restantes."
 }

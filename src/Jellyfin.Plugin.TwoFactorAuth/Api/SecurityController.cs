@@ -133,6 +133,8 @@ public class SecurityController : ControllerBase
         public List<RoleLibraryMappingDto> RoleLibraryMappings { get; set; } = new();
         // [v2.5.10] force the IdP account chooser (prompt=select_account).
         public bool PromptSelectAccount { get; set; }
+        // [v2.5.19] (#119) omit prompt=login for IdPs that mishandle it (Authentik).
+        public bool OmitPromptLogin { get; set; }
         // [v2.5.11] (#70) configurable email claim + auto-fill the user's email.
         public string EmailClaim { get; set; } = "email";
         public bool SyncEmailFromClaim { get; set; } = true;
@@ -234,6 +236,7 @@ public class SecurityController : ControllerBase
             applyRoleLibraryAccess = p.ApplyRoleLibraryAccess,
             roleLibraryMappings = p.RoleLibraryMappings.Select(m => new { role = m.Role, libraryIds = m.LibraryIds }).ToList(),
             promptSelectAccount = p.PromptSelectAccount,
+            omitPromptLogin = p.OmitPromptLogin,
             emailClaim = p.EmailClaim,
             syncEmailFromClaim = p.SyncEmailFromClaim,
             buttonText = p.ButtonText,
@@ -301,6 +304,7 @@ public class SecurityController : ControllerBase
             ApplyRoleLibraryAccess = req.ApplyRoleLibraryAccess,
             RoleLibraryMappings = MapRoleLibraryMappings(req.RoleLibraryMappings),
             PromptSelectAccount = req.PromptSelectAccount,
+            OmitPromptLogin = req.OmitPromptLogin,
             // [v2.5.11] (#70 / #69)
             EmailClaim = string.IsNullOrWhiteSpace(req.EmailClaim) ? "email" : req.EmailClaim.Trim(),
             SyncEmailFromClaim = req.SyncEmailFromClaim,
@@ -359,6 +363,7 @@ public class SecurityController : ControllerBase
         existing.ApplyRoleLibraryAccess = req.ApplyRoleLibraryAccess;
         existing.RoleLibraryMappings = MapRoleLibraryMappings(req.RoleLibraryMappings);
         existing.PromptSelectAccount = req.PromptSelectAccount;
+        existing.OmitPromptLogin = req.OmitPromptLogin;
         // [v2.5.11] (#70 / #69)
         existing.EmailClaim = string.IsNullOrWhiteSpace(req.EmailClaim) ? "email" : req.EmailClaim.Trim();
         existing.SyncEmailFromClaim = req.SyncEmailFromClaim;

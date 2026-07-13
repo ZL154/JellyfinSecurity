@@ -488,6 +488,11 @@
                                 <label><input type="checkbox" id="ssoPromptSelect" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_prompt_select">Always show the account chooser on sign-in</span></label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.sso.prompt_select_help">Adds <code>prompt=select_account</code> so the provider always shows its account picker instead of silently reusing whichever account is already signed in to the IdP in this browser. Turn on for shared machines or households with multiple accounts (e.g. two Google accounts); leave off for a one-click single-account sign-in.</div>
                             </div>
+                            <!-- [v2.5.19] (issue #119): omit prompt=login for IdPs that mishandle it (Authentik). -->
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="ssoOmitPromptLogin" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_omit_prompt_login">Don't force re-authentication (omit <code>prompt=login</code>)</span></label>
+                                <div class="tfa-help" data-i18n-html="tfa.admin.sso.omit_prompt_login_help">By default the plugin sends <code>prompt=login</code> so the IdP always re-authenticates the user (a security measure — it stops a hijacked IdP session from being silently confirmed). Some IdPs mishandle this parameter: <strong>Authentik</strong> returns a bare 404 on the sign-in redirect (upstream bug <a href="https://github.com/goauthentik/authentik/issues/18507" target="_blank" rel="noopener">goauthentik/authentik#18507</a>). Turn this on only if sign-in fails with such an IdP — it trades the forced fresh-login for compatibility. Leave off for everyone else.</div>
+                            </div>
                             <!-- [v2.5.10] (issue #66, ZEROX7): sync IdP profile picture. -->
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="ssoSyncPicture" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_sync_picture">Sync the IdP profile picture to the Jellyfin avatar on sign-in</span></label>

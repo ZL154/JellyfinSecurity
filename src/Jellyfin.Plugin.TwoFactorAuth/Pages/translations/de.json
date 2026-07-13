@@ -810,5 +810,7 @@
   "tfa.admin.settings.lbl_onboarding_pw_minlen": "Mindestlänge",
   "tfa.admin.settings.opt_onboarding_pw_upper": "Großbuchstaben erforderlich",
   "tfa.admin.settings.opt_onboarding_pw_lower": "Kleinbuchstaben erforderlich",
-  "tfa.admin.settings.opt_onboarding_pw_digit": "Ziffer erforderlich"
+  "tfa.admin.settings.opt_onboarding_pw_digit": "Ziffer erforderlich",
+  "tfa.admin.sso.opt_omit_prompt_login": "Erneute Anmeldung nicht erzwingen (prompt=login weglassen)",
+  "tfa.admin.sso.omit_prompt_login_help": "Standardmäßig sendet das Plugin <code>prompt=login</code>, damit der IdP den Benutzer immer neu authentifiziert (eine Sicherheitsmaßnahme — sie verhindert, dass eine gekaperte IdP-Sitzung stillschweigend bestätigt wird). Einige IdPs verarbeiten diesen Parameter falsch: <strong>Authentik</strong> gibt beim Anmelde-Redirect einen 404 zurück (Upstream-Bug <a href=\"https://github.com/goauthentik/authentik/issues/18507\" target=\"_blank\" rel=\"noopener\">goauthentik/authentik#18507</a>). Aktivieren Sie dies nur, wenn die Anmeldung mit einem solchen IdP fehlschlägt — es tauscht die erzwungene Neuanmeldung gegen Kompatibilität. Für alle anderen ausgeschaltet lassen."
 }

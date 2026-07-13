@@ -187,6 +187,17 @@ public class OidcProvider
     /// one-click path.</summary>
     public bool PromptSelectAccount { get; set; }
 
+    /// <summary>[v2.5.19] (issue #119): when true, the plugin does NOT append
+    /// <c>prompt=login</c> to the outgoing /authorize request. prompt=login is
+    /// a security measure (forces a fresh IdP authentication so a hijacked live
+    /// IdP session can't be silently confirmed), so this defaults to FALSE and
+    /// should stay off for most setups. It exists for IdPs that mishandle the
+    /// parameter — notably Authentik, whose upstream bug goauthentik/authentik#18507
+    /// returns a bare 404 on the authorize redirect when prompt=login is present.
+    /// Turning this on trades the fresh-auth guarantee for compatibility with
+    /// those IdPs.</summary>
+    public bool OmitPromptLogin { get; set; }
+
     public bool ApplyRoleLibraryAccess { get; set; }
 
     /// <summary>[v2.5.10] (issue #65): role→library access map. Each entry maps

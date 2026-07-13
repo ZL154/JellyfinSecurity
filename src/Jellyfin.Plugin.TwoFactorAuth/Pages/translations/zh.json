@@ -810,5 +810,7 @@
   "tfa.admin.settings.lbl_onboarding_pw_minlen": "最小长度",
   "tfa.admin.settings.opt_onboarding_pw_upper": "需要一个大写字母",
   "tfa.admin.settings.opt_onboarding_pw_lower": "需要一个小写字母",
-  "tfa.admin.settings.opt_onboarding_pw_digit": "需要一个数字"
+  "tfa.admin.settings.opt_onboarding_pw_digit": "需要一个数字",
+  "tfa.admin.sso.opt_omit_prompt_login": "不强制重新认证（省略 prompt=login）",
+  "tfa.admin.sso.omit_prompt_login_help": "默认情况下，插件会发送 <code>prompt=login</code>，让 IdP 始终重新验证用户（这是一项安全措施——可防止被劫持的 IdP 会话被静默确认）。某些 IdP 无法正确处理此参数：<strong>Authentik</strong> 在登录重定向时返回 404（上游缺陷 <a href=\"https://github.com/goauthentik/authentik/issues/18507\" target=\"_blank\" rel=\"noopener\">goauthentik/authentik#18507</a>）。仅当使用此类 IdP 登录失败时才开启——这会以牺牲强制重新登录换取兼容性。其他情况请保持关闭。"
 }

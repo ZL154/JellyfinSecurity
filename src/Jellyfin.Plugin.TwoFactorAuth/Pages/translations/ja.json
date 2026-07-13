@@ -810,5 +810,7 @@
   "tfa.admin.settings.lbl_onboarding_pw_minlen": "最小文字数",
   "tfa.admin.settings.opt_onboarding_pw_upper": "大文字を必須にする",
   "tfa.admin.settings.opt_onboarding_pw_lower": "小文字を必須にする",
-  "tfa.admin.settings.opt_onboarding_pw_digit": "数字を必須にする"
+  "tfa.admin.settings.opt_onboarding_pw_digit": "数字を必須にする",
+  "tfa.admin.sso.opt_omit_prompt_login": "再認証を強制しない（prompt=login を省略）",
+  "tfa.admin.sso.omit_prompt_login_help": "デフォルトでは、プラグインは <code>prompt=login</code> を送信し、IdP が常にユーザーを再認証するようにします（セキュリティ対策——乗っ取られた IdP セッションが黙って確認されるのを防ぎます）。一部の IdP はこのパラメータを正しく処理しません：<strong>Authentik</strong> はサインインのリダイレクトで 404 を返します（上流のバグ <a href=\"https://github.com/goauthentik/authentik/issues/18507\" target=\"_blank\" rel=\"noopener\">goauthentik/authentik#18507</a>）。そのような IdP でサインインに失敗する場合のみ有効にしてください——強制的な再ログインと引き換えに互換性を得ます。それ以外の場合はオフのままにしてください。"
 }

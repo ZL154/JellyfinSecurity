@@ -66,9 +66,14 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.5.18
+## 🆕 What's new in v2.5.19
 
-Recovery codes on the verify screen and a more accurate security score — plus, from v2.5.17, self-hosted push notifications, a native-client app-password fix, and better Keycloak / verified-email OIDC sign-in. Every new option is **opt-in**; in-place upgrade from any 2.5.x.
+An Authentik-friendly OIDC option and clearer discovery errors — plus, from v2.5.18, recovery codes on the verify screen and a more accurate security score. Every new option is **opt-in**; in-place upgrade from any 2.5.x.
+
+**v2.5.19**
+
+- **"Omit `prompt=login`" per-provider toggle** *(bug #119, vasmarfas)* — some IdPs, notably **Authentik** (upstream bug [#18507](https://github.com/goauthentik/authentik/issues/18507)), return a 404 when the plugin forces re-authentication via `prompt=login`. A new opt-in toggle (Sign-in Methods → your provider) omits it for that provider only, so those setups can sign in. **Off by default** — the forced fresh-auth is a security measure. Localized in all 8 languages.
+- **Clearer OIDC Discovery URL errors** *(feature #120, MysaaJava)* — pasting the realm / issuer root instead of the `.well-known/openid-configuration` document now gives a clear, actionable error *and* auto-retries with the correct suffix appended, instead of a cryptic `KeyNotFoundException` in the logs.
 
 **v2.5.18**
 
@@ -138,6 +143,10 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ---
 
 ## 🧩 Features
+
+### New in v2.5.19
+- **Per-provider "omit `prompt=login`" toggle** — off by default; opt in for IdPs that 404 on forced re-authentication (Authentik, upstream bug #18507). Suppresses `prompt=login` on the step-up and account-link flows for that provider only (#119, vasmarfas). Localized in all 8 languages.
+- **Clearer OIDC Discovery URL errors** — a wrong Discovery URL (issuer / realm root instead of the `.well-known/openid-configuration` document) now reports the missing field with guidance and auto-retries with the correct suffix, instead of a bare `KeyNotFoundException` (#120, MysaaJava).
 
 ### New in v2.5.18
 - **Recovery codes on the verify-identity screen** — the mid-session 2FA challenge now offers a **Recovery** tab whenever the account has unused recovery codes, matching the full login portal (previously that tab only appeared during an emergency lockout).
