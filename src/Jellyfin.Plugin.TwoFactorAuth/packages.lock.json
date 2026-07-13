@@ -27,15 +27,15 @@
       },
       "Jellyfin.Controller": {
         "type": "Direct",
-        "requested": "[10.11.9, )",
-        "resolved": "10.11.9",
-        "contentHash": "0bXj0h8K7KUlZSlQ8VOS2Eg5HRgo1BOrSp9AnDLNpmwwVPC9H8H8guYXadkp3aQ4SsJqvyR9vBsrnhZGM7wNcA==",
+        "requested": "[10.11.11, )",
+        "resolved": "10.11.11",
+        "contentHash": "SqlMUBged5A1UsLhiPtJmGhmi8ovKAyRUte39ycrTk577lsv7mg7EHF78ZNajhtdKlBIHy3iJ44QJENN+aW1mA==",
         "dependencies": {
           "BitFaster.Caching": "2.5.4",
-          "Jellyfin.Common": "10.11.9",
-          "Jellyfin.MediaEncoding.Keyframes": "10.11.9",
-          "Jellyfin.Model": "10.11.9",
-          "Jellyfin.Naming": "10.11.9",
+          "Jellyfin.Common": "10.11.11",
+          "Jellyfin.MediaEncoding.Keyframes": "10.11.11",
+          "Jellyfin.Model": "10.11.11",
+          "Jellyfin.Naming": "10.11.11",
           "Microsoft.Extensions.Configuration.Abstractions": "9.0.11",
           "Microsoft.Extensions.Configuration.Binder": "9.0.11",
           "System.Threading.Tasks.Dataflow": "9.0.11"
@@ -43,12 +43,12 @@
       },
       "Jellyfin.Model": {
         "type": "Direct",
-        "requested": "[10.11.9, )",
-        "resolved": "10.11.9",
-        "contentHash": "ym2h7wp9/ngchlQQ0iogezCHzqo5Ym+cYUXtTiaGlC2I+UDkDjJ3c+AYFcL3mbH95WzOP3YQlLE1FIEfeNz6DQ==",
+        "requested": "[10.11.11, )",
+        "resolved": "10.11.11",
+        "contentHash": "ijxySPrwVZvMPmsWAwEQXPjFD8E3YE6jSMX5bBLzipLZTgPicRwr2fXiuV4LdVs5yZUOkxqdV0aedoZXG++x1g==",
         "dependencies": {
-          "Jellyfin.Data": "10.11.9",
-          "Jellyfin.Extensions": "10.11.9",
+          "Jellyfin.Data": "10.11.11",
+          "Jellyfin.Extensions": "10.11.11",
           "Microsoft.Extensions.Logging.Abstractions": "9.0.11",
           "System.Globalization": "4.3.0",
           "System.Text.Json": "9.0.11"
@@ -169,27 +169,27 @@
       },
       "Jellyfin.Common": {
         "type": "Transitive",
-        "resolved": "10.11.9",
-        "contentHash": "fyuYmE9MTS3Bi+J3vUxTpMt3reH2fuxB5KWKPnnNkOm1czkG6L0qwuyckfkLiWkfup+AfBRY9/pf84M9aRg2Dw==",
+        "resolved": "10.11.11",
+        "contentHash": "OZkCi8ruuR5TeL+EPXkudTHPJkbLnBolDGj1qKIB9opSePvJ6AJopxO1tPJSw7BgqNZbczYvD/t2oWdI95DJPA==",
         "dependencies": {
-          "Jellyfin.Model": "10.11.9",
+          "Jellyfin.Model": "10.11.11",
           "Microsoft.Extensions.Configuration.Abstractions": "9.0.11",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.11"
         }
       },
       "Jellyfin.Data": {
         "type": "Transitive",
-        "resolved": "10.11.9",
-        "contentHash": "b6HiI2OqfJj4bau/uEa9FtAhSyKiC4btt37V+OMwVQGQYeuZXvb6H0u/bR3PxOWXmUh5sCysHK3Nj8qe3qBvOQ==",
+        "resolved": "10.11.11",
+        "contentHash": "5rIih9CKDtWyhAR72O6Wi7ln3It+K8oXdgVF1EZEaeXTjFCl4n/+y6B3oYnFA3SeVMMmdcZq5ty+qTDcbyasLA==",
         "dependencies": {
-          "Jellyfin.Database.Implementations": "10.11.9",
+          "Jellyfin.Database.Implementations": "10.11.11",
           "Microsoft.Extensions.Logging": "9.0.11"
         }
       },
       "Jellyfin.Database.Implementations": {
         "type": "Transitive",
-        "resolved": "10.11.9",
-        "contentHash": "xjOp5zksazO21qzsqqnQ0bOg4j8U8YOLn80uKUKwVTT2e28YtB5gi/n4IeSBsTEGXoMJ1ZdIkqWHGgZ4mR8+gA==",
+        "resolved": "10.11.11",
+        "contentHash": "kRfod73YY4EMvMx1dS6+/1dpsOuwJxk+lJ2D3TKAp7T/dz9C20JT3DroldkLursLc5BTXB74YT0/k6uNz/mySg==",
         "dependencies": {
           "Microsoft.EntityFrameworkCore.Relational": "9.0.11",
           "Polly": "8.6.5"
@@ -197,8 +197,8 @@
       },
       "Jellyfin.Extensions": {
         "type": "Transitive",
-        "resolved": "10.11.9",
-        "contentHash": "IAvFDR38+GLFrCcnIjeBWLwVCsfZkOXMZVijMsllKfmlXQXNUrMCQukMFZR2YpjnqHpySbkPwzUXm2Ux5QuVqg==",
+        "resolved": "10.11.11",
+        "contentHash": "mR8rQk09R4JRoKI1MWIDSsNbfsg4qsvhXML3QFw5+u+kkwYC1x3iT6Atz9doLKe0iV+odUXVWKwEljsIYS2J3g==",
         "dependencies": {
           "Diacritics": "4.0.17",
           "ICU4N.Transliterator": "60.1.0-alpha.356"
@@ -206,8 +206,8 @@
       },
       "Jellyfin.MediaEncoding.Keyframes": {
         "type": "Transitive",
-        "resolved": "10.11.9",
-        "contentHash": "NMBP6eaDaMf1jIB67WZSsV/XBDwZX/ZSuhWN81je6DDI1zoMzU7ohV0Xok7ivNYEtxw0EVJVtUcaifwTA0rtOA==",
+        "resolved": "10.11.11",
+        "contentHash": "/7OxtK1mFEq5jIrNLGJlnxC3p/xKhdI4rbGzTKQ3pWewCUW6vpyonngQlIdm1JLjt58SeLN+OJ8wygu2lAIdFw==",
         "dependencies": {
           "Microsoft.Extensions.Logging.Abstractions": "9.0.11",
           "NEbml": "1.1.0.5"
@@ -215,11 +215,11 @@
       },
       "Jellyfin.Naming": {
         "type": "Transitive",
-        "resolved": "10.11.9",
-        "contentHash": "+qF3cgrgJ5n+bQURqtNSbr/R2nvlL7okX0mRXp85MVn2OeX90EVDYKbqjU2MNVoevyszvOkXgjbljo7pz3ziYw==",
+        "resolved": "10.11.11",
+        "contentHash": "D1/Zts7F+XI0UXt7A1oZ09C2V7e0MWd5tDsDAOjRP1E+/7ZmBEbXOMOq3stG5ZkzGiQOulDg+iNzckL9mWF4vw==",
         "dependencies": {
-          "Jellyfin.Common": "10.11.9",
-          "Jellyfin.Model": "10.11.9"
+          "Jellyfin.Common": "10.11.11",
+          "Jellyfin.Model": "10.11.11"
         }
       },
       "libsodium": {
