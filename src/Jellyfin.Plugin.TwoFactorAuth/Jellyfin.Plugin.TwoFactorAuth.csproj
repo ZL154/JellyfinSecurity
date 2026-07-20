@@ -56,7 +56,7 @@
          back to the login page. v2.5.9 shipped 8.18.0 with working OIDC, so we
          hold 8.18.0. Do not let Dependabot re-bump these without re-verifying a
          live OIDC sign-in. -->
-    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.18.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.19.2" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.18.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.301">
       <PrivateAssets>all</PrivateAssets>
