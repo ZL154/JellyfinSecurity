@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <!-- Static version badge — bump on each release. Switched from img.shields.io/github/v/release because that endpoint periodically returns 'unable to select next GitHub token from pool'. -->
-  <img src="https://img.shields.io/badge/Version-v2.5.16-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-v2.5.20-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -24,7 +24,7 @@
   <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/ci.yml?branch=main&style=for-the-badge&labelColor=000000&label=CI&logo=github&logoColor=white" alt="CI" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/codeql.yml?branch=main&style=for-the-badge&labelColor=000000&label=CodeQL&logo=github&logoColor=white" alt="CodeQL" /></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity"><img src="https://img.shields.io/ossf-scorecard/github.com/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=OSSF%20Score&color=00a4dc" alt="OpenSSF Scorecard" /></a>
-  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-266%20passing-00a4dc?style=for-the-badge&labelColor=000000&logo=xunit&logoColor=white" alt="Tests" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-344%20passing-00a4dc?style=for-the-badge&labelColor=000000&logo=xunit&logoColor=white" alt="Tests" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/blob/main/SECURITY.md"><img src="https://img.shields.io/badge/Security-Policy-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=gitbook&logoColor=white" alt="Security policy" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/wiki"><img src="https://img.shields.io/badge/Docs-Wiki-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc&logo=gitbook&logoColor=white" alt="Wiki" /></a>
 </p>
@@ -32,7 +32,7 @@
 <p align="center">
   <a href="https://github.com/ZL154/JellyfinSecurity/stargazers"><img src="https://img.shields.io/github/stars/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Stars&color=00a4dc&logo=github&logoColor=white" alt="Stars" /></a>
   <!-- Static last-commit badge — bump when pushing meaningful changes. img.shields.io/github/last-commit is the most rate-limited GitHub-API endpoint in the shields family and has been intermittently unavailable. Static avoids it. -->
-  <a href="https://github.com/ZL154/JellyfinSecurity/commits/main"><img src="https://img.shields.io/badge/Last%20commit-2026--06--21-2b2b2b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=github&logoColor=white" alt="Last commit" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/commits/main"><img src="https://img.shields.io/badge/Last%20commit-2026--07--24-2b2b2b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=github&logoColor=white" alt="Last commit" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/security/advisories"><img src="https://img.shields.io/github/issues-search/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Open%20advisories&query=is%3Aopen%20label%3Asecurity&color=00a4dc&logo=github&logoColor=white" alt="Open security advisories" /></a>
 </p>
 
@@ -51,10 +51,10 @@ Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email O
 You don't have to take my word for it. Every signal below is automated and
 visible to anyone, including you:
 
-- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (266 tests covering crypto, parsers, and middleware). Green = tests pass.
+- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (344 tests covering crypto, parsers, authentication flows, translations, and middleware). Green = tests pass.
 - **[CodeQL badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml)** — GitHub's static security scanner runs the `security-extended` + `security-and-quality` C# query packs on every push, PR, and weekly. Green = no security findings.
 - **[OpenSSF Scorecard](https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity)** — the Linux Foundation's automated security-posture rating (0–10). Scores branch protection, CodeQL, dependency updates, pinned actions, signed releases, security policy, token permissions, and more. Click the badge to see the per-check breakdown.
-- **[Test suite](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — 266 xUnit tests covering the security-critical code paths (cookie HMAC, TOTP replay protection, recovery-code PBKDF2, CIDR parser, X-Forwarded-For trust-walk, refuse-LAN-bypass-when-XFF-missing guard, device-token binding, AES-GCM v2 AAD, HIBP k-anonymity hashing, atomic challenge consumption, OIDC redirect_uri proxy-header resolution, OIDC userinfo claim merge, SMTP port 465 socket-option mapping, step-up code verification, step-up action classification, ChallengeStore step-up tokens). Runs on every PR + push.
+- **[Test suite](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — 344 xUnit tests covering the security-critical code paths (cookie HMAC, TOTP replay protection, recovery-code PBKDF2, CIDR parser, X-Forwarded-For trust-walk, refuse-LAN-bypass-when-XFF-missing guard, device-token binding, AES-GCM v2 AAD, HIBP k-anonymity hashing, atomic challenge consumption, OIDC redirect_uri proxy-header resolution, OIDC userinfo claim merge, SMTP port 465 socket-option mapping, step-up code verification, step-up action classification, ChallengeStore step-up tokens). Runs on every PR + push.
 - **[Open security advisories](https://github.com/ZL154/JellyfinSecurity/security/advisories)** — historical vulnerabilities filed via [SECURITY.md](SECURITY.md), with patch versions, severity, and CVE references.
 - **[Dependabot PRs](https://github.com/ZL154/JellyfinSecurity/pulls?q=is%3Apr+author%3Aapp%2Fdependabot)** — security and version updates for every NuGet dependency. Frequent merges = vulnerabilities don't sit unpatched.
 - **[Pull request review history](https://github.com/ZL154/JellyfinSecurity/pulls?q=is%3Apr+is%3Aclosed)** — non-trivial changes go through review even when the maintainer is solo, and the diff is public.
@@ -66,14 +66,26 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.5.19
+## 🆕 What's new in v2.5.20
 
-An Authentik-friendly OIDC option and clearer discovery errors — plus, from v2.5.18, recovery codes on the verify screen and a more accurate security score. Every new option is **opt-in**; in-place upgrade from any 2.5.x.
+This release focuses on reliable authentication across Android, reverse proxies, OIDC onboarding, and Jellyfin 10.11.11, with clearer identity context and a more dependable dashboard. It is an in-place upgrade from any 2.5.x with no schema migration or config reset.
+
+**v2.5.20**
+
+- **Android and mobile login reliability** *(#64, #137, #138)* - fixes missing injected login controls, stale cached web shells, proxy/Base URL redirects, and the post-2FA return path used by native mobile clients.
+- **The challenge identifies the account** *(#134 follow-up)* - the verify screen now shows **Signing in as _username_**, including the flow where Jellyfin has already accepted the username and password.
+- **Trusted-device continuity** - trusted Android sessions and app-password/native-client sessions are recognised consistently across the follow-up requests that complete login.
+- **Safer, clearer OIDC onboarding** *(#133, #134, #135, #136)* - exact username linking is opt-in and conflict-safe, the password page requires a live authenticated onboarding proof, the user can cancel securely, and symbol requirements are supported and displayed.
+- **OIDC compatibility and diagnostics** *(#98, #120)* - discovery accepts an issuer root, redirect URIs respect reverse-proxy/Base URL information, and failed bridge authentication surfaces an actionable error instead of looping.
+- **Dashboard and packaging fixes** *(#123, #130, #131)* - security posture/navigation load reliably, the audit log can be sorted, the desktop/mobile sidebar follows the active language, and packaged installs include valid Jellyfin metadata and artwork.
+- **Notification deduplication** *(#124)* - repeated events are grouped even when a reverse proxy changes the forwarded client address.
+- **Portable passkey registration** *(#102)* - new credentials request ES256, avoiding Ed25519/native-libsodium failures across Linux, ARM, Windows, iOS, and password-manager authenticators.
+- **Translations and regression coverage** - all 847 keys are aligned across all 8 languages and the suite now contains 344 passing tests.
 
 **v2.5.19**
 
-- **"Omit `prompt=login`" per-provider toggle** *(bug #119, vasmarfas)* — some IdPs, notably **Authentik** (upstream bug [#18507](https://github.com/goauthentik/authentik/issues/18507)), return a 404 when the plugin forces re-authentication via `prompt=login`. A new opt-in toggle (Sign-in Methods → your provider) omits it for that provider only, so those setups can sign in. **Off by default** — the forced fresh-auth is a security measure. Localized in all 8 languages.
-- **Clearer OIDC Discovery URL errors** *(feature #120, MysaaJava)* — pasting the realm / issuer root instead of the `.well-known/openid-configuration` document now gives a clear, actionable error *and* auto-retries with the correct suffix appended, instead of a cryptic `KeyNotFoundException` in the logs.
+- **"Omit `prompt=login`" per-provider toggle** *(bug #119, vasmarfas)* - some IdPs, notably **Authentik** (upstream bug [#18507](https://github.com/goauthentik/authentik/issues/18507)), return a 404 when the plugin forces re-authentication via `prompt=login`. A new opt-in toggle (Sign-in Methods → your provider) omits it for that provider only, so those setups can sign in. **Off by default** - the forced fresh-auth is a security measure. Localized in all 8 languages.
+- **Clearer OIDC Discovery URL errors** *(feature #120, MysaaJava)* - pasting the realm / issuer root instead of the `.well-known/openid-configuration` document now gives a clear, actionable error and auto-retries with the correct suffix appended, instead of a cryptic `KeyNotFoundException` in the logs.
 
 **v2.5.18**
 
@@ -143,6 +155,19 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ---
 
 ## 🧩 Features
+
+### New in v2.5.20
+- **Android/mobile authentication repair** - login controls are reinjected into current and previously cached web shells, Base URL/proxy-aware redirects are preserved, and native clients complete the 2FA hand-off without looping (#64, #137, #138).
+- **Visible account identity during 2FA** - the challenge page shows the username being verified, so users can confirm which Jellyfin account they are signing into (#134 follow-up).
+- **OIDC onboarding hardening** - exact username linking is an explicit opt-in; verified-email and subject conflicts are refused; set-password identifies the account and requires a short-lived, single-use session proof; cancel revokes the server session; and configurable symbol requirements are enforced (#133-#136).
+- **Reliable dashboard extension entry** - the plugin appears under the Jellyfin dashboard on desktop and mobile, updates its translated label when the language changes, and includes its artwork in manual and catalog packages (#131).
+- **Sortable audit log** - choose newest or oldest first and keep the selection while navigating the admin page (#130).
+- **Notification deduplication for native sessions** - repeated session events and changing forwarded addresses no longer generate Gotify/ntfy notification storms (#124).
+- **Portable passkeys** - registration explicitly requests ES256 so credentials do not depend on a platform-specific Ed25519/libsodium sidecar (#102).
+- **Package lifecycle validation** - builds now reject mismatched metadata, versions, missing assemblies, and missing artwork before a release can be produced (#123).
+- **Security posture/admin reliability** - posture computation and tab navigation no longer stall on Jellyfin 10.11.11.
+- **Fully localized** - all 847 keys match across English, German, Spanish, French, Italian, Japanese, Portuguese, and Chinese.
+- **Expanded regression suite** - 344 tests cover the repaired auth, onboarding, dashboard, packaging, and translation paths.
 
 ### New in v2.5.19
 - **Per-provider "omit `prompt=login`" toggle** — off by default; opt in for IdPs that 404 on forced re-authentication (Authentik, upstream bug #18507). Suppresses `prompt=login` on the step-up and account-link flows for that provider only (#119, vasmarfas). Localized in all 8 languages.
@@ -217,7 +242,7 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 
 ### Authentication
 - **TOTP** (RFC 6238) compatible with Google Authenticator, Authy, 1Password, Microsoft Authenticator, Bitwarden, etc.
-- **10 single-use recovery codes** generated at enrollment, stored as SHA-256 hashes, displayable once
+- **10 single-use recovery codes** generated at enrollment, stored as per-code-salted PBKDF2-HMAC-SHA256 hashes (600k iterations), displayable once
 - **Email OTP fallback** via configurable SMTP — codes expire in 5 minutes, single-use
 - **Per-device trust** via signed HTTP-only cookie (HMAC-SHA256, 30-day expiry, `SameSite=Strict`)
 
@@ -872,6 +897,18 @@ Restart Jellyfin. The user can now log in normally and re-enroll.
 
 ## 🛠️ Troubleshooting
 
+### 2FA / SSO buttons or the Security sidebar are missing on Android or mobile web
+
+The Android app and mobile browsers can retain Jellyfin's web shell from before the plugin was installed or upgraded. The plugin now prevents its patched `index.html` from being cached, but an older shell already stored on a device may still need one manual refresh:
+
+1. **Official Android app:** force-stop Jellyfin, then clear the app's **cache** (not its storage/data) and reopen it.
+2. **Mobile browser:** close every Jellyfin tab, reopen the exact Jellyfin URL, and perform a hard reload. A private/incognito tab is a quick way to confirm whether local cache is involved.
+3. If Jellyfin uses a Base URL such as `/jellyfin`, make sure the device opens that full URL, for example `https://media.example.com/jellyfin`.
+4. Open `<your Jellyfin URL>/TwoFactorAuth/inject` in the same browser. It should return JavaScript, not a 404 or a proxy error.
+5. If you use nginx, Cloudflare, or another reverse proxy, do not cache `/web/index.html`, `/web/`, or `/TwoFactorAuth/*`.
+
+After one successful refresh, the login buttons and **Two-Factor Auth** dashboard entry should appear normally. Clearing the full app storage is not normally required and will sign the device out.
+
 ### Plugin breaking your server
 Disable the plugin without uninstalling:
 
@@ -949,7 +986,7 @@ The plugin uses **5 ASP.NET Core middleware** components plus an `ISessionManage
 5. **`AuthenticationEventHandler`** (hosted service) — subscribes to `SessionStarted`; if a session for a 2FA-enabled user starts without verification, the user is added to the blocker's blocklist
 
 Persistent state:
-- `users/{userId}.json` — per-user TOTP secret (AES-GCM encrypted), recovery codes (SHA-256 hashed), trusted devices, lockout state
+- `users/{userId}.json` — per-user TOTP secret (AES-GCM encrypted), recovery codes (per-code-salted PBKDF2-HMAC-SHA256, 600k iterations), trusted devices, lockout state
 - `secret.key` — 32-byte AES-GCM key for TOTP secret encryption
 - `cookie.key` — 32-byte HMAC-SHA256 key for trust cookie signing
 - `audit.json` — login attempt log
@@ -1028,6 +1065,25 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.5.20
+
+- Fixed Android/mobile login injection, stale-shell caching, external-browser OIDC hand-off, Base URL handling, and the successful-2FA return path (#64, #137, #138).
+- Added clear account identity to the 2FA challenge and OIDC first-login password page, plus secure onboarding cancellation (#134).
+- Hardened OIDC onboarding with short-lived single-use proofs, live session revalidation, conflict-safe opt-in exact username linking, and symbol password requirements (#133, #135, #136).
+- Added audit-log sort order, reliable desktop/mobile dashboard navigation, live sidebar translation, and packaged plugin artwork (#130, #131).
+- Prevented Gotify/ntfy storms by deduplicating repeated native-client session challenges independently of changing forwarded IP addresses (#124).
+- Made new passkeys portable by requesting ES256 instead of Ed25519, which avoids native-libsodium failures across supported Jellyfin platforms (#102).
+- Repaired Jellyfin plugin metadata/version packaging and added fail-fast release checks for missing assemblies or artwork (#123).
+- Fixed security-posture computation and admin navigation on Jellyfin 10.11.11.
+- Synced recovery-code documentation to the implemented per-code-salted PBKDF2-HMAC-SHA256 600,000-iteration policy.
+- Completed all 847 translation keys in 8 languages. 344/344 tests pass. In-place upgrade with no schema or config migration. *(Shipped 2026-07-24.)*
+
+### 2.5.19
+
+- Added an opt-in per-provider toggle to omit `prompt=login` for IdPs such as Authentik that reject forced re-authentication (#119).
+- Added actionable OIDC discovery errors and automatic issuer-root fallback to `/.well-known/openid-configuration` (#120).
+- 266/266 tests pass. In-place upgrade. *(Shipped 2026-07-13.)*
 
 ### 2.5.18
 

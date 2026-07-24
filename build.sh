@@ -9,6 +9,27 @@ MODE="${1:-fat}"
 INSTALL_FLAG="${2:-}"
 OUTPUT_DIR="$SCRIPT_DIR/dist/TwoFactorAuth"
 
+PROJECT_VERSION="$(grep -oPm1 '(?<=<Version>)[^<]+' "$PROJECT_DIR/Jellyfin.Plugin.TwoFactorAuth.csproj")"
+META_VERSION="$(grep -oPm1 '(?<=\"version\": \")[^\"]+' "$PROJECT_DIR/meta.json")"
+if [ "$PROJECT_VERSION" != "$META_VERSION" ]; then
+    echo "Version mismatch: project=$PROJECT_VERSION meta.json=$META_VERSION" >&2
+    exit 1
+fi
+for property in name description guid version targetAbi owner overview category status autoUpdate imagePath assemblies; do
+    if ! grep -q "\"$property\"[[:space:]]*:" "$PROJECT_DIR/meta.json"; then
+        echo "meta.json must contain Jellyfin's exact case-sensitive '$property' property" >&2
+        exit 1
+    fi
+done
+if ! grep -q '"imagePath"[[:space:]]*:[[:space:]]*"logo.png"' "$PROJECT_DIR/meta.json"; then
+    echo "meta.json imagePath must be exactly 'logo.png'" >&2
+    exit 1
+fi
+if [ ! -f "$SCRIPT_DIR/assets/logo.png" ]; then
+    echo "Package image is missing: assets/logo.png" >&2
+    exit 1
+fi
+
 if [ "$MODE" = "--install" ]; then
     MODE="fat"
     INSTALL_FLAG="--install"
@@ -55,9 +76,15 @@ for file in \
     MimeKit.dll \
     BouncyCastle.Cryptography.dll \
 ; do
-    if [ -f "$BASE_PUBLISH_DIR/$file" ]; then
-        cp "$BASE_PUBLISH_DIR/$file" "$OUTPUT_DIR/"
+    if [ ! -f "$BASE_PUBLISH_DIR/$file" ]; then
+        echo "Required package assembly is missing: $file" >&2
+        exit 1
     fi
+    if ! grep -q "\"$file\"" "$PROJECT_DIR/meta.json"; then
+        echo "meta.json assemblies is missing required entry: $file" >&2
+        exit 1
+    fi
+    cp "$BASE_PUBLISH_DIR/$file" "$OUTPUT_DIR/"
 done
 
 for RID in "${RIDS[@]}"; do
@@ -83,6 +110,9 @@ done
 
 # Copy meta.json
 cp "$PROJECT_DIR/meta.json" "$OUTPUT_DIR/"
+# imageUrl only helps catalog installs. Jellyfin serves installed plugin
+# artwork from Manifest.ImagePath, so include it for manual packages too (#131).
+cp "$SCRIPT_DIR/assets/logo.png" "$OUTPUT_DIR/logo.png"
 
 echo ""
 echo "Plugin built to: $OUTPUT_DIR"

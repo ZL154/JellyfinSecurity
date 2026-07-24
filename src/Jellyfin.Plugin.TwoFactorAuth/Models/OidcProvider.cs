@@ -88,6 +88,15 @@ public class OidcProvider
     /// Jellyfin account — only enable for trusted IdPs.</summary>
     public bool AutoCreateUsers { get; set; }
 
+    /// <summary>
+    /// Allow an unlinked IdP identity to link to an existing non-administrator
+    /// Jellyfin account when the asserted username matches exactly. This is
+    /// independent of auto-creation so installations can link pre-existing
+    /// accounts without allowing the IdP to provision new ones. Default false.
+    /// Administrators and conflicting provider links are always refused.
+    /// </summary>
+    public bool LinkExistingUsersByUsername { get; set; }
+
     /// <summary>If true, refuse sign-in unless the IdP's `amr` claim indicates
     /// multi-factor (mfa, hwk, otp, etc). Useful for "force users to have
     /// IdP 2FA enabled before they can reach Jellyfin."</summary>

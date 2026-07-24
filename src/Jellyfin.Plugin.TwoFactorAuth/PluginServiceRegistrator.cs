@@ -51,6 +51,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddHostedService<EmptyPasswordAuditService>();
         // v2.0
         serviceCollection.AddSingleton<OidcService>();
+        serviceCollection.AddSingleton<OnboardingSessionProofStore>();
         serviceCollection.AddSingleton<IpBanService>();
         serviceCollection.AddSingleton<ImpossibleTravelDetector>();
         serviceCollection.AddSingleton<IpAllowlistService>();

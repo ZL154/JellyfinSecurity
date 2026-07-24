@@ -56,6 +56,7 @@ public class TwoFactorAuthController : ControllerBase
     private readonly StepUpService _stepUp;
     private readonly SecurityScoreService _scoreService;
     private readonly ConfigExportService _export;
+    private readonly OnboardingSessionProofStore _onboardingProofs;
     private readonly ILogger<TwoFactorAuthController> _logger;
 
     public TwoFactorAuthController(
@@ -86,6 +87,7 @@ public class TwoFactorAuthController : ControllerBase
         StepUpService stepUp,
         SecurityScoreService scoreService,
         ConfigExportService configExport,
+        OnboardingSessionProofStore onboardingProofs,
         ILogger<TwoFactorAuthController> logger)
     {
         _store = store;
@@ -115,6 +117,7 @@ public class TwoFactorAuthController : ControllerBase
         _stepUp = stepUp;
         _scoreService = scoreService;
         _export = configExport;
+        _onboardingProofs = onboardingProofs;
         _logger = logger;
     }
 
@@ -655,6 +658,17 @@ public class TwoFactorAuthController : ControllerBase
                 return Unauthorized(new { message = "Invalid username, password, or verification code." });
             }
 
+            if (TwoFactorAuthProvider.ShouldBlockEmptyPassword(
+                Plugin.Instance?.Configuration?.BlockEmptyPasswordLogin == true,
+                req.Password))
+            {
+                _logger.LogWarning(
+                    "[2FA] Standalone login refused: empty password blocked for '{User}'.",
+                    req.Username);
+                _ipBans.RecordFailure(clientIp);
+                return Unauthorized(new { message = "Invalid username, password, or verification code." });
+            }
+
             var userData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
             if (!await _allowlist.IsAllowedAsync(user.Id, clientIp).ConfigureAwait(false))
             {
@@ -681,6 +695,31 @@ public class TwoFactorAuthController : ControllerBase
             var hasPasskey = userData.Passkeys.Count > 0;
             var isAdmin = user.HasPermission(PermissionKind.IsAdministrator);
             var config = Plugin.Instance?.Configuration;
+            var deviceId = HttpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
+                ?? Guid.NewGuid().ToString("N");
+            var deviceName = HttpContext.Request.Headers["X-Emby-Device-Name"].FirstOrDefault()
+                ?? "Browser";
+
+            // A trusted browser normally presents the signed HttpOnly cookie,
+            // which TrustCookieMiddleware turns into a device-scoped
+            // pre-verification mark. Android WebView can discard cookies when
+            // the user signs out while retaining origin localStorage, so the
+            // challenge page also persists a random 256-bit device token. Honor
+            // that token here with the same exact DeviceId binding and TTL.
+            var submittedDeviceToken =
+                HttpContext.Request.Headers["X-TwoFactor-Token"].FirstOrDefault();
+            TrustedDevice? trustedTokenRecord = null;
+            var trustTtlDays = Math.Clamp(config?.TrustCookieTtlDays ?? 30, 1, 90);
+            var trustedByToken = !string.IsNullOrWhiteSpace(submittedDeviceToken)
+                && _deviceTokenService.ValidateToken(
+                    submittedDeviceToken,
+                    userData.TrustedDevices,
+                    deviceId,
+                    DateTime.UtcNow,
+                    trustTtlDays,
+                    out trustedTokenRecord);
+            var trustedByCookie = _challengeStore.IsDevicePreVerified(user.Id, deviceId);
+            var trustedDeviceBypass = trustedByToken || trustedByCookie;
 
             // SECURITY [v2.5.6]: passkey-only users (passkey enrolled, no
             // TOTP) cannot sign in via this endpoint with just a password.
@@ -690,7 +729,7 @@ public class TwoFactorAuthController : ControllerBase
             // this guard, a passkey-only account was bypassable with just a
             // password — the prior `requiresPostPasswordChallenge` formula
             // treated "no TOTP" as "no 2FA" and skipped the challenge.
-            if (!totpEnabled && hasPasskey)
+            if (!trustedDeviceBypass && !totpEnabled && hasPasskey)
             {
                 _ipBans.RecordFailure(clientIp);
                 return Unauthorized(new
@@ -705,7 +744,9 @@ public class TwoFactorAuthController : ControllerBase
             // Prior code only checked the legacy flag, leaving a bypass for
             // installations that opted into the per-role policy with the
             // legacy flag unset.
-            var requiresPostPasswordChallenge = !totpEnabled && (config?.ShouldEnforceFor(isAdmin) == true);
+            var requiresPostPasswordChallenge = !trustedDeviceBypass
+                && !totpEnabled
+                && (config?.ShouldEnforceFor(isAdmin) == true);
 
             var codeConsumedRecoveryIndex = -1;
 
@@ -713,7 +754,7 @@ public class TwoFactorAuthController : ControllerBase
             // We return identical "invalid credentials" messages whether the password is wrong,
             // the code is missing, or the code is wrong — preventing account enumeration of
             // which users have 2FA enabled.
-            if (totpEnabled)
+            if (totpEnabled && !trustedDeviceBypass)
             {
                 if (string.IsNullOrEmpty(req.Code))
                 {
@@ -818,11 +859,6 @@ public class TwoFactorAuthController : ControllerBase
             }
 
             // --- Step 2: Verify password with Jellyfin. If this fails, don't touch any state. ---
-            var deviceId = HttpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
-                ?? Guid.NewGuid().ToString("N");
-            var deviceName = HttpContext.Request.Headers["X-Emby-Device-Name"].FirstOrDefault()
-                ?? "Browser";
-
             var authRequest = new MediaBrowser.Controller.Session.AuthenticationRequest
             {
                 Username = req.Username,
@@ -944,11 +980,31 @@ public class TwoFactorAuthController : ControllerBase
             _rateLimiter.Reset("auth:" + clientIp);
             _ipBans.RecordSuccess(clientIp);
 
+            if (trustedTokenRecord is not null)
+            {
+                var trustedRecordId = trustedTokenRecord.Id;
+                var usedAt = DateTime.UtcNow;
+                await _store.MutateAsync(user.Id, ud =>
+                {
+                    var record = ud.TrustedDevices.FirstOrDefault(d =>
+                        string.Equals(d.Id, trustedRecordId, StringComparison.Ordinal));
+                    if (record is not null)
+                    {
+                        record.LastUsedAt = usedAt;
+                    }
+                }).ConfigureAwait(false);
+
+                // Restore the normal HttpOnly cookie when Android retained its
+                // WebView token but discarded cookies during sign-out.
+                IssueTrustCookie(user.Id, trustedTokenRecord, deviceId);
+            }
+
             // Only create a trust cookie/record if the user actually completed 2FA.
             // Users without 2FA don't need a trust cookie — there's nothing to trust.
-            if (totpEnabled && req.TrustDevice)
+            if (totpEnabled && req.TrustDevice && !trustedDeviceBypass)
             {
-                var (_, trustRecord) = _deviceTokenService.CreateDeviceToken(deviceId, deviceName);
+                var (rawDeviceToken, trustRecord) =
+                    _deviceTokenService.CreateDeviceToken(deviceId, deviceName);
                 // Reload userData since we may have saved earlier (recovery code used) before SessionStarted ran
                 userData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
                 userData.TrustedDevices.Add(trustRecord);
@@ -959,44 +1015,8 @@ public class TwoFactorAuthController : ControllerBase
                 EnforceTrustedDeviceCap(userData);
                 await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
 
-                // v2 cookie: deviceId and expiry are signed into the payload so
-                // (a) a stolen cookie can't be replayed with an attacker-chosen
-                // X-Emby-Device-Id header and (b) an attacker who tampers with
-                // the trust record file can't extend the window. TTL is admin-
-                // configurable in v1.4 (default 30 days, range 1-90). v2.5.0:
-                // if the trust record carries IndefiniteTrust, the cookie is
-                // issued with ~100yr expiry.
-                DateTimeOffset cookieExpires;
-                if (trustRecord.IndefiniteTrust)
-                {
-                    cookieExpires = DateTimeOffset.UtcNow.AddYears(100);
-                }
-                else
-                {
-                    var ttlDays = Math.Clamp(
-                        Plugin.Instance?.Configuration?.TrustCookieTtlDays ?? 30, 1, 90);
-                    cookieExpires = DateTimeOffset.UtcNow.AddDays(ttlDays);
-                }
-                var expiryUnix = cookieExpires.ToUnixTimeSeconds();
-                var deviceB64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(deviceId ?? string.Empty))
-                    .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-                var cookieValue = $"{user.Id:N}.{trustRecord.Id}.{deviceB64}.{expiryUnix}";
-                var hmac = _cookieSigner.Sign(cookieValue);
-                Response.Cookies.Append("__2fa_trust", $"{cookieValue}.{hmac}", new CookieOptions
-                {
-                    HttpOnly = true,
-                    // SEC-H1: see TrustCookieMiddleware.IssueTrustCookie. IsHttps
-                    // reads only the direct TCP scheme — behind a TLS-terminating
-                    // reverse proxy the Secure flag would silently drop. Use the
-                    // proxy-aware resolver instead. Browsers still reject Secure
-                    // on plain-HTTP localhost; the resolver returns false there
-                    // unchanged.
-                    Secure = BypassEvaluator.IsSecureRequest(HttpContext),
-                    SameSite = SameSiteMode.Strict,
-                    Expires = cookieExpires,
-                    Path = "/",
-                    IsEssential = true,
-                });
+                IssueTrustCookie(user.Id, trustRecord, deviceId);
+                Response.Headers.Append("X-TwoFactor-Device-Token", rawDeviceToken);
             }
 
             await _store.AddAuditEntryAsync(new AuditEntry
@@ -1008,7 +1028,11 @@ public class TwoFactorAuthController : ControllerBase
                 DeviceId = deviceId ?? string.Empty,
                 DeviceName = deviceName,
                 Result = AuditResult.Success,
-                Method = totpEnabled ? (codeConsumedRecoveryIndex >= 0 ? "recovery" : "totp") : "password_only",
+                Method = trustedDeviceBypass
+                    ? "trusted_device"
+                    : totpEnabled
+                        ? (codeConsumedRecoveryIndex >= 0 ? "recovery" : "totp")
+                        : "password_only",
             }).ConfigureAwait(false);
 
             return Ok(result);
@@ -1018,6 +1042,44 @@ public class TwoFactorAuthController : ControllerBase
             _logger.LogError(ex, "[2FA] /Authenticate unhandled exception");
             return StatusCode(500, new { message = "Internal server error. Check Jellyfin logs for [2FA] entries." });
         }
+    }
+
+    /// <summary>Issues the browser trust cookie for an already-persisted
+    /// trusted-device record. The random device token is the WebView fallback;
+    /// the HttpOnly cookie remains the preferred browser transport.</summary>
+    private void IssueTrustCookie(Guid userId, TrustedDevice trustRecord, string deviceId)
+    {
+        DateTimeOffset expiresAt;
+        if (trustRecord.IndefiniteTrust)
+        {
+            expiresAt = DateTimeOffset.UtcNow.AddYears(100);
+        }
+        else
+        {
+            var ttlDays = Math.Clamp(
+                Plugin.Instance?.Configuration?.TrustCookieTtlDays ?? 30,
+                1,
+                90);
+            expiresAt = DateTimeOffset.UtcNow.AddDays(ttlDays);
+        }
+
+        var expiryUnix = expiresAt.ToUnixTimeSeconds();
+        var deviceB64 = Convert.ToBase64String(
+                System.Text.Encoding.UTF8.GetBytes(deviceId ?? string.Empty))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+        var payload = $"{userId:N}.{trustRecord.Id}.{deviceB64}.{expiryUnix}";
+        var hmac = _cookieSigner.Sign(payload);
+        Response.Cookies.Append("__2fa_trust", $"{payload}.{hmac}", new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = BypassEvaluator.IsSecureRequest(HttpContext),
+            SameSite = SameSiteMode.Strict,
+            Expires = expiresAt,
+            Path = "/",
+            IsEssential = true,
+        });
     }
 
     private static int FindRecoveryCodeIndex(UserTwoFactorData userData, string submitted)
@@ -3662,7 +3724,10 @@ public class TwoFactorAuthController : ControllerBase
             // goes to the warning log for admin diagnostics — generic
             // message to the client.
             _logger.LogWarning(ex, "[2FA] Passkey registration failed");
-            return BadRequest(new { message = "Registration failed — check your authenticator and try again." });
+            return BadRequest(new
+            {
+                message = "Registration failed. If Jellyfin is behind a reverse proxy, verify the WebAuthn RP ID and allowed origins in Jellyfin Security settings, then check Passkey diagnostics.",
+            });
         }
     }
 
@@ -4767,20 +4832,39 @@ public class TwoFactorAuthController : ControllerBase
     [HttpGet("SetPassword")]
     [AllowAnonymous]
     [Produces("text/html")]
-    public IActionResult SetPasswordPage() => ServeEmbeddedPage("setpassword.html");
+    public IActionResult SetPasswordPage()
+    {
+        Response.Headers["Cache-Control"] = "no-store";
+        return ServeEmbeddedPage("setpassword.html");
+    }
 
     [HttpGet("SetPassword/Policy")]
     [Authorize]
     public IActionResult GetOnboardingPasswordPolicy()
     {
-        var c = Plugin.Instance?.Configuration;
+        Guid userId;
+        try { userId = GetCurrentUserId(); }
+        catch (UnauthorizedAccessException) { return Unauthorized(); }
+
+        if (!_onboardingProofs.Validate(
+            userId,
+            Request.Headers["X-JellyfinSecurity-Onboarding-Proof"].FirstOrDefault(),
+            consume: false))
+        {
+            return Unauthorized(new { message = "The identity-provider session must be validated again." });
+        }
+
+        var policy = OnboardingPasswordPolicy.FromConfiguration(Plugin.Instance?.Configuration);
+        var user = _userManager.GetUserById(userId);
         Response.Headers["Cache-Control"] = "no-store";
         return Ok(new
         {
-            minLength = Math.Clamp(c?.OnboardingPasswordMinLength ?? 16, 1, 256),
-            requireUppercase = c?.OnboardingPasswordRequireUppercase ?? false,
-            requireLowercase = c?.OnboardingPasswordRequireLowercase ?? false,
-            requireDigit = c?.OnboardingPasswordRequireDigit ?? false,
+            accountName = user?.Username ?? string.Empty,
+            minLength = policy.MinLength,
+            requireUppercase = policy.RequireUppercase,
+            requireLowercase = policy.RequireLowercase,
+            requireDigit = policy.RequireDigit,
+            requireSymbol = policy.RequireSymbol,
         });
     }
 
@@ -4791,6 +4875,14 @@ public class TwoFactorAuthController : ControllerBase
         Guid userId;
         try { userId = GetCurrentUserId(); }
         catch (UnauthorizedAccessException) { return Unauthorized(); }
+
+        if (!_onboardingProofs.Validate(
+            userId,
+            Request.Headers["X-JellyfinSecurity-Onboarding-Proof"].FirstOrDefault(),
+            consume: false))
+        {
+            return Unauthorized(new { message = "The identity-provider session must be validated again." });
+        }
 
         // Authenticated, but still rate-limit so a hijacked session can't brute the
         // endpoint or spam ChangePassword.
@@ -4809,10 +4901,20 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         var pw = body?.Password ?? string.Empty;
-        var policyErr = ValidateOnboardingPassword(pw);
+        var policyErr = OnboardingPasswordPolicy
+            .FromConfiguration(Plugin.Instance?.Configuration)
+            .Validate(pw);
         if (policyErr is not null)
         {
             return BadRequest(new { message = policyErr });
+        }
+
+        if (!_onboardingProofs.Validate(
+            userId,
+            Request.Headers["X-JellyfinSecurity-Onboarding-Proof"].FirstOrDefault(),
+            consume: true))
+        {
+            return Unauthorized(new { message = "The identity-provider session must be validated again." });
         }
 
         try
@@ -4825,39 +4927,87 @@ public class TwoFactorAuthController : ControllerBase
             return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Could not set the password. Please try again." });
         }
 
-        await _store.MutateAsync(userId, ud => ud.MustSetPassword = false).ConfigureAwait(false);
+        await _store.MutateAsync(userId, ud =>
+        {
+            ud.MustSetPassword = false;
+            ud.PendingOidcUserCreation = false;
+            ud.PendingOidcProviderId = string.Empty;
+            ud.PendingOidcSubject = string.Empty;
+        }).ConfigureAwait(false);
         _logger.LogInformation("[2FA] (#100) User {UserId} set a local Jellyfin password during OIDC onboarding", userId);
         return Ok(new { ok = true });
     }
 
-    /// <summary>[v2.5.14] (#100) Validate an onboarding password against the
-    /// plugin-global policy. Returns null when valid, else a user-facing reason.</summary>
-    private static string? ValidateOnboardingPassword(string pw)
+    [HttpPost("SetPassword/Logout")]
+    [Authorize]
+    public async Task<IActionResult> CancelOnboardingAndLogout()
     {
-        var c = Plugin.Instance?.Configuration;
-        var min = Math.Clamp(c?.OnboardingPasswordMinLength ?? 16, 1, 256);
-        if (string.IsNullOrEmpty(pw) || pw.Length < min)
+        Guid userId;
+        try { userId = GetCurrentUserId(); }
+        catch (UnauthorizedAccessException) { return Unauthorized(); }
+
+        var token = HttpContext.Request.Headers["X-Emby-Token"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(token))
         {
-            return $"Password must be at least {min} characters.";
+            return BadRequest(new { message = "Cannot determine the current Jellyfin session." });
         }
 
-        if ((c?.OnboardingPasswordRequireUppercase ?? false) && !pw.Any(char.IsUpper))
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var abortCreation = ShouldAbortOidcUserCreation(data);
+
+        try
         {
-            return "Password must contain an uppercase letter.";
+            await _sessionManager.Logout(token).ConfigureAwait(false);
+            _challengeStore.UnblockToken(token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Failed to cancel password onboarding session");
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                new { message = "Could not sign out. Please try again." });
         }
 
-        if ((c?.OnboardingPasswordRequireLowercase ?? false) && !pw.Any(char.IsLower))
+        if (!abortCreation)
         {
-            return "Password must contain a lowercase letter.";
+            // Existing/re-armed accounts are deliberately retained. The pending
+            // password requirement stays set for their next successful sign-in.
+            return Ok(new { ok = true, accountDeleted = false });
         }
 
-        if ((c?.OnboardingPasswordRequireDigit ?? false) && !pw.Any(char.IsDigit))
+        try
         {
-            return "Password must contain a number.";
-        }
+            await _userManager.DeleteUserAsync(userId).ConfigureAwait(false);
+            await _store.DeleteUserDataAsync(userId).ConfigureAwait(false);
 
-        return null;
+            var plugin = Plugin.Instance;
+            if (plugin is not null)
+            {
+                plugin.Configuration.SetUserEmail(userId.ToString("N"), null);
+                plugin.SaveConfiguration();
+            }
+
+            _logger.LogInformation(
+                "[2FA] (#134) Cancelled onboarding and removed pending OIDC-created user {UserId}",
+                userId);
+            return Ok(new { ok = true, accountDeleted = true });
+        }
+        catch (Exception ex)
+        {
+            // The session is already revoked. Fail visibly so the browser does
+            // not claim the creation was aborted when the account still exists.
+            _logger.LogError(
+                ex,
+                "[2FA] (#134) Signed out pending OIDC-created user {UserId}, but account deletion failed",
+                userId);
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                new { message = "Signed out, but could not remove the new account. Ask an administrator to remove it." });
+        }
     }
+
+    internal static bool ShouldAbortOidcUserCreation(UserTwoFactorData data)
+        => data.MustSetPassword && data.PendingOidcUserCreation;
 
     /// <summary>[v2.5.14] (#100) Body for POST /TwoFactorAuth/SetPassword.</summary>
     public sealed class SetPasswordBody

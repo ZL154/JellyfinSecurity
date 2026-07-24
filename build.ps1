@@ -7,6 +7,31 @@ param(
 $ProjectDir = "$PSScriptRoot\src\Jellyfin.Plugin.TwoFactorAuth"
 $OutputDir = "$PSScriptRoot\dist\TwoFactorAuth"
 
+# Keep Jellyfin's package metadata and the generated assembly on one version.
+# AssemblyVersion/FileVersion intentionally inherit the project Version.
+$ProjectXml = [xml](Get-Content "$ProjectDir\Jellyfin.Plugin.TwoFactorAuth.csproj")
+$ProjectVersion = [string]$ProjectXml.Project.PropertyGroup.Version
+$Meta = Get-Content "$ProjectDir\meta.json" -Raw | ConvertFrom-Json
+$RequiredManifestProperties = @(
+    "name", "description", "guid", "version", "targetAbi", "owner",
+    "overview", "category", "status", "autoUpdate", "imagePath", "assemblies"
+)
+foreach ($property in $RequiredManifestProperties) {
+    if ($Meta.PSObject.Properties.Name -cnotcontains $property) {
+        throw "meta.json must contain Jellyfin's exact case-sensitive '$property' property"
+    }
+}
+$MetaVersion = [string]$Meta.version
+if ($ProjectVersion -ne $MetaVersion) {
+    throw "Version mismatch: project=$ProjectVersion meta.json=$MetaVersion"
+}
+if ([string]$Meta.imagePath -cne "logo.png") {
+    throw "meta.json imagePath must be exactly 'logo.png'"
+}
+if (-not (Test-Path "$PSScriptRoot\assets\logo.png")) {
+    throw "Package image is missing: assets\logo.png"
+}
+
 # Clean output
 if (Test-Path $OutputDir) { Remove-Item -Recurse -Force $OutputDir }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
@@ -42,13 +67,21 @@ $RequiredFiles = @(
 
 foreach ($file in $RequiredFiles) {
     $src = "$PSScriptRoot\dist\publish\$file"
-    if (Test-Path $src) {
-        Copy-Item $src $OutputDir
+    if (-not (Test-Path $src)) {
+        throw "Required package assembly is missing: $file"
     }
+    if ($Meta.assemblies -cnotcontains $file) {
+        throw "meta.json assemblies is missing required entry: $file"
+    }
+    Copy-Item $src $OutputDir
 }
 
 # Copy meta.json
 Copy-Item "$ProjectDir\meta.json" $OutputDir
+# Keep an on-disk image in every package. Jellyfin's plugin image endpoint
+# reads Manifest.ImagePath from the installed folder; imageUrl is catalog-only
+# and cannot fix manually installed packages (#131).
+Copy-Item "$PSScriptRoot\assets\logo.png" "$OutputDir\logo.png"
 
 Write-Host "`nPlugin built to: $OutputDir" -ForegroundColor Green
 Write-Host "Files:" -ForegroundColor Gray

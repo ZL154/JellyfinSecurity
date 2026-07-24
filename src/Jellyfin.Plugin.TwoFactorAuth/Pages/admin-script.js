@@ -892,6 +892,23 @@
                 var allAudit = [];
                 var auditPage = 0;
                 var AUDIT_PAGE_SIZE = 50;
+                var AUDIT_SORT_STORAGE_KEY = 'jellyfin-security-audit-sort';
+                var auditSortOrder = 'desc';
+                try {
+                    auditSortOrder = localStorage.getItem(AUDIT_SORT_STORAGE_KEY) === 'asc' ? 'asc' : 'desc';
+                } catch (e) {}
+                page.querySelector('#auditSortOrder').value = auditSortOrder;
+                function auditTimestamp(entry) {
+                    var value = entry.timestamp || entry.Timestamp || '';
+                    var parsed = Date.parse(value);
+                    return isNaN(parsed) ? 0 : parsed;
+                }
+                function orderedAudit(entries) {
+                    var direction = auditSortOrder === 'asc' ? 1 : -1;
+                    return entries.slice().sort(function(a, b) {
+                        return direction * (auditTimestamp(a) - auditTimestamp(b));
+                    });
+                }
                 function loadAudit() {
                     apiGet('TwoFactorAuth/AuditLog?limit=1000').then(function(entries) {
                         allAudit = entries || [];
@@ -901,7 +918,8 @@
                 }
                 function renderAudit() {
                     var q = page.querySelector('#auditFilter').value.toLowerCase();
-                    var filtered = q ? allAudit.filter(function(e) { return JSON.stringify(e).toLowerCase().indexOf(q) >= 0; }) : allAudit;
+                    var matches = q ? allAudit.filter(function(e) { return JSON.stringify(e).toLowerCase().indexOf(q) >= 0; }) : allAudit;
+                    var filtered = orderedAudit(matches);
                     var totalPages = Math.max(1, Math.ceil(filtered.length / AUDIT_PAGE_SIZE));
                     if (auditPage >= totalPages) auditPage = totalPages - 1;
                     var slice = filtered.slice(auditPage * AUDIT_PAGE_SIZE, (auditPage + 1) * AUDIT_PAGE_SIZE);
@@ -922,6 +940,12 @@
                     page.querySelector('#auditNext').disabled = auditPage >= totalPages - 1;
                 }
                 page.querySelector('#auditFilter').addEventListener('input', function() { auditPage = 0; renderAudit(); });
+                page.querySelector('#auditSortOrder').addEventListener('change', function(ev) {
+                    auditSortOrder = ev.target.value === 'asc' ? 'asc' : 'desc';
+                    auditPage = 0;
+                    try { localStorage.setItem(AUDIT_SORT_STORAGE_KEY, auditSortOrder); } catch (e) {}
+                    renderAudit();
+                });
                 // v1.4: users filter + bulk
                 page.querySelector('#usersFilter').addEventListener('input', function() { renderUsers(); });
                 page.querySelector('#usersSelectAll').addEventListener('change', function(ev) {
@@ -951,7 +975,7 @@
                 page.querySelector('#auditExportCsv').addEventListener('click', function() {
                     if (!allAudit.length) { alert(_tr('tfa.admin.audit.nothing_to_export', 'Nothing to export.')); return; }
                     var rows = [['Time','User','IP','DeviceId','DeviceName','Result','Method','Details']];
-                    allAudit.forEach(function(e) {
+                    orderedAudit(allAudit).forEach(function(e) {
                         rows.push([
                             (e.timestamp || e.Timestamp || ''),
                             (e.username || e.Username || ''),
@@ -1051,6 +1075,8 @@
                         if (obLow) obLow.checked = c.OnboardingPasswordRequireLowercase === true;
                         var obDig = page.querySelector('#cfgOnboardingPwDigit');
                         if (obDig) obDig.checked = c.OnboardingPasswordRequireDigit === true;
+                        var obSym = page.querySelector('#cfgOnboardingPwSymbol');
+                        if (obSym) obSym.checked = c.OnboardingPasswordRequireSymbol === true;
                         page.querySelector('#cfgAuditMax').value = c.AuditLogMaxEntries || 1000;
                         page.querySelector('#cfgSmtpHost').value = c.SmtpHost || '';
                         page.querySelector('#cfgSmtpPort').value = c.SmtpPort || 587;
@@ -1218,6 +1244,7 @@
                             c.OnboardingPasswordRequireUppercase = (page.querySelector('#cfgOnboardingPwUpper') || {}).checked === true;
                             c.OnboardingPasswordRequireLowercase = (page.querySelector('#cfgOnboardingPwLower') || {}).checked === true;
                             c.OnboardingPasswordRequireDigit = (page.querySelector('#cfgOnboardingPwDigit') || {}).checked === true;
+                            c.OnboardingPasswordRequireSymbol = (page.querySelector('#cfgOnboardingPwSymbol') || {}).checked === true;
                         }
                         c.AuditLogMaxEntries = parseInt(page.querySelector('#cfgAuditMax').value) || 1000;
                         c.SmtpHost = page.querySelector('#cfgSmtpHost').value.trim();
@@ -1564,6 +1591,7 @@
                     if (elevEl) elevEl.checked = prov ? !!prov.allowAdminGroupElevation : false;
                     populateTemplateUserSelect(prov ? (prov.templateUserId || '') : '');
                     page.querySelector('#ssoAutoCreate').checked = prov ? !!prov.autoCreateUsers : false;
+                    page.querySelector('#ssoLinkExistingUsername').checked = prov ? !!prov.linkExistingUsersByUsername : false;
                     // [v2.5.14] (#100) force-password-on-onboarding opt-in.
                     var forcePwEl = page.querySelector('#ssoForcePassword');
                     if (forcePwEl) forcePwEl.checked = prov ? !!prov.forcePasswordSetup : false;
@@ -1669,6 +1697,7 @@
                         AllowAdminGroupElevation: (page.querySelector('#ssoAllowAdminElevation') || {}).checked === true,
                         TemplateUserId: (page.querySelector('#ssoTemplateUser') ? page.querySelector('#ssoTemplateUser').value : ''),
                         AutoCreateUsers: page.querySelector('#ssoAutoCreate').checked,
+                        LinkExistingUsersByUsername: page.querySelector('#ssoLinkExistingUsername').checked,
                         // [v2.5.14] (#100) force-password-on-onboarding opt-in.
                         ForcePasswordSetup: (page.querySelector('#ssoForcePassword') || {}).checked === true,
                         RequireIdpMfa: page.querySelector('#ssoRequireMfa').checked,

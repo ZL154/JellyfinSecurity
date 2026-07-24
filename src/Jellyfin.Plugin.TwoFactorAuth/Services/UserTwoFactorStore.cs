@@ -137,6 +137,35 @@ public class UserTwoFactorStore : IDisposable
     }
 
     /// <summary>
+    /// Remove plugin-owned state after Jellyfin has deleted a user. The
+    /// per-user semaphore prevents a concurrent authentication write from
+    /// recreating the file between cache removal and deletion.
+    /// </summary>
+    public async Task DeleteUserDataAsync(Guid userId)
+    {
+        if (userId == Guid.Empty)
+        {
+            return;
+        }
+
+        var sem = GetUserLock(userId);
+        await sem.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            _userCache.TryRemove(userId, out _);
+            var path = UserFilePath(userId);
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        finally
+        {
+            sem.Release();
+        }
+    }
+
+    /// <summary>
     /// Atomic read-modify-write under the per-user semaphore. Use this when
     /// multiple requests can mutate the same user concurrently (auth bypass
     /// updates LastUsedAt while the user is also editing app passwords from

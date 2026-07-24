@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Text.Json;
 using Xunit;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Tests;
@@ -30,6 +31,8 @@ public class TranslationLangSanitizationTests
 
 public class TranslationResourceLoadingTests
 {
+    private static readonly string[] SupportedLanguages = ["en", "de", "es", "fr", "it", "ja", "pt", "zh"];
+
     [Fact]
     public void ReadEmbeddedText_EnJson_LoadsContent()
     {
@@ -45,6 +48,30 @@ public class TranslationResourceLoadingTests
         var content = Jellyfin.Plugin.TwoFactorAuth.Helpers.ResourceReader.ReadEmbeddedText(
             "Jellyfin.Plugin.TwoFactorAuth.Pages.translations.xx-fake.json");
         Assert.Null(content);
+    }
+
+    [Fact]
+    public void EverySupportedTranslation_HasEnglishKeyParity()
+    {
+        var english = ReadTranslation("en");
+        var englishKeys = english.RootElement.EnumerateObject().Select(property => property.Name).ToHashSet();
+
+        foreach (var language in SupportedLanguages)
+        {
+            using var translation = ReadTranslation(language);
+            var keys = translation.RootElement.EnumerateObject().Select(property => property.Name).ToHashSet();
+            Assert.Equal(
+                englishKeys.OrderBy(key => key, StringComparer.Ordinal),
+                keys.OrderBy(key => key, StringComparer.Ordinal));
+        }
+    }
+
+    private static JsonDocument ReadTranslation(string language)
+    {
+        var content = Jellyfin.Plugin.TwoFactorAuth.Helpers.ResourceReader.ReadEmbeddedText(
+            $"Jellyfin.Plugin.TwoFactorAuth.Pages.translations.{language}.json");
+        Assert.NotNull(content);
+        return JsonDocument.Parse(content);
     }
 }
 

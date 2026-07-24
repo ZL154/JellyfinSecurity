@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Two-Factor Authentication</title>
-    <script src="/TwoFactorAuth/tfa-i18n"></script>
+    <script src="tfa-i18n"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -132,7 +132,7 @@
     <div class="tfa-lang-host" id="tfaLangHost"></div>
     <div class="container">
         <p style="margin-bottom:18px;">
-            <a href="/web/index.html" style="color:#888;font-size:13px;text-decoration:none;" data-i18n-key="tfa.setup.back_to_jellyfin">← Back to Jellyfin</a>
+            <a href="../web/index.html" style="color:#888;font-size:13px;text-decoration:none;" data-i18n-key="tfa.setup.back_to_jellyfin">← Back to Jellyfin</a>
         </p>
         <h1 data-i18n-key="tfa.setup.title">Two-Factor Authentication</h1>
         <p class="subtitle" data-i18n-key="tfa.setup.subtitle">Protect your Jellyfin account with TOTP, recovery codes, and device-level controls.</p>
@@ -803,7 +803,7 @@
             var token = getToken();
             if (!token) {
                 document.getElementById('statusContent').innerHTML =
-                    '<p style="color:#ef5350;">' + _tr('tfa.setup.status.need_signin_prefix', 'You need to be signed in.') + ' <a href="/web/index.html">' + _tr('tfa.setup.status.sign_in_link', 'Sign in →') + '</a></p>';
+                    '<p style="color:#ef5350;">' + _tr('tfa.setup.status.need_signin_prefix', 'You need to be signed in.') + ' <a href="../web/index.html">' + _tr('tfa.setup.status.sign_in_link', 'Sign in →') + '</a></p>';
                 return;
             }
             Promise.all([
@@ -832,7 +832,7 @@
                     document.getElementById('statusContent').innerHTML =
                         '<p style="color:#ef5350;line-height:1.6;">' +
                         _tr('tfa.setup.status.session_unverified_prefix', "We couldn't verify your Jellyfin session. Please") + ' ' +
-                        '<a href="/web/index.html" style="color:#00a4dc;">' + _tr('tfa.setup.status.session_unverified_link', 'sign in on the main page') + '</a>' +
+                        '<a href="../web/index.html" style="color:#00a4dc;">' + _tr('tfa.setup.status.session_unverified_link', 'sign in on the main page') + '</a>' +
                         ' ' + _tr('tfa.setup.status.session_unverified_suffix', 'and then return to this page. If you just signed in and this keeps happening, refresh the page once.') +
                         '</p>';
                     return;
@@ -887,7 +887,7 @@
         function loadSsoLinks() {
             Promise.all([
                 api('GET', 'TwoFactorAuth/Oidc/MyLinks').catch(function() { return []; }),
-                fetch('/TwoFactorAuth/Oidc/PublicProviders').then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
+                fetch(window.tfaUrl('TwoFactorAuth/Oidc/PublicProviders')).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
             ]).then(function(r) {
                 var links = r[0] || [];
                 var providers = r[1] || [];
@@ -1386,7 +1386,7 @@
                 .then(function(blob){ /* api returns parsed JSON if 2xx — fall back to fetch for binary */ })
                 .catch(function(){ /* fallthrough — use direct fetch since helper assumes JSON */ });
             // Direct binary fetch (api() helper is JSON-only):
-            fetch('/TwoFactorAuth/RecoveryCodes/Pdf', {
+            fetch(window.tfaUrl('TwoFactorAuth/RecoveryCodes/Pdf'), {
                 method: 'POST',
                 headers: { 'X-Emby-Token': getToken(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ codes: window.__recoveryCodes || [] })
@@ -1739,7 +1739,7 @@
                 console.error('[2FA] Passkey register error:', e);
                 // Also report to server log so we can correlate.
                 try {
-                    fetch('/TwoFactorAuth/Passkeys/ClientLog', {
+                    fetch(window.tfaUrl('TwoFactorAuth/Passkeys/ClientLog'), {
                         method: 'POST',
                         headers: { 'X-Emby-Token': getToken(), 'Content-Type': 'application/json' },
                         body: JSON.stringify({ phase: 'register', name: e && e.name, message: e && e.message, ua: navigator.userAgent })
@@ -1793,7 +1793,7 @@
             api('POST', 'TwoFactorAuth/Setup/EmergencyLockout').then(function(r) {
                 ok.textContent = '✓ ' + _tr('tfa.setup.emergency.complete_prefix', 'Lockout complete.') + ' ' + (r.sessionsTerminated || 0) + ' ' + _tr('tfa.setup.emergency.complete_suffix', 'session(s) ended. Sign in again to regain access.');
                 ok.classList.add('show');
-                setTimeout(function() { window.location.href = '/web/index.html'; }, 4000);
+                setTimeout(function() { window.location.href = window.tfaUrl('web/index.html'); }, 4000);
             }).catch(function() {
                 ok.textContent = '✗ ' + _tr('tfa.setup.emergency.failed', 'Lockout failed. Try again or contact admin.');
                 ok.classList.add('show');
@@ -1823,7 +1823,7 @@
         // to show the per-device indefinite-trust toggle. Stored on window so
         // re-renders triggered later don't refetch.
         window._tfaPublicConfig = null;
-        var publicConfigPromise = fetch('/TwoFactorAuth/public-config')
+        var publicConfigPromise = fetch(window.tfaUrl('TwoFactorAuth/public-config'))
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(c) { window._tfaPublicConfig = c || {}; })
             .catch(function() { window._tfaPublicConfig = {}; });

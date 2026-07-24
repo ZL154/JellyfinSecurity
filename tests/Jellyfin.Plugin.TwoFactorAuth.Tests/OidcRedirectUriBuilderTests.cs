@@ -182,4 +182,40 @@ public class OidcRedirectUriBuilderTests
 
         Assert.Equal("http://jellyfin.local:8096/TwoFactorAuth/Oidc/Callback/kanidm", result);
     }
+
+    [Theory]
+    [InlineData("/jellyfin", "http://jellyfin.local:8096/jellyfin/TwoFactorAuth/Oidc/Callback/kanidm")]
+    [InlineData("/jellyfin/", "http://jellyfin.local:8096/jellyfin/TwoFactorAuth/Oidc/Callback/kanidm")]
+    [InlineData("jellyfin", "http://jellyfin.local:8096/jellyfin/TwoFactorAuth/Oidc/Callback/kanidm")]
+    [InlineData("/", "http://jellyfin.local:8096/TwoFactorAuth/Oidc/Callback/kanidm")]
+    public void Build_BasePath_IsIncludedAndNormalized(string basePath, string expected)
+    {
+        var result = OidcRedirectUriBuilder.Build(
+            directScheme: "http",
+            directHost: "jellyfin.local:8096",
+            forwardedProto: null,
+            forwardedHost: null,
+            peer: "10.0.0.5",
+            trustedCidrs: Trusted,
+            providerId: "kanidm",
+            basePath: basePath);
+
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData("", "/TwoFactorAuth/Oidc/Callback/keycloak", "")]
+    [InlineData("/jellyfin", "/TwoFactorAuth/Oidc/Callback/keycloak", "/jellyfin")]
+    [InlineData("", "/jellyfin/TwoFactorAuth/Oidc/Callback/keycloak", "/jellyfin")]
+    [InlineData("", "/media/jellyfin/TwoFactorAuth/Oidc/Login/keycloak", "/media/jellyfin")]
+    [InlineData("", "/unrelated/route", "")]
+    public void ResolveBasePath_Handles_Jellyfin_10_11_Path_layout(
+        string pathBase,
+        string requestPath,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            OidcRedirectUriBuilder.ResolveBasePath(pathBase, requestPath));
+    }
 }

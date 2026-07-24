@@ -74,6 +74,22 @@ public class ChallengeStore : IDisposable
     // on process restart users re-prompt once per device which is acceptable.
     private readonly ConcurrentDictionary<string, DateTime> _verifiedTokens = new();
 
+    // A single Jellyfin login can raise SessionStarted more than once (native
+    // client reconnects, websocket setup, playback sessions). Keep the
+    // challenge side effects atomic per token/session identity so those
+    // duplicate events cannot repeatedly block, audit, notify and end the same
+    // login. Entries share the blocked-token lifetime and are swept below.
+    private readonly ConcurrentDictionary<string, DateTime> _startedSessionChallenges = new();
+
+    // #124: one logical device login can traverse the authentication provider,
+    // response middleware and SessionStarted handler, sometimes repeatedly
+    // during native-client playback. All three paths share this gate so every
+    // notification backend sees one event instead of a storm. The key excludes
+    // RemoteIp because mobile-carrier / tunnel addresses can rotate inside the
+    // same session. Successful challenge consumption clears the key so a later
+    // genuine login on the same device can notify again.
+    private readonly ConcurrentDictionary<string, DateTime> _loginNotifications = new();
+
     // PERF-P2: TCS waiters keyed by (userId, deviceId, token). The middleware
     // races SessionStarted (which runs in parallel during Jellyfin auth);
     // before this fix, the middleware polled _approvedTokens every 50ms up to
@@ -345,6 +361,54 @@ public class ChallengeStore : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Atomically begin the challenge side effects for one access-token or
+    /// session identity. Returns false when another SessionStarted handler has
+    /// already begun the same challenge during the ten-minute block window.
+    /// </summary>
+    public bool TryBeginSessionChallenge(string identity)
+    {
+        if (string.IsNullOrWhiteSpace(identity)) return false;
+
+        var now = DateTime.UtcNow;
+        while (true)
+        {
+            if (_startedSessionChallenges.TryGetValue(identity, out var expiry))
+            {
+                if (expiry > now) return false;
+                _startedSessionChallenges.TryRemove(identity, out _);
+            }
+
+            if (_startedSessionChallenges.TryAdd(identity, now.AddMinutes(10)))
+            {
+                EnforceCap(_startedSessionChallenges);
+                return true;
+            }
+        }
+    }
+
+    public bool TryBeginLoginNotification(Guid userId, string? deviceId, string? deviceName)
+    {
+        if (userId == Guid.Empty) return false;
+
+        var key = LoginNotificationKey(userId, deviceId, deviceName);
+        var now = DateTime.UtcNow;
+        while (true)
+        {
+            if (_loginNotifications.TryGetValue(key, out var expiry))
+            {
+                if (expiry > now) return false;
+                _loginNotifications.TryRemove(key, out _);
+            }
+
+            if (_loginNotifications.TryAdd(key, now.AddMinutes(10)))
+            {
+                EnforceCap(_loginNotifications);
+                return true;
+            }
+        }
+    }
+
     /// <summary>Mark an access token as pre-approved by the event handler so the
     /// response-intercept middleware won't overwrite the auth body with a 2FA
     /// challenge. Approval is bound to (userId, deviceId, token) so a stale
@@ -587,12 +651,20 @@ public class ChallengeStore : IDisposable
         // SEC v2.4 L2: atomic claim. Previously this was check-then-set which
         // allowed two concurrent /Verify requests against the same challenge
         // token to both succeed and mint two sessions from one OTP code.
-        return challenge.TryConsume();
+        var consumed = challenge.TryConsume();
+        if (consumed)
+        {
+            ClearLoginNotification(challenge);
+        }
+        return consumed;
     }
 
     public void RemoveChallenge(string token)
     {
-        _challenges.TryRemove(token, out _);
+        if (_challenges.TryRemove(token, out var challenge))
+        {
+            ClearLoginNotification(challenge);
+        }
     }
 
     private void RemoveExpiredChallenges()
@@ -646,6 +718,14 @@ public class ChallengeStore : IDisposable
         {
             if (kv.Value <= now) _verifiedTokens.TryRemove(kv.Key, out _);
         }
+        foreach (var kv in _loginNotifications)
+        {
+            if (kv.Value <= now) _loginNotifications.TryRemove(kv.Key, out _);
+        }
+        foreach (var kv in _startedSessionChallenges)
+        {
+            if (kv.Value <= now) _startedSessionChallenges.TryRemove(kv.Key, out _);
+        }
         foreach (var kv in _seenPairTokens)
         {
             if (kv.Value <= now) _seenPairTokens.TryRemove(kv.Key, out _);
@@ -661,6 +741,27 @@ public class ChallengeStore : IDisposable
             if (kv.Value.ExpiresAt <= now) _userStepUpTokens.TryRemove(kv.Key, out _);
         }
     }
+
+    private static string LoginNotificationKey(
+        Guid userId,
+        string? deviceId,
+        string? deviceName)
+    {
+        var identity = !string.IsNullOrWhiteSpace(deviceId)
+            ? deviceId.Trim()
+            : !string.IsNullOrWhiteSpace(deviceName)
+                ? "name:" + deviceName.Trim()
+                : "unknown";
+        return $"{userId:N}|{identity}";
+    }
+
+    private void ClearLoginNotification(ChallengeData challenge)
+        => _loginNotifications.TryRemove(
+            LoginNotificationKey(
+                challenge.UserId,
+                challenge.DeviceId,
+                challenge.DeviceName),
+            out _);
 
     private static string Base64UrlEncode(byte[] bytes)
     {

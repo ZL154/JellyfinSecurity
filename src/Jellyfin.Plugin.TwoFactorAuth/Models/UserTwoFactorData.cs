@@ -64,6 +64,22 @@ public class UserTwoFactorData
     /// password via the onboarding page.</summary>
     public bool MustSetPassword { get; set; }
 
+    /// <summary>
+    /// True only while a brand-new OIDC-provisioned Jellyfin account is waiting
+    /// for its first local password. This is deliberately separate from
+    /// <see cref="MustSetPassword"/>: administrators can re-arm that flag for an
+    /// existing account, and cancelling that later onboarding visit must never
+    /// delete the established account. Cleared as soon as the password is set.
+    /// </summary>
+    public bool PendingOidcUserCreation { get; set; }
+
+    /// <summary>The provider and immutable subject that created the pending
+    /// account. Used to silently revalidate the same IdP session before the
+    /// onboarding password form is exposed.</summary>
+    public string PendingOidcProviderId { get; set; } = string.Empty;
+
+    public string PendingOidcSubject { get; set; } = string.Empty;
+
     /// <summary>Per-user override for max concurrent sessions. Null = use the
     /// plugin-wide default. Zero = unlimited (matches default semantics).</summary>
     public int? MaxConcurrentSessions { get; set; }

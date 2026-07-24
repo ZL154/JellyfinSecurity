@@ -4,6 +4,40 @@
 
     console.log('[2FA] inject.js v1.4.0 loaded');
 
+    // Build server URLs without assuming Jellyfin is mounted at the origin
+    // root. ApiClient.getUrl is canonical once jellyfin-web has initialised;
+    // the pathname fallback also works during this script's early <head>
+    // execution and in native-app WebViews.
+    function jellyfinBasePath() {
+        try {
+            var path = window.location.pathname || '';
+            var lower = path.toLowerCase();
+            var markers = ['/web', '/twofactorauth'];
+            var cut = -1;
+            for (var i = 0; i < markers.length; i++) {
+                var at = lower.indexOf(markers[i]);
+                if (at >= 0 && (cut < 0 || at < cut)) cut = at;
+            }
+            return cut >= 0 ? path.substring(0, cut).replace(/\/+$/, '') : '';
+        } catch (e) { return ''; }
+    }
+    function serverUrl(path) {
+        var clean = String(path || '').replace(/^\/+/, '');
+        try {
+            if (window.ApiClient && typeof window.ApiClient.getUrl === 'function') {
+                return window.ApiClient.getUrl(clean);
+            }
+        } catch (e) { /* use the early-load fallback */ }
+        return jellyfinBasePath() + '/' + clean;
+    }
+    function stripJellyfinBasePath(path) {
+        var base = jellyfinBasePath();
+        if (base && String(path).toLowerCase().indexOf(base.toLowerCase()) === 0) {
+            return String(path).substring(base.length) || '/';
+        }
+        return String(path);
+    }
+
     // [v2.5.11] (ZEROX7) Capture an OIDC sign-in error from the redirect hash
     // IMMEDIATELY at script load — BEFORE Jellyfin's SPA router can bounce to
     // the user-select screen and strip the query string. A failed SSO sign-in
@@ -45,7 +79,7 @@
             if (document.getElementById('__tfa_i18n_js')) return;
             var s = document.createElement('script');
             s.id = '__tfa_i18n_js';
-            s.src = '/TwoFactorAuth/tfa-i18n';
+            s.src = serverUrl('TwoFactorAuth/tfa-i18n');
             s.async = true;
             (document.head || document.documentElement).appendChild(s);
         } catch (e) { /* ignore — strings fall back to English */ }
@@ -122,8 +156,22 @@
         '/twofactorauth/inject.js',
         '/twofactorauth/pairconfirm'
     ];
+    function isExplicitLoginRoute() {
+        try {
+            return (window.location.hash || '').toLowerCase().indexOf('login') >= 0;
+        } catch (e) { return false; }
+    }
     function isTfaPending() {
         try {
+            // The stock #/login route is the user's escape hatch to choose a
+            // different account. An interrupted mobile challenge can leave
+            // this session flag behind; treating the user picker as a blocked
+            // authenticated page redirects straight back to the 2FA portal
+            // before Jellyfin can render its users.
+            if (isExplicitLoginRoute()) {
+                sessionStorage.removeItem(TFA_PENDING_KEY);
+                return false;
+            }
             var v = sessionStorage.getItem(TFA_PENDING_KEY);
             if (!v) return false;
             var ts = parseInt(v, 10);
@@ -156,10 +204,29 @@
         if (__tfaRedirecting) return;
         try {
             var p = (window.location.pathname || '').toLowerCase();
-            if (p.indexOf('/twofactorauth/') === 0) return;
+            if (stripJellyfinBasePath(p).indexOf('/twofactorauth/') === 0) return;
         } catch (e) { return; }
         __tfaRedirecting = true;
-        try { window.location.href = '/TwoFactorAuth/Login'; } catch (e) {}
+        try {
+            // A native Jellyfin client can reopen with a stored user/token and
+            // trigger SessionStarted before the stock user picker is shown.
+            // Sending that client to the standalone portal pins it to the
+            // stored account. Use Jellyfin's own credential owner to sign out
+            // locally, retain the saved server, and return to account choice.
+            // Selecting a protected user still follows the normal auth-path
+            // response into TwoFactorAuth/Challenge.
+            if (inEmbeddedWebView()
+                && window.ApiClient
+                && typeof window.ApiClient.logout === 'function') {
+                clearTfaPending();
+                var openUserPicker = function () {
+                    window.location.href = serverUrl('web/index.html#/login');
+                };
+                Promise.resolve(window.ApiClient.logout()).then(openUserPicker, openUserPicker);
+                return;
+            }
+        } catch (e) { /* fall back to the standalone portal */ }
+        try { window.location.href = serverUrl('TwoFactorAuth/Login'); } catch (e) {}
     }
     // [v2.5.16] (#100, Re4mstr) Enforce the OIDC force-password-onboarding step so
     // a flagged user can't escape it by pressing Back. The OIDC bridge sets
@@ -172,16 +239,17 @@
     function enforceForcedPasswordSetup() {
         if (__tfaRedirecting) return;
         try {
-            if ((window.location.pathname || '').toLowerCase().indexOf('/twofactorauth/') === 0) return;
+            if (stripJellyfinBasePath((window.location.pathname || '').toLowerCase()).indexOf('/twofactorauth/') === 0) return;
             if (localStorage.getItem('__tfa_set_pw_required') !== '1') return;
         } catch (e) { return; }
         __tfaRedirecting = true;
-        try { window.location.href = '/TwoFactorAuth/SetPassword'; } catch (e) {}
+        try { window.location.href = serverUrl('TwoFactorAuth/SetPassword'); } catch (e) {}
     }
     function isAlwaysAllowedPath(url) {
         if (!url) return true;
         try {
-            var pathname = new URL(String(url), window.location.origin).pathname.toLowerCase();
+            var pathname = stripJellyfinBasePath(
+                new URL(String(url), window.location.origin).pathname.toLowerCase());
             if (pathname.length > 1 && pathname.charAt(pathname.length - 1) === '/') {
                 pathname = pathname.substring(0, pathname.length - 1);
             }
@@ -244,7 +312,7 @@
         // ChallengePageUrl and steal the 2FA flow). The challenge token is
         // the only variable part.
         var token = body.ChallengeToken || body.challengeToken || '';
-        var url = '/TwoFactorAuth/Challenge?token=' + encodeURIComponent(token);
+        var url = serverUrl('TwoFactorAuth/Challenge?token=' + encodeURIComponent(token));
         console.log('[2FA] Server requested 2FA challenge — redirecting');
         window.location.href = url;
         return true;
@@ -268,26 +336,70 @@
         }
         return id;
     }
+    function rewriteAuthorizationDeviceId(value, id) {
+        if (!value || !id || !/DeviceId=/i.test(value)) return value;
+        return String(value).replace(
+            /DeviceId\s*=\s*"[^"]*"/i,
+            'DeviceId="' + id + '"');
+    }
     function injectDeviceId(headers) {
         if (!headers) return headers;
         var id = getStableDeviceId();
         if (!id) return headers;
         try {
             if (headers instanceof Headers) {
-                // Overwrite any existing UA-hash deviceId with our stable one.
-                var existing = headers.get('X-Emby-Authorization') || '';
-                if (existing && /DeviceId=/i.test(existing)) {
-                    existing = existing.replace(/DeviceId="[^"]*"/i, 'DeviceId="' + id + '"');
-                    headers.set('X-Emby-Authorization', existing);
+                // Jellyfin 10.11 gives the standard Authorization header
+                // precedence over legacy X-Emby-Authorization. Rewrite both
+                // so the plugin and the SessionStarted event see one identity.
+                function rewriteHeader(name) {
+                    var existing = headers.get(name);
+                    if (existing) {
+                        headers.set(name, rewriteAuthorizationDeviceId(existing, id));
+                    }
                 }
+                rewriteHeader('Authorization');
+                rewriteHeader('X-Emby-Authorization');
                 headers.set('X-Emby-Device-Id', id);
             } else if (typeof headers === 'object') {
                 headers['X-Emby-Device-Id'] = id;
-                if (headers['X-Emby-Authorization'] && /DeviceId=/i.test(headers['X-Emby-Authorization'])) {
-                    headers['X-Emby-Authorization'] = headers['X-Emby-Authorization']
-                        .replace(/DeviceId="[^"]*"/i, 'DeviceId="' + id + '"');
-                }
+                Object.keys(headers).forEach(function (name) {
+                    var lower = name.toLowerCase();
+                    if (lower === 'authorization' || lower === 'x-emby-authorization') {
+                        headers[name] = rewriteAuthorizationDeviceId(headers[name], id);
+                    }
+                });
             }
+        } catch (e) {}
+        return headers;
+    }
+    function authRequestHeaders(input, init) {
+        try {
+            if (init && init.headers) return new Headers(init.headers);
+            if (typeof Request !== 'undefined' && input instanceof Request) {
+                return new Headers(input.headers);
+            }
+        } catch (e) {
+            if (init && init.headers) return init.headers;
+        }
+        return new Headers();
+    }
+    function isSameOriginUrl(url) {
+        try { return new URL(String(url || ''), window.location.href).origin === window.location.origin; }
+        catch (e) { return false; }
+    }
+    function getTrustedDeviceToken() {
+        try { return localStorage.getItem('twofactor_device_token') || ''; }
+        catch (e) { return ''; }
+    }
+    function injectTrustedDeviceToken(headers, url) {
+        // This token can bypass the second factor, so never attach it to an
+        // off-origin request even if a URL happens to end in an auth path.
+        if (!headers || !isSameOriginUrl(url)) return headers;
+        var token = getTrustedDeviceToken();
+        if (!token) return headers;
+        try {
+            if (headers instanceof Headers) headers.set('X-TwoFactor-Token', token);
+            else if (typeof headers === 'object') headers['X-TwoFactor-Token'] = token;
         } catch (e) {}
         return headers;
     }
@@ -333,7 +445,8 @@
 
             if (isAuthPath(url)) {
                 init = init || {};
-                init.headers = injectDeviceId(init.headers || new Headers());
+                init.headers = injectDeviceId(authRequestHeaders(input, init));
+                init.headers = injectTrustedDeviceToken(init.headers, url);
             }
             var p = origFetch(input, init);
             return p.then(function (resp) {
@@ -389,15 +502,19 @@
     var origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
     XMLHttpRequest.prototype.open = function (method, url) {
         this.__tfa_url = url;
-        this.__tfa_authHeader = null;
+        this.__tfa_authHeaders = {};
         return origOpen.apply(this, arguments);
     };
     XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
-        // Capture existing X-Emby-Authorization so we can mutate the DeviceId
-        // substring before it hits the wire (Jellyfin stock UI on LAN sets it
-        // with a UA-hash deviceId; we overwrite with our stable one).
-        if (typeof name === 'string' && name.toLowerCase() === 'x-emby-authorization') {
-            this.__tfa_authHeader = value;
+        // Defer auth identity headers until send(). Calling setRequestHeader
+        // twice appends instead of replacing, producing two conflicting
+        // DeviceId values in native WebViews.
+        if (typeof name === 'string' && isAuthPath(this.__tfa_url)) {
+            var lower = name.toLowerCase();
+            if (lower === 'authorization' || lower === 'x-emby-authorization') {
+                this.__tfa_authHeaders[lower] = { name: name, value: value };
+                return;
+            }
         }
         return origSetHeader.apply(this, arguments);
     };
@@ -407,10 +524,19 @@
             try {
                 var id = getStableDeviceId();
                 if (id) {
+                    Object.keys(xhr.__tfa_authHeaders || {}).forEach(function (key) {
+                        var entry = xhr.__tfa_authHeaders[key];
+                        origSetHeader.call(
+                            xhr,
+                            entry.name,
+                            rewriteAuthorizationDeviceId(entry.value, id));
+                    });
                     origSetHeader.call(xhr, 'X-Emby-Device-Id', id);
-                    if (xhr.__tfa_authHeader && /DeviceId=/i.test(xhr.__tfa_authHeader)) {
-                        var patched = xhr.__tfa_authHeader.replace(/DeviceId="[^"]*"/i, 'DeviceId="' + id + '"');
-                        origSetHeader.call(xhr, 'X-Emby-Authorization', patched);
+                }
+                if (isSameOriginUrl(xhr.__tfa_url)) {
+                    var trustedToken = getTrustedDeviceToken();
+                    if (trustedToken) {
+                        origSetHeader.call(xhr, 'X-TwoFactor-Token', trustedToken);
                     }
                 }
             } catch (e) {}
@@ -464,6 +590,50 @@
     // ============================================================
 
     var DASHBOARD_NAV_ID = '__twofactor_dashnav';
+    var dashboardNavBundles = {};
+    var dashboardNavLanguageRequest = 0;
+    function currentDashboardLanguage() {
+        var supported = ['en', 'de', 'es', 'fr', 'it', 'ja', 'pt', 'zh'];
+        try {
+            var lang = String(document.documentElement.getAttribute('lang') || '')
+                .split('-')[0]
+                .toLowerCase();
+            return supported.indexOf(lang) >= 0 ? lang : 'en';
+        } catch (e) {
+            return 'en';
+        }
+    }
+    function setDashboardNavLabel(entry, value) {
+        if (!entry || !value) return;
+        var label = entry.querySelector('.MuiListItemText-primary, .navMenuOptionText');
+        if (label) label.textContent = value;
+    }
+    function syncDashboardNavLanguage(entry) {
+        entry = entry || document.getElementById(DASHBOARD_NAV_ID);
+        if (!entry) return;
+        var lang = currentDashboardLanguage();
+        var cached = dashboardNavBundles[lang];
+        if (cached) {
+            setDashboardNavLabel(entry, cached);
+            return;
+        }
+
+        var requestId = ++dashboardNavLanguageRequest;
+        fetch(serverUrl('TwoFactorAuth/translations/' + encodeURIComponent(lang)), {
+            credentials: 'include'
+        }).then(function (r) {
+            return r.ok ? r.json() : null;
+        }).then(function (bundle) {
+            if (requestId !== dashboardNavLanguageRequest
+                || lang !== currentDashboardLanguage()) return;
+            var translated = bundle && bundle['tfa.login.nav_entry'];
+            if (!translated) return;
+            dashboardNavBundles[lang] = translated;
+            setDashboardNavLabel(
+                document.getElementById(DASHBOARD_NAV_ID) || entry,
+                translated);
+        }).catch(function () { /* keep authored fallback */ });
+    }
     /// Inject a "Two-Factor Auth" item into the admin Dashboard left sidebar
     /// (where Achievements, File Transformation, etc live). Only fires when
     /// the user is on a /web/#!/dashboard route — out on the main app drawer
@@ -480,7 +650,6 @@
                 && hash.indexOf('serveractivity') < 0 && hash.indexOf('apikeys') < 0) {
                 return;
             }
-            if (document.getElementById(DASHBOARD_NAV_ID)) return;
             // SEC-L5: gate on admin status — non-admins shouldn't see the
             // entry at all (clicking it just lands on a "no permission" page,
             // but cosmetic-only links to admin pages are still confusing for
@@ -503,27 +672,59 @@
     }
     function injectDashboardNavInner() {
         try {
-            if (document.getElementById(DASHBOARD_NAV_ID)) return;
-
             // Dashboard sidebar uses .adminDrawerLogo + nav links with
             // class .navMenuOption inside .mainDrawerScrollSlider OR
-            // newer Jellyfin: .navDrawer-button rows. Try to find the
-            // "Plugins" link as anchor.
+            // newer Jellyfin 10.11: a React/MUI drawer whose rows are anchors
+            // below a <ul>. Mobile and desktop can leave older, hidden drawer
+            // trees mounted at the same time, so prefer the currently visible
+            // Plugins/Extensions route instead of the first DOM match.
             var anchor = null;
+            var fallbackAnchor = null;
             var navLinks = document.querySelectorAll('a.navMenuOption, a.navDrawer-button, a[href*="/dashboard"]');
             for (var i = 0; i < navLinks.length; i++) {
+                var href = (navLinks[i].getAttribute('href') || '').toLowerCase();
                 var t = (navLinks[i].textContent || '').trim().toLowerCase();
-                if (t === 'plugins' || t.indexOf('plugins') === 0) { anchor = navLinks[i]; break; }
+                // The route is locale-stable; the label is not ("Extensions"
+                // in French, for example). Prefer href and retain the English
+                // text fallback for older dashboard markup.
+                if (href.indexOf('dashboard/plugins') >= 0
+                    || href.indexOf('/plugins') >= 0
+                    || t === 'plugins'
+                    || t.indexOf('plugins') === 0) {
+                    if (!fallbackAnchor) fallbackAnchor = navLinks[i];
+                    if (navLinks[i].getClientRects().length > 0) {
+                        anchor = navLinks[i];
+                        break;
+                    }
+                }
             }
+            anchor = anchor || fallbackAnchor;
             if (!anchor) return;
 
             var parent = anchor.parentElement;
             if (!parent) return;
 
-            var a = document.createElement('a');
+            // A hidden legacy drawer and the active React drawer can coexist.
+            // Keep exactly one entry, but move/recreate it beside the active
+            // route when Jellyfin swaps drawer implementations.
+            var existing = document.getElementById(DASHBOARD_NAV_ID);
+            if (existing && existing.parentElement === parent
+                && existing.previousElementSibling === anchor) {
+                syncDashboardNavLanguage(existing);
+                return;
+            }
+            if (existing) existing.remove();
+
+            // Clone Jellyfin's native row so React/MUI spacing, touch target,
+            // typography and responsive behavior remain identical to Plugins.
+            var a = anchor.cloneNode(true);
             a.id = DASHBOARD_NAV_ID;
-            a.href = '#';
-            a.className = anchor.className || 'navMenuOption emby-button';
+            a.href = serverUrl('web/index.html#/configurationpage?name=TwoFactorAuth');
+            a.className = (anchor.className || 'navMenuOption emby-button')
+                .replace(/\bMui-selected\b/g, '')
+                .replace(/\s{2,}/g, ' ')
+                .trim();
+            a.removeAttribute('aria-current');
             a.setAttribute('role', 'menuitem');
             a.style.cursor = 'pointer';
             a.addEventListener('click', function (e) {
@@ -531,17 +732,34 @@
                 // Plugin admin config page lives at the standard plugin
                 // configuration URL — this drops into Jellyfin's normal
                 // plugin-config view of our admin tabs.
-                window.location.assign('/web/index.html#!/configurationpage?name=TwoFactorAuth');
+                window.location.assign(serverUrl('web/index.html#/configurationpage?name=TwoFactorAuth'));
             });
-            a.innerHTML =
-                '<span class="material-icons navMenuOptionIcon" style="font-family:Material Icons;" aria-hidden="true">security</span>' +
-                '<span class="navMenuOptionText" data-i18n-key="tfa.login.nav_entry">' + T('tfa.login.nav_entry', 'Two-Factor Auth') + '</span>';
+
+            var label = a.querySelector('.MuiListItemText-primary, .navMenuOptionText');
+            if (label) {
+                label.textContent = T('tfa.login.nav_entry', 'Two-Factor Auth');
+                label.setAttribute('data-i18n-key', 'tfa.login.nav_entry');
+            } else {
+                a.innerHTML =
+                    '<span class="material-icons navMenuOptionIcon" style="font-family:Material Icons;" aria-hidden="true">security</span>' +
+                    '<span class="navMenuOptionText" data-i18n-key="tfa.login.nav_entry">' + T('tfa.login.nav_entry', 'Two-Factor Auth') + '</span>';
+            }
+
+            var muiIcon = a.querySelector('.MuiListItemIcon-root');
+            if (muiIcon) {
+                muiIcon.innerHTML =
+                    '<span class="material-icons" style="font-family:Material Icons;" aria-hidden="true">security</span>';
+            } else {
+                var legacyIcon = a.querySelector('.navMenuOptionIcon');
+                if (legacyIcon) legacyIcon.textContent = 'security';
+            }
 
             if (anchor.nextSibling) parent.insertBefore(a, anchor.nextSibling);
             else parent.appendChild(a);
             // [v2.5.12] (#79) translate the just-injected entry once the bundle
             // is available (it may have loaded after the i18n-ready event fired).
             try { if (window.tfaI18n) window.tfaI18n.applyTranslations(a); } catch (e) { /* ignore */ }
+            syncDashboardNavLanguage(a);
         } catch (e) {
             console.error('[2FA] injectDashboardNav error:', e);
         }
@@ -577,14 +795,14 @@
 
             var a = document.createElement('a');
             a.id = SIDEBAR_ID;
-            a.href = withLang('/TwoFactorAuth/Setup');
+            a.href = withLang(serverUrl('TwoFactorAuth/Setup'));
             a.className = anchorItem.className || 'navMenuOption emby-button';
             a.setAttribute('role', 'menuitem');
             a.style.cursor = 'pointer';
             // [v2.5.12] (#79) Recompute ?lang at CLICK time — the entry may be
             // injected before jellyfin-web finishes localizing (cold load), which
             // would otherwise bake in a stale ?lang=en.
-            a.addEventListener('click', function () { try { a.href = withLang('/TwoFactorAuth/Setup'); } catch (e) {} });
+            a.addEventListener('click', function () { try { a.href = withLang(serverUrl('TwoFactorAuth/Setup')); } catch (e) {} });
             a.innerHTML =
                 '<span class="material-icons navMenuOptionIcon" style="font-family:Material Icons;" aria-hidden="true">security</span>' +
                 '<span class="navMenuOptionText" data-i18n-key="tfa.login.nav_entry">' + T('tfa.login.nav_entry', 'Two-Factor Auth') + '</span>';
@@ -693,7 +911,7 @@
             tile.style.cursor = 'pointer';
             tile.addEventListener('click', function (e) {
                 e.preventDefault();
-                window.location.assign(withLang('/TwoFactorAuth/Setup'));
+                window.location.assign(withLang(serverUrl('TwoFactorAuth/Setup')));
             });
             tile.className = 'listItem listItem-border listItem-button';
             tile.innerHTML =
@@ -752,7 +970,7 @@
     var _tfaPublicCfgPromise = null;
     function fetchTfaPublicConfig() {
         if (_tfaPublicCfgPromise) return _tfaPublicCfgPromise;
-        _tfaPublicCfgPromise = fetch('/TwoFactorAuth/public-config', { credentials: 'omit' })
+        _tfaPublicCfgPromise = fetch(serverUrl('TwoFactorAuth/public-config'), { credentials: 'omit' })
             .then(function (r) { return r.ok ? r.json() : {}; })
             .then(function (j) { _tfaPublicCfg = j || {}; return _tfaPublicCfg; })
             .catch(function () { _tfaPublicCfg = {}; return _tfaPublicCfg; });
@@ -837,7 +1055,7 @@
             var m = panel.querySelector('#__tfa_forgot_msg');
             if (!idv) { m.textContent = T('tfa.login.forgot_enter_id', 'Enter your username or email first.'); return; }
             m.textContent = T('tfa.login.sending', 'Sending…');
-            fetch('/TwoFactorAuth/PasswordReset/Request', {
+            fetch(serverUrl('TwoFactorAuth/PasswordReset/Request'), {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'omit',
                 body: JSON.stringify({ Identifier: idv })
             }).then(function (r) { return r.json().catch(function () { return {}; }); })
@@ -947,11 +1165,13 @@
             btn.setAttribute('is', 'emby-linkbutton');
             btn.className = (signInBtn.className || 'raised block').replace(/button-submit|button-cancel|emby-button/g, '').trim();
             btn.innerHTML = '<span class="tfa-icon">🔐</span><span data-i18n-key="tfa.login.btn_2fa">' + T('tfa.login.btn_2fa', 'Sign in with Two-Factor Authentication') + '</span>';
-            btn.href = withLang('/TwoFactorAuth/Login');
+            btn.href = withLang(serverUrl('TwoFactorAuth/Login'));
             (function () {
                 function updateHref() {
                     var u = findUsername();
-                    btn.href = withLang(u ? '/TwoFactorAuth/Login?username=' + encodeURIComponent(u) : '/TwoFactorAuth/Login');
+                    btn.href = withLang(serverUrl(u
+                        ? 'TwoFactorAuth/Login?username=' + encodeURIComponent(u)
+                        : 'TwoFactorAuth/Login'));
                 }
                 btn.addEventListener('click', function (e) { e.preventDefault(); updateHref(); window.location.assign(btn.href); });
                 var userInput = document.querySelector('input#txtManualName, input[name="username"], input#username');
@@ -998,7 +1218,7 @@
             var orig = btn.innerHTML;
             btn.innerHTML = '<span class="tfa-icon">🔑</span>Waiting for authenticator…';
             try {
-                var begin = await fetch('/TwoFactorAuth/Passkey/LoginBegin', {
+                var begin = await fetch(serverUrl('TwoFactorAuth/Passkey/LoginBegin'), {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ Username: u }),
                 });
@@ -1020,7 +1240,7 @@
                         userHandle: assertion.response.userHandle ? bytesToB64u(assertion.response.userHandle) : null,
                     },
                 };
-                var complete = await fetch('/TwoFactorAuth/Passkey/LoginComplete', {
+                var complete = await fetch(serverUrl('TwoFactorAuth/Passkey/LoginComplete'), {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ Username: u, Nonce: beginBody.nonce, Response: JSON.stringify(resp) }),
                 });
@@ -1198,17 +1418,23 @@
             } catch (e) { return 'bridge-' + Date.now(); }
         })();
         var auth = 'MediaBrowser Client="Jellyfin Web", Device="Browser", DeviceId="' + did + '", Version="10.11.0"';
-        fetch('/Users/AuthenticateByName', {
+        fetch(serverUrl('Users/AuthenticateByName'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Emby-Authorization': auth, 'Authorization': auth },
             body: JSON.stringify({ Username: user, Pw: token })
         })
             .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(function (res) {
-                var server = { Id: res.ServerId, Name: 'Jellyfin', AccessToken: res.AccessToken, UserId: res.User.Id, Type: 'Server', DateLastAccessed: Date.now(), LastConnectionMode: 1, ManualAddress: window.location.origin, LocalAddress: window.location.origin };
+                var address = window.location.origin + jellyfinBasePath();
+                try {
+                    if (window.ApiClient && typeof window.ApiClient.serverAddress === 'function') {
+                        address = window.ApiClient.serverAddress();
+                    }
+                } catch (e) { /* use origin + base path */ }
+                var server = { Id: res.ServerId, Name: 'Jellyfin', AccessToken: res.AccessToken, UserId: res.User.Id, Type: 'Server', DateLastAccessed: Date.now(), LastConnectionMode: 1, ManualAddress: address, LocalAddress: address };
                 localStorage.setItem('jellyfin_credentials', JSON.stringify({ Servers: [server] }));
                 oidcModalStatus(Tf('tfa.login.oidc_signed_as', 'Signed in as {name} — opening Jellyfin…', { name: (res.User && res.User.Name ? res.User.Name : user) }));
-                setTimeout(function () { closeOidcModal(); window.location.href = '/web/index.html'; }, 300);
+                setTimeout(function () { closeOidcModal(); window.location.href = serverUrl('web/index.html'); }, 300);
             })
             .catch(function (e) {
                 var msg = (e && e.message ? e.message : 'error');
@@ -1231,7 +1457,7 @@
         (function tick() {
             if (!window.__tfaOidcPolling) return;
             if (tries++ > MAX) { oidcModalStatus(T('tfa.login.oidc_timeout', 'Timed out — tap “Open sign-in in browser” to try again.')); return; }
-            fetch('/TwoFactorAuth/Oidc/DevicePoll?pt=' + encodeURIComponent(pollToken), { headers: { 'Accept': 'application/json' } })
+            fetch(serverUrl('TwoFactorAuth/Oidc/DevicePoll?pt=' + encodeURIComponent(pollToken)), { headers: { 'Accept': 'application/json' } })
                 .then(function (r) { return r.json(); })
                 .then(function (j) {
                     if (j && j.ready) { window.__tfaOidcPolling = false; oidcModalStatus(T('tfa.login.oidc_signing', 'Signing you in…')); completeWithBridgeToken(j.username, j.token); }
@@ -1244,7 +1470,7 @@
     function startInAppOidc(id, name) {
         showOidcModal(name, '#');
         oidcModalStatus(T('tfa.login.oidc_starting', 'Starting…'));
-        fetch('/TwoFactorAuth/Oidc/LoginInfo/' + encodeURIComponent(id), { headers: { 'Accept': 'application/json' } })
+        fetch(serverUrl('TwoFactorAuth/Oidc/LoginInfo/' + encodeURIComponent(id)), { headers: { 'Accept': 'application/json' } })
             .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(function (info) {
                 if (!info || !info.authUrl || !info.pollToken) throw new Error('bad response');
@@ -1286,7 +1512,7 @@
         // PublicProviders is the AllowAnonymous slice — id + display name only,
         // never secrets or discovery URLs. Safe to fetch with no auth from the
         // login page.
-        fetch('/TwoFactorAuth/Oidc/PublicProviders').then(function(r) {
+        fetch(serverUrl('TwoFactorAuth/Oidc/PublicProviders')).then(function(r) {
             if (!r.ok) return [];
             return r.json();
         }).then(function(rows) {
@@ -1294,7 +1520,7 @@
                 var btn = document.createElement('a');
                 btn.className = 'raised block emby-button';
                 btn.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;padding:0.9em 1em;text-decoration:none;';
-                btn.href = '/TwoFactorAuth/Oidc/Login/' + encodeURIComponent(p.id);
+                btn.href = serverUrl('TwoFactorAuth/Oidc/Login/' + encodeURIComponent(p.id));
                 // [v2.5.11] (#69, ZEROX7): honor the provider's custom button
                 // text + icon. Label defaults to "Sign in with {name}". Icon is
                 // an <img> when an https/data: URL is configured (server already
@@ -1404,6 +1630,18 @@
             setTimeout(function () { moPending = false; tryInject(); }, 250);
         });
         mo.observe(document.body, { childList: true, subtree: true });
+
+        // Jellyfin changes <html lang> in place when the user switches their
+        // interface language. The shared plugin bundle was resolved at initial
+        // load, so watch this authoritative UI signal and refresh only the
+        // injected dashboard label without requiring a hard reload.
+        var langObserver = new MutationObserver(function () {
+            syncDashboardNavLanguage();
+        });
+        langObserver.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['lang']
+        });
 
         window.addEventListener('hashchange', tryInject);
         window.addEventListener('popstate', tryInject);

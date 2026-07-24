@@ -45,6 +45,26 @@ public class DeviceTokenService
         List<TrustedDevice> trustedDevices,
         string deviceId,
         out TrustedDevice? matchedDevice)
+        => ValidateToken(
+            token,
+            trustedDevices,
+            deviceId,
+            DateTime.UtcNow,
+            30,
+            out matchedDevice);
+
+    /// <summary>
+    /// Validates a trusted-device token and its finite/indefinite lifetime.
+    /// Finite trust is a sliding window based on LastUsedAt, falling back to
+    /// CreatedAt for records written by older releases.
+    /// </summary>
+    public bool ValidateToken(
+        string token,
+        List<TrustedDevice> trustedDevices,
+        string deviceId,
+        DateTime utcNow,
+        int ttlDays,
+        out TrustedDevice? matchedDevice)
     {
         matchedDevice = null;
 
@@ -54,6 +74,11 @@ public class DeviceTokenService
         foreach (var device in trustedDevices)
         {
             if (!string.Equals(device.DeviceId, deviceId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!IsTrustActive(device, utcNow, ttlDays))
             {
                 continue;
             }
@@ -68,6 +93,31 @@ public class DeviceTokenService
         }
 
         return false;
+    }
+
+    /// <summary>Returns whether a server-side trusted-device record is still
+    /// eligible for use at the supplied time.</summary>
+    public static bool IsTrustActive(TrustedDevice device, DateTime utcNow, int ttlDays)
+    {
+        if (device.IndefiniteTrust)
+        {
+            return true;
+        }
+
+        var boundedTtlDays = Math.Clamp(ttlDays, 1, 90);
+        var anchor = device.LastUsedAt != default ? device.LastUsedAt : device.CreatedAt;
+        if (anchor == default)
+        {
+            return false;
+        }
+
+        var normalizedNow = utcNow.Kind == DateTimeKind.Utc
+            ? utcNow
+            : utcNow.ToUniversalTime();
+        var normalizedAnchor = anchor.Kind == DateTimeKind.Utc
+            ? anchor
+            : anchor.ToUniversalTime();
+        return normalizedAnchor.AddDays(boundedTtlDays) > normalizedNow;
     }
 
     /// <summary>

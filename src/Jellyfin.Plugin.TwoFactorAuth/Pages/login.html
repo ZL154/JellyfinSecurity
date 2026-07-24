@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n-key="tfa.login.page_title">Jellyfin — Sign In</title>
-    <script src="/TwoFactorAuth/tfa-i18n"></script>
+    <script src="tfa-i18n"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -130,8 +130,8 @@
         <button id="btnLogin" data-i18n-key="tfa.login.btn_signin">Sign In</button>
 
         <p class="hint">
-            <span data-i18n-key="tfa.login.hint_no_2fa">Don't have 2FA yet?</span> <a href="/TwoFactorAuth/Setup" data-i18n-key="tfa.login.hint_setup_link">Set it up here</a><br>
-            <span data-i18n-key="tfa.login.hint_standard_prefix">Or use the</span> <a href="/web/index.html" data-i18n-key="tfa.login.hint_standard_link">standard login page</a>.
+            <span data-i18n-key="tfa.login.hint_no_2fa">Don't have 2FA yet?</span> <a href="Setup" data-i18n-key="tfa.login.hint_setup_link">Set it up here</a><br>
+            <span data-i18n-key="tfa.login.hint_standard_prefix">Or use the</span> <a href="../web/index.html" data-i18n-key="tfa.login.hint_standard_link">standard login page</a>.
         </p>
     </div>
 
@@ -279,14 +279,23 @@
                 localStorage.setItem('_deviceId2', deviceId);
             }
             var deviceName = 'Jellyfin Web';
+            var headers = {
+                'Content-Type': 'application/json',
+                'X-Emby-Device-Id': deviceId,
+                'X-Emby-Device-Name': deviceName
+            };
+            // Android WebView may discard cookies on Jellyfin sign-out while
+            // preserving origin localStorage. The server-issued random token
+            // is bound to this exact deviceId and expires with the configured
+            // trusted-device window, so it safely restores trust without TOTP.
+            try {
+                var trustedDeviceToken = localStorage.getItem('twofactor_device_token');
+                if (trustedDeviceToken) headers['X-TwoFactor-Token'] = trustedDeviceToken;
+            } catch (e) {}
 
-            fetch('/TwoFactorAuth/Authenticate', {
+            fetch(window.tfaUrl('TwoFactorAuth/Authenticate'), {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Emby-Device-Id': deviceId,
-                    'X-Emby-Device-Name': deviceName
-                },
+                headers: headers,
                 body: JSON.stringify({
                     username: username,
                     password: password,
@@ -294,11 +303,17 @@
                     trustDevice: document.getElementById('trustDevice').checked
                 })
             }).then(function(r) {
-                if (r.ok) return r.json();
+                if (r.ok) {
+                    var issuedDeviceToken = r.headers.get('X-TwoFactor-Device-Token');
+                    if (issuedDeviceToken) {
+                        try { localStorage.setItem('twofactor_device_token', issuedDeviceToken); } catch (e) {}
+                    }
+                    return r.json();
+                }
                 return r.json().catch(function() { return { message: _tr('tfa.login.error_signin_status', 'Sign in failed') + ' (' + r.status + ').' }; }).then(function(body) {
                     if (body && (body.TwoFactorRequired || body.twoFactorRequired)) {
                         var challengeToken = body.ChallengeToken || body.challengeToken || '';
-                        window.location.href = '/TwoFactorAuth/Challenge?token=' + encodeURIComponent(challengeToken);
+                        window.location.href = window.tfaUrl('TwoFactorAuth/Challenge?token=' + encodeURIComponent(challengeToken));
                         return null;
                     }
                     btn.disabled = false;
@@ -318,7 +333,7 @@
                 if (!authData) return;
                 storeCredentials(authData).then(function() {
                     checkLowRecoveryCodes(authData).then(function() {
-                        window.location.href = '/web/index.html';
+                        window.location.href = window.tfaUrl('web/index.html');
                     });
                 });
             }).catch(function() {
@@ -329,7 +344,7 @@
         });
 
         function checkLowRecoveryCodes(authData) {
-            return fetch('/TwoFactorAuth/RecoveryCodes/Status', {
+            return fetch(window.tfaUrl('TwoFactorAuth/RecoveryCodes/Status'), {
                 headers: { 'X-Emby-Token': authData.AccessToken }
             }).then(function(r) { return r.ok ? r.json() : null; }).then(function(s) {
                 if (!s) return;
@@ -340,7 +355,7 @@
                         var codeNoun = (s.remaining === 1)
                             ? _tr('tfa.login.recovery_code_singular', 'recovery code')
                             : _tr('tfa.login.recovery_code_plural', 'recovery codes');
-                        bar.innerHTML = '⚠ ' + _tr('tfa.login.low_codes_only', 'Only') + ' ' + s.remaining + ' ' + codeNoun + ' ' + _tr('tfa.login.low_codes_left', 'left.') + ' <a href="/TwoFactorAuth/Setup" style="color:#000;text-decoration:underline;">' + _tr('tfa.login.low_codes_generate', 'Generate more →') + '</a> &nbsp; <button id="dismissBar" style="background:#000;color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer;">' + _tr('tfa.login.low_codes_continue', 'Continue') + '</button>';
+                        bar.innerHTML = '⚠ ' + _tr('tfa.login.low_codes_only', 'Only') + ' ' + s.remaining + ' ' + codeNoun + ' ' + _tr('tfa.login.low_codes_left', 'left.') + ' <a href="' + window.tfaUrl('TwoFactorAuth/Setup') + '" style="color:#000;text-decoration:underline;">' + _tr('tfa.login.low_codes_generate', 'Generate more →') + '</a> &nbsp; <button id="dismissBar" style="background:#000;color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer;">' + _tr('tfa.login.low_codes_continue', 'Continue') + '</button>';
                         document.body.appendChild(bar);
                         document.getElementById('dismissBar').addEventListener('click', function() { resolve(); });
                         setTimeout(resolve, 6000);
@@ -350,10 +365,11 @@
         }
 
         function storeCredentials(authData) {
-            return fetch('/System/Info/Public').then(function(r) { return r.ok ? r.json() : null; }).then(function(info) {
+            return fetch(window.tfaUrl('System/Info/Public')).then(function(r) { return r.ok ? r.json() : null; }).then(function(info) {
                 var serverId = authData.ServerId || (info && info.Id) || '';
                 var serverName = (info && info.ServerName) || 'Jellyfin';
-                var serverAddress = window.location.origin;
+                var serverAddress = new URL(window.tfaUrl(''), window.location.origin)
+                    .toString().replace(/\/+$/, '');
                 var creds;
                 try { creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}'); } catch (e) { creds = {}; }
                 if (!creds.Servers) creds.Servers = [];
@@ -363,7 +379,12 @@
                     existing.AccessToken = authData.AccessToken;
                     existing.UserId = authData.User && authData.User.Id;
                     existing.DateLastAccessed = now;
-                    if (!existing.ManualAddress) existing.ManualAddress = serverAddress;
+                    // The address that just completed authentication is the
+                    // only one proven reachable. Keeping a stale LAN address
+                    // here makes an external reverse-proxy login succeed on
+                    // the server, then Jellyfin reconnect internally and
+                    // bounce straight back to the login page (#137).
+                    existing.ManualAddress = serverAddress;
                     if (!existing.Name) existing.Name = serverName;
                 } else {
                     creds.Servers.unshift({

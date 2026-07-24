@@ -199,6 +199,15 @@ public class BypassEvaluator
                     continue;
                 }
 
+                var trustTtlDays = Math.Clamp(
+                    Plugin.Instance?.Configuration?.TrustCookieTtlDays ?? 30,
+                    1,
+                    90);
+                if (!DeviceTokenService.IsTrustActive(device, DateTime.UtcNow, trustTtlDays))
+                {
+                    continue;
+                }
+
                 var storedHashBytes = Encoding.UTF8.GetBytes(device.TokenHash);
                 if (CryptographicOperations.FixedTimeEquals(submittedHashBytes, storedHashBytes))
                 {

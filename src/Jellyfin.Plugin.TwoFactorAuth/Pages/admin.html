@@ -5,7 +5,7 @@
 </head>
 <body>
     <div id="TwoFactorAuth" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-checkbox,emby-input,emby-select">
-        <script src="/TwoFactorAuth/tfa-i18n"></script>
+        <script src="../TwoFactorAuth/tfa-i18n"></script>
         <style>
             #TwoFactorAuth .tfa-container { max-width: 1000px; margin: 0 auto; padding: 20px; }
             #TwoFactorAuth .tfa-section { background: rgba(0,0,0,0.2); border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.08); }
@@ -288,7 +288,7 @@
                                 <strong>Recommended flow: Jellyfin Quick Connect.</strong>
                                 On the TV, choose <em>Quick Connect</em>. Then on a 2FA-verified phone or laptop, open Jellyfin and approve the displayed code. The TV will sign in and inherit the verified status — no TOTP prompt on the TV itself.
                                 <br><br>
-                                Make sure Quick Connect is enabled in Jellyfin's <a href="/web/index.html#!/quickconnect.html" style="color:#00a4dc;">Dashboard → Quick Connect</a>.
+                                Make sure Quick Connect is enabled in Jellyfin's <a href="../web/index.html#!/quickconnect.html" style="color:#00a4dc;">Dashboard → Quick Connect</a>.
                             </div>
                             <h3 data-i18n-key="tfa.admin.pairings.manual_heading">Manual Pairing Requests</h3>
                             <p style="font-size:12px;color:#888;margin-bottom:8px;" data-i18n-key="tfa.admin.pairings.manual_explainer">Pending requests from devices that can't use Quick Connect. Approve to grant a 30-day trusted device.</p>
@@ -305,6 +305,10 @@
                             <h2 data-i18n-key="tfa.admin.audit.heading">Login Audit Log</h2>
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
                                 <input type="text" id="auditFilter" placeholder="Filter by user, IP, device, result..." data-i18n-placeholder="tfa.admin.audit.filter_placeholder" class="tfa-input tfa-filter" style="flex:1;min-width:240px;" />
+                                <select id="auditSortOrder" class="tfa-input" aria-label="Audit log sort order" data-i18n-aria-label="tfa.admin.audit.sort_label">
+                                    <option value="desc" data-i18n-key="tfa.admin.audit.sort_newest">Newest first</option>
+                                    <option value="asc" data-i18n-key="tfa.admin.audit.sort_oldest">Oldest first</option>
+                                </select>
                                 <button id="auditExportCsv" class="tfa-btn" type="button" data-i18n-key="tfa.admin.audit.btn_export_csv">Export CSV</button>
                             </div>
                             <table class="tfa-table">
@@ -439,6 +443,10 @@
                             </div>
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="ssoAutoCreate" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_auto_create">Auto-create Jellyfin users on first sign-in (only enable for trusted IdPs)</span></label>
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="ssoLinkExistingUsername" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_link_existing_username">Link existing users by matching username</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.link_existing_username_help">Off by default. When enabled, an unlinked IdP account may claim an existing non-admin Jellyfin account with the same username. Conflicting links and administrator accounts are always refused. No passwords are copied or exposed.</div>
                             </div>
                             <!-- [v2.5.14] (#100) Force a new OIDC user to set a local Jellyfin password. -->
                             <div class="tfa-row">
@@ -636,6 +644,7 @@
                                 <label style="margin-top:8px;"><input type="checkbox" id="cfgOnboardingPwUpper" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_onboarding_pw_upper">Require an uppercase letter</span></label>
                                 <label><input type="checkbox" id="cfgOnboardingPwLower" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_onboarding_pw_lower">Require a lowercase letter</span></label>
                                 <label><input type="checkbox" id="cfgOnboardingPwDigit" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_onboarding_pw_digit">Require a number</span></label>
+                                <label><input type="checkbox" id="cfgOnboardingPwSymbol" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_onboarding_pw_symbol">Require a symbol</span></label>
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_audit_max">Audit log max entries</label>
@@ -952,7 +961,7 @@
             </div>
         </div>
 
-        <script src="/TwoFactorAuth/admin-script"></script>
+        <script src="../TwoFactorAuth/admin-script"></script>
 
         <div style="max-width:960px;margin:32px auto 40px;padding:16px 24px 0;border-top:1px solid rgba(255,255,255,.08);">
             <p style="color:rgba(255,255,255,.55);font-size:.85em;line-height:1.6;margin:0;text-align:center;">

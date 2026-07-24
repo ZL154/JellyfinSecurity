@@ -48,6 +48,58 @@ public class DiagnosticsServiceChainHelperTests
         var n = Jellyfin.Plugin.TwoFactorAuth.Services.DiagnosticsService.VerifyAuditChainPublic(System.Array.Empty<Jellyfin.Plugin.TwoFactorAuth.Models.AuditEntry>());
         Assert.Equal(0, n);
     }
+
+    [Fact]
+    public void VerifyAuditChainPublic_AcceptsValidRetentionAnchor()
+    {
+        var first = Entry(previousHash: new string('A', 64), username: "first");
+        var second = Entry(previousHash: first.EntryHash, username: "second");
+
+        var broken = DiagnosticsService.VerifyAuditChainPublic(new[] { first, second });
+
+        Assert.Equal(0, broken);
+    }
+
+    [Fact]
+    public void VerifyAuditChainPublic_RejectsMalformedRetentionAnchor()
+    {
+        var entry = Entry(previousHash: "not-a-sha256", username: "first");
+
+        var broken = DiagnosticsService.VerifyAuditChainPublic(new[] { entry });
+
+        Assert.Equal(1, broken);
+    }
+
+    [Fact]
+    public void VerifyAuditChainPublic_DetectsAlteredRetainedEntry()
+    {
+        var first = Entry(previousHash: new string('B', 64), username: "first");
+        var second = Entry(previousHash: first.EntryHash, username: "second");
+        first.Username = "tampered";
+
+        var broken = DiagnosticsService.VerifyAuditChainPublic(new[] { first, second });
+
+        Assert.Equal(1, broken);
+    }
+
+    private static AuditEntry Entry(string previousHash, string username)
+    {
+        var entry = new AuditEntry
+        {
+            PreviousHash = previousHash,
+            Timestamp = new DateTime(2026, 7, 24, 0, 0, 0, DateTimeKind.Utc),
+            UserId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+            Username = username,
+            RemoteIp = "192.0.2.1",
+            DeviceId = "device",
+            DeviceName = "test",
+            Result = AuditResult.Success,
+            Method = "totp",
+            Details = "fixture",
+        };
+        entry.EntryHash = UserTwoFactorStore.ComputeAuditEntryHash(entry);
+        return entry;
+    }
 }
 
 public class SecurityScoreComputeTests
