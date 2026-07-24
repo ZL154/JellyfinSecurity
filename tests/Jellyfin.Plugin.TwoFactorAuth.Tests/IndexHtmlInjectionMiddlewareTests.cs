@@ -33,7 +33,8 @@ public class IndexHtmlInjectionMiddlewareTests
         await middleware.InvokeAsync(context);
 
         context.Response.Body.Position = 0;
-        var html = await new StreamReader(context.Response.Body, Encoding.UTF8).ReadToEndAsync();
+        using var reader = new StreamReader(context.Response.Body, Encoding.UTF8);
+        var html = await reader.ReadToEndAsync();
         Assert.Contains("<script src=\"../TwoFactorAuth/inject?v=", html, StringComparison.Ordinal);
         Assert.DoesNotContain("<script src=\"/TwoFactorAuth/inject", html, StringComparison.Ordinal);
 
