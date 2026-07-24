@@ -58,7 +58,7 @@ public class RequestBlockerMiddleware
         // proxies (especially Caddy on directory rewrites) append a trailing
         // slash to GETs — without this, `/TwoFactorAuth/Login/` wouldn't match
         // the `/TwoFactorAuth/Login` exempt entry and would 401 the user mid-2FA.
-        var normalizedPath = path.Length > 1 ? path.TrimEnd('/') : path;
+        var normalizedPath = NormalizePluginPath(path);
 
         foreach (var allowed in AlwaysAllowedPaths)
         {
@@ -154,6 +154,16 @@ public class RequestBlockerMiddleware
         }
 
         await _next(context).ConfigureAwait(false);
+    }
+
+    internal static string NormalizePluginPath(string path)
+    {
+        var normalized = path.Length > 1 ? path.TrimEnd('/') : path;
+        // Jellyfin's configured BaseUrl remains in Request.Path on 10.11.x.
+        // Strip only the prefix before our unambiguous controller route so
+        // completion endpoints remain reachable while a token is blocked.
+        var pluginRoute = normalized.IndexOf("/TwoFactorAuth", StringComparison.OrdinalIgnoreCase);
+        return pluginRoute > 0 ? normalized[pluginRoute..] : normalized;
     }
 
     private static string? GetAccessToken(HttpContext ctx)

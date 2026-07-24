@@ -63,6 +63,15 @@ public class OidcService : IDisposable
         string Nonce,
         DateTime ExpiresAt);
 
+    private record PendingOnboardingValidation(
+        string ProviderId,
+        Guid UserId,
+        string Subject,
+        string AccessToken,
+        string CodeVerifier,
+        string Nonce,
+        DateTime ExpiresAt);
+
     private readonly UserTwoFactorStore _store;
     private readonly IUserManager _userManager;
     private readonly ILogger<OidcService> _logger;
@@ -103,6 +112,7 @@ public class OidcService : IDisposable
     private readonly ConcurrentDictionary<string, JwksCacheEntry> _jwksCache = new();
     private readonly ConcurrentDictionary<string, PendingFlow> _pendingFlows = new();
     private readonly ConcurrentDictionary<string, PendingUserStepUp> _pendingUserStepUps = new();
+    private readonly ConcurrentDictionary<string, PendingOnboardingValidation> _pendingOnboardingValidations = new();
 
     // [v2.5.13] (#95) Pending EXPLICIT account-link flows (Setup → "Link a new
     // provider"). Separate from step-up so the callback can tell the two intents
@@ -374,6 +384,158 @@ public class OidcService : IDisposable
     }
 
     public record StepUpResult(bool Success, string? Error, Guid? UserId);
+
+    public record OnboardingValidationResult(
+        bool Success,
+        string? Error,
+        Guid? UserId,
+        string? Proof,
+        string? AccessToken);
+
+    public bool IsOnboardingValidationState(string state)
+        => !string.IsNullOrEmpty(state) && _pendingOnboardingValidations.ContainsKey(state);
+
+    /// <summary>
+    /// Begin a non-interactive OIDC session check for issue #135. prompt=none
+    /// means an existing IdP browser session succeeds without UI; a logged-out
+    /// IdP returns login_required/interaction_required and the callback fails
+    /// closed to Jellyfin's stock login page.
+    /// </summary>
+    public async Task<(string AuthUrl, string State)> BeginOnboardingValidationAsync(
+        OidcProvider provider,
+        Guid userId,
+        string subject,
+        string redirectUri,
+        string accessToken)
+    {
+        var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
+        var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var codeChallenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier)));
+        var state = Base64Url(RandomNumberGenerator.GetBytes(24));
+        var nonce = Base64Url(RandomNumberGenerator.GetBytes(24));
+
+        PruneAndCap(_pendingOnboardingValidations, p => p.ExpiresAt);
+        _pendingOnboardingValidations[state] = new PendingOnboardingValidation(
+            provider.Id,
+            userId,
+            subject,
+            accessToken,
+            codeVerifier,
+            nonce,
+            DateTime.UtcNow.AddMinutes(5));
+
+        var qs = new List<(string, string)>
+        {
+            ("client_id", provider.ClientId),
+            ("response_type", "code"),
+            ("scope", provider.Scopes),
+            ("redirect_uri", redirectUri),
+            ("state", state),
+            ("nonce", nonce),
+            ("code_challenge", codeChallenge),
+            ("code_challenge_method", "S256"),
+            ("prompt", "none"),
+        };
+
+        var url = disc.AuthorizationEndpoint + "?"
+            + string.Join("&", qs.Select(kv =>
+                $"{Uri.EscapeDataString(kv.Item1)}={Uri.EscapeDataString(kv.Item2)}"));
+        return (url, state);
+    }
+
+    public OnboardingValidationResult RejectOnboardingValidation(
+        string state,
+        string error)
+    {
+        if (!_pendingOnboardingValidations.TryRemove(state, out var pending))
+        {
+            return new OnboardingValidationResult(false, "Validation state expired", null, null, null);
+        }
+        return new OnboardingValidationResult(false, error, pending.UserId, null, pending.AccessToken);
+    }
+
+    public async Task<OnboardingValidationResult> CompleteOnboardingValidationAsync(
+        OidcProvider provider,
+        string code,
+        string state,
+        string redirectUri,
+        OnboardingSessionProofStore proofStore)
+    {
+        if (!_pendingOnboardingValidations.TryRemove(state, out var pending))
+        {
+            return new OnboardingValidationResult(false, "Validation state expired", null, null, null);
+        }
+        if (pending.ProviderId != provider.Id || pending.ExpiresAt <= DateTime.UtcNow)
+        {
+            return new OnboardingValidationResult(false, "Validation state is invalid", pending.UserId, null, pending.AccessToken);
+        }
+
+        var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
+        using var tokenForm = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "authorization_code",
+            ["code"] = code,
+            ["redirect_uri"] = redirectUri,
+            ["client_id"] = provider.ClientId,
+            ["client_secret"] = provider.ClientSecret,
+            ["code_verifier"] = pending.CodeVerifier,
+        });
+        await EnsureSafeOutboundAsync(
+            disc.TokenEndpoint,
+            provider.AllowPrivateNetworks,
+            provider.AdditionalAllowedCidrs).ConfigureAwait(false);
+        var tokenResp = await _http.PostAsync(disc.TokenEndpoint, tokenForm).ConfigureAwait(false);
+        if (!tokenResp.IsSuccessStatusCode)
+        {
+            return new OnboardingValidationResult(false, "IdP token exchange failed", pending.UserId, null, pending.AccessToken);
+        }
+
+        using var tokenStream = await tokenResp.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        var tokenJson = await JsonSerializer.DeserializeAsync<JsonElement>(tokenStream).ConfigureAwait(false);
+        if (!tokenJson.TryGetProperty("id_token", out var idTokenElement))
+        {
+            return new OnboardingValidationResult(false, "IdP response missing id_token", pending.UserId, null, pending.AccessToken);
+        }
+
+        ClaimsBundle claims;
+        try
+        {
+            claims = await VerifyIdTokenAsync(
+                provider,
+                disc,
+                idTokenElement.GetString() ?? string.Empty,
+                pending.Nonce).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] OIDC onboarding-session validation failed");
+            return new OnboardingValidationResult(false, "Token verification failed", pending.UserId, null, pending.AccessToken);
+        }
+
+        if (!string.Equals(claims.Subject, pending.Subject, StringComparison.Ordinal))
+        {
+            _logger.LogWarning(
+                "[2FA] OIDC onboarding validation subject mismatch for user {UserId}",
+                pending.UserId);
+            return new OnboardingValidationResult(false, "The active IdP account does not match", pending.UserId, null, pending.AccessToken);
+        }
+
+        var data = await _store.GetUserDataAsync(pending.UserId).ConfigureAwait(false);
+        if (!data.MustSetPassword
+            || !data.SsoLinks.Any(link =>
+                string.Equals(link.ProviderId, provider.Id, StringComparison.Ordinal)
+                && string.Equals(link.Subject, pending.Subject, StringComparison.Ordinal)))
+        {
+            return new OnboardingValidationResult(false, "Password onboarding is no longer pending", pending.UserId, null, pending.AccessToken);
+        }
+
+        return new OnboardingValidationResult(
+            true,
+            null,
+            pending.UserId,
+            proofStore.Mint(pending.UserId),
+            pending.AccessToken);
+    }
 
     /// <summary>Process the OIDC step-up callback. Validates state + nonce,
     /// exchanges the code, verifies the id_token, and confirms the returned
@@ -1297,6 +1459,15 @@ public class OidcService : IDisposable
                 else if (liveMatches.Count == 1)
                 {
                     var u = liveMatches[0];
+                    var linkedData = allUsers.FirstOrDefault(d => d.UserId == u.Id);
+                    if (HasConflictingProviderLink(linkedData, provider.Id, claims.Subject))
+                    {
+                        _logger.LogWarning(
+                            "[2FA] OIDC email-match refused: Jellyfin user '{User}' is already linked to a different {Provider} subject. Possible takeover attempt.",
+                            u.Username,
+                            provider.Id);
+                        return null;
+                    }
                     // SECURITY [v2.5.10]: never resolve/auto-link an
                     // ADMINISTRATOR via the email fallback. An IdP-asserted
                     // email (which the user controls on open-registration
@@ -1326,21 +1497,24 @@ public class OidcService : IDisposable
         // existing accounts), CreateUserAsync would throw "user already
         // exists" and the sign-in would dead-end. Treat the username match
         // as an implicit link request, subject to two guardrails:
-        //   (a) Provider.AutoCreateUsers must be enabled — admin has already
-        //       opted into trusting IdP-asserted usernames for provisioning.
+        //   (a) The provider must explicitly allow existing-account username
+        //       linking, or AutoCreateUsers must be enabled for compatibility
+        //       with the pre-#133 behaviour.
         //   (b) The pre-existing Jellyfin user must NOT already have an
         //       SsoLink for THIS provider with a different subject. That
         //       case means another IdP identity already claimed this user
         //       and we're seeing a second IdP account trying to take over.
         //       Refuse and let the admin reconcile.
-        if (provider.AutoCreateUsers && !string.IsNullOrEmpty(claims.Username))
+        if (AllowsExistingUsernameLink(provider) && !string.IsNullOrEmpty(claims.Username))
         {
-            var existing = _userManager.GetUserByName(claims.Username);
+                var existing = _userManager.GetUserByName(claims.Username);
             if (existing is not null)
             {
                 var existingData = allUsers.FirstOrDefault(d => d.UserId == existing.Id);
-                var conflicting = existingData?.SsoLinks
-                    .Any(l => l.ProviderId == provider.Id && l.Subject != claims.Subject) == true;
+                var conflicting = HasConflictingProviderLink(
+                    existingData,
+                    provider.Id,
+                    claims.Subject);
                 if (conflicting)
                 {
                     _logger.LogWarning(
@@ -1426,7 +1600,16 @@ public class OidcService : IDisposable
                 {
                     try
                     {
-                        await _store.MutateAsync(u.Id, ud => ud.MustSetPassword = true).ConfigureAwait(false);
+                        await _store.MutateAsync(u.Id, ud =>
+                        {
+                            ud.MustSetPassword = true;
+                            // #134: only auto-created users receive this marker.
+                            // It lets Cancel abort this creation without putting
+                            // any pre-existing or admin-re-armed account at risk.
+                            ud.PendingOidcUserCreation = true;
+                            ud.PendingOidcProviderId = provider.Id;
+                            ud.PendingOidcSubject = claims.Subject;
+                        }).ConfigureAwait(false);
                         _logger.LogInformation("[2FA] OIDC new user '{Username}' flagged to set a Jellyfin password on first sign-in (#100)", claims.Username);
                     }
                     catch (Exception fpe)
@@ -1447,6 +1630,23 @@ public class OidcService : IDisposable
 
         return null;
     }
+
+    /// <summary>
+    /// Existing-account linking is a separate trust decision from account
+    /// creation. AutoCreateUsers continues to imply it for upgrade
+    /// compatibility; installations that prohibit provisioning can opt into
+    /// only the narrower exact-username link path.
+    /// </summary>
+    internal static bool AllowsExistingUsernameLink(OidcProvider provider)
+        => provider.AutoCreateUsers || provider.LinkExistingUsersByUsername;
+
+    internal static bool HasConflictingProviderLink(
+        UserTwoFactorData? data,
+        string providerId,
+        string subject)
+        => data?.SsoLinks.Any(link =>
+            string.Equals(link.ProviderId, providerId, StringComparison.Ordinal)
+            && !string.Equals(link.Subject, subject, StringComparison.Ordinal)) == true;
 
     /// <summary>Set a 256-bit random password on a freshly-created OIDC user
     /// so the account is never in the "no stored hash" state that Jellyfin's
@@ -1884,11 +2084,9 @@ public class OidcService : IDisposable
         // surface as a bare KeyNotFoundException in the logs. If the required
         // key is absent and the URL isn't already a well-known path, retry once
         // with the standard discovery suffix appended before giving up.
-        if ((resp.ValueKind != JsonValueKind.Object
-                || !resp.TryGetProperty("authorization_endpoint", out _))
-            && discoveryUrl.IndexOf(".well-known", StringComparison.OrdinalIgnoreCase) < 0)
+        if (NeedsStandardDiscoveryRetry(resp, discoveryUrl))
         {
-            var normalized = discoveryUrl.TrimEnd('/') + "/.well-known/openid-configuration";
+            var normalized = BuildStandardDiscoveryUrl(discoveryUrl);
             await EnsureSafeOutboundAsync(normalized, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
             try
             {
@@ -1911,23 +2109,12 @@ public class OidcService : IDisposable
 
         // [#120] Validate each required endpoint with an actionable message
         // instead of letting GetProperty throw a bare KeyNotFoundException.
-        static string RequireEndpoint(JsonElement doc, string key, string url) =>
-            doc.ValueKind == JsonValueKind.Object
-                && doc.TryGetProperty(key, out var v)
-                && v.ValueKind == JsonValueKind.String
-                && !string.IsNullOrEmpty(v.GetString())
-                    ? v.GetString()!
-                    : throw new InvalidOperationException(
-                        $"OpenID discovery document at '{url}' is missing the required '{key}' field. "
-                        + "Verify the provider's Discovery URL points to the OpenID configuration document "
-                        + "(it usually ends with '/.well-known/openid-configuration'), not the issuer / realm root.");
-
         var disc = new Discovery(
-            RequireEndpoint(resp, "authorization_endpoint", discoveryUrl),
-            RequireEndpoint(resp, "token_endpoint", discoveryUrl),
+            RequireDiscoveryEndpoint(resp, "authorization_endpoint", discoveryUrl),
+            RequireDiscoveryEndpoint(resp, "token_endpoint", discoveryUrl),
             resp.TryGetProperty("userinfo_endpoint", out var ui) ? ui.GetString() ?? "" : "",
-            RequireEndpoint(resp, "jwks_uri", discoveryUrl),
-            RequireEndpoint(resp, "issuer", discoveryUrl),
+            RequireDiscoveryEndpoint(resp, "jwks_uri", discoveryUrl),
+            RequireDiscoveryEndpoint(resp, "issuer", discoveryUrl),
             DateTime.UtcNow);
 
         // Also validate the IdP-supplied endpoint URLs from the discovery
@@ -1946,6 +2133,28 @@ public class OidcService : IDisposable
         _discoveryCache[provider.Id] = disc;
         return disc;
     }
+
+    internal static bool NeedsStandardDiscoveryRetry(JsonElement document, string discoveryUrl)
+        => (document.ValueKind != JsonValueKind.Object
+                || !document.TryGetProperty("authorization_endpoint", out _))
+            && discoveryUrl.IndexOf(".well-known", StringComparison.OrdinalIgnoreCase) < 0;
+
+    internal static string BuildStandardDiscoveryUrl(string discoveryUrl)
+        => discoveryUrl.TrimEnd('/') + "/.well-known/openid-configuration";
+
+    internal static string RequireDiscoveryEndpoint(
+        JsonElement document,
+        string key,
+        string discoveryUrl)
+        => document.ValueKind == JsonValueKind.Object
+            && document.TryGetProperty(key, out var value)
+            && value.ValueKind == JsonValueKind.String
+            && !string.IsNullOrEmpty(value.GetString())
+                ? value.GetString()!
+                : throw new InvalidOperationException(
+                    $"OpenID discovery document at '{discoveryUrl}' is missing the required '{key}' field. "
+                    + "Verify the provider's Discovery URL points to the OpenID configuration document "
+                    + "(it usually ends with '/.well-known/openid-configuration'), not the issuer / realm root.");
 
     /// <summary>SECURITY [v2.5.5] (Finding 3): refuse to fetch a URL unless
     /// it is HTTPS and resolves to a public unicast IP address. Blocks the
@@ -2252,6 +2461,14 @@ public class OidcService : IDisposable
         foreach (var kv in _pendingUserStepUps)
         {
             if (kv.Value.ExpiresAt <= now) _pendingUserStepUps.TryRemove(kv.Key, out _);
+        }
+        foreach (var kv in _pendingUserLinks)
+        {
+            if (kv.Value.ExpiresAt <= now) _pendingUserLinks.TryRemove(kv.Key, out _);
+        }
+        foreach (var kv in _pendingOnboardingValidations)
+        {
+            if (kv.Value.ExpiresAt <= now) _pendingOnboardingValidations.TryRemove(kv.Key, out _);
         }
     }
 

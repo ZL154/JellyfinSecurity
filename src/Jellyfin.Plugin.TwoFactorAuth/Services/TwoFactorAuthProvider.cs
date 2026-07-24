@@ -120,7 +120,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // Bridge tokens are non-empty (LooksLikeBridgeToken requires a prefix
         // + length) so this never blocks the OIDC bridge fast-path below.
         // ------------------------------------------------------------------
-        if (config?.BlockEmptyPasswordLogin == true && string.IsNullOrWhiteSpace(password))
+        if (ShouldBlockEmptyPassword(config?.BlockEmptyPasswordLogin == true, password))
         {
             _logger.LogWarning("[2FA] AUTH REJECTED: empty password for user '{User}' from {Ip}",
                 username, authIp ?? "(unknown)");
@@ -349,10 +349,18 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         ProviderAuthenticationResult baseResult;
         try
         {
-            if (defaultProvider is MediaBrowser.Controller.Authentication.IRequiresResolvedUser resolvedProvider && jellyfinUser is not null)
+            EnsureResolvedUserAvailable(
+                defaultProvider is MediaBrowser.Controller.Authentication.IRequiresResolvedUser,
+                jellyfinUser is not null);
+
+            if (defaultProvider is MediaBrowser.Controller.Authentication.IRequiresResolvedUser resolvedProvider)
             {
+                // Jellyfin 10.11's two-argument overload deliberately throws
+                // NotImplementedException on providers that require a resolved
+                // user. An unknown username must remain an ordinary generic
+                // authentication failure, not escape as HTTP 500.
                 baseResult = await resolvedProvider
-                    .Authenticate(username, password, jellyfinUser)
+                    .Authenticate(username, password, jellyfinUser!)
                     .ConfigureAwait(false);
             }
             else
@@ -503,8 +511,11 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             }).ConfigureAwait(false);
 
             // Fire-and-forget notification; don't let it fail the auth.
-            _ = SafeNotifyAsync(() =>
-                _notificationService.NotifyLoginAttemptAsync(username, remoteIp ?? "unknown", deviceName, false));
+            if (_challengeStore.TryBeginLoginNotification(userId, deviceId, deviceName))
+            {
+                _ = SafeNotifyAsync(() =>
+                    _notificationService.NotifyLoginAttemptAsync(username, remoteIp ?? "unknown", deviceName, false));
+            }
 
             // Mark device pre-verified so SessionStarted accepts it without challenge.
             _challengeStore.MarkDevicePreVerified(userId, deviceId);
@@ -640,8 +651,11 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             Details = "Challenge issued"
         }).ConfigureAwait(false);
 
-        _ = SafeNotifyAsync(() =>
-            _notificationService.NotifyLoginAttemptAsync(username, remoteIp ?? "unknown", deviceName, true));
+        if (_challengeStore.TryBeginLoginNotification(userId, deviceId, deviceName))
+        {
+            _ = SafeNotifyAsync(() =>
+                _notificationService.NotifyLoginAttemptAsync(username, remoteIp ?? "unknown", deviceName, true));
+        }
 
         // ------------------------------------------------------------------
         // 9. Let the auth request SUCCEED (password was valid). The
@@ -693,6 +707,17 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    internal static void EnsureResolvedUserAvailable(bool providerRequiresResolvedUser, bool userExists)
+    {
+        if (providerRequiresResolvedUser && !userExists)
+        {
+            throw new AuthenticationException("Invalid username or password.");
+        }
+    }
+
+    internal static bool ShouldBlockEmptyPassword(bool gateEnabled, string? password)
+        => gateEnabled && string.IsNullOrWhiteSpace(password);
 
     private string? GetRemoteIp()
     {
@@ -751,9 +776,34 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     /// deviceless (which breaks paired-device bypass).</summary>
     private string? GetDeviceHeader(string dedicatedHeader, string authKey)
     {
-        var v = GetHeader(dedicatedHeader);
-        if (!string.IsNullOrEmpty(v)) return v;
-        return ParseEmbyAuth(GetHeader("X-Emby-Authorization"), authKey);
+        return ResolveDeviceHeaderValue(
+            GetHeader(dedicatedHeader),
+            GetHeader("X-Emby-Authorization"),
+            GetHeader("Authorization"),
+            authKey);
+    }
+
+    /// <summary>
+    /// Resolve device metadata from all header shapes used by Jellyfin clients.
+    /// Modern web/native clients may use either X-Emby-Authorization or the
+    /// standard Authorization header with the same MediaBrowser key/value
+    /// payload. Missing the latter made a successfully verified passkey bridge
+    /// look deviceless, so its device-scoped pre-verification could not be
+    /// consumed by SessionStarted and the user was challenged a second time.
+    /// </summary>
+    internal static string? ResolveDeviceHeaderValue(
+        string? dedicatedValue,
+        string? xEmbyAuthorization,
+        string? authorization,
+        string authKey)
+    {
+        // Match Jellyfin 10.11's AuthorizationContext precedence exactly:
+        // standard Authorization first, then legacy X-Emby-Authorization.
+        // X-Emby-Device-Id is plugin-specific and Jellyfin does not use it
+        // when creating SessionInfo, so it is only a final fallback.
+        return ParseEmbyAuth(authorization, authKey)
+            ?? ParseEmbyAuth(xEmbyAuthorization, authKey)
+            ?? (!string.IsNullOrEmpty(dedicatedValue) ? dedicatedValue : null);
     }
 
     private static async Task SafeNotifyAsync(Func<Task> action)

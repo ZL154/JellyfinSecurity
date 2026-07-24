@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Two-Factor Authentication</title>
-    <script src="/TwoFactorAuth/tfa-i18n"></script>
+    <script src="tfa-i18n"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -35,6 +35,18 @@
             letter-spacing: 0.5px;
         }
         h1 { text-align: center; font-size: 15px; font-weight: 400; color: #888; margin-bottom: 28px; }
+        .account-indicator {
+            margin: -16px 0 22px;
+            padding: 10px 12px;
+            border: 1px solid #333;
+            border-radius: 6px;
+            background: #111;
+            color: #ccc;
+            font-size: 13px;
+            font-weight: 600;
+            text-align: center;
+            overflow-wrap: anywhere;
+        }
         .method-tabs { display: flex; gap: 0; margin-bottom: 20px; background: #0a0a0a; border-radius: 6px; padding: 4px; }
         .method-tab {
             flex: 1;
@@ -135,6 +147,7 @@
     <div class="card">
         <div class="logo">Jellyfin</div>
         <h1 data-i18n-key="tfa.challenge.title">Two-Factor Authentication</h1>
+        <p class="account-indicator" id="challengeAccount" aria-live="polite" hidden></p>
 
         <div class="method-tabs" id="methodTabs">
             <div class="method-tab active" data-method="totp" data-i18n-key="tfa.challenge.tab_authenticator">Authenticator</div>
@@ -172,7 +185,7 @@
 
         <p class="hint" id="bottomHint" data-i18n-key="tfa.challenge.hint_rotate">Codes rotate every 30 seconds.</p>
         <p class="hint" style="margin-top:14px;">
-            <a href="/TwoFactorAuth/Login" style="color:#888;text-decoration:none;" data-i18n-key="tfa.challenge.back_to_sign_in">← Back to sign in</a>
+            <a href="Login" style="color:#888;text-decoration:none;" data-i18n-key="tfa.challenge.back_to_sign_in">← Back to sign in</a>
         </p>
     </div>
 
@@ -222,14 +235,14 @@
         // /TwoFactorAuth/Challenge?token=...&return=https://evil/ and phish
         // users post-verify, or smuggle a javascript: URL via location.href.
         var returnUrl = (function () {
-            var raw = params.get('return') || '/web/index.html';
+            var raw = params.get('return') || window.tfaUrl('web/index.html');
             try {
                 var u = new URL(raw, window.location.origin);
-                if (u.origin !== window.location.origin) return '/web/index.html';
-                if (/^(javascript|data|vbscript|file):/i.test(u.protocol)) return '/web/index.html';
+                if (u.origin !== window.location.origin) return window.tfaUrl('web/index.html');
+                if (/^(javascript|data|vbscript|file):/i.test(u.protocol)) return window.tfaUrl('web/index.html');
                 return u.pathname + u.search + u.hash;
             } catch (e) {
-                return '/web/index.html';
+                return window.tfaUrl('web/index.html');
             }
         })();
         var currentMethod = 'totp';
@@ -262,15 +275,22 @@
         function clearError() { document.getElementById('errorMsg').classList.remove('show'); }
 
         function loadChallengeInfo() {
-            fetch('/TwoFactorAuth/Challenge/Info?token=' + encodeURIComponent(challengeToken))
+            fetch(window.tfaUrl('TwoFactorAuth/Challenge/Info?token=' + encodeURIComponent(challengeToken)))
                 .then(function(r) { return r.ok ? r.json() : null; })
                 .then(function(info) {
                     if (!info) return;
+                    var username = String(info.Username || info.username || '').trim();
+                    var accountIndicator = document.getElementById('challengeAccount');
+                    accountIndicator.textContent = _tr(
+                        'tfa.challenge.signing_in_as',
+                        'Signing in as {user}'
+                    ).replace('{user}', username);
+                    accountIndicator.hidden = !username;
                     var methods = (info.Methods || info.methods || []).map(function(m) {
                         return String(m || '').toLowerCase();
                     });
                     if (info.EnrollmentRequired || info.enrollmentRequired || methods.indexOf('enroll') >= 0) {
-                        showEnrollmentRequired(info.Username || info.username || '');
+                        showEnrollmentRequired();
                     } else {
                         renderAvailableMethods(methods);
                     }
@@ -307,13 +327,9 @@
             refreshPasskeyButton();
         }
 
-        function showEnrollmentRequired(username) {
+        function showEnrollmentRequired() {
             availableMethods = ['enroll'];
-            var setupTitle = _tr('tfa.challenge.setup_required', 'Setup Required');
-            if (username) {
-                setupTitle = _tr('tfa.challenge.setup_required_for', 'Setup Required for {user}').replace('{user}', username);
-            }
-            document.querySelector('h1').textContent = setupTitle;
+            document.querySelector('h1').textContent = _tr('tfa.challenge.setup_required', 'Setup Required');
             document.getElementById('methodTabs').style.display = 'none';
             document.getElementById('codeLabel').style.display = 'none';
             document.getElementById('codeInput').style.display = 'none';
@@ -395,7 +411,7 @@
             var btn = document.getElementById('btnSendEmail');
             btn.disabled = true;
             btn.textContent = _tr('tfa.challenge.email_sending', 'Sending...');
-            fetch('/TwoFactorAuth/Email/Send', {
+            fetch(window.tfaUrl('TwoFactorAuth/Email/Send'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ challengeToken: challengeToken })
@@ -420,7 +436,7 @@
             var btn = document.getElementById('btnBeginEnroll');
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span>' + _tr('tfa.challenge.enroll_preparing', 'Preparing...');
-            fetch('/TwoFactorAuth/Enroll/Totp/Begin', {
+            fetch(window.tfaUrl('TwoFactorAuth/Enroll/Totp/Begin'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ challengeToken: challengeToken })
@@ -468,7 +484,7 @@
             var btn = document.getElementById('btnConfirmEnroll');
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span>' + _tr('tfa.challenge.confirming', 'Confirming...');
-            fetch('/TwoFactorAuth/Enroll/Totp/Confirm', {
+            fetch(window.tfaUrl('TwoFactorAuth/Enroll/Totp/Confirm'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -493,7 +509,7 @@
                         window.location.href = returnUrl;
                     });
                 } else {
-                    window.location.href = '/web/index.html';
+                    window.location.href = window.tfaUrl('web/index.html');
                 }
             }).catch(function(e) {
                 btn.disabled = false;
@@ -531,7 +547,7 @@
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span>' + _tr('tfa.challenge.verifying', 'Verifying...');
 
-            fetch('/TwoFactorAuth/Verify', {
+            fetch(window.tfaUrl('TwoFactorAuth/Verify'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -578,7 +594,7 @@
             var btn = document.getElementById('btnPasskey');
             btn.disabled = true; btn.textContent = _tr('tfa.challenge.passkey_waiting', 'Waiting for authenticator…');
             try {
-                var begin = await fetch('/TwoFactorAuth/Verify/Passkey/Begin', {
+                var begin = await fetch(window.tfaUrl('TwoFactorAuth/Verify/Passkey/Begin'), {
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({ challengeToken: challengeToken })
                 }).then(function(r){ if (!r.ok) throw new Error(_tr('tfa.challenge.passkey_begin_failed', 'Begin failed')); return r.json(); });
@@ -597,7 +613,7 @@
                         userHandle: assertion.response.userHandle ? bytesToB64u(assertion.response.userHandle) : null,
                     },
                 };
-                var finishR = await fetch('/TwoFactorAuth/Verify/Passkey/Finish', {
+                var finishR = await fetch(window.tfaUrl('TwoFactorAuth/Verify/Passkey/Finish'), {
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({ challengeToken: challengeToken, nonce: begin.nonce, response: JSON.stringify(resp) })
                 });

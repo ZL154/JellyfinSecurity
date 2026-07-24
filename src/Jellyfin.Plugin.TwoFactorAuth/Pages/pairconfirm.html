@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n-key="tfa.pairconfirm.page_title">Confirm Device Pairing</title>
-    <script src="/TwoFactorAuth/tfa-i18n"></script>
+    <script src="tfa-i18n"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -136,7 +136,7 @@
                     showStatus(_tr('tfa.pairconfirm.error_missing_token', 'Missing pairing token.'), false);
                 } else if (!getToken()) {
                     showStatus(_tr('tfa.pairconfirm.error_signin_required', 'You need to sign in first. '), false);
-                    document.getElementById('statusBox').innerHTML += '<a href="/web/index.html">' + _tr('tfa.pairconfirm.signin_link', 'Sign in →') + '</a>';
+                    document.getElementById('statusBox').innerHTML += '<a href="../web/index.html">' + _tr('tfa.pairconfirm.signin_link', 'Sign in →') + '</a>';
                 } else {
                     // Decode token payload client-side (just for display — server re-verifies signature)
                     try {
@@ -165,7 +165,7 @@
         document.getElementById('btnConfirm').addEventListener('click', function() {
             this.disabled = true;
             this.textContent = _tr('tfa.pairconfirm.btn_pairing', 'Pairing…');
-            fetch('/TwoFactorAuth/PairConfirm', {
+            fetch(window.tfaUrl('TwoFactorAuth/PairConfirm'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-Emby-Token': getToken() },
                 body: JSON.stringify({ token: token })
@@ -190,7 +190,7 @@
         });
 
         document.getElementById('btnCancel').addEventListener('click', function() {
-            window.location.href = '/TwoFactorAuth/Setup';
+            window.location.href = window.tfaUrl('TwoFactorAuth/Setup');
         });
     </script>
 </body>

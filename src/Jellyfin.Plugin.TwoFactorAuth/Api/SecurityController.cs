@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -24,6 +25,12 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class SecurityController : ControllerBase
 {
+    internal sealed record OidcBridgePaths(
+        string BasePath,
+        string AuthenticatePath,
+        string LandingPath,
+        string LoginPath);
+
     private readonly OidcService _oidc;
     private readonly OidcLoginTokenStore _oidcBridge;
     private readonly IpBanService _bans;
@@ -39,6 +46,8 @@ public class SecurityController : ControllerBase
     // [v2.5.7] OIDC step-up: needed to mint user step-up tokens from the
     // callback handler.
     private readonly ChallengeStore _challenges;
+    private readonly OnboardingSessionProofStore _onboardingProofs;
+    private readonly ISessionManager _sessionManager;
     private readonly ILogger<SecurityController> _logger;
 
     public SecurityController(
@@ -53,6 +62,8 @@ public class SecurityController : ControllerBase
         RateLimiter rateLimiter,
         StepUpService stepUp,
         ChallengeStore challenges,
+        OnboardingSessionProofStore onboardingProofs,
+        ISessionManager sessionManager,
         ILogger<SecurityController> logger)
     {
         _oidc = oidc;
@@ -66,6 +77,8 @@ public class SecurityController : ControllerBase
         _rateLimiter = rateLimiter;
         _stepUp = stepUp;
         _challenges = challenges;
+        _onboardingProofs = onboardingProofs;
+        _sessionManager = sessionManager;
         _logger = logger;
     }
 
@@ -110,6 +123,7 @@ public class SecurityController : ControllerBase
         public string AllowedGroups { get; set; } = string.Empty;
         public string AdminGroups { get; set; } = string.Empty;
         public bool AutoCreateUsers { get; set; }
+        public bool LinkExistingUsersByUsername { get; set; }
         public bool RequireIdpMfa { get; set; }
         public bool BypassPluginTwoFa { get; set; } = true;
         public bool Enabled { get; set; } = true;
@@ -224,6 +238,7 @@ public class SecurityController : ControllerBase
             allowAdminGroupElevation = p.AllowAdminGroupElevation,
             templateUserId = p.TemplateUserId,
             autoCreateUsers = p.AutoCreateUsers,
+            linkExistingUsersByUsername = p.LinkExistingUsersByUsername,
             requireIdpMfa = p.RequireIdpMfa,
             bypassPluginTwoFa = p.BypassPluginTwoFa,
             enabled = p.Enabled,
@@ -289,6 +304,7 @@ public class SecurityController : ControllerBase
             AllowAdminGroupElevation = req.AllowAdminGroupElevation,
             TemplateUserId = (req.TemplateUserId ?? string.Empty).Trim(),
             AutoCreateUsers = req.AutoCreateUsers,
+            LinkExistingUsersByUsername = req.LinkExistingUsersByUsername,
             RequireIdpMfa = req.RequireIdpMfa,
             BypassPluginTwoFa = req.BypassPluginTwoFa,
             Enabled = req.Enabled,
@@ -348,6 +364,7 @@ public class SecurityController : ControllerBase
         existing.AllowAdminGroupElevation = req.AllowAdminGroupElevation;
         existing.TemplateUserId = (req.TemplateUserId ?? string.Empty).Trim();
         existing.AutoCreateUsers = req.AutoCreateUsers;
+        existing.LinkExistingUsersByUsername = req.LinkExistingUsersByUsername;
         existing.RequireIdpMfa = req.RequireIdpMfa;
         existing.BypassPluginTwoFa = req.BypassPluginTwoFa;
         existing.Enabled = req.Enabled;
@@ -797,6 +814,72 @@ public class SecurityController : ControllerBase
             + "})();</script></body></html>";
     }
 
+    private IActionResult BuildOnboardingValidationHtml(
+        OidcService.OnboardingValidationResult result)
+    {
+        var basePath = OidcRedirectUriBuilder.ResolveBasePath(
+            Request.PathBase.Value,
+            Request.Path.Value);
+        var success = result.Success && !string.IsNullOrWhiteSpace(result.Proof);
+        var successJs = success ? "true" : "false";
+        var proofJs = System.Text.Json.JsonSerializer.Serialize(result.Proof ?? string.Empty);
+        var userIdJs = System.Text.Json.JsonSerializer.Serialize(
+            result.UserId?.ToString("N") ?? string.Empty);
+        var basePathJs = System.Text.Json.JsonSerializer.Serialize(basePath);
+        var html = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Checking sign-in</title>"
+            + "<style>body{background:#111;color:#eee;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}"
+            + ".card{text-align:center;color:#aaa}</style></head><body><div class=\"card\">Checking your identity-provider session…</div><script>(function(){"
+            + "var ok=" + successJs + ",proof=" + proofJs + ",uid=" + userIdJs + ",bp=" + basePathJs + ";"
+            + "var setpw=bp+'/TwoFactorAuth/SetPassword#oidc-proof='+encodeURIComponent(proof);"
+            + "var login=bp+'/web/index.html#/login';"
+            + "if(ok){window.location.replace(setpw);return;}"
+            + "try{var c=JSON.parse(localStorage.getItem('jellyfin_credentials')||'{}'),s=c.Servers||[],origin=(window.location.origin+bp).replace(/\\/+$/,'').toLowerCase();"
+            + "c.Servers=s.filter(function(x){if(!x)return false;var sameUser=uid&&String(x.UserId||'').replace(/-/g,'').toLowerCase()===uid.toLowerCase();"
+            + "var a=String(x.ManualAddress||x.LocalAddress||'').replace(/\\/+$/,'').toLowerCase();return !(sameUser||a===origin);});"
+            + "localStorage.setItem('jellyfin_credentials',JSON.stringify(c));localStorage.removeItem('__tfa_set_pw_required');}catch(e){}"
+            + "window.location.replace(login);"
+            + "})();</script></body></html>";
+
+        Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+        Response.Headers.Pragma = "no-cache";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers["X-Frame-Options"] = "DENY";
+        Response.Headers["Referrer-Policy"] = "no-referrer";
+        Response.Headers["Content-Security-Policy"] =
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'";
+        return Content(html, "text/html; charset=utf-8");
+    }
+
+    private async Task<IActionResult> FinishOnboardingValidationAsync(
+        OidcService.OnboardingValidationResult result)
+    {
+        if (!string.IsNullOrWhiteSpace(result.AccessToken))
+        {
+            if (result.Success)
+            {
+                _challenges.UnblockToken(result.AccessToken);
+            }
+            else
+            {
+                try
+                {
+                    await _sessionManager.Logout(result.AccessToken).ConfigureAwait(false);
+                    _challenges.UnblockToken(result.AccessToken);
+                }
+                catch (Exception ex)
+                {
+                    // Leave the token blocked. ChallengeStore's expiry cleanup
+                    // will retry revocation through SessionTerminationService.
+                    _logger.LogWarning(
+                        ex,
+                        "[2FA] Could not immediately revoke failed OIDC onboarding credential");
+                }
+            }
+        }
+
+        return BuildOnboardingValidationHtml(result);
+    }
+
     [HttpGet("Oidc/Callback/{providerId}")]
     [AllowAnonymous]
     public async Task<IActionResult> Callback(
@@ -818,6 +901,8 @@ public class SecurityController : ControllerBase
 
         _logger.LogInformation("[2FA] OIDC Callback hit: provider={Pid} codeLen={CL} stateLen={SL} error={Err}",
             providerId, code?.Length ?? 0, state?.Length ?? 0, error ?? "(none)");
+        var isOnboardingValidation = !string.IsNullOrEmpty(state)
+            && _oidc.IsOnboardingValidationState(state);
         if (!string.IsNullOrEmpty(error))
         {
             // SECURITY [v2.5.5]: do NOT echo the raw IdP-supplied `error`
@@ -829,6 +914,13 @@ public class SecurityController : ControllerBase
             // crafty IdP (or a replayed callback URL) can't inject arbitrary
             // text into the login screen via the oidcError query parameter.
             _logger.LogWarning("[2FA] OIDC provider returned error: {Err}", error);
+            if (isOnboardingValidation)
+            {
+                var failed = _oidc.RejectOnboardingValidation(
+                    state!,
+                    "The identity-provider session is no longer active.");
+                return await FinishOnboardingValidationAsync(failed).ConfigureAwait(false);
+            }
             var safeMsg = error.ToLowerInvariant() switch
             {
                 "access_denied" => "Sign-in was cancelled.",
@@ -842,6 +934,13 @@ public class SecurityController : ControllerBase
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
         {
             _logger.LogWarning("[2FA] OIDC callback missing code or state");
+            if (isOnboardingValidation && !string.IsNullOrEmpty(state))
+            {
+                return await FinishOnboardingValidationAsync(
+                    _oidc.RejectOnboardingValidation(
+                        state,
+                        "The identity-provider session could not be validated.")).ConfigureAwait(false);
+            }
             return Redirect(LoginErrorUrl("Missing code or state"));
         }
         var provider = Plugin.Instance?.Configuration.OidcProviders
@@ -854,6 +953,17 @@ public class SecurityController : ControllerBase
 
         var redirectUri = BuildRedirectUri(provider);
         _logger.LogInformation("[2FA] OIDC token exchange redirect_uri={Uri}", redirectUri);
+
+        if (isOnboardingValidation)
+        {
+            var validation = await _oidc.CompleteOnboardingValidationAsync(
+                provider,
+                code,
+                state,
+                redirectUri,
+                _onboardingProofs).ConfigureAwait(false);
+            return await FinishOnboardingValidationAsync(validation).ConfigureAwait(false);
+        }
 
         // [v2.5.7] OIDC step-up: if the state was minted by a step-up Begin
         // (rather than a regular login Begin), run the step-up completion
@@ -1028,11 +1138,17 @@ public class SecurityController : ControllerBase
         {
             _logger.LogDebug(mspEx, "[2FA] Could not read MustSetPassword for {User}; landing on /web", result.Username);
         }
-        var landingPath = mustSetPassword ? "/TwoFactorAuth/SetPassword" : "/web/index.html";
+        var bridgePaths = BuildOidcBridgePaths(
+            Request.PathBase.Value,
+            Request.Path.Value,
+            mustSetPassword);
 
         var uname = System.Text.Json.JsonSerializer.Serialize(result.Username);
         var tok = System.Text.Json.JsonSerializer.Serialize(token);
-        var land = System.Text.Json.JsonSerializer.Serialize(landingPath);
+        var basePath = System.Text.Json.JsonSerializer.Serialize(bridgePaths.BasePath);
+        var authPath = System.Text.Json.JsonSerializer.Serialize(bridgePaths.AuthenticatePath);
+        var land = System.Text.Json.JsonSerializer.Serialize(bridgePaths.LandingPath);
+        var loginPath = System.Text.Json.JsonSerializer.Serialize(bridgePaths.LoginPath);
         var html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Signing in…</title>"
             + "<style>body{background:#0a0a0a;color:#e0e0e0;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}"
             + ".card{background:#1a1a1a;padding:32px 40px;border-radius:8px;text-align:center;border:1px solid #2a2a2a;}"
@@ -1041,13 +1157,15 @@ public class SecurityController : ControllerBase
             + "<body><div class=\"card\"><div class=\"spin\"></div><div id=\"msg\">Completing sign-in…</div>"
             + "<div id=\"err\" class=\"err\"></div></div><script>"
             + "(function(){"
-            + "var u=" + uname + ",t=" + tok + ",land=" + land + ",forcePw=" + (mustSetPassword ? "true" : "false") + ";"
+            + "var u=" + uname + ",t=" + tok + ",bp=" + basePath + ",authPath=" + authPath
+            + ",land=" + land + ",loginPath=" + loginPath + ",forcePw=" + (mustSetPassword ? "true" : "false") + ";"
             + "var did=(function(){try{var x=localStorage.getItem('_deviceId2');if(!x){x=Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join('');localStorage.setItem('_deviceId2',x);}return x;}catch(e){return 'bridge-'+Date.now();}})();"
             + "var auth='MediaBrowser Client=\"Jellyfin Web\", Device=\"Browser\", DeviceId=\"'+did+'\", Version=\"10.11.0\"';"
-            + "fetch('/Users/AuthenticateByName',{method:'POST',headers:{'Content-Type':'application/json','X-Emby-Authorization':auth,'Authorization':auth},body:JSON.stringify({Username:u,Pw:t})})"
+            + "fetch(authPath,{method:'POST',headers:{'Content-Type':'application/json','X-Emby-Authorization':auth,'Authorization':auth},body:JSON.stringify({Username:u,Pw:t})})"
             + ".then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})"
             + ".then(function(res){"
-            + "var server={Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:1,ManualAddress:window.location.origin,LocalAddress:window.location.origin};"
+            + "var address=window.location.origin+bp;"
+            + "var server={Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:1,ManualAddress:address,LocalAddress:address};"
             + "var creds={Servers:[server]};"
             + "localStorage.setItem('jellyfin_credentials',JSON.stringify(creds));"
             // [v2.5.14] (#98) Clear any STALE 2FA-pending flag before landing on
@@ -1080,7 +1198,7 @@ public class SecurityController : ControllerBase
             + "var err=document.getElementById('err'); err.innerHTML='';"
             + "var d=document.createElement('div'); d.textContent=(e&&e.message)?('Error: '+e.message):'Unknown error.'; err.appendChild(d);"
             + "var hint=document.createElement('div'); hint.style.cssText='margin-top:8px;color:#888;font-size:12px;line-height:1.4;'; hint.textContent='The identity provider authenticated you, but this server did not accept the sign-in token. If Jellyfin is behind an auth proxy (Authelia / Authentik), make sure it is not intercepting POST /Users/AuthenticateByName.'; err.appendChild(hint);"
-            + "var a=document.createElement('a'); a.href='/web/index.html#!/login.html'; a.textContent='Back to login'; a.style.cssText='display:inline-block;margin-top:14px;color:#00a4dc;text-decoration:none;'; err.appendChild(a);"
+            + "var a=document.createElement('a'); a.href=loginPath; a.textContent='Back to login'; a.style.cssText='display:inline-block;margin-top:14px;color:#00a4dc;text-decoration:none;'; err.appendChild(a);"
             + "});"
             + "})();"
             + "</script></body></html>";
@@ -1243,7 +1361,7 @@ public class SecurityController : ControllerBase
     /// link — with a copyable-URL fallback. All URLs are injected as
     /// JSON-encoded JS string literals (never raw into HTML) so the auth URL's
     /// query string can't break out of the markup.</summary>
-    private static string BuildWebViewBreakoutHtml(string authUrl, string providerDisplayName, string pollToken)
+    internal static string BuildWebViewBreakoutHtml(string authUrl, string providerDisplayName, string pollToken)
     {
         // Android intent:// that forces the OS default browser (outside the
         // webview). On webviews that pass intent:// to Android this opens
@@ -1292,6 +1410,7 @@ public class SecurityController : ControllerBase
             + "</div><script>(function(){"
             + "var au=" + authJson + ",intent=" + intentJson + ",name=" + nameJson + ",pt=" + pollJson + ";"
             + "var done=false,tries=0,MAX=140;"
+            + "function su(p){var pn=window.location.pathname||'',i=pn.toLowerCase().indexOf('/twofactorauth'),b=i>=0?pn.substring(0,i):'';p=String(p||'');if(p.charAt(0)==='/')p=p.substring(1);return b+'/'+p;}"
             + "function st(m){document.getElementById('st').textContent=m;}"
             + "document.getElementById('desc').textContent='For security, '+name+' blocks sign-in inside apps. Open the sign-in in your phone\\u2019s browser; this screen finishes automatically when you\\u2019re done.';"
             + "document.getElementById('u').value=au;"
@@ -1331,19 +1450,20 @@ public class SecurityController : ControllerBase
             + "function complete(u,t){"
             + "var did=(function(){try{var x=localStorage.getItem('_deviceId2');if(!x){x=Array.from(crypto.getRandomValues(new Uint8Array(16))).map(function(b){return b.toString(16).padStart(2,'0');}).join('');localStorage.setItem('_deviceId2',x);}return x;}catch(e){return 'bridge-'+Date.now();}})();"
             + "var auth='MediaBrowser Client=\"Jellyfin Web\", Device=\"Browser\", DeviceId=\"'+did+'\", Version=\"10.11.0\"';"
-            + "fetch('/Users/AuthenticateByName',{method:'POST',headers:{'Content-Type':'application/json','X-Emby-Authorization':auth,'Authorization':auth},body:JSON.stringify({Username:u,Pw:t})})"
+            + "fetch(su('Users/AuthenticateByName'),{method:'POST',headers:{'Content-Type':'application/json','X-Emby-Authorization':auth,'Authorization':auth},body:JSON.stringify({Username:u,Pw:t})})"
             + ".then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})"
             + ".then(function(res){"
-            + "var server={Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:1,ManualAddress:window.location.origin,LocalAddress:window.location.origin};"
+            + "var ba=window.location.origin+su('');if(ba.charAt(ba.length-1)==='/')ba=ba.substring(0,ba.length-1);"
+            + "var server={Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:1,ManualAddress:ba,LocalAddress:ba};"
             + "localStorage.setItem('jellyfin_credentials',JSON.stringify({Servers:[server]}));"
             + "st('Signed in as '+res.User.Name+' \\u2014 opening Jellyfin\\u2026');"
-            + "setTimeout(function(){window.location.href='/web/index.html';},400);"
+            + "setTimeout(function(){window.location.href=su('web/index.html');},400);"
             + "}).catch(function(e){st('Sign-in failed: '+e.message);});"
             + "}"
             + "function poll(){"
             + "if(done)return;"
             + "if(tries++>MAX){st('Timed out \\u2014 tap the button to try again.');return;}"
-            + "fetch('/TwoFactorAuth/Oidc/DevicePoll?pt='+encodeURIComponent(pt),{headers:{'Accept':'application/json'}})"
+            + "fetch(su('TwoFactorAuth/Oidc/DevicePoll?pt='+encodeURIComponent(pt)),{headers:{'Accept':'application/json'}})"
             + ".then(function(r){return r.json();})"
             + ".then(function(j){if(j&&j.ready){done=true;document.getElementById('sp').style.display='block';st('Finishing sign-in\\u2026');complete(j.username,j.token);}else{setTimeout(poll,2500);}})"
             + ".catch(function(){setTimeout(poll,2500);});"
@@ -1415,7 +1535,98 @@ public class SecurityController : ControllerBase
             peer: peer,
             trustedCidrs: trustedCidrs,
             providerId: provider.Id,
-            forceHttps: inferHttps);
+            forceHttps: inferHttps,
+            basePath: OidcRedirectUriBuilder.ResolveBasePath(
+                Request.PathBase.Value,
+                Request.Path.Value));
+    }
+
+    /// <summary>
+    /// Issue #135: before exposing the first-password form, silently confirm
+    /// that the browser is still signed into the exact linked IdP identity.
+    /// </summary>
+    [HttpPost("Oidc/OnboardingValidationBegin")]
+    [Authorize]
+    public async Task<IActionResult> OidcOnboardingValidationBegin()
+    {
+        Guid userId;
+        try { userId = GetCurrentUserId(); }
+        catch (UnauthorizedAccessException) { return Unauthorized(); }
+
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (!data.MustSetPassword)
+        {
+            return BadRequest(new { message = "Password onboarding is not pending." });
+        }
+
+        SsoLink? link = null;
+        if (!string.IsNullOrWhiteSpace(data.PendingOidcProviderId)
+            && !string.IsNullOrWhiteSpace(data.PendingOidcSubject))
+        {
+            link = data.SsoLinks.FirstOrDefault(candidate =>
+                string.Equals(candidate.ProviderId, data.PendingOidcProviderId, StringComparison.Ordinal)
+                && string.Equals(candidate.Subject, data.PendingOidcSubject, StringComparison.Ordinal));
+        }
+
+        // Upgrade compatibility: users created by 2.5.14-2.5.19 do not have
+        // the new provisioning marker. Revalidate their most recently-used
+        // linked identity, but do not mark them deletion-eligible.
+        link ??= data.SsoLinks
+            .OrderByDescending(candidate => candidate.LastUsedAt ?? candidate.LinkedAt)
+            .FirstOrDefault();
+        if (link is null)
+        {
+            return Conflict(new { message = "No linked identity provider can validate this onboarding session." });
+        }
+
+        var provider = Plugin.Instance?.Configuration.OidcProviders.FirstOrDefault(candidate =>
+            candidate.Enabled
+            && string.Equals(candidate.Id, link.ProviderId, StringComparison.Ordinal));
+        if (provider is null)
+        {
+            return Conflict(new { message = "The linked identity provider is unavailable." });
+        }
+
+        var accessToken = Request.Headers["X-Emby-Token"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            var authorization = Request.Headers["X-Emby-Authorization"].FirstOrDefault()
+                ?? Request.Headers["Authorization"].FirstOrDefault();
+            accessToken = TwoFactorEnforcementMiddleware.ParseEmbyAuth(authorization, "Token");
+        }
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            return Unauthorized(new { message = "Cannot determine the current Jellyfin session." });
+        }
+
+        var started = await _oidc.BeginOnboardingValidationAsync(
+            provider,
+            userId,
+            link.Subject,
+            BuildRedirectUri(provider),
+            accessToken).ConfigureAwait(false);
+        // The local Jellyfin credential is unusable while the IdP session is
+        // being checked. Success unblocks it; failure revokes it.
+        _challenges.BlockToken(accessToken);
+        Response.Headers.CacheControl = "no-store";
+        return Ok(new { authUrl = started.AuthUrl });
+    }
+
+    internal static OidcBridgePaths BuildOidcBridgePaths(
+        string? requestPathBase,
+        string? requestPath,
+        bool mustSetPassword)
+    {
+        var basePath = OidcRedirectUriBuilder.ResolveBasePath(
+            requestPathBase,
+            requestPath);
+        return new OidcBridgePaths(
+            BasePath: basePath,
+            AuthenticatePath: basePath + "/Users/AuthenticateByName",
+            LandingPath: basePath + (mustSetPassword
+                ? "/TwoFactorAuth/SetPassword"
+                : "/web/index.html"),
+            LoginPath: basePath + "/web/index.html#!/login.html");
     }
 
     // =========================================================================

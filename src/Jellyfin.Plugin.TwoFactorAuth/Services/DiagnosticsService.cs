@@ -148,19 +148,31 @@ public class DiagnosticsService
     /// <summary>Walks the audit log re-computing each entry's expected hash.
     /// Returns count of entries whose stored EntryHash mismatches the
     /// re-computation (0 == clean chain). Pre-v1.4 entries (empty hashes) are
-    /// skipped — they're treated as the chain prefix.</summary>
+    /// skipped. The first retained hashed row may carry a non-zero anchor
+    /// after AuditLogMaxEntries pruning removed its predecessor; that anchor
+    /// is validated as a hash and included in the row's hash computation.</summary>
     private static int VerifyAuditChain(IReadOnlyList<Models.AuditEntry> entries)
     {
         int broken = 0;
         string prev = string.Empty;
+        bool hasRetainedHash = false;
         foreach (var e in entries)
         {
             if (string.IsNullOrEmpty(e.EntryHash))
             {
                 prev = string.Empty;
+                hasRetainedHash = false;
                 continue;
             }
-            var expectedPrev = string.IsNullOrEmpty(prev) ? new string('0', 64) : prev;
+
+            // A bounded audit log retains the prior hash on its first row
+            // even after that predecessor is pruned. Treat a well-formed
+            // value as the external anchor for this retained window. The
+            // row hash still authenticates the anchor, and every later row
+            // must link to the preceding retained EntryHash.
+            var expectedPrev = hasRetainedHash
+                ? prev
+                : (IsSha256Hex(e.PreviousHash) ? e.PreviousHash : new string('0', 64));
             if (!string.Equals(e.PreviousHash, expectedPrev, StringComparison.OrdinalIgnoreCase))
             {
                 broken++;
@@ -186,8 +198,27 @@ public class DiagnosticsService
                 }
             }
             prev = e.EntryHash;
+            hasRetainedHash = true;
         }
         return broken;
+    }
+
+    private static bool IsSha256Hex(string? value)
+    {
+        if (value is null || value.Length != 64)
+        {
+            return false;
+        }
+
+        foreach (var c in value)
+        {
+            if (!char.IsAsciiHexDigit(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static DiagnosticCheck FileCheck(string id, string label, string path, bool mustExist)

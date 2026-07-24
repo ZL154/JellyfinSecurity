@@ -78,7 +78,8 @@ Out of scope (intentional limitations):
   userId as AAD (v2 format)
 - Trust cookie signing: HMAC-SHA256 with persistent key, length-checked
   before `CryptographicOperations.FixedTimeEquals`
-- Recovery code hashing: PBKDF2-SHA256, 100k iterations, per-code salt
+- Recovery code hashing: PBKDF2-HMAC-SHA256, 600k iterations, per-code
+  salt (legacy 100k records remain valid and are consumed on use)
 - App password hashing: PBKDF2-SHA256
 - API key hashing: SHA-256 (raw key is 256 bits of entropy, no PBKDF2
   needed)

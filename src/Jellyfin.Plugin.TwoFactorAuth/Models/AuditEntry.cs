@@ -30,7 +30,8 @@ public class AuditEntry
     // attacker with file-write — it just makes silent tampering impossible.
 
     /// <summary>Sha256 of the prior audit entry's EntryHash, hex. All-zeros for
-    /// the first entry in the file.</summary>
+    /// the original first entry; after retention pruning, the oldest retained
+    /// entry preserves its discarded predecessor's hash as an external anchor.</summary>
     public string PreviousHash { get; set; } = string.Empty;
 
     /// <summary>Sha256 over (PreviousHash || canonical-serialize(this without

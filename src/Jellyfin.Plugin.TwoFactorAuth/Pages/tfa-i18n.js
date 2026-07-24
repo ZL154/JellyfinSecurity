@@ -46,8 +46,16 @@
 
     function buildUrl(path) {
         if (hasApiClient()) return window.ApiClient.getUrl(path);
-        // For plain pages, controller routes are mounted at /TwoFactorAuth/...
-        return '/' + path.replace(/^\/+/, '');
+        // Standalone plugin pages can sit below Jellyfin's configured BaseUrl.
+        // Preserve everything before /TwoFactorAuth instead of assuming the
+        // server is mounted at the origin root.
+        var base = '';
+        try {
+            var pathname = window.location.pathname || '';
+            var marker = pathname.toLowerCase().indexOf('/twofactorauth');
+            if (marker >= 0) base = pathname.substring(0, marker).replace(/\/+$/, '');
+        } catch (e) { /* root fallback */ }
+        return base + '/' + path.replace(/^\/+/, '');
     }
 
     function sanitizeLang(lang) {
@@ -105,8 +113,27 @@
         return null;
     }
 
+    function getAuthHeaders(includeJson) {
+        var headers = {};
+        if (includeJson) headers['Content-Type'] = 'application/json';
+        // jellyfin-web authenticates API requests with an access-token header,
+        // not a browser cookie. credentials:'include' alone therefore returned
+        // 401 for per-user language reads/writes even while the user was signed
+        // in. Public/standalone pages simply leave the header absent.
+        if (hasApiClient() && typeof window.ApiClient.accessToken === 'function') {
+            try {
+                var token = window.ApiClient.accessToken();
+                if (token) headers['X-Emby-Token'] = token;
+            } catch (e) { /* unauthenticated/standalone page */ }
+        }
+        return headers;
+    }
+
     function fetchJson(url) {
-        return fetch(url, { credentials: 'include' }).then(function (r) {
+        return fetch(url, {
+            credentials: 'include',
+            headers: getAuthHeaders(false)
+        }).then(function (r) {
             return r.ok ? r.json() : null;
         }).catch(function () { return null; });
     }
@@ -261,7 +288,7 @@
         return fetch(buildUrl('TwoFactorAuth/users/' + uid + '/preferences'), {
             method: 'PUT',
             credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(true),
             body: JSON.stringify({ language: lang })
         }).then(function () { /* fire-and-forget */ }).catch(function () { /* ignore */ });
     }
@@ -352,12 +379,14 @@
 
     function getEffectiveLanguage() { return _lang; }
 
+    window.tfaUrl = buildUrl;
     window.tfaI18n = {
         tr: tr,
         loadTranslations: loadTranslations,
         applyTranslations: applyTranslations,
         renderLanguagePicker: renderLanguagePicker,
         getEffectiveLanguage: getEffectiveLanguage,
+        url: buildUrl,
         SUPPORTED: SUPPORTED.slice(),
         LANG_LABELS: LANG_LABELS,
         // v2.5.0: gate inline-script initial renders on this so dynamic list

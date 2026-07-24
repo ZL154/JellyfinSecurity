@@ -135,10 +135,9 @@ public class AuthenticationEventHandler : IHostedService
         try
         {
             var devices = _deviceManager.GetDevices(new DeviceQuery { UserId = info.UserId });
-            var match = devices.Items.FirstOrDefault(d =>
-                !string.IsNullOrEmpty(info.DeviceId)
-                && string.Equals(d.DeviceId, info.DeviceId, StringComparison.Ordinal));
-            approvedToken = match?.AccessToken;
+            approvedToken = SelectMostRecentAccessToken(
+                info.DeviceId,
+                devices.Items.Select(d => (d.DeviceId, d.AccessToken, d.DateLastActivity)));
         }
         catch (Exception ex)
         {
@@ -458,6 +457,23 @@ public class AuthenticationEventHandler : IHostedService
         _logger.LogInformation("[2FA] 2FA required for {Name} — middleware will replace response with challenge",
             info.UserName);
 
+        // #124: Jellyfin can emit duplicate SessionStarted events for the same
+        // native-client token while opening websocket/playback sessions. Only
+        // the first event owns the challenge side effects. When Jellyfin does
+        // not expose a token, SessionInfo.Id plus user/device still gives a
+        // stable identity for the life of that session.
+        var challengeIdentity = !string.IsNullOrEmpty(approvedToken)
+            ? "token:" + approvedToken
+            : $"session:{info.UserId:N}|{info.DeviceId ?? string.Empty}|{info.Id ?? string.Empty}";
+        if (!_challengeStore.TryBeginSessionChallenge(challengeIdentity))
+        {
+            _logger.LogDebug(
+                "[2FA] Duplicate SessionStarted challenge suppressed for {Name} device={Device}",
+                info.UserName,
+                info.DeviceName);
+            return;
+        }
+
         // Record pending pairing here (in addition to the middleware) because
         // SessionInfo.DeviceId is authoritative whereas the middleware's
         // header-parsed deviceId can come up null for clients that use
@@ -494,18 +510,27 @@ public class AuthenticationEventHandler : IHostedService
             Method = "blocked",
         }).ConfigureAwait(false);
 
-        // Notify admins of the login attempt that triggered a 2FA prompt
-        try
+        // Notify admins only when this provider/middleware/session path owns
+        // the shared logical-device notification. #124: native clients can
+        // traverse more than one path and can rotate public IP during the
+        // same playback session; neither should produce a notification storm.
+        if (_challengeStore.TryBeginLoginNotification(
+            info.UserId,
+            info.DeviceId,
+            info.DeviceName))
         {
-            await _notificationService.NotifyLoginAttemptAsync(
-                info.UserName ?? "unknown",
-                info.RemoteEndPoint ?? "unknown",
-                info.DeviceName ?? "unknown",
-                requiresTwoFactor: true).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[2FA] Notification failed");
+            try
+            {
+                await _notificationService.NotifyLoginAttemptAsync(
+                    info.UserName ?? "unknown",
+                    info.RemoteEndPoint ?? "unknown",
+                    info.DeviceName ?? "unknown",
+                    requiresTwoFactor: true).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[2FA] Notification failed");
+            }
         }
 
         try
@@ -558,5 +583,24 @@ public class AuthenticationEventHandler : IHostedService
             }
         }
         return result;
+    }
+
+    /// <summary>
+    /// Resolve the token belonging to the current Jellyfin session. Multiple
+    /// device records may share a DeviceId; the most recently active record is
+    /// the current token, while FirstOrDefault can select a stale login.
+    /// </summary>
+    internal static string? SelectMostRecentAccessToken(
+        string? sessionDeviceId,
+        IEnumerable<(string DeviceId, string AccessToken, DateTime DateLastActivity)> candidates)
+    {
+        if (string.IsNullOrWhiteSpace(sessionDeviceId)) return null;
+
+        return candidates
+            .Where(c => string.Equals(c.DeviceId, sessionDeviceId, StringComparison.Ordinal)
+                && !string.IsNullOrEmpty(c.AccessToken))
+            .OrderByDescending(c => c.DateLastActivity)
+            .Select(c => c.AccessToken)
+            .FirstOrDefault();
     }
 }

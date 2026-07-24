@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using Xunit;
@@ -96,5 +97,69 @@ public class DeviceTokenServiceTests
         var ok = svc.ValidateToken("any", new List<TrustedDevice>(), "device-1", out var matched);
         Assert.False(ok);
         Assert.Null(matched);
+    }
+
+    [Fact]
+    public void ValidateToken_accepts_active_sliding_trust()
+    {
+        var svc = new DeviceTokenService();
+        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
+        var (token, device) = svc.CreateDeviceToken("android-device", "Android");
+        device.CreatedAt = now.AddDays(-40);
+        device.LastUsedAt = now.AddDays(-29);
+
+        var ok = svc.ValidateToken(
+            token,
+            new List<TrustedDevice> { device },
+            "android-device",
+            now,
+            30,
+            out var matched);
+
+        Assert.True(ok);
+        Assert.Same(device, matched);
+    }
+
+    [Fact]
+    public void ValidateToken_rejects_expired_finite_trust()
+    {
+        var svc = new DeviceTokenService();
+        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
+        var (token, device) = svc.CreateDeviceToken("android-device", "Android");
+        device.CreatedAt = now.AddDays(-31);
+        device.LastUsedAt = now.AddDays(-31);
+
+        var ok = svc.ValidateToken(
+            token,
+            new List<TrustedDevice> { device },
+            "android-device",
+            now,
+            30,
+            out var matched);
+
+        Assert.False(ok);
+        Assert.Null(matched);
+    }
+
+    [Fact]
+    public void ValidateToken_accepts_indefinite_trust_past_finite_ttl()
+    {
+        var svc = new DeviceTokenService();
+        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
+        var (token, device) = svc.CreateDeviceToken("android-device", "Android");
+        device.CreatedAt = now.AddYears(-2);
+        device.LastUsedAt = now.AddYears(-2);
+        device.IndefiniteTrust = true;
+
+        var ok = svc.ValidateToken(
+            token,
+            new List<TrustedDevice> { device },
+            "android-device",
+            now,
+            30,
+            out var matched);
+
+        Assert.True(ok);
+        Assert.Same(device, matched);
     }
 }

@@ -200,6 +200,48 @@ public class ChallengeStoreTests
     }
 
     [Fact]
+    public void TryBeginSessionChallenge_allows_only_one_owner_per_identity()
+    {
+        using var store = new ChallengeStore();
+
+        Assert.True(store.TryBeginSessionChallenge("token:one"));
+        Assert.False(store.TryBeginSessionChallenge("token:one"));
+        Assert.True(store.TryBeginSessionChallenge("token:two"));
+    }
+
+    [Fact]
+    public void Login_notification_is_single_per_device_until_challenge_completes()
+    {
+        using var store = new ChallengeStore(null);
+        var userId = Guid.NewGuid();
+
+        Assert.True(store.TryBeginLoginNotification(userId, "phone-1", "iPhone"));
+        Assert.False(store.TryBeginLoginNotification(userId, "phone-1", "iPhone"));
+
+        var challenge = store.CreateChallenge(
+            userId,
+            "user",
+            new List<string> { "totp" },
+            "phone-1",
+            "iPhone",
+            "203.0.113.5");
+
+        Assert.True(store.ConsumeChallenge(challenge.Token));
+        Assert.True(store.TryBeginLoginNotification(userId, "phone-1", "iPhone"));
+    }
+
+    [Fact]
+    public void Login_notification_dedupes_mobile_ip_rotation_but_not_other_devices()
+    {
+        using var store = new ChallengeStore(null);
+        var userId = Guid.NewGuid();
+
+        Assert.True(store.TryBeginLoginNotification(userId, "phone-1", "iPhone"));
+        Assert.False(store.TryBeginLoginNotification(userId, "phone-1", "iPhone"));
+        Assert.True(store.TryBeginLoginNotification(userId, "tv-1", "Android TV"));
+    }
+
+    [Fact]
     public void TryConsumePairToken_rejects_replay()
     {
         using var store = new ChallengeStore();

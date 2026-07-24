@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// Generates and validates one-time recovery codes for account recovery when
 /// the user loses access to their TOTP authenticator app.
 ///
-/// Storage: PBKDF2-SHA256, 100k iterations, per-code salt. Format string:
+/// Storage: PBKDF2-HMAC-SHA256, 600k iterations, per-code salt. Format string:
 /// `v2$iter$saltB64$hashB64`. Previously stored v1 (unsalted SHA-256 base64)
 /// is still accepted on validate — any legacy code, once used, is consumed
 /// and future generations write v2. Plaintext is shown once at generation.

@@ -144,6 +144,17 @@ public class PasskeyService
             AuthenticatorSelection = AuthenticatorSelection.Default,
             AttestationPreference = AttestationConveyancePreference.None,
             Extensions = new AuthenticationExtensionsClientInputs(),
+            // Fido2NetLib advertises Ed25519 first by default. Its EdDSA
+            // verifier uses NSec, which in turn needs a RID-specific native
+            // libsodium binary. Jellyfin plugins are distributed as one
+            // platform-neutral archive, so advertising Ed25519 can let an
+            // authenticator create a credential that the server cannot verify
+            // on Linux/ARM/Windows unless the matching native binary happens
+            // to be installed by the host. ES256 is WebAuthn's required,
+            // broadly supported algorithm and is implemented by .NET without
+            // a native sidecar. Offer it explicitly so every credential we
+            // create is portable across Jellyfin's supported platforms.
+            PubKeyCredParams = new[] { PubKeyCredParam.ES256 },
         });
 
         return options.ToJson();

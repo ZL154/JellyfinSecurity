@@ -38,7 +38,7 @@ public class IndexHtmlInjectionMiddleware
         (typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0")
         + "-" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
     private static readonly string ScriptTag =
-        "<script src=\"/TwoFactorAuth/inject?v=" + CacheBust + "\"></script>";
+        "<script src=\"../TwoFactorAuth/inject?v=" + CacheBust + "\"></script>";
     private const string InjectionMarker = "<!-- twofactor-inject -->";
 
     private readonly RequestDelegate _next;
@@ -105,6 +105,13 @@ public class IndexHtmlInjectionMiddleware
         // but /web/ index is tiny.
         context.Request.Headers.Remove("Accept-Encoding");
 
+        // Issue #138: index.html is modified by this middleware, so validators
+        // for Jellyfin's original (unmodified) file are not valid for the
+        // response we serve. Force the request through the injector even when
+        // a browser presents a validator for an older, unpatched web shell.
+        context.Request.Headers.Remove("If-None-Match");
+        context.Request.Headers.Remove("If-Modified-Since");
+
         var originalBody = context.Response.Body;
         using var buffer = new MemoryStream();
         context.Response.Body = buffer;
@@ -162,6 +169,7 @@ public class IndexHtmlInjectionMiddleware
             }
             if (cachedPatched is not null)
             {
+                SetPatchedIndexCacheHeaders(context.Response);
                 context.Response.ContentLength = cachedPatched.Length;
                 await originalBody.WriteAsync(cachedPatched).ConfigureAwait(false);
                 return;
@@ -226,6 +234,7 @@ public class IndexHtmlInjectionMiddleware
                 _cachedPatched = patchedBytes;
             }
 
+            SetPatchedIndexCacheHeaders(context.Response);
             context.Response.ContentLength = patchedBytes.Length;
             await originalBody.WriteAsync(patchedBytes).ConfigureAwait(false);
             _logger.LogDebug("[2FA] Injected inject.js script into {Path}", context.Request.Path);
@@ -236,6 +245,15 @@ public class IndexHtmlInjectionMiddleware
             buffer.Position = 0;
             await buffer.CopyToAsync(originalBody).ConfigureAwait(false);
         }
+    }
+
+    private static void SetPatchedIndexCacheHeaders(HttpResponse response)
+    {
+        response.Headers.Remove("ETag");
+        response.Headers.Remove("Last-Modified");
+        response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+        response.Headers.Pragma = "no-cache";
+        response.Headers.Expires = "0";
     }
 
     private static bool IsIndexHtmlRequest(HttpContext context)
@@ -251,8 +269,14 @@ public class IndexHtmlInjectionMiddleware
             return false;
         }
 
-        return path.Equals("/web/", StringComparison.OrdinalIgnoreCase)
-            || path.Equals("/web", StringComparison.OrdinalIgnoreCase)
-            || path.Equals("/web/index.html", StringComparison.OrdinalIgnoreCase);
+        var normalized = path.Length > 1 ? path.TrimEnd('/') : path;
+        return normalized.Equals("/web", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("/web/index.html", StringComparison.OrdinalIgnoreCase)
+            // Jellyfin 10.11 keeps NetworkConfiguration.BaseUrl in
+            // Request.Path (rather than PathBase), e.g.
+            // /jellyfin/web/index.html. Match the stable web suffix so the
+            // injection also runs for those supported deployments.
+            || normalized.EndsWith("/web", StringComparison.OrdinalIgnoreCase)
+            || normalized.EndsWith("/web/index.html", StringComparison.OrdinalIgnoreCase);
     }
 }

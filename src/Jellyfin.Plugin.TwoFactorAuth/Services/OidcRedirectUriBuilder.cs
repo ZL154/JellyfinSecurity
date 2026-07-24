@@ -21,6 +21,32 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// </summary>
 internal static class OidcRedirectUriBuilder
 {
+    /// <summary>
+    /// Resolve Jellyfin's externally-visible BaseUrl from the ASP.NET request.
+    /// Jellyfin 10.11 may keep the configured prefix in <c>Request.Path</c>
+    /// instead of <c>Request.PathBase</c>, so both layouts must be supported.
+    /// </summary>
+    public static string ResolveBasePath(string? pathBase, string? requestPath)
+    {
+        var explicitBase = NormalizeBasePath(pathBase);
+        if (!string.IsNullOrEmpty(explicitBase))
+        {
+            return explicitBase;
+        }
+
+        if (string.IsNullOrEmpty(requestPath))
+        {
+            return string.Empty;
+        }
+
+        var routeIndex = requestPath.IndexOf(
+            "/TwoFactorAuth",
+            System.StringComparison.OrdinalIgnoreCase);
+        return routeIndex > 0
+            ? NormalizeBasePath(requestPath[..routeIndex])
+            : string.Empty;
+    }
+
     public static string Build(
         string directScheme,
         string directHost,
@@ -29,7 +55,8 @@ internal static class OidcRedirectUriBuilder
         string peer,
         IReadOnlyList<string> trustedCidrs,
         string providerId,
-        bool forceHttps = false)
+        bool forceHttps = false,
+        string? basePath = null)
     {
         var proxyTrusted = trustedCidrs.Any(c => BypassEvaluator.IsIpInCidr(peer, c));
 
@@ -51,6 +78,18 @@ internal static class OidcRedirectUriBuilder
             ? forwardedHost.Split(',')[0].Trim()
             : directHost;
 
-        return $"{scheme}://{host}/TwoFactorAuth/Oidc/Callback/{providerId}";
+        // Issue #64: a Jellyfin BaseUrl is represented by ASP.NET's
+        // Request.PathBase. Omitting it produces a callback at the origin root,
+        // which only appears to work when the reverse proxy also exposes root
+        // routes. Proxies that publish Jellyfin exclusively below /jellyfin
+        // cannot deliver that callback.
+        var normalizedBasePath = NormalizeBasePath(basePath);
+
+        return $"{scheme}://{host}{normalizedBasePath}/TwoFactorAuth/Oidc/Callback/{providerId}";
     }
+
+    private static string NormalizeBasePath(string? basePath)
+        => string.IsNullOrWhiteSpace(basePath) || basePath == "/"
+            ? string.Empty
+            : "/" + basePath.Trim().Trim('/');
 }

@@ -502,4 +502,8 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Require at least one digit. Default off.</summary>
     public bool OnboardingPasswordRequireDigit { get; set; }
+
+    /// <summary>Require at least one Unicode punctuation or symbol character.
+    /// Whitespace does not satisfy this rule. Default off.</summary>
+    public bool OnboardingPasswordRequireSymbol { get; set; }
 }
