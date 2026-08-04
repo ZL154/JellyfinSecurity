@@ -19,6 +19,53 @@ public class UserExportService
         _userManager = userManager;
     }
 
+    /// <summary>[v2.5.21] (#156, MilesTEG1) Lightweight, non-sensitive summary
+    /// for the admin Users table's inline "details" panel.
+    ///
+    /// That panel used to call BuildExportAsync via GET Users/{id}/Export,
+    /// which is gated behind StepUpAction.ExportWithSecrets — so on any server
+    /// with StepUpLevel >= Destructive, simply expanding a row 403'd and the UI
+    /// printed "Failed to load details." The panel only ever rendered device
+    /// labels and dates, so it never needed the full export.
+    ///
+    /// This returns strictly the fields the panel shows. Compared with the full
+    /// export it deliberately omits the audit log, remote IPs, raw device ids,
+    /// seen ASN/country contexts and the user's email — everything that made
+    /// the export worth gating. What remains (device display names, passkey and
+    /// app-password labels, timestamps) is no more sensitive than the counts
+    /// already rendered in the same table, so admin authorization alone is the
+    /// right bar.</summary>
+    public async Task<object> BuildSummaryAsync(Guid userId)
+    {
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        return new
+        {
+            userId = userId.ToString("D"),
+            devices = new
+            {
+                trusted = data.TrustedDevices
+                    .OrderByDescending(d => d.LastUsedAt)
+                    .Select(d => new { deviceName = d.DeviceName, lastUsedAt = d.LastUsedAt })
+                    .ToList(),
+                paired = data.PairedDevices
+                    .OrderByDescending(d => d.LastUsedAt)
+                    .Select(d => new { deviceName = d.DeviceName, appName = d.AppName })
+                    .ToList(),
+            },
+            twoFactor = new
+            {
+                passkeys = data.Passkeys
+                    .OrderByDescending(p => p.CreatedAt)
+                    .Select(p => new { label = p.Label, createdAt = p.CreatedAt })
+                    .ToList(),
+                appPasswords = data.AppPasswords
+                    .OrderByDescending(a => a.CreatedAt)
+                    .Select(a => new { label = a.Label, createdAt = a.CreatedAt })
+                    .ToList(),
+            },
+        };
+    }
+
     public async Task<object> BuildExportAsync(Guid userId)
     {
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);

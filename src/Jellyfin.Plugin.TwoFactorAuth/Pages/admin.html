@@ -798,6 +798,19 @@
                                 <input type="text" id="cfgNtfyTopic" class="tfa-input" style="width:200px;" />
                             </div>
                             <div class="tfa-row">
+                                <label data-i18n-key="tfa.admin.settings.lbl_ntfy_token">ntfy access token (optional)</label>
+                                <input type="password" id="cfgNtfyToken" class="tfa-input" style="width:300px;" placeholder="tk_..." autocomplete="new-password" />
+                            </div>
+                            <div class="tfa-row">
+                                <label data-i18n-key="tfa.admin.settings.lbl_ntfy_username">ntfy username (optional)</label>
+                                <input type="text" id="cfgNtfyUsername" class="tfa-input" style="width:200px;" autocomplete="off" />
+                            </div>
+                            <div class="tfa-row">
+                                <label data-i18n-key="tfa.admin.settings.lbl_ntfy_password">ntfy password (optional)</label>
+                                <input type="password" id="cfgNtfyPassword" class="tfa-input" style="width:200px;" autocomplete="new-password" />
+                            </div>
+                            <div class="tfa-note" data-i18n-key="tfa.admin.settings.ntfy_auth_note">Leave blank for an open topic. If your ntfy topic requires write access, set either an access token (preferred) or a username + password. The token wins if both are filled in.</div>
+                            <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_gotify_url">Gotify URL</label>
                                 <input type="text" id="cfgGotifyUrl" class="tfa-input" style="width:300px;" />
                             </div>
@@ -817,12 +830,17 @@
                                 <label data-i18n-key="tfa.admin.settings.lbl_webhook_secret">Webhook secret (optional — adds X-2FA-Signature HMAC)</label>
                                 <input type="text" id="cfgWebhookSecret" class="tfa-input" style="width:300px;" />
                             </div>
+                            <div style="margin-top:12px;">
+                                <label style="font-size:13px;color:#888;" data-i18n-key="tfa.admin.settings.lbl_webhook_headers">Extra webhook headers (one per line, Name: Value)</label>
+                                <textarea id="cfgWebhookHeaders" class="tfa-input" placeholder="Authorization: Bearer abc123&#10;X-Api-Key: ..."></textarea>
+                                <div class="tfa-note" data-i18n-key="tfa.admin.settings.webhook_headers_note">For receivers that authenticate with a header instead of the HMAC secret. Content-Type, Content-Length, Host and any X-2FA-* header are reserved and will be ignored.</div>
+                            </div>
                             <div style="margin-top:10px;">
                                 <label><input type="checkbox" id="cfgAllowPrivateNotifTargets" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_allow_private_notif">Allow notifications to private/LAN addresses &nbsp;<span class="tfa-badge warn" style="font-size:10px;vertical-align:middle;" data-i18n-key="tfa.admin.settings.opt_allow_private_notif_pill">Self-hosted</span></span></label>
                                 <div class="tfa-note" data-i18n-key="tfa.admin.settings.opt_allow_private_notif_note">Off by default: ntfy/Gotify/webhook targets resolving to a private LAN or loopback IP are refused (SSRF protection). Enable this for a self-hosted ntfy/Gotify behind a reverse proxy on your LAN (e.g. ntfy.mydomain.com → 192.168.x.x). Link-local / cloud-metadata addresses (169.254.x, fe80::) stay blocked either way.</div>
                             </div>
                             <div style="margin-top:8px;">
-                                <button type="button" class="tfa-btn" id="btnTestWebhook" data-i18n-key="tfa.admin.settings.btn_test_webhook">Send test event</button>
+                                <button type="button" class="tfa-btn" id="btnTestWebhook" data-i18n-key="tfa.admin.settings.btn_test_webhook">Send test notification</button>
                                 <span id="webhookTestResult" style="margin-left:10px;font-size:13px;"></span>
                             </div>
                         </div>

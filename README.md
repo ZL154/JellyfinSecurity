@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <!-- Static version badge — bump on each release. Switched from img.shields.io/github/v/release because that endpoint periodically returns 'unable to select next GitHub token from pool'. -->
-  <img src="https://img.shields.io/badge/Version-v2.5.20-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-v2.5.21-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -66,11 +66,23 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.5.20
+## 🆕 What's new in v2.5.21
 
-This release focuses on reliable authentication across Android, reverse proxies, OIDC onboarding, and Jellyfin 10.11.11, with clearer identity context and a more dependable dashboard. It is an in-place upgrade from any 2.5.x with no schema migration or config reset.
+This release fixes the "signed in successfully, then thrown back to the login page" class of bug at its root, makes the plugin work under a Jellyfin Base URL, and turns notifications into something you can actually authenticate and test. It is an in-place upgrade from any 2.5.x with no schema migration or config reset.
+
+**v2.5.21**
+
+- **No more bounce back to the login page after a successful 2FA or SSO sign-in** *(#137 jaymu1406, #98 Re4mstr)* — two independent causes, both fixed. The client-side "2FA pending" flag that suppresses API calls mid-challenge was only ever cleared by the OIDC bridge, so completing a password+2FA login left it armed and Jellyfin Web's entire bootstrap was blocked on the next page load. And the stored credential recorded connection mode **Remote** while only ever populating a manual address, so Jellyfin resolved the server address to `undefined`. This is why it reproduced externally but never on the LAN, where a bypass meant the flag was never set in the first place.
+- **The Setup page works behind a Base URL** *(#144, someRandomDude-a)* — every API call from `/TwoFactorAuth/Setup` was hard-coded to the origin root, so any server mounted under a path (`https://host/jellyfin/`) 404'd on `/Users/Me` and the page reported "We couldn't verify your Jellyfin session". Nothing was ever wrong with the session; the page was asking the wrong origin. The 2FA challenge page had the same bug in its credential-storage path.
+- **User details actually load** *(#156, MilesTEG1)* — the Users table's **▸ details** panel was reading the step-up-gated full export, so on any server with step-up enabled it always returned 403 and printed "Failed to load details". It now reads a dedicated summary endpoint that carries only what the panel shows — device labels and dates, no audit log, IPs, device ids or email. The **Export** button, which genuinely should be gated, now prompts for the step-up code instead of failing silently.
+- **Authentik SSO stops breaking when its certificate expires** *(#142 jmbenevise, #98 HumnResources)* — Authentik's self-signed signing certificate expires after a year and doesn't rotate, and the plugin was rejecting otherwise-valid tokens because of it. The signature is still fully verified against the IdP's published keys; only the certificate's expiry date is no longer treated as fatal. And when verification *does* fail, the message now names the cause — expired certificate, signing-key mismatch, Client ID mismatch, clock drift, or an unsupported algorithm — instead of one opaque "Sign-in token could not be verified".
+- **Notification overhaul** *(#143, keinezeit8)* — **ntfy authentication** via access token or username/password, so you no longer have to make your topic world-writable to receive alerts. **Custom webhook headers** for receivers that authenticate with `Authorization:` or `X-Api-Key:` rather than the HMAC secret. **Send test notification** now tests *every* configured channel and reports each one's result, instead of refusing to run without a webhook URL. And the security score credits any notification channel, so an ntfy-only setup is no longer docked 5 points for not having a webhook.
+- **Synchronous XHR from other plugins is no longer attributed to this one** *(#149, MilesTEG1)* — the plugin issues no synchronous `XMLHttpRequest` anywhere, but it patched `XMLHttpRequest.prototype.send` globally, which put `inject.js` in the stack of other plugins' `sync-xhr` policy violations. Synchronous requests now pass through untouched. The README also documents an obsolete-feature-free `Permissions-Policy` header.
+- **Translations and regression coverage** — 855 keys aligned across all 8 languages; the suite is now 387 passing tests.
 
 **v2.5.20**
+
+This release focuses on reliable authentication across Android, reverse proxies, OIDC onboarding, and Jellyfin 10.11.11, with clearer identity context and a more dependable dashboard.
 
 - **Android and mobile login reliability** *(#64, #137, #138)* - fixes missing injected login controls, stale cached web shells, proxy/Base URL redirects, and the post-2FA return path used by native mobile clients.
 - **The challenge identifies the account** *(#134 follow-up)* - the verify screen now shows **Signing in as _username_**, including the flow where Jellyfin has already accepted the username and password.
@@ -155,6 +167,19 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ---
 
 ## 🧩 Features
+
+### New in v2.5.21
+- **Post-sign-in bounce fixed at the root** — the client-side 2FA-pending flag is cleared on every sign-in completion path (not just the OIDC bridge), and stored credentials now record connection mode **Manual** to match the manual address the plugin writes, so Jellyfin Web can resolve the server after a 2FA or SSO login (#137, #98).
+- **Base URL support on the standalone pages** — the Setup page and the challenge page's credential handoff build API URLs from Jellyfin's configured base path instead of the origin root (#144).
+- **Non-sensitive user summary endpoint** — `GET /TwoFactorAuth/Users/{id}/Summary` backs the admin details panel with device labels and dates only, so expanding a row no longer requires (or fails on) step-up (#156).
+- **Actionable OIDC verification errors** — expired-certificate, signing-key, audience, issuer, lifetime and algorithm failures each produce a specific, internals-free message; an expired IdP signing certificate no longer blocks sign-in (#142).
+- **ntfy authentication** — access token (Bearer) or username/password (Basic), so notifications work against a topic with a write ACL (#143).
+- **Custom webhook headers** — arbitrary `Name: Value` headers per POST, validated against header injection and unable to override the dispatcher's own `Content-Type` / `X-2FA-*` headers (#143).
+- **Test every notification channel** — the admin test button dispatches to ntfy, Gotify and the webhook and reports each result separately (#143).
+- **Notification-aware security score** — the score factor credits ntfy or Gotify, not just a webhook (#143).
+- **Transparent XHR interception** — synchronous requests pass straight through, so a `sync-xhr=()` Permissions-Policy violation in another plugin is attributed to its real caller (#149).
+- **Fully localized** — all 855 keys match across English, German, Spanish, French, Italian, Japanese, Portuguese, and Chinese.
+- **Expanded regression suite** — 387 tests, including coverage for webhook header parsing and OIDC failure classification.
 
 ### New in v2.5.20
 - **Android/mobile authentication repair** - login controls are reinjected into current and previously cached web shells, Base URL/proxy-aware redirects are preserved, and native clients complete the 2FA hand-off without looping (#64, #137, #138).
@@ -927,18 +952,39 @@ The Android app and mobile browsers can retain Jellyfin's web shell from before 
 
 After one successful refresh, the login buttons and **Two-Factor Auth** dashboard entry should appear normally. Clearing the full app storage is not normally required and will sign the device out.
 
-### Authentik OIDC fails with an expired or incompatible signing certificate
+### SSO sign-in fails with "Sign-in token could not be verified"
 
-If Jellyfin logs `IDX10249`, `SecurityTokenInvalidSigningKeyException`, or says the X.509 signing certificate has expired, the token's own `iat`/`exp` timestamps are not the problem. The plugin also validates the certificate behind Authentik's signing key and correctly refuses an expired certificate.
+**From v2.5.21 this message is much rarer, and when it does appear it now tells you what to fix.** Instead of one generic string, the sign-in page reports the actual cause — an expired IdP certificate, a signing-key mismatch, a Client ID mismatch, clock drift, or an unsupported signing algorithm. Follow whatever it says; the full technical detail is in the Jellyfin server log.
 
-In Authentik:
+Two changes in v2.5.21 are worth knowing about:
 
-1. Open **System → Certificates** and inspect the certificate selected by the Jellyfin OAuth2/OIDC provider.
-2. Replace or rotate an expired signing certificate/key pair. Authentik's generated self-signed certificates expire after one year by default.
-3. In the provider, select the valid signing key. RSA is the simplest compatibility choice; the plugin also accepts the standard ECDSA and RSA-PSS SHA-256/384/512 OIDC algorithms.
-4. Confirm the provider's JWKS endpoint publishes the replacement public key, then retry sign-in.
+**Expired signing certificates no longer block sign-in.** Authentik generates self-signed signing certificates that expire after one year and does not rotate them automatically. Earlier versions rejected the token once that certificate lapsed (`IDX10249`), even though the signature itself was still valid — an outage with no security benefit, since the plugin fetches the JWKS over TLS from the issuer's own discovery endpoint and that, not the certificate's validity window, is the trust anchor. The signature is still fully verified on every sign-in; only the certificate's expiry date is no longer treated as fatal. You should still renew it (**System → Certificates** in Authentik), but a lapsed certificate will not lock your users out.
 
-Do not disable signature or certificate validation. If changing the Authentik signing key to RSA resolves a generic 500 after the expired certificate is fixed, the previous key used an algorithm outside the plugin's allowlist. See Authentik's [certificate management](https://docs.goauthentik.io/sys-mgmt/certificates/) and [OAuth2/OIDC provider](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/) documentation.
+**If the error mentions the signing algorithm**, the provider is signing with HMAC (`HS256`) rather than a key pair. In Authentik that means the provider has no **Signing Key** selected. Pick an RSA certificate there. The plugin accepts the standard asymmetric OIDC algorithms (RS256/384/512, ES256/384/512, PS256/384/512) and deliberately refuses HMAC and `none` — that allowlist is what closes the RS256→HS256 algorithm-confusion attack, so it is not configurable.
+
+If you changed or rotated the signing key and sign-in still fails, restart Jellyfin so the JWKS cache picks up the new key. See Authentik's [certificate management](https://docs.goauthentik.io/sys-mgmt/certificates/) and [OAuth2/OIDC provider](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/) documentation.
+
+### Chromium console errors about `Permissions-Policy` and synchronous XHR
+
+If you deployed the `Permissions-Policy` header from Jellyfin's [official nginx example](https://jellyfin.org/docs/general/post-install/networking/reverse-proxy/nginx#https-config-example), Chromium-based browsers log:
+
+```
+Error with Permissions-Policy header: Unrecognized feature: 'ambient-light-sensor'.
+Error with Permissions-Policy header: Unrecognized feature: 'battery'.
+Error with Permissions-Policy header: Unrecognized feature: 'document-domain'.
+Error with Permissions-Policy header: Unrecognized feature: 'interest-cohort'.
+[Violation] Permissions policy violation: Synchronous requests are disabled by permissions policy.
+```
+
+The first four are harmless: those features were removed from the spec, so Chromium warns and ignores them. Dropping them from the header silences the noise:
+
+```nginx
+add_header Permissions-Policy "accelerometer=(), bluetooth=(), camera=(), clipboard-read=(), display-capture=(), encrypted-media=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), keyboard-map=(), local-fonts=(), magnetometer=(), microphone=(), payment=(), publickey-credentials-get=(), serial=(), sync-xhr=(), usb=(), xr-spatial-tracking=()" always;
+```
+
+**The `sync-xhr` violation does not come from this plugin.** Jellyfin Security issues no synchronous `XMLHttpRequest` anywhere — every request it makes, on every page, uses `fetch()` — so you can keep the strict `sync-xhr=()` baseline. The violation is raised by another plugin's bundled jQuery calling `$.ajax({ async: false })`, and the culprit is named on the line *above* the `inject.js` frame in the stack trace.
+
+Jellyfin Security patched `XMLHttpRequest.prototype.send` globally, which put `inject.js` in the stack of those third-party calls and made it look responsible. As of v2.5.21 the plugin passes synchronous requests straight through untouched, so the stack trace now points at the real caller. If a plugin genuinely needs synchronous XHR, either report it upstream or relax the header to `sync-xhr=(self)` for that deployment.
 
 ### Plugin breaking your server
 Disable the plugin without uninstalling:
@@ -1099,6 +1145,21 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.5.21
+
+- Fixed the post-sign-in bounce back to the login page after a successful 2FA or SSO login: the client-side 2FA-pending flag is now cleared on every completion path, and stored credentials record connection mode Manual instead of Remote so Jellyfin Web can resolve the server address (#137, #98).
+- Fixed a dead branch in the XHR interceptor that made the 2FA-pending flag impossible to clear over XHR (#137).
+- Fixed the Setup page and the challenge page's credential handoff to honour Jellyfin's configured Base URL instead of the origin root, which had made both fail with "We couldn't verify your Jellyfin session" behind a path-mounted reverse proxy (#144).
+- Added `GET /TwoFactorAuth/Users/{id}/Summary` and pointed the admin Users details panel at it, so expanding a row no longer hits the step-up-gated export and fails with "Failed to load details"; the per-user Export button now prompts for step-up instead of failing silently (#156).
+- Stopped rejecting OIDC id_tokens because the IdP's X.509 signing certificate has expired — the signature is still fully verified against the discovery-advertised JWKS — and replaced the generic verification failure with specific, internals-free causes (#142, #98).
+- Added ntfy access-token and username/password authentication, so notifications no longer require a world-writable topic (#143).
+- Added custom webhook headers with header-injection validation and reserved-header protection (#143).
+- Changed the admin notification test to dispatch to every configured channel and report per-channel results, instead of requiring a webhook URL and reporting a flat success (#143).
+- Changed the security-score notification factor to credit ntfy or Gotify, not only a webhook (#143).
+- Made the XHR interceptor pass synchronous requests through untouched so another plugin's `sync-xhr` Permissions-Policy violation is attributed to its real caller, and documented an obsolete-feature-free `Permissions-Policy` header (#149).
+- Removed an unused admin download helper whose bare promise rejection surfaced as an "Uncaught (in promise)" console error (#149).
+- Completed all 855 translation keys in 8 languages. 387/387 tests pass. In-place upgrade with no schema or config migration.
 
 ### 2.5.20
 

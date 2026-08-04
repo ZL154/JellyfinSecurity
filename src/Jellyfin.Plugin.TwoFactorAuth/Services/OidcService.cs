@@ -1715,6 +1715,95 @@ public class OidcService : IDisposable
         string[] Amr,
         string Picture);
 
+    /// <summary>[v2.5.21] (#142, jmbenevise) Turn an id_token validation failure
+    /// into a message the admin can act on.
+    ///
+    /// Every verification failure used to collapse into the single opaque string
+    /// "Sign-in token could not be verified.", which told nobody anything — #142
+    /// and #98 both sat open for weeks because the reporter had no way to tell an
+    /// expired IdP certificate from a client-ID typo. The raw
+    /// Microsoft.IdentityModel message must NOT be echoed to the browser (it
+    /// fingerprints the library version, the configured issuer and the JWK
+    /// matching logic — that was finding N-A9), so we match on the stable IDX
+    /// code and return CONFIGURATION ADVICE only. No issuer, no key material, no
+    /// library internals cross the boundary. Same precedent as the v2.5.11
+    /// no-account-match / not-in-group messages.
+    ///
+    /// Returns null when the failure isn't one we recognise, so the caller keeps
+    /// its generic fallback. The full message is always logged server-side.</summary>
+    internal static string? DescribeVerificationFailure(string? error)
+    {
+        if (string.IsNullOrEmpty(error)) return null;
+
+        // Signing key mismatch. Overwhelmingly a rotated/changed signing
+        // certificate at the IdP, or a discovery URL pointing at a different
+        // realm/application than the one that issued the token.
+        if (error.Contains("IDX10500", StringComparison.Ordinal)
+            || error.Contains("IDX10501", StringComparison.Ordinal)
+            || error.Contains("IDX10503", StringComparison.Ordinal)
+            || error.Contains("IDX10511", StringComparison.Ordinal))
+        {
+            return "The identity provider's signing key doesn't match the keys it publishes. "
+                + "If you changed or rotated the signing certificate, restart Jellyfin so the key cache refreshes, "
+                + "then try again.";
+        }
+
+        // X509 signing certificate expired. Should no longer reach us now that
+        // ValidateIssuerSigningKey is off, but an IdP can also surface this via
+        // its own metadata, so keep the mapping.
+        if (error.Contains("IDX10249", StringComparison.Ordinal))
+        {
+            return "The identity provider's signing certificate has expired. Renew it at your identity provider "
+                + "(in authentik: System → Certificates), then try again.";
+        }
+
+        // Audience mismatch — the token's `aud` isn't our configured Client ID.
+        if (error.Contains("IDX10214", StringComparison.Ordinal))
+        {
+            return "The sign-in token was issued for a different application. "
+                + "Check that the Client ID in this provider matches the one at your identity provider.";
+        }
+
+        // Issuer mismatch — usually a discovery URL for the wrong realm/app.
+        if (error.Contains("IDX10205", StringComparison.Ordinal))
+        {
+            return "The sign-in token came from a different issuer than the discovery URL advertises. "
+                + "Check the provider's discovery / issuer URL.";
+        }
+
+        // Lifetime problems — nearly always server clock drift.
+        if (error.Contains("IDX10223", StringComparison.Ordinal)
+            || error.Contains("IDX10225", StringComparison.Ordinal)
+            || error.Contains("IDX10222", StringComparison.Ordinal)
+            || error.Contains("is older than", StringComparison.Ordinal)
+            || error.Contains("is in the future", StringComparison.Ordinal))
+        {
+            return "The sign-in token was rejected as expired or not yet valid. "
+                + "This is almost always clock drift — check that the Jellyfin server and the identity provider "
+                + "both have accurate time (NTP).";
+        }
+
+        // Algorithm not in our asymmetric allowlist. Most often an IdP provider
+        // configured with no signing key at all, which makes it fall back to
+        // HMAC (HS256) using the client secret.
+        if (error.Contains("is not permitted", StringComparison.Ordinal)
+            || error.Contains("IDX10517", StringComparison.Ordinal)
+            || error.Contains("IDX10518", StringComparison.Ordinal))
+        {
+            return "The identity provider signed the token with an algorithm this plugin doesn't accept. "
+                + "Select an RSA signing key/certificate on the provider (RS256) — in authentik this is the "
+                + "provider's \"Signing Key\" field — then try again.";
+        }
+
+        if (error.Contains("Nonce mismatch", StringComparison.Ordinal))
+        {
+            return "Your sign-in session didn't match. Start the sign-in again from the login page "
+                + "(don't reuse an old or bookmarked callback URL).";
+        }
+
+        return null;
+    }
+
     private async Task<ClaimsBundle> VerifyIdTokenAsync(OidcProvider provider, Discovery disc, string idToken, string? expectedNonce)
     {
         // SEC-M1: peek the unverified header to extract `kid`, then ask the
@@ -1788,7 +1877,29 @@ public class OidcService : IDisposable
             ValidAudience = provider.ClientId,
             ValidateAudience = true,
             IssuerSigningKeys = jwks.GetSigningKeys(),
-            ValidateIssuerSigningKey = true,
+            // [v2.5.21] (#142, jmbenevise; #98, HumnResources) Do NOT validate
+            // the signing KEY's own X509 certificate lifetime.
+            //
+            // This flag does not control signature verification — that is
+            // ValidateSignature/RequireSignedTokens, both still on, and the
+            // token is still cryptographically verified against the JWKS below.
+            // All ValidateIssuerSigningKey adds is
+            // Validators.ValidateIssuerSecurityKey, which for an X509SecurityKey
+            // rejects the key when the embedded certificate's NotAfter has
+            // passed (IDX10249).
+            //
+            // authentik ships a self-signed signing certificate that expires
+            // after one year and does not auto-rotate it. Once it lapses, every
+            // sign-in died with "Sign-in token could not be verified" even
+            // though the signature was perfectly valid and the JWKS was fetched
+            // over TLS from the issuer's own discovery-advertised endpoint —
+            // which is the actual trust anchor here, not the certificate's
+            // validity window. The old SSO-Auth plugin worked against the same
+            // IdP for exactly this reason. Dropping the check removes a
+            // false-negative outage and costs no real security: an attacker
+            // still cannot produce a token that verifies against the IdP's
+            // published keys.
+            ValidateIssuerSigningKey = false,
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromMinutes(2),
             ValidAlgorithms = allowedAlgs,

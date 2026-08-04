@@ -5151,6 +5151,25 @@ public class TwoFactorAuthController : ControllerBase
         }
     }
 
+    /// <summary>[v2.5.21] (#156, MilesTEG1) Non-sensitive per-user summary for
+    /// the admin Users table's inline details panel.
+    ///
+    /// The panel previously read GET Users/{id}/Export, which is step-up gated
+    /// (ExportWithSecrets). With StepUpLevel >= Destructive — and the panel's
+    /// plain fetch carrying no step-up token — expanding a row always came back
+    /// 403 and rendered "Failed to load details". Since the panel only shows
+    /// device labels and dates, it gets its own endpoint carrying exactly that
+    /// and nothing else (no audit log, IPs, device ids, contexts or email), so
+    /// admin authorization is a sufficient bar and no step-up prompt is needed
+    /// just to expand a row.</summary>
+    [HttpGet("Users/{userId:guid}/Summary")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> GetUserSummary([FromRoute] Guid userId)
+    {
+        var data = await _userExport.BuildSummaryAsync(userId).ConfigureAwait(false);
+        return Ok(data);
+    }
+
     [HttpGet("Users/{userId:guid}/Export")]
     [Authorize(Policy = "RequiresElevation")]
     public async Task<IActionResult> ExportUser([FromRoute] Guid userId)
@@ -5370,7 +5389,43 @@ public class TwoFactorAuthController : ControllerBase
             Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
             return StatusCode(429, new { message = $"Too many test requests. Retry in {rl.retryAfterSeconds}s." });
         }
-        await _notificationService.NotifyLoginAttemptAsync("__test_user__", "127.0.0.1", "Webhook test", true).ConfigureAwait(false);
-        return Ok(new { message = "Test event dispatched. Check your webhook receiver." });
+        // [v2.5.21] (#143, keinezeit8) Test EVERY configured channel, not just
+        // the webhook, and report each one's outcome. The old call went through
+        // NotifyLoginAttemptAsync and returned a flat "dispatched" regardless of
+        // what actually happened — an admin running ntfy-only had no way to test
+        // it at all (the button refused to fire without a webhook URL), and one
+        // whose ntfy was rejecting on an ACL still saw a success message.
+        var channels = await _notificationService.SendTestAsync().ConfigureAwait(false);
+        var configured = channels.Where(c => c.Configured).ToList();
+        if (configured.Count == 0)
+        {
+            return BadRequest(new
+            {
+                message = "No notification channel is configured. Set an ntfy server + topic, a Gotify server + token, or a webhook URL first.",
+                channels = Array.Empty<object>(),
+            });
+        }
+
+        var delivered = configured.Where(c => c.Success).Select(c => c.Channel).ToList();
+        var failed = configured.Where(c => !c.Success).ToList();
+        var summary = failed.Count == 0
+            ? $"Test event delivered to: {string.Join(", ", delivered)}."
+            : delivered.Count > 0
+                ? $"Delivered to: {string.Join(", ", delivered)}. Failed: "
+                    + string.Join("; ", failed.Select(f => $"{f.Channel} ({f.Error ?? "unknown error"})"))
+                : "Delivery failed: "
+                    + string.Join("; ", failed.Select(f => $"{f.Channel} ({f.Error ?? "unknown error"})"));
+
+        return Ok(new
+        {
+            message = summary,
+            ok = failed.Count == 0,
+            channels = configured.Select(c => new
+            {
+                channel = c.Channel,
+                success = c.Success,
+                error = c.Error,
+            }),
+        });
     }
 }

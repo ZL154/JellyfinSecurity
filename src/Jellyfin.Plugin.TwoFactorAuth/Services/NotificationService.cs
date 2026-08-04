@@ -205,20 +205,57 @@ public class NotificationService
         await SendToAllBackendsAsync(title, message, "recovery_code_used", new { username, ip, remaining }).ConfigureAwait(false);
     }
 
+    /// <summary>[v2.5.21] (#143): outcome of one channel in a dispatch, so the
+    /// admin "Send test event" button can report per-channel results instead of
+    /// a single opaque "Sent".</summary>
+    public sealed class ChannelResult
+    {
+        public string Channel { get; set; } = string.Empty;
+
+        /// <summary>False when the channel is not configured at all — reported
+        /// as "skipped" rather than as a failure.</summary>
+        public bool Configured { get; set; }
+
+        public bool Success { get; set; }
+
+        /// <summary>Short, admin-facing reason. Deliberately carries the HTTP
+        /// status or exception TYPE only — never a response body, which for
+        /// ntfy/Gotify can echo back the token that was just sent.</summary>
+        public string? Error { get; set; }
+    }
+
+    /// <summary>[v2.5.21] (#143, keinezeit8): dispatch a test notification to
+    /// EVERY configured channel and report each one's outcome.
+    ///
+    /// The old admin button refused to do anything unless a webhook URL was
+    /// filled in, and reported one flat "Sent" regardless — so an admin with
+    /// only ntfy configured had no way to test it, and an admin whose ntfy was
+    /// rejecting on an ACL saw a green tick anyway.</summary>
+    public Task<IReadOnlyList<ChannelResult>> SendTestAsync()
+        => SendToAllBackendsAsync(
+            "Jellyfin Security test notification",
+            "This is a test notification from the Jellyfin Security plugin. If you can read this, the channel is configured correctly.",
+            "test",
+            new { test = true });
+
     /// <summary>Centralised dispatch — sends to ntfy, Gotify, the configured
     /// webhook (with optional HMAC signature), and logs a stub for email.
     /// `event` is the machine-readable type for webhook consumers; `payload`
     /// is an event-specific bag serialised into the webhook body.</summary>
-    private async Task SendToAllBackendsAsync(string title, string message, string @event, object payload)
+    private async Task<IReadOnlyList<ChannelResult>> SendToAllBackendsAsync(string title, string message, string @event, object payload)
     {
+        var results = new List<ChannelResult>();
         var config = Plugin.Instance?.Configuration;
         if (config is null)
         {
-            return;
+            return results;
         }
 
+        var ntfyResult = new ChannelResult { Channel = "ntfy" };
+        results.Add(ntfyResult);
         if (!string.IsNullOrWhiteSpace(config.NtfyUrl) && !string.IsNullOrWhiteSpace(config.NtfyTopic))
         {
+            ntfyResult.Configured = true;
             // SECURITY [v2.5.6] (ext review #7): apply the same SSRF guard
             // ntfy got NONE of before. Previously used the unpinned
             // `_httpClient`, which would happily POST title+message to
@@ -228,7 +265,12 @@ public class NotificationService
             // with pinned, validated addresses so DNS rebinding cannot
             // flip the destination between resolve and connect.
             var ntfyAddrs = GetSafeWebhookAddresses(config.NtfyUrl);
-            if (ntfyAddrs is { Length: > 0 })
+            if (ntfyAddrs is null || ntfyAddrs.Length == 0)
+            {
+                ntfyResult.Error = "Target address refused by the SSRF guard (see server log). "
+                    + "For a self-hosted LAN ntfy, enable 'Allow notifications to private/LAN addresses'.";
+            }
+            else
             {
                 try
                 {
@@ -248,11 +290,35 @@ public class NotificationService
                         : ntfyBase + "/" + Uri.EscapeDataString(ntfyTopic);
                     using var request = new HttpRequestMessage(HttpMethod.Post, ntfyPublishUrl);
                     request.Headers.TryAddWithoutValidation("X-Title", title);
+                    // [v2.5.21] (#143, keinezeit8) Authenticate to ntfy. A topic
+                    // with any write ACL previously 401/403'd every notification
+                    // and the only workaround was to make the topic
+                    // world-writable. Token wins over Basic when both are set,
+                    // matching the ntfy CLI. Both go in headers, never in the
+                    // URL, so neither can leak into an exception message or a
+                    // proxy access log.
+                    if (!string.IsNullOrWhiteSpace(config.NtfyToken))
+                    {
+                        request.Headers.TryAddWithoutValidation(
+                            "Authorization", "Bearer " + config.NtfyToken.Trim());
+                    }
+                    else if (!string.IsNullOrWhiteSpace(config.NtfyUsername))
+                    {
+                        var basic = Convert.ToBase64String(Encoding.UTF8.GetBytes(
+                            config.NtfyUsername.Trim() + ":" + config.NtfyPassword));
+                        request.Headers.TryAddWithoutValidation("Authorization", "Basic " + basic);
+                    }
                     request.Content = new StringContent(message, Encoding.UTF8, "text/plain");
                     _pinnedAllowedAddresses.Value = ntfyAddrs;
                     try
                     {
                         using var response = await _webhookHttpClient.SendAsync(request).ConfigureAwait(false);
+                        ntfyResult.Success = response.IsSuccessStatusCode;
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            ntfyResult.Error = DescribeHttpFailure((int)response.StatusCode, "ntfy");
+                            _logger.LogError("Failed to send Ntfy notification: HTTP {Status}", (int)response.StatusCode);
+                        }
                     }
                     finally
                     {
@@ -261,14 +327,18 @@ public class NotificationService
                 }
                 catch (Exception ex)
                 {
+                    ntfyResult.Error = ex.GetType().Name;
                     _logger.LogError("Failed to send Ntfy notification: {Type}: {Msg}",
                         ex.GetType().Name, ex.Message);
                 }
             }
         }
 
+        var gotifyResult = new ChannelResult { Channel = "gotify" };
+        results.Add(gotifyResult);
         if (!string.IsNullOrWhiteSpace(config.GotifyUrl) && !string.IsNullOrWhiteSpace(config.GotifyAppToken))
         {
+            gotifyResult.Configured = true;
             // SECURITY [v2.5.6] (F5-A7): pass the token via X-Gotify-Key
             // header instead of embedding in the URL. URL form leaked the
             // token into HttpRequestException.Message on transport failure
@@ -281,7 +351,12 @@ public class NotificationService
             // closes the SSRF/DNS-rebind class.
             var gotifyBase = $"{config.GotifyUrl.TrimEnd('/')}/message";
             var gotifyAddrs = GetSafeWebhookAddresses(gotifyBase);
-            if (gotifyAddrs is { Length: > 0 })
+            if (gotifyAddrs is null || gotifyAddrs.Length == 0)
+            {
+                gotifyResult.Error = "Target address refused by the SSRF guard (see server log). "
+                    + "For a self-hosted LAN Gotify, enable 'Allow notifications to private/LAN addresses'.";
+            }
+            else
             {
                 try
                 {
@@ -295,6 +370,12 @@ public class NotificationService
                     try
                     {
                         using var response = await _webhookHttpClient.SendAsync(req).ConfigureAwait(false);
+                        gotifyResult.Success = response.IsSuccessStatusCode;
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            gotifyResult.Error = DescribeHttpFailure((int)response.StatusCode, "Gotify");
+                            _logger.LogError("Failed to send Gotify notification: HTTP {Status}", (int)response.StatusCode);
+                        }
                     }
                     finally
                     {
@@ -305,6 +386,7 @@ public class NotificationService
                 {
                     // Log type + message only; don't pass the exception object
                     // (which serialises the Request and could re-leak the URL).
+                    gotifyResult.Error = ex.GetType().Name;
                     _logger.LogError("Failed to send Gotify notification: {Type}: {Msg}",
                         ex.GetType().Name, ex.Message);
                 }
@@ -320,10 +402,22 @@ public class NotificationService
         // Fire-and-forget at the call site; bounded by the HttpClient timeout.
         // SEC-M2: validate URL + resolve allowed IPs; the pinned HttpClient
         // re-resolves at connect-time and refuses if DNS drifted.
+        var webhookResult = new ChannelResult { Channel = "webhook" };
+        results.Add(webhookResult);
         var pinnedAddresses = !string.IsNullOrWhiteSpace(config.WebhookUrl)
             ? GetSafeWebhookAddresses(config.WebhookUrl)
             : null;
-        if (pinnedAddresses is { Length: > 0 })
+        if (!string.IsNullOrWhiteSpace(config.WebhookUrl))
+        {
+            webhookResult.Configured = true;
+        }
+
+        if (webhookResult.Configured && (pinnedAddresses is null || pinnedAddresses.Length == 0))
+        {
+            webhookResult.Error = "Target address refused by the SSRF guard (see server log). "
+                + "For a LAN webhook receiver, enable 'Allow notifications to private/LAN addresses'.";
+        }
+        else if (pinnedAddresses is { Length: > 0 })
         {
             try
             {
@@ -415,6 +509,12 @@ public class NotificationService
                     var sig = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(signed))).ToLowerInvariant();
                     request.Headers.TryAddWithoutValidation("X-2FA-Signature", "sha256=" + sig);
                 }
+                // [v2.5.21] (#143, keinezeit8) Admin-supplied headers, applied
+                // last so the dispatcher-owned ones above can't be clobbered.
+                foreach (var (name, value) in ParseCustomHeaders(config.WebhookHeaders))
+                {
+                    request.Headers.TryAddWithoutValidation(name, value);
+                }
                 // SEC-M2: pin the validated allowed-IP set into a thread-local
                 // for the dispatch HttpClient's ConnectCallback to read. Cleared
                 // in `finally` so a leaked pin doesn't authorize a later send.
@@ -422,6 +522,12 @@ public class NotificationService
                 try
                 {
                     using var response = await _webhookHttpClient.SendAsync(request).ConfigureAwait(false);
+                    webhookResult.Success = response.IsSuccessStatusCode;
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        webhookResult.Error = DescribeHttpFailure((int)response.StatusCode, "webhook");
+                        _logger.LogWarning("[2FA] Webhook delivery returned HTTP {Status}", (int)response.StatusCode);
+                    }
                 }
                 finally
                 {
@@ -430,10 +536,98 @@ public class NotificationService
             }
             catch (Exception ex)
             {
+                webhookResult.Error = ex.GetType().Name;
                 _logger.LogWarning(ex, "[2FA] Webhook delivery failed");
             }
         }
+
+        return results;
     }
+
+    /// <summary>[v2.5.21] (#143): describe an HTTP failure to the admin without
+    /// echoing the response body. ntfy and Gotify both reflect request detail in
+    /// their error bodies, so surfacing one would risk showing the token that
+    /// was just sent. Status code plus a plain-English hint is enough to act
+    /// on.</summary>
+    private static string DescribeHttpFailure(int status, string channel) => status switch
+    {
+        401 or 403 => $"HTTP {status} — {channel} rejected the credentials. "
+            + "Check the access token (or username/password) and that it may publish to this topic.",
+        404 => $"HTTP 404 — {channel} endpoint not found. Check the server URL and topic.",
+        413 => $"HTTP 413 — {channel} rejected the message as too large.",
+        429 => $"HTTP 429 — {channel} is rate-limiting. Try again shortly.",
+        >= 500 => $"HTTP {status} — {channel} server error.",
+        _ => $"HTTP {status}.",
+    };
+
+    /// <summary>[v2.5.21] (#143, keinezeit8): parse admin-supplied webhook
+    /// headers from <c>Name: Value</c> lines.
+    ///
+    /// Refuses anything that could subvert the dispatcher rather than silently
+    /// letting it through:
+    ///   * malformed lines (no colon, empty name or value) are dropped;
+    ///   * header names are restricted to RFC 7230 token characters, and values
+    ///     to printable ASCII, so a stray CR/LF can't split the request into two
+    ///     (header-injection);
+    ///   * the headers the dispatcher owns — Content-Type and the X-2FA-*
+    ///     signature/timestamp pair — cannot be overridden, so a custom header
+    ///     can't forge or suppress the HMAC a receiver validates.
+    /// Internal for direct unit testing via InternalsVisibleTo.</summary>
+    internal static List<(string Name, string Value)> ParseCustomHeaders(string[]? lines)
+    {
+        var parsed = new List<(string, string)>();
+        if (lines is null) return parsed;
+
+        foreach (var raw in lines)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var idx = raw.IndexOf(':', StringComparison.Ordinal);
+            if (idx <= 0) continue;
+
+            var name = raw[..idx].Trim();
+            var value = raw[(idx + 1)..].Trim();
+            if (name.Length == 0 || value.Length == 0) continue;
+            if (name.Length > 128 || value.Length > 4096) continue;
+
+            if (!IsValidHeaderName(name)) continue;
+            if (!IsValidHeaderValue(value)) continue;
+            if (IsReservedHeader(name)) continue;
+
+            parsed.Add((name, value));
+        }
+
+        return parsed;
+    }
+
+    private static bool IsValidHeaderName(string name)
+    {
+        foreach (var c in name)
+        {
+            // RFC 7230 token characters.
+            var ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+                || c is '!' or '#' or '$' or '%' or '&' or '\'' or '*' or '+' or '-' or '.'
+                    or '^' or '_' or '`' or '|' or '~';
+            if (!ok) return false;
+        }
+        return true;
+    }
+
+    private static bool IsValidHeaderValue(string value)
+    {
+        foreach (var c in value)
+        {
+            // Printable ASCII only — excludes CR, LF and every other control
+            // character, which is what makes header injection impossible.
+            if (c < 0x20 || c > 0x7E) return false;
+        }
+        return true;
+    }
+
+    private static bool IsReservedHeader(string name)
+        => name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Host", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("X-2FA-", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>SEC-M2: SSRF guard. Resolves once, validates every IP, and
     /// returns the validated set so the dispatch HttpClient's ConnectCallback

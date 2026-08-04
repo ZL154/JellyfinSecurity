@@ -283,18 +283,26 @@ public class SecurityScoreService : IDisposable
             NextActionKey = stepUpEarned >= 7 ? null : "tfa.factor.stepup.action"
         });
 
-        // 11. v2.5.0: Webhook configured for security events (5 / 0)
-        bool webhookConfigured = !string.IsNullOrWhiteSpace(cfg.WebhookUrl);
+        // 11. v2.5.0: security-event notifications configured (5 / 0)
+        // [v2.5.21] (#143, keinezeit8) Credit ANY delivery channel, not just the
+        // webhook. The factor exists to reward "security events reach a human",
+        // and ntfy or Gotify satisfies that exactly as well — but an admin with
+        // a fully working ntfy setup was permanently docked 5 points and told to
+        // add a webhook they didn't need.
+        bool notificationsConfigured =
+            !string.IsNullOrWhiteSpace(cfg.WebhookUrl)
+            || (!string.IsNullOrWhiteSpace(cfg.NtfyUrl) && !string.IsNullOrWhiteSpace(cfg.NtfyTopic))
+            || (!string.IsNullOrWhiteSpace(cfg.GotifyUrl) && !string.IsNullOrWhiteSpace(cfg.GotifyAppToken));
         factors.Add(new ScoreFactor
         {
             Id = "webhook",
-            Label = "Webhook for security events",
+            Label = "Security-event notifications",
             LabelKey = "tfa.factor.webhook.label",
-            Earned = webhookConfigured ? 5 : 0,
+            Earned = notificationsConfigured ? 5 : 0,
             Possible = 5,
-            Status = webhookConfigured ? "ok" : "partial",
-            NextAction = webhookConfigured ? null : "Configure a webhook URL so security events (bans, lockouts, 2FA changes) trigger notifications.",
-            NextActionKey = webhookConfigured ? null : "tfa.factor.webhook.action"
+            Status = notificationsConfigured ? "ok" : "partial",
+            NextAction = notificationsConfigured ? null : "Configure a notification channel (ntfy, Gotify or a webhook) so security events (bans, lockouts, 2FA changes) reach you.",
+            NextActionKey = notificationsConfigured ? null : "tfa.factor.webhook.action"
         });
 
         // 12. v2.5.0: Recovery codes generated for enrolled users (5 / 0, scaled)

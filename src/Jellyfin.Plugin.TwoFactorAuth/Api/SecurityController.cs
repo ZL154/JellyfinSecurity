@@ -1036,7 +1036,15 @@ public class SecurityController : ControllerBase
             }
             else if (lower.Contains("verification", StringComparison.Ordinal) || lower.Contains("signature", StringComparison.Ordinal))
             {
-                safeMsg = "Sign-in token could not be verified.";
+                // [v2.5.21] (#142) Prefer an actionable description of WHY the
+                // token failed validation (expired IdP certificate, signing-key
+                // mismatch, client-ID mismatch, clock drift, unsupported alg).
+                // DescribeVerificationFailure returns config advice only — never
+                // the raw Microsoft.IdentityModel text — and null when it
+                // doesn't recognise the failure, in which case we keep the old
+                // generic wording.
+                safeMsg = OidcService.DescribeVerificationFailure(result.Error)
+                    ?? "Sign-in token could not be verified.";
             }
             // [v2.5.11] (ZEROX7) actionable guidance for the common SSO setup
             // mistakes. These carry NO token/library internals — only config
@@ -1165,8 +1173,26 @@ public class SecurityController : ControllerBase
             + ".then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})"
             + ".then(function(res){"
             + "var address=window.location.origin+bp;"
-            + "var server={Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:1,ManualAddress:address,LocalAddress:address};"
-            + "var creds={Servers:[server]};"
+            // [v2.5.21] (#98/#137) Two fixes here.
+            //
+            // 1. LastConnectionMode was 1 — jellyfin-web's ConnectionMode.Remote
+            //    (src/lib/jellyfin-apiclient/connectionMode.ts: Local=0,
+            //    Remote=1, Manual=2). getOrCreateApiClient() resolves an address
+            //    with getServerAddress(server, server.LastConnectionMode) and
+            //    has NO fallback, so mode 1 read server.RemoteAddress — which we
+            //    never set — and the ApiClient came up pointing at `undefined`.
+            //    We only ever know the address that just worked, so Manual (2)
+            //    is correct; it's also what Jellyfin's own addApiClient() writes.
+            // 2. The old code replaced the WHOLE credential store with a single
+            //    synthetic server, discarding the real entry Jellyfin Web had
+            //    built (its Name, RemoteAddress, LocalAddress, per-server
+            //    settings). Merge by ServerId instead, exactly like login.html
+            //    and challenge.html do.
+            + "var creds;try{creds=JSON.parse(localStorage.getItem('jellyfin_credentials')||'{}');}catch(e){creds={};}"
+            + "if(!creds.Servers)creds.Servers=[];"
+            + "var existing=null;for(var i=0;i<creds.Servers.length;i++){if(creds.Servers[i].Id===res.ServerId){existing=creds.Servers[i];break;}}"
+            + "if(existing){existing.AccessToken=res.AccessToken;existing.UserId=res.User.Id;existing.DateLastAccessed=Date.now();existing.ManualAddress=address;existing.LastConnectionMode=2;}"
+            + "else{creds.Servers.unshift({Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:2,ManualAddress:address});}"
             + "localStorage.setItem('jellyfin_credentials',JSON.stringify(creds));"
             // [v2.5.14] (#98) Clear any STALE 2FA-pending flag before landing on
             // /web. A leftover '__tfa_pending' (from an earlier failed/abandoned
@@ -1300,7 +1326,10 @@ public class SecurityController : ControllerBase
                 : exchangeLower.Contains("token exchange", StringComparison.Ordinal)
                     ? "The identity provider rejected the sign-in. Contact your administrator if this persists."
                     : exchangeLower.Contains("verification", StringComparison.Ordinal) || exchangeLower.Contains("signature", StringComparison.Ordinal)
-                        ? "Sign-in token could not be verified."
+                        // [v2.5.21] (#142) Same actionable mapping as the browser
+                        // callback path — config advice only, never library text.
+                        ? (OidcService.DescribeVerificationFailure(result.Error)
+                            ?? "Sign-in token could not be verified.")
                         : "Sign-in failed.";
             return BadRequest(new { message = exchangeSafeMsg });
         }

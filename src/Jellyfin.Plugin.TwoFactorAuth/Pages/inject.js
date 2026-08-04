@@ -60,6 +60,10 @@
         return null;
     })();
     var _tfaOidcErrorShown = false;
+    // [v2.5.21] (#142) Bounded re-assert counter so the message latches on the
+    // user-select grid (no login form to anchor to) after it has survived a
+    // few render ticks, rather than looping the toast for the whole poll window.
+    var _tfaOidcErrorAttempts = 0;
 
     // ============================================================
     // [v2.5.12] (#79, ZEROX7) i18n for the login page.
@@ -497,19 +501,57 @@
             });
         };
     }
+    // [v2.5.21] (#149) Read an XHR's response as JSON without ever throwing.
+    // Touching xhr.responseText raises InvalidStateError when responseType is
+    // anything other than '' or 'text' (jellyfin-web uses 'json' and 'blob' in
+    // places), so the old inline JSON.parse(xhr.responseText) threw on those
+    // and relied on a bare catch. Returns null when there's nothing usable.
+    function readJsonBody(xhr) {
+        try {
+            var rt = xhr.responseType;
+            if (rt && rt !== 'text' && rt !== 'json') return null;
+            if (rt === 'json') {
+                return (xhr.response && typeof xhr.response === 'object') ? xhr.response : null;
+            }
+            var text = xhr.responseText;
+            if (!text) return null;
+            var parsed = JSON.parse(text);
+            return (parsed && typeof parsed === 'object') ? parsed : null;
+        } catch (e) { return null; }
+    }
+
     var origOpen = XMLHttpRequest.prototype.open;
     var origSend = XMLHttpRequest.prototype.send;
     var origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
-    XMLHttpRequest.prototype.open = function (method, url) {
+    // [v2.5.21] (#149, MilesTEG1) Track whether the caller asked for a
+    // SYNCHRONOUS request. XMLHttpRequest.open(method, url, async, …) defaults
+    // async to true; only an explicit `false` is synchronous.
+    //
+    // The plugin never issues a synchronous XHR itself — every call it makes,
+    // on every page, goes through fetch() — so a strict
+    // `Permissions-Policy: sync-xhr=()` does not break this plugin. But we do
+    // patch XMLHttpRequest.prototype.send globally, which puts inject.js in the
+    // stack of any OTHER plugin's synchronous jQuery $.ajax({async:false}) call
+    // and made this plugin look like the culprit in the console. Worse, when
+    // the policy blocks such a send, everything we attach around it runs
+    // re-entrantly inside the blocking call, so any hiccup in our listener
+    // surfaces as an error inside the third-party plugin's code.
+    //
+    // A synchronous XHR can't be part of our own flows, so from here on we
+    // leave those completely alone: no deferred headers, no listener, straight
+    // through to the native send. The browser's own violation (and whatever the
+    // calling library does with it) is then reported unmodified.
+    XMLHttpRequest.prototype.open = function (method, url, async) {
         this.__tfa_url = url;
         this.__tfa_authHeaders = {};
+        this.__tfa_sync = (arguments.length > 2 && async === false);
         return origOpen.apply(this, arguments);
     };
     XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
         // Defer auth identity headers until send(). Calling setRequestHeader
         // twice appends instead of replacing, producing two conflicting
         // DeviceId values in native WebViews.
-        if (typeof name === 'string' && isAuthPath(this.__tfa_url)) {
+        if (typeof name === 'string' && !this.__tfa_sync && isAuthPath(this.__tfa_url)) {
             var lower = name.toLowerCase();
             if (lower === 'authorization' || lower === 'x-emby-authorization') {
                 this.__tfa_authHeaders[lower] = { name: name, value: value };
@@ -520,6 +562,12 @@
     };
     XMLHttpRequest.prototype.send = function () {
         var xhr = this;
+        // [v2.5.21] (#149) Synchronous XHR is never ours — pass it through
+        // untouched so a `sync-xhr=()` Permissions-Policy violation in another
+        // plugin's jQuery stays entirely that plugin's business.
+        if (xhr.__tfa_sync) {
+            return origSend.apply(this, arguments);
+        }
         if (isAuthPath(xhr.__tfa_url)) {
             try {
                 var id = getStableDeviceId();
@@ -542,16 +590,19 @@
             } catch (e) {}
             xhr.addEventListener('readystatechange', function () {
                 if (xhr.readyState !== 4) return;
+                if (xhr.status >= 200 && xhr.status < 300 && isTfaCompletionPath(xhr.__tfa_url)) {
+                    clearTfaPending();
+                    return;
+                }
                 // v2.4.12: also recognise 403 (RequestBlockerMiddleware) in
                 // addition to 401 (auth-path challenge response).
                 if (xhr.status !== 401 && xhr.status !== 403) return;
-                try {
-                    var body = JSON.parse(xhr.responseText || '{}');
-                    if (body && (body.twoFactorRequired || body.TwoFactorRequired)) {
-                        setTfaPending();
-                    }
-                    handleTwoFactorBody(body);
-                } catch (e) {}
+                var body = readJsonBody(xhr);
+                if (!body) return;
+                if (body.twoFactorRequired || body.TwoFactorRequired) {
+                    setTfaPending();
+                }
+                handleTwoFactorBody(body);
             });
         } else {
             // v2.4.12: non-auth XHR — we don't short-circuit (faking XHR
@@ -563,21 +614,27 @@
             // fail2ban's status-401-only failregex.
             xhr.addEventListener('readystatechange', function () {
                 if (xhr.readyState !== 4) return;
+                // [v2.5.21] (#137) This success-clear used to sit BELOW the
+                // 401/403 early-return, so a 2xx could never reach it — the XHR
+                // path could arm the pending flag but never disarm it, and only
+                // the fetch path ever cleared it. Any client whose 2FA
+                // completion round-trip went over XHR left the flag armed, and
+                // the next page load short-circuited the whole app back to the
+                // sign-in page. Checked first now.
+                if (xhr.status >= 200 && xhr.status < 300 && isTfaCompletionPath(xhr.__tfa_url)) {
+                    clearTfaPending();
+                    return;
+                }
                 if (xhr.status !== 401 && xhr.status !== 403) return;
-                try {
-                    var body = JSON.parse(xhr.responseText || '{}');
-                    if (body && (body.twoFactorRequired || body.TwoFactorRequired)) {
-                        setTfaPending();
-                        // [v2.5.14] (#99) Same soft-lock escape as the fetch path —
-                        // a non-auth XHR reporting 2FA-required has no challenge
-                        // token to redirect to, so route the user to the portal.
-                        redirectToTfaPortal();
-                    }
-                    // Clear flag on a successful 2FA completion observed via XHR.
-                    if (xhr.status >= 200 && xhr.status < 300 && isTfaCompletionPath(xhr.__tfa_url)) {
-                        clearTfaPending();
-                    }
-                } catch (e) {}
+                var body = readJsonBody(xhr);
+                if (!body) return;
+                if (body.twoFactorRequired || body.TwoFactorRequired) {
+                    setTfaPending();
+                    // [v2.5.14] (#99) Same soft-lock escape as the fetch path —
+                    // a non-auth XHR reporting 2FA-required has no challenge
+                    // token to redirect to, so route the user to the portal.
+                    redirectToTfaPortal();
+                }
             });
         }
         return origSend.apply(this, arguments);
@@ -1554,18 +1611,46 @@
         // which view rendered; when the login form is present we also drop an
         // inline banner above it for good measure.
         if (_tfaOidcError && !_tfaOidcErrorShown) {
-            _tfaOidcErrorShown = true;
-            showLockoutToast(T('tfa.login.signin_failed_prefix', 'Sign-in failed: ') + _tfaOidcError);
+            // [v2.5.21] (#142) Re-assert the message on every tryInject tick
+            // until it actually sticks in front of the user, instead of
+            // showing it once and latching immediately.
+            //
+            // inject.js is a blocking <head> script, so start() → this runs at
+            // readyState "interactive" — BEFORE the SPA mounts the login view.
+            // On Jellyfin 10.11 that mount replaces the body subtree, wiping a
+            // toast we appended a moment earlier. The old show-once code set the
+            // shown-flag on that first (too-early) attempt, so the wiped message
+            // was never re-added and the actionable OIDC errors this release
+            // introduced never reached the user. Verified live: server emitted
+            // the correct oidcError, the toast flashed pre-mount and vanished.
+            //
+            // Now: keep re-adding the toast while it's missing, and once the
+            // login form has rendered, drop a durable inline banner above it.
+            // Latch only after the banner is anchored in the rendered view (or,
+            // for the user-select grid where there's no form, after a few ticks
+            // so the toast has demonstrably survived a render) — so we stop
+            // re-adding but never latch on the pre-mount frame that gets wiped.
+            var msg = T('tfa.login.signin_failed_prefix', 'Sign-in failed: ') + _tfaOidcError;
+            if (!document.getElementById('tfa-lockout-toast')) {
+                showLockoutToast(msg);
+            }
             try {
                 var efForm = document.querySelector('.manualLoginForm') || document.querySelector('form');
                 if (efForm && efForm.parentNode && !document.getElementById('__twofactor_oidc_error')) {
                     var box = document.createElement('div');
                     box.id = '__twofactor_oidc_error';
+                    box.setAttribute('role', 'alert');
                     box.style.cssText = 'background:rgba(244,67,54,0.15);border:1px solid rgba(244,67,54,0.4);color:#f44336;padding:10px 14px;border-radius:4px;margin:0 0 14px;font-size:14px;';
-                    box.textContent = T('tfa.login.signin_failed_prefix', 'Sign-in failed: ') + _tfaOidcError;
+                    box.textContent = msg;
                     efForm.parentNode.insertBefore(box, efForm);
                 }
-            } catch (e) {}
+                _tfaOidcErrorAttempts++;
+                if (document.getElementById('__twofactor_oidc_error') || _tfaOidcErrorAttempts >= 4) {
+                    _tfaOidcErrorShown = true;
+                }
+            } catch (e) {
+                _tfaOidcErrorShown = true; // never spin on an unexpected DOM error
+            }
             return;
         }
         if (!isLoginPage()) return;

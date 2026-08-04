@@ -443,6 +443,39 @@
         // older copy. If you don't see this line in console, hard-refresh.
         try { console.log('[2FA] setup.html v2.5.6 round-5d loaded'); } catch (e) {}
 
+        // [v2.5.21] (#144, someRandomDude-a) Base-URL-aware URL builder.
+        //
+        // Every call below used to be `fetch('/' + path)` — root-absolute. That
+        // is only correct when Jellyfin is mounted at the origin root. With a
+        // configured Base URL (or a reverse proxy that serves Jellyfin under a
+        // path, e.g. https://host/jellyfin/), this page is served from
+        // /jellyfin/TwoFactorAuth/Setup but every API call went to
+        // https://host/Users/Me — a 404. /Users/Me failing is exactly what
+        // renders the "We couldn't verify your Jellyfin session" panel, and the
+        // "sign in on the main page" link then bounced the user to a home page
+        // they were already signed in to. Nothing about the session was ever
+        // wrong; we were asking the wrong origin.
+        //
+        // Mirrors tfa-i18n.js's buildUrl(). Kept local rather than calling
+        // window.tfaUrl so the page's own API transport has no dependency on
+        // the i18n helper having loaded — a failed/blocked tfa-i18n fetch must
+        // degrade to untranslated strings, never to a dead Setup page.
+        function tfaBasePath() {
+            try {
+                var pathname = window.location.pathname || '';
+                var marker = pathname.toLowerCase().indexOf('/twofactorauth');
+                if (marker >= 0) return pathname.substring(0, marker).replace(/\/+$/, '');
+            } catch (e) { /* fall through to root */ }
+            return '';
+        }
+        function apiUrl(path) {
+            try {
+                if (window.ApiClient && typeof window.ApiClient.getUrl === 'function') {
+                    return window.ApiClient.getUrl(String(path).replace(/^\/+/, ''));
+                }
+            } catch (e) { /* fall through to the pathname-derived base */ }
+            return tfaBasePath() + '/' + String(path).replace(/^\/+/, '');
+        }
         function getToken() {
             try {
                 var creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}');
@@ -452,7 +485,7 @@
         function api(method, path, body) {
             var opts = { method: method, headers: { 'X-Emby-Token': getToken(), 'Content-Type': 'application/json' } };
             if (body !== undefined) opts.body = JSON.stringify(body);
-            return fetch('/' + path, opts).then(function(r) {
+            return fetch(apiUrl(path), opts).then(function(r) {
                 if (!r.ok) {
                     return r.json().catch(function() { return {}; }).then(function(j) {
                         var err = new Error(j.message || ('HTTP ' + r.status));

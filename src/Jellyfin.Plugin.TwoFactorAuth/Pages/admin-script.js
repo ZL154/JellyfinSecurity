@@ -78,23 +78,12 @@
                 function apiDelete(path) {
                     return fetch(ApiClient.serverAddress() + '/' + path, { method: 'DELETE', headers: getHeaders() }).then(function(r) { return r.ok ? r.json().catch(function(){return{};}) : Promise.reject(r); });
                 }
-                function downloadGet(path, fallbackName) {
-                    return fetch(ApiClient.serverAddress() + '/' + path, { headers: getHeaders() }).then(function(r) {
-                        if (!r.ok) return Promise.reject(r);
-                        var cd = r.headers.get('Content-Disposition') || '';
-                        var m = /filename="?([^";]+)"?/i.exec(cd);
-                        var filename = m ? m[1] : fallbackName;
-                        return r.blob().then(function(blob) {
-                            var url = URL.createObjectURL(blob);
-                            var a = document.createElement('a');
-                            a.href = url;
-                            a.download = filename;
-                            document.body.appendChild(a);
-                            a.click();
-                            setTimeout(function() { URL.revokeObjectURL(url); a.remove(); }, 1000);
-                        });
-                    });
-                }
+                // [v2.5.21] (#156/#149) The old downloadGet() helper was removed.
+                // Its only caller was the per-user Export button, which needs to
+                // go through stepUpFetch (the endpoint is step-up gated) and to
+                // report failures — its bare Promise.reject(Response) with no
+                // .catch was also one of the "Uncaught (in promise)" console
+                // errors reported in #149.
                 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
 
                 // ---- v2.5.0: STEP-UP PROMPT MODAL ----
@@ -693,7 +682,33 @@
                     });
                     body.querySelectorAll('.tfa-export-user').forEach(function(b) {
                         b.addEventListener('click', function() {
-                            downloadGet('TwoFactorAuth/Users/' + encodeURIComponent(b.dataset.id) + '/Export', '2fa-export-' + b.dataset.id + '.json');
+                            // [v2.5.21] (#156) The per-user export IS step-up
+                            // gated (ExportWithSecrets) — that gate is correct
+                            // here, unlike on the details panel. But the plain
+                            // downloadGet() never prompted for the step-up code
+                            // and had no .catch, so on a step-up-enabled server
+                            // this button did nothing at all and left an
+                            // unhandled promise rejection in the console. Route
+                            // it through stepUpFetch so the admin is actually
+                            // asked, and report failures.
+                            var path = 'TwoFactorAuth/Users/' + encodeURIComponent(b.dataset.id) + '/Export';
+                            stepUpFetch(path, { headers: getHeaders() }).then(function(r) {
+                                if (!r.ok) return Promise.reject(r);
+                                var cd = r.headers.get('Content-Disposition') || '';
+                                var m = /filename="?([^";]+)"?/i.exec(cd);
+                                var filename = m ? m[1] : ('2fa-export-' + b.dataset.id + '.json');
+                                return r.blob().then(function(blob) {
+                                    var url = URL.createObjectURL(blob);
+                                    var a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = filename;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    setTimeout(function() { URL.revokeObjectURL(url); a.remove(); }, 1000);
+                                });
+                            }).catch(function() {
+                                alert(_tr('tfa.admin.users.export_failed', 'Export failed — step-up was cancelled or the server rejected the request.'));
+                            });
                         });
                     });
                     // (#104) Re-arm MustSetPassword so the user is routed to
@@ -720,8 +735,15 @@
                                 var content = det.querySelector('.tfa-details-content');
                                 if (content && content.dataset.loaded === '0') {
                                     content.dataset.loaded = '1';
-                                    content.innerHTML = 'Loading…';
-                                    apiGet('TwoFactorAuth/Users/' + uid + '/Export').then(function(exp) {
+                                    content.innerHTML = escapeHtml(_tr('tfa.admin.common.loading', 'Loading…'));
+                                    // [v2.5.21] (#156, MilesTEG1) Read the
+                                    // non-sensitive Summary endpoint, not
+                                    // Export. Export is step-up gated
+                                    // (ExportWithSecrets), so on any server with
+                                    // StepUpLevel >= Destructive this plain
+                                    // fetch always came back 403 and every
+                                    // details row read "Failed to load details".
+                                    apiGet('TwoFactorAuth/Users/' + uid + '/Summary').then(function(exp) {
                                         var trusted = (exp.devices && exp.devices.trusted) || [];
                                         var paired = (exp.devices && exp.devices.paired) || [];
                                         var passkeys = (exp.twoFactor && exp.twoFactor.passkeys) || [];
@@ -733,7 +755,12 @@
                                               renderDetailList(_tr('tfa.admin.users.detail_passkeys', 'Passkeys') + ' (' + passkeys.length + ')', passkeys, function(d) { return escapeHtml(d.label || _tr('tfa.admin.users.passkey_default', 'Passkey')) + ' <span class="muted">' + new Date(d.createdAt).toLocaleDateString() + '</span>'; }) +
                                               renderDetailList(_tr('tfa.admin.users.detail_app_pw', 'App passwords') + ' (' + apps.length + ')', apps, function(d) { return escapeHtml(d.label) + ' <span class="muted">' + new Date(d.createdAt).toLocaleDateString() + '</span>'; }) +
                                             '</div>';
-                                    }).catch(function() { content.innerHTML = escapeHtml(_tr('tfa.admin.users.details_failed', 'Failed to load details.')); });
+                                    }).catch(function() {
+                                        // Re-arm so collapsing and re-expanding
+                                        // retries instead of caching the error.
+                                        content.dataset.loaded = '0';
+                                        content.innerHTML = escapeHtml(_tr('tfa.admin.users.details_failed', 'Failed to load details.'));
+                                    });
                                 }
                             }
                         });
@@ -1001,26 +1028,64 @@
                     a.click();
                     document.body.removeChild(a);
                 });
-                // v1.4: webhook test — auto-save the form first because users
+                // v1.4: notification test — auto-save the form first because users
                 // get confused when the test button uses last-saved settings
                 // instead of what they just typed in.
+                // [v2.5.21] (#143, keinezeit8) Tests EVERY configured channel, not
+                // just the webhook. Previously this refused to do anything without
+                // a Webhook URL, and only persisted the webhook fields before
+                // testing — so an ntfy-only or Gotify-only setup could not be
+                // tested at all, and edits to the ntfy boxes were ignored.
                 page.querySelector('#btnTestWebhook').addEventListener('click', function() {
                     var out = page.querySelector('#webhookTestResult');
-                    var url = page.querySelector('#cfgWebhookUrl').value.trim();
-                    if (!url) { out.style.color = '#f44336'; out.textContent = '✗ ' + _tr('tfa.admin.settings.webhook_need_url', 'Enter a Webhook URL first.'); return; }
+                    var ntfyUrl = page.querySelector('#cfgNtfyUrl').value.trim();
+                    var ntfyTopic = page.querySelector('#cfgNtfyTopic').value.trim();
+                    var gotifyUrl = page.querySelector('#cfgGotifyUrl').value.trim();
+                    var gotifyToken = page.querySelector('#cfgGotifyToken').value.trim();
+                    var webhookUrl = page.querySelector('#cfgWebhookUrl').value.trim();
+                    if (!(ntfyUrl && ntfyTopic) && !(gotifyUrl && gotifyToken) && !webhookUrl) {
+                        out.style.color = '#f44336';
+                        out.textContent = '✗ ' + _tr('tfa.admin.settings.notify_need_channel', 'Configure ntfy, Gotify or a webhook first.');
+                        return;
+                    }
                     out.style.color = '#888'; out.textContent = _tr('tfa.admin.settings.saving_sending', 'Saving + sending…');
-                    // Persist current Webhook URL/Secret so the server-side
-                    // dispatch uses what the admin sees in the input boxes.
+                    // Persist every notification field so the server-side dispatch
+                    // uses exactly what the admin sees in the input boxes.
                     ApiClient.getPluginConfiguration(pluginId).then(function(c) {
-                        c.WebhookUrl = url;
+                        c.NtfyUrl = ntfyUrl;
+                        c.NtfyTopic = ntfyTopic;
+                        c.NtfyToken = page.querySelector('#cfgNtfyToken').value.trim();
+                        c.NtfyUsername = page.querySelector('#cfgNtfyUsername').value.trim();
+                        c.NtfyPassword = page.querySelector('#cfgNtfyPassword').value;
+                        c.GotifyUrl = gotifyUrl;
+                        c.GotifyAppToken = gotifyToken;
+                        c.WebhookUrl = webhookUrl;
                         c.WebhookSecret = page.querySelector('#cfgWebhookSecret').value.trim();
+                        c.WebhookHeaders = page.querySelector('#cfgWebhookHeaders').value
+                            .split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.AllowPrivateNotificationTargets = page.querySelector('#cfgAllowPrivateNotifTargets').checked;
                         return ApiClient.updatePluginConfiguration(pluginId, c);
                     }).then(function() {
                         return apiPost('TwoFactorAuth/Admin/WebhookTest');
                     }).then(function(r) {
-                        out.style.color = '#4caf50'; out.textContent = '✓ ' + (r.message || _tr('tfa.admin.common.sent', 'Sent'));
-                    }).catch(function(e) { out.style.color = '#f44336'; out.textContent = '✗ ' + _tr('tfa.admin.settings.webhook_failed', 'Failed (check server log).'); });
+                        // Partial success is a real outcome now (e.g. webhook
+                        // delivered, ntfy rejected on an ACL) — colour it amber
+                        // rather than claiming everything worked.
+                        out.style.color = (r && r.ok === false) ? '#ff9800' : '#4caf50';
+                        out.textContent = ((r && r.ok === false) ? '⚠ ' : '✓ ')
+                            + ((r && r.message) || _tr('tfa.admin.common.sent', 'Sent'));
+                    }).catch(function(e) {
+                        out.style.color = '#f44336';
+                        // The server returns a specific message for "nothing
+                        // configured" and for rate limiting; show it when present.
+                        var shown = _tr('tfa.admin.settings.webhook_failed', 'Failed (check server log).');
+                        if (e && typeof e.json === 'function') {
+                            e.json().then(function(b) {
+                                if (b && b.message) out.textContent = '✗ ' + b.message;
+                            }).catch(function() { /* keep the generic message */ });
+                        }
+                        out.textContent = '✗ ' + shown;
+                    });
                 });
                 page.querySelector('#auditPrev').addEventListener('click', function() { if (auditPage > 0) { auditPage--; renderAudit(); } });
                 page.querySelector('#auditNext').addEventListener('click', function() { auditPage++; renderAudit(); });
@@ -1087,6 +1152,9 @@
                         page.querySelector('#cfgSmtpFromName').value = c.SmtpFromName || '';
                         page.querySelector('#cfgNtfyUrl').value = c.NtfyUrl || '';
                         page.querySelector('#cfgNtfyTopic').value = c.NtfyTopic || '';
+                        page.querySelector('#cfgNtfyToken').value = c.NtfyToken || '';
+                        page.querySelector('#cfgNtfyUsername').value = c.NtfyUsername || '';
+                        page.querySelector('#cfgNtfyPassword').value = c.NtfyPassword || '';
                         page.querySelector('#cfgGotifyUrl').value = c.GotifyUrl || '';
                         page.querySelector('#cfgGotifyToken').value = c.GotifyAppToken || '';
                         page.querySelector('#cfgEmails').value = (c.NotifyEmailAddresses || []).join('\n');
@@ -1094,6 +1162,7 @@
                         // v1.4 fields
                         page.querySelector('#cfgWebhookUrl').value = c.WebhookUrl || '';
                         page.querySelector('#cfgWebhookSecret').value = c.WebhookSecret || '';
+                        page.querySelector('#cfgWebhookHeaders').value = (c.WebhookHeaders || []).join('\n');
                         page.querySelector('#cfgAllowPrivateNotifTargets').checked = !!c.AllowPrivateNotificationTargets;
                         page.querySelector('#cfgGeoAsn').value = c.GeoIpAsnDbPath || '';
                         page.querySelector('#cfgGeoCountry').value = c.GeoIpCountryDbPath || '';
@@ -1256,6 +1325,11 @@
                         c.SmtpFromName = page.querySelector('#cfgSmtpFromName').value.trim();
                         c.NtfyUrl = page.querySelector('#cfgNtfyUrl').value.trim();
                         c.NtfyTopic = page.querySelector('#cfgNtfyTopic').value.trim();
+                        // [v2.5.21] (#143) ntfy auth. Password is NOT trimmed —
+                        // leading/trailing whitespace can be significant.
+                        c.NtfyToken = page.querySelector('#cfgNtfyToken').value.trim();
+                        c.NtfyUsername = page.querySelector('#cfgNtfyUsername').value.trim();
+                        c.NtfyPassword = page.querySelector('#cfgNtfyPassword').value;
                         c.GotifyUrl = page.querySelector('#cfgGotifyUrl').value.trim();
                         c.GotifyAppToken = page.querySelector('#cfgGotifyToken').value.trim();
                         c.NotifyEmailAddresses = page.querySelector('#cfgEmails').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
@@ -1263,6 +1337,11 @@
                         // v1.4 fields
                         c.WebhookUrl = page.querySelector('#cfgWebhookUrl').value.trim();
                         c.WebhookSecret = page.querySelector('#cfgWebhookSecret').value.trim();
+                        // [v2.5.21] (#143) Extra webhook headers, one "Name: Value"
+                        // per line. Server-side ParseCustomHeaders() validates and
+                        // drops anything malformed or reserved.
+                        c.WebhookHeaders = page.querySelector('#cfgWebhookHeaders').value
+                            .split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.AllowPrivateNotificationTargets = page.querySelector('#cfgAllowPrivateNotifTargets').checked;
                         c.GeoIpAsnDbPath = page.querySelector('#cfgGeoAsn').value.trim();
                         c.GeoIpCountryDbPath = page.querySelector('#cfgGeoCountry').value.trim();

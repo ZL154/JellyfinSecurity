@@ -162,6 +162,38 @@
             return (window.tfaI18n && window.tfaI18n.tr) ? window.tfaI18n.tr(key, fallback) : fallback;
         }
 
+        // [v2.5.21] (#137/#98) jellyfin-web's ConnectionMode enum
+        // (src/lib/jellyfin-apiclient/connectionMode.ts): Local=0, Remote=1,
+        // Manual=2. getOrCreateApiClient() resolves a server's address with
+        // getServerAddress(server, server.LastConnectionMode) and does NOT fall
+        // back — mode 1 reads server.RemoteAddress, which we never populate, so
+        // the ApiClient came up with an undefined address and Jellyfin Web
+        // bounced straight back to the login page. We only ever write
+        // ManualAddress, so Manual is the correct mode; it is also what
+        // Jellyfin's own addApiClient() stores.
+        var TFA_CONNECTION_MODE_MANUAL = 2;
+
+        // [v2.5.21] (#137/#98) Sign-in completed — tear down the client-side
+        // 2FA-pending state before handing control back to Jellyfin Web.
+        // inject.js arms sessionStorage['__tfa_pending'] the moment the server
+        // answers a call with twoFactorRequired, then short-circuits every
+        // non-auth fetch/XHR with a synthetic 403 for the next 5 minutes and
+        // redirects to the 2FA portal. Our standalone pages don't load
+        // inject.js, so nothing cleared that flag when the user actually
+        // finished signing in here — landing on /web re-ran inject.js, found
+        // the flag still armed, blocked the whole bootstrap and threw the user
+        // back at the sign-in page. The OIDC bridge already did this
+        // (v2.5.14, #98); the password+2FA paths never did (#137). A LAN
+        // bypass means the flag is never armed internally, which is exactly
+        // why this only reproduced from outside the network.
+        // Deliberately does NOT touch localStorage['__tfa_set_pw_required'] —
+        // that flag belongs to the OIDC force-password-onboarding step (#100)
+        // and is cleared only by the set-password page once the password is
+        // actually set.
+        function clearTfaClientState() {
+            try { sessionStorage.removeItem('__tfa_pending'); } catch (e) {}
+        }
+
         var params = new URLSearchParams(window.location.search);
         var prefillUsername = params.get('username');
         var usingRecovery = false;
@@ -385,6 +417,7 @@
                     // the server, then Jellyfin reconnect internally and
                     // bounce straight back to the login page (#137).
                     existing.ManualAddress = serverAddress;
+                    existing.LastConnectionMode = TFA_CONNECTION_MODE_MANUAL;
                     if (!existing.Name) existing.Name = serverName;
                 } else {
                     creds.Servers.unshift({
@@ -394,10 +427,11 @@
                         UserId: authData.User && authData.User.Id,
                         ManualAddress: serverAddress,
                         DateLastAccessed: now,
-                        LastConnectionMode: 1
+                        LastConnectionMode: TFA_CONNECTION_MODE_MANUAL
                     });
                 }
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+                clearTfaClientState();
             }).catch(function() {/* best effort */});
         }
     </script>

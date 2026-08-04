@@ -299,6 +299,24 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public string NtfyTopic { get; set; } = string.Empty;
 
+    /// <summary>[v2.5.21] (#143, keinezeit8): ntfy access token, sent as
+    /// <c>Authorization: Bearer tk_…</c>. A self-hosted ntfy with any write ACL
+    /// on the topic rejected every notification with 401/403 and the only way to
+    /// make the plugin work was to open the topic up to anonymous writes — which
+    /// is exactly what the reporter had locked down on purpose. Takes precedence
+    /// over <see cref="NtfyUsername"/>/<see cref="NtfyPassword"/> when both are
+    /// set, matching ntfy's own client behaviour.</summary>
+    public string NtfyToken { get; set; } = string.Empty;
+
+    /// <summary>[v2.5.21] (#143): ntfy username for HTTP Basic auth. Only used
+    /// when <see cref="NtfyToken"/> is empty. Present because ntfy ACLs can be
+    /// user/password-based on deployments that never issued tokens.</summary>
+    public string NtfyUsername { get; set; } = string.Empty;
+
+    /// <summary>[v2.5.21] (#143): ntfy password for HTTP Basic auth, paired with
+    /// <see cref="NtfyUsername"/>.</summary>
+    public string NtfyPassword { get; set; } = string.Empty;
+
     public string GotifyUrl { get; set; } = string.Empty;
 
     public string GotifyAppToken { get; set; } = string.Empty;
@@ -399,6 +417,18 @@ public class PluginConfiguration : BasePluginConfiguration
     /// `X-2FA-Signature: sha256=<hex>` HMAC over the body so receivers can
     /// authenticate the source.</summary>
     public string WebhookSecret { get; set; } = string.Empty;
+
+    /// <summary>[v2.5.21] (#143, keinezeit8): extra headers sent with every
+    /// webhook POST, one per entry, in <c>Name: Value</c> form.
+    ///
+    /// Plenty of webhook receivers authenticate with a header rather than a
+    /// shared HMAC secret (<c>Authorization: Bearer …</c>, <c>X-Api-Key: …</c>),
+    /// and the core Webhook plugin has offered this for years — without it those
+    /// receivers simply couldn't be used. Parsed and validated by
+    /// <see cref="Services.NotificationService.ParseCustomHeaders"/>, which drops
+    /// malformed lines and refuses to override the headers the dispatcher owns
+    /// (Content-Type and the X-2FA-* signature/timestamp pair).</summary>
+    public string[] WebhookHeaders { get; set; } = Array.Empty<string>();
 
     /// <summary>Path to a MaxMind GeoLite2-ASN.mmdb file. When set, the
     /// suspicious-login detector resolves remote IPs to ASN + country and

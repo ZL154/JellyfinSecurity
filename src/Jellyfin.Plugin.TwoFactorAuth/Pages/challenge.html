@@ -627,13 +627,50 @@
             }
         });
 
+        // [v2.5.21] (#137/#98) jellyfin-web's ConnectionMode enum
+        // (src/lib/jellyfin-apiclient/connectionMode.ts): Local=0, Remote=1,
+        // Manual=2. getOrCreateApiClient() resolves the address via
+        // getServerAddress(server, server.LastConnectionMode) with no fallback,
+        // so the old mode 1 (Remote) read server.RemoteAddress — a field we
+        // never write — and Jellyfin Web came up with an undefined server
+        // address and bounced back to login. We only write ManualAddress, so
+        // Manual is the correct mode, and it matches what Jellyfin's own
+        // addApiClient() stores.
+        var TFA_CONNECTION_MODE_MANUAL = 2;
+
+        // [v2.5.21] (#137/#98) Sign-in completed — tear down the client-side
+        // 2FA-pending state before handing control back to Jellyfin Web.
+        // inject.js arms sessionStorage['__tfa_pending'] as soon as the server
+        // answers with twoFactorRequired, then short-circuits every non-auth
+        // fetch/XHR with a synthetic 403 for 5 minutes and redirects to the 2FA
+        // portal. This page doesn't load inject.js, so nothing cleared the flag
+        // when the user actually completed the challenge here: landing on /web
+        // re-ran inject.js, found it still armed, blocked the entire bootstrap
+        // and threw the user back at the sign-in page. The OIDC bridge already
+        // did this (v2.5.14, #98); the challenge path never did (#137). A LAN
+        // bypass means the flag is never armed internally, which is exactly why
+        // this only reproduced from outside the network.
+        //
+        // Deliberately does NOT touch localStorage['__tfa_set_pw_required'] —
+        // that belongs to the OIDC force-password step (#100) and is cleared
+        // only by the set-password page.
+        function clearTfaClientState() {
+            try { sessionStorage.removeItem('__tfa_pending'); } catch (e) {}
+        }
+
         function storeCredentials(authData) {
             // authData is the full Jellyfin AuthenticateByName response:
             // { AccessToken, SessionInfo, User, ServerId }
-            return fetch('/System/Info/Public').then(function(r) { return r.ok ? r.json() : null; }).then(function(info) {
+            // [v2.5.21] (#144) tfaUrl() keeps Jellyfin's configured BaseUrl —
+            // the old root-absolute '/System/Info/Public' 404s whenever the
+            // server is mounted under a path (e.g. https://host/jellyfin/).
+            return fetch(window.tfaUrl('System/Info/Public')).then(function(r) { return r.ok ? r.json() : null; }).then(function(info) {
                 var serverId = authData.ServerId || (info && info.Id) || '';
                 var serverName = (info && info.ServerName) || 'Jellyfin';
-                var serverAddress = window.location.origin;
+                // Same reason: window.location.origin drops the base path, so
+                // the stored ManualAddress pointed at the origin root.
+                var serverAddress = new URL(window.tfaUrl(''), window.location.origin)
+                    .toString().replace(/\/+$/, '');
 
                 var creds;
                 try { creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}'); } catch (e) { creds = {}; }
@@ -645,7 +682,15 @@
                     existing.AccessToken = authData.AccessToken;
                     existing.UserId = authData.User && authData.User.Id;
                     existing.DateLastAccessed = now;
-                    if (!existing.ManualAddress) existing.ManualAddress = serverAddress;
+                    // [v2.5.21] (#137) Always refresh — the address that just
+                    // completed authentication is the only one proven reachable.
+                    // Keeping a stale LAN ManualAddress (or a stale Local
+                    // connection mode) made an external reverse-proxy login
+                    // succeed server-side, then Jellyfin reconnect internally
+                    // and bounce straight back to login. login.html got this in
+                    // v2.5.20; the challenge page was missed.
+                    existing.ManualAddress = serverAddress;
+                    existing.LastConnectionMode = TFA_CONNECTION_MODE_MANUAL;
                     if (!existing.Name) existing.Name = serverName;
                 } else {
                     creds.Servers.unshift({
@@ -655,10 +700,11 @@
                         UserId: authData.User && authData.User.Id,
                         ManualAddress: serverAddress,
                         DateLastAccessed: now,
-                        LastConnectionMode: 1
+                        LastConnectionMode: TFA_CONNECTION_MODE_MANUAL
                     });
                 }
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+                clearTfaClientState();
             }).catch(function() {
                 // If /System/Info/Public fails, still set minimal credentials
                 var creds;
@@ -670,6 +716,7 @@
                     creds.Servers[0].DateLastAccessed = Date.now();
                 }
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+                clearTfaClientState();
             });
         }
     </script>

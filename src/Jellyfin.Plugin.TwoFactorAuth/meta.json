@@ -2,7 +2,7 @@
   "name": "Jellyfin Security",
   "description": "Comprehensive Jellyfin security: TOTP & email 2FA, passkeys, OIDC/SSO sign-in (Google, GitHub, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, ...), brute-force IP banning, impossible-travel detection, per-user IP allowlist, device pairing, trusted browsers, and audit log.",
   "guid": "94879a0c-da24-4eb1-aa06-f28b4b9333b1",
-  "version": "2.5.20.0",
+  "version": "2.5.21.0",
   "targetAbi": "10.11.0.0",
   "owner": "ZL154",
   "overview": "Comprehensive Jellyfin security: 2FA, passkeys, OIDC/SSO, brute-force protection, impossible-travel detection, IP allowlist, and audit logging.",
