@@ -23,7 +23,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="NSubstitute" Version="5.3.0" />
+    <PackageReference Include="NSubstitute" Version="6.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="9.0.17" />
     <PackageReference Include="Otp.NET" Version="1.4.1" />
   </ItemGroup>
