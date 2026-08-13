@@ -12,7 +12,21 @@ Use one of the following private channels:
 1. **GitHub Private Vulnerability Reporting** (preferred) - open
    <https://github.com/ZL154/JellyfinSecurity/security/advisories/new>
    and submit the advisory. Only repository maintainers can see it.
-2. **Discord** - DM **`@zack154`** on Discord with a description of the issue.
+2. **Discord** - send a friend request to **`@zack154`** on Discord, then DM
+   the description once it is accepted. Discord drops DMs between people with
+   no mutual server, so the request has to come first.
+
+### If neither channel works
+
+Both paths above can be closed from a reporter's side: private vulnerability
+reporting has to be enabled on the repository before that form accepts
+anything, and a Discord DM waits on a friend request being accepted.
+
+If you hit either wall, **still do not describe the issue in public.** Open a
+normal issue that contains no details at all - no affected endpoint, no
+version range, no reproduction - saying only that you have a security finding
+and asking for a channel. That is enough to start the conversation and gives
+away nothing to anyone reading along.
 
 ### What to include
 
