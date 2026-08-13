@@ -150,4 +150,69 @@ public class OidcRpInitiatedLogoutTests
         // user to the IdP.
         Assert.Contains("tfaSuppressRpLogout", inject);
     }
+
+    [Fact]
+    public void EndSessionUrl_DropsAFragmentSoClientIdStillReachesTheProvider()
+    {
+        // Appending after a fragment leaves client_id client-side, and without
+        // id_token_hint client_id is the only thing identifying the RP.
+        var url = OidcService.BuildEndSessionUrl(
+            "https://idp.example/logout#section", "jf", null);
+
+        Assert.Equal("https://idp.example/logout?client_id=jf", url);
+        Assert.DoesNotContain("#", url);
+    }
+
+    [Theory]
+    [InlineData("https://idp.example/logout\r\nX-Injected: 1")]
+    [InlineData("https://idp.example/logout\nX-Injected: 1")]
+    [InlineData("https://idp.example/logout\r")]
+    public void EndSessionUrl_NeverEmitsControlCharacters(string endpoint)
+    {
+        // Uri.TryCreate accepts these. Handing the raw string to Redirect()
+        // makes Kestrel throw on the Location header, so somebody who clicked
+        // Sign out gets a 500 instead of getting signed out.
+        var url = OidcService.BuildEndSessionUrl(endpoint, "jf", null);
+
+        Assert.NotNull(url);
+        Assert.All(url, c => Assert.False(char.IsControl(c)));
+    }
+
+    [Fact]
+    public void EndSessionUrl_StillKeepsAQueryTheProviderPublishes()
+    {
+        // The fragment fix must not cost us the tenanted-OP query case.
+        var url = OidcService.BuildEndSessionUrl(
+            "https://idp.example/logout?tenant=acme#frag", "jf", null);
+
+        Assert.Equal("https://idp.example/logout?tenant=acme&client_id=jf", url);
+    }
+
+    [Fact]
+    public void SanitizePostLogoutRedirectUri_DoesNotRewriteWhatTheAdminRegistered()
+    {
+        // The IdP matches post_logout_redirect_uri against the registered value
+        // exactly, so decoding or otherwise canonicalising it can only turn a
+        // correct configuration into a rejected one.
+        const string encoded = "https://jf.example.com/back?next=a%20b";
+        Assert.Equal(encoded, SecurityController.SanitizePostLogoutRedirectUri(encoded));
+
+        const string bareOrigin = "https://jf.example.com";
+        Assert.Equal(bareOrigin, SecurityController.SanitizePostLogoutRedirectUri(bareOrigin));
+    }
+
+    [Theory]
+    [InlineData("Jellyfin.Plugin.TwoFactorAuth.Pages.login.html")]
+    [InlineData("Jellyfin.Plugin.TwoFactorAuth.Pages.challenge.html")]
+    public void LocalSignInPages_DisarmTheRpLogoutMarker(string resource)
+    {
+        // A password or 2FA sign-in in a browser that previously used SSO must
+        // not inherit that session's marker. Otherwise its sign-out ends an IdP
+        // session belonging to a different login, and on a shared browser to a
+        // different person.
+        var page = ResourceReader.ReadEmbeddedText(resource);
+
+        Assert.NotNull(page);
+        Assert.Contains("localStorage.removeItem('__tfa_rp_logout')", page);
+    }
 }

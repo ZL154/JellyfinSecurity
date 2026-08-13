@@ -908,6 +908,30 @@ public class SecurityController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> EndSession([FromRoute] string providerId)
     {
+        // Same ban + rate-limit gate every other anonymous OIDC entry point
+        // carries. A cache-cold call here can trigger an outbound discovery
+        // fetch, and this endpoint takes no credential at all.
+        //
+        // Its own bucket rather than the oidc_login one: sharing it would let
+        // a household behind a single NAT address spend its sign-in budget on
+        // sign-outs and then fail to log back in.
+        //
+        // Both refusals return the local login page instead of a 403 or 429
+        // body. The caller already clicked Sign out and their session is
+        // already gone, so the worst outcome is that this one sign-out does
+        // not reach the IdP, which is precisely the pre-feature behaviour.
+        var ip = RateLimiter.ClientKey(HttpContext);
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_bans.CheckBanned(clientIp) is not null)
+        {
+            return LocalLoginRedirect();
+        }
+
+        if (!_oidcRateLimiter.CheckAndRecord("oidc_endsession:" + ip, 20, TimeSpan.FromMinutes(5)).allowed)
+        {
+            return LocalLoginRedirect();
+        }
+
         var provider = Plugin.Instance?.Configuration.OidcProviders
             .FirstOrDefault(p => p.Id == providerId);
 
@@ -955,7 +979,12 @@ public class SecurityController : ControllerBase
         => !string.IsNullOrWhiteSpace(value)
            && Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri)
            && uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-            ? uri.ToString()
+            // The trimmed original, not uri.ToString(): the latter
+            // percent-decodes and otherwise rewrites the value, and the IdP
+            // matches post_logout_redirect_uri against what was registered
+            // byte for byte, so canonicalising it can only break a match the
+            // admin already got right.
+            ? value.Trim()
             : string.Empty;
 
     /// <summary>Jellyfin's own login page, under the server's Base URL. The

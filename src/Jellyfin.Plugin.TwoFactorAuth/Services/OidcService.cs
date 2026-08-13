@@ -926,9 +926,16 @@ public class OidcService : IDisposable
             return null;
         }
 
-        // Preserve any query the OP already publishes on the endpoint, which a
-        // few tenanted OPs do, instead of clobbering it.
-        var sb = new StringBuilder(endSessionEndpoint);
+        // Build from the PARSED uri, never from the raw string. Uri.TryCreate
+        // accepts input that must not go out verbatim: control characters
+        // survive in the original text, and Redirect() then throws on the
+        // Location header, handing a 500 to someone who clicked Sign out. A
+        // fragment fails more quietly, since everything appended after it
+        // stays client-side and client_id never reaches the OP, which without
+        // id_token_hint is the only thing identifying us. GetLeftPart(Query)
+        // keeps scheme, host, path and any query the OP already publishes (a
+        // few tenanted OPs do), and drops the fragment.
+        var sb = new StringBuilder(endSessionUri.GetLeftPart(UriPartial.Query));
         sb.Append(string.IsNullOrEmpty(endSessionUri.Query) ? '?' : '&');
         sb.Append("client_id=").Append(Uri.EscapeDataString(clientId ?? string.Empty));
 
