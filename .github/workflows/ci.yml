@@ -38,7 +38,40 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Restore
+        id: restore
         run: dotnet restore JellyfinSecurity.sln --locked-mode
+
+      # NU1004 says "the lock file is inconsistent" but not which files to
+      # regenerate, and the answer is rarely the project that was edited: a
+      # bump in src/ invalidates the test and fuzz lock files too, because
+      # both record src's packages as transitive through their
+      # ProjectReference. Re-resolve and name the files, so the fix is one
+      # copyable command rather than a reading exercise.
+      - name: Explain lock file drift
+        if: failure() && steps.restore.outcome == 'failure'
+        run: |
+          set -uo pipefail
+
+          # Distinguish drift from a genuinely broken restore. If re-resolving
+          # also fails, or succeeds without touching a lock file, then the
+          # locked-mode failure was something else (unreachable feed, package
+          # pulled from nuget.org, typo'd version) and claiming "drift" would
+          # send the reader down the wrong path.
+          if ! dotnet restore JellyfinSecurity.sln --force-evaluate; then
+            echo "::error::Restore fails even with --force-evaluate, so this is not lock file drift. See the restore errors above."
+            exit 1
+          fi
+
+          if git diff --quiet -- '**/packages.lock.json'; then
+            echo "::error::Locked-mode restore failed but re-resolving changed no lock file. See the restore errors above."
+            exit 1
+          fi
+
+          echo "::group::Lock files that need regenerating"
+          git --no-pager diff --stat -- '**/packages.lock.json'
+          echo "::endgroup::"
+          echo "::error::Lock files are out of sync. Run 'dotnet restore JellyfinSecurity.sln --force-evaluate' and commit every packages.lock.json it changes."
+          exit 1
 
       - name: Build
         run: dotnet build JellyfinSecurity.sln --configuration Release --no-restore

@@ -81,3 +81,12 @@ updates:
       - "github-actions"
     commit-message:
       prefix: "ci"
+    groups:
+      # init, analyze and upload-sarif are three entry points of one versioned
+      # bundle, pinned across codeql.yml and scorecard.yml. Bumped separately
+      # they deadlock: init reads a config written by its own version and
+      # analyze refuses it with "Loaded a configuration file for version X,
+      # but running version Y" (that was PR #155). Keep them in one PR.
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
