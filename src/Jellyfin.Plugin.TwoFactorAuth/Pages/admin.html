@@ -456,6 +456,14 @@
                                 <label><input type="checkbox" id="ssoRequireMfa" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_require_mfa">Require IdP MFA (refuse sign-in if amr claim doesn't show MFA)</span></label>
                             </div>
                             <div class="tfa-row">
+                                <label><input type="checkbox" id="ssoRpLogout" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_rp_logout">Also sign out at this provider when the user signs out of Jellyfin (OIDC RP-initiated logout; ignored if the provider publishes no end_session_endpoint)</span></label>
+                            </div>
+                            <div class="tfa-row">
+                                <label data-i18n-key="tfa.admin.sso.lbl_rp_logout_redirect">Return URL after provider sign-out (optional)</label>
+                                <input class="emby-input" id="ssoRpLogoutRedirect" placeholder="https://jellyfin.example.com/TwoFactorAuth/Oidc/LoggedOut" />
+                                <div class="fieldDescription" data-i18n-key="tfa.admin.sso.desc_rp_logout_redirect">Leave empty to stop on the provider's own sign-out page. If you set it, register the exact URL as a post-logout redirect URI at the provider first, or the provider will reject the whole sign-out request.</div>
+                            </div>
+                            <div class="tfa-row">
                                 <label><input type="checkbox" id="ssoBypass2fa" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_bypass_2fa">Skip plugin 2FA (recommended — IdP already authenticated the user)</span></label>
                             </div>
                             <div class="tfa-row">
