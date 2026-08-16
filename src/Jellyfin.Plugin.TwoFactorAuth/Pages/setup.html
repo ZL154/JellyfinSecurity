@@ -482,8 +482,16 @@
                 return (creds.Servers && creds.Servers[0] && creds.Servers[0].AccessToken) || '';
             } catch (e) { return ''; }
         }
+        function getAuthHeaders() {
+            var headers = { 'Content-Type': 'application/json' };
+            var token = getToken();
+            if (token) {
+                headers['Authorization'] = 'MediaBrowser Token="' + token + '"';
+            }
+            return headers;
+        }
         function api(method, path, body) {
-            var opts = { method: method, headers: { 'X-Emby-Token': getToken(), 'Content-Type': 'application/json' } };
+            var opts = { method: method, headers: getAuthHeaders() };
             if (body !== undefined) opts.body = JSON.stringify(body);
             return fetch(apiUrl(path), opts).then(function(r) {
                 if (!r.ok) {
@@ -1421,7 +1429,7 @@
             // Direct binary fetch (api() helper is JSON-only):
             fetch(window.tfaUrl('TwoFactorAuth/RecoveryCodes/Pdf'), {
                 method: 'POST',
-                headers: { 'X-Emby-Token': getToken(), 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ codes: window.__recoveryCodes || [] })
             }).then(function(r){ return r.blob(); }).then(function(blob){
                 var url = URL.createObjectURL(blob);
@@ -1774,7 +1782,7 @@
                 try {
                     fetch(window.tfaUrl('TwoFactorAuth/Passkeys/ClientLog'), {
                         method: 'POST',
-                        headers: { 'X-Emby-Token': getToken(), 'Content-Type': 'application/json' },
+                        headers: getAuthHeaders(),
                         body: JSON.stringify({ phase: 'register', name: e && e.name, message: e && e.message, ua: navigator.userAgent })
                     });
                 } catch (_) {}

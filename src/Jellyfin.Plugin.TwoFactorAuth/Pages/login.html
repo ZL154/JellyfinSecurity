@@ -377,7 +377,7 @@
 
         function checkLowRecoveryCodes(authData) {
             return fetch(window.tfaUrl('TwoFactorAuth/RecoveryCodes/Status'), {
-                headers: { 'X-Emby-Token': authData.AccessToken }
+                headers: { 'Authorization': 'MediaBrowser Token="' + authData.AccessToken + '"' }
             }).then(function(r) { return r.ok ? r.json() : null; }).then(function(s) {
                 if (!s) return;
                 if (s.total > 0 && s.remaining < 3) {
