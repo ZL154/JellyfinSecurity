@@ -895,6 +895,20 @@ public class TwoFactorAuthController : ControllerBase
                 // response can't be used as a 2FA-code-validity oracle.
                 return Unauthorized(new { message = "Invalid username, password, or verification code." });
                 }
+                catch (MediaBrowser.Controller.Net.SecurityException ex)
+                {
+                    // Username, password and code were all accepted and Jellyfin then refused
+                    // to open the session on policy grounds: the simultaneous-session cap, or
+                    // the device not being permitted for this user. That is not a credential
+                    // failure, so it must not feed the per-IP ban counter, otherwise a user who
+                    // hits their own session cap bans their own address. The reason text comes
+                    // from Jellyfin so both refusal cases stay accurate.
+                    _logger.LogWarning(
+                        "[2FA] /Authenticate refused for {Name}: {Reason}",
+                        req.Username,
+                        ex.Message);
+                    return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+                }
             }
             finally
             {
