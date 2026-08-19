@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Enums;
@@ -35,17 +36,20 @@ public class LockoutMessageMiddleware
     private readonly RequestDelegate _next;
     private readonly UserTwoFactorStore _store;
     private readonly IUserManager _userManager;
+    private readonly OidcLoginTokenStore _bridgeTokens;
     private readonly ILogger<LockoutMessageMiddleware> _logger;
 
     public LockoutMessageMiddleware(
         RequestDelegate next,
         UserTwoFactorStore store,
         IUserManager userManager,
+        OidcLoginTokenStore bridgeTokens,
         ILogger<LockoutMessageMiddleware> logger)
     {
         _next = next;
         _store = store;
         _userManager = userManager;
+        _bridgeTokens = bridgeTokens;
         _logger = logger;
     }
 
@@ -53,17 +57,38 @@ public class LockoutMessageMiddleware
     {
         var config = Plugin.Instance?.Configuration;
 
-        // Only instrument the username/password login endpoint. Everything else
-        // flows straight through untouched.
-        if (!IsAuthenticateByName(context) || config?.Enabled != true)
+        // Only instrument Jellyfin's password sign-in endpoints. Everything
+        // else flows straight through untouched.
+        if (!TryMatchPasswordAuthEndpoint(context, out var routeUserId) || config?.Enabled != true)
         {
             await _next(context).ConfigureAwait(false);
             return;
         }
 
         // Read the submitted credentials once (best-effort; nulls = unreadable
-        // body → behave as a pass-through).
-        var (username, password) = await PeekCredentialsAsync(context.Request).ConfigureAwait(false);
+        // body → behave as a pass-through). The two endpoints carry them
+        // differently: AuthenticateByName posts a JSON body, while the obsolete
+        // by-id form takes ?pw= and names the account by route GUID instead of
+        // by username.
+        string? username;
+        string? password;
+        Jellyfin.Database.Implementations.Entities.User? user;
+        if (routeUserId != Guid.Empty)
+        {
+            // StringValues.ToString() joins duplicates with ',', which can only
+            // ever differ from what Jellyfin's model binder resolves in the
+            // direction of NOT matching a real password or a real bridge token
+            // -- i.e. it fails closed, never open.
+            var queryPw = context.Request.Query["pw"].ToString();
+            password = string.IsNullOrEmpty(queryPw) ? null : queryPw;
+            user = ResolveUserByIdSafe(routeUserId);
+            username = user?.Username;
+        }
+        else
+        {
+            (username, password) = await PeekCredentialsAsync(context.Request).ConfigureAwait(false);
+            user = ResolveUserSafe(username);
+        }
 
         // 0. EMPTY-PASSWORD GATE [v2.5.10] (issue #68, CWabbity). The provider
         //    enforces BlockEmptyPasswordLogin too, but ONLY for plugin-routed
@@ -82,20 +107,21 @@ public class LockoutMessageMiddleware
             return;
         }
 
-        // Resolve the account being signed in to (best-effort; null = unknown
-        // username → the lockout/record steps below no-op).
-        var user = ResolveUserSafe(username);
-
         // 0b. DISABLE-PASSWORD-LOGIN GATE [v2.5.11] (issue #69, ZEROX7). When the
         //     admin has turned off password sign-in, refuse it here so only
         //     OIDC/SSO + Quick Connect remain. Three things are NEVER blocked:
         //     (a) OIDC bridge tokens — SSO completes via this same endpoint with
-        //         a one-time token as the "password"; LooksLikeBridgeToken lets
-        //         it through. (Quick Connect uses a different endpoint entirely.)
+        //         a one-time token as the "password", so a token this server
+        //         actually minted is let through. (Quick Connect uses a
+        //         different endpoint entirely and is never matched here.)
+        //         [v2.5.22] This asks the store (IsKnownBridgeToken) rather than
+        //         testing the "oidcbr_" prefix. The prefix test meant any user
+        //         could opt out of this server-wide policy simply by choosing a
+        //         password that starts with that string.
         //     (b) the configured escape hatches (admin / LAN / exempt CIDRs).
         //     The plugin's own /TwoFactorAuth/Login page is unaffected either way.
         if (config.DisablePasswordLogin
-            && !OidcLoginTokenStore.LooksLikeBridgeToken(password)
+            && !_bridgeTokens.IsKnownBridgeToken(password)
             && !IsPasswordLoginExempt(context, config, user))
         {
             _logger.LogWarning("[2FA] Password sign-in refused (DisablePasswordLogin) for '{User}'.", username ?? "(unknown)");
@@ -236,15 +262,57 @@ public class LockoutMessageMiddleware
         }
     }
 
-    private static bool IsAuthenticateByName(HttpContext context)
+    /// <summary>Jellyfin's obsolete by-id password endpoint:
+    /// POST /Users/{userId}/Authenticate?pw=... . Tolerates a configured Jellyfin
+    /// BaseUrl prefix, which 10.11.x leaves in Request.Path, and both the dashed
+    /// (36-char) and undashed (32-char) GUID forms that Guid.TryParse — and
+    /// therefore ASP.NET's :guid route constraint — accept.</summary>
+    private static readonly Regex ObsoleteByIdAuthPath = new(
+        @"/Users/([0-9a-fA-F-]{32,36})/Authenticate$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+        TimeSpan.FromMilliseconds(250));
+
+    /// <summary>[v2.5.22] True when this request is one of Jellyfin's TWO
+    /// password sign-in endpoints. <paramref name="routeUserId"/> comes back as
+    /// the route GUID on the obsolete by-id form and Guid.Empty on
+    /// AuthenticateByName, which is how the caller knows where to read the
+    /// submitted password from.
+    ///
+    /// SECURITY: matching only AuthenticateByName left a real hole, not a
+    /// theoretical one. Jellyfin's UserController still routes
+    /// POST /Users/{userId}/Authenticate?pw=..., it carries no [Authorize]
+    /// exactly like AuthenticateByName, and it reaches the same authentication
+    /// code as an in-process METHOD call — so no path-matching middleware ever
+    /// sees a second request. Everything enforced here (DisablePasswordLogin,
+    /// BlockEmptyPasswordLogin, and per-account lockout INCLUDING the failure
+    /// counter, which for default-provider users has no other hook) was skipped
+    /// on it, leaving an unthrottled and unaudited password-guessing path. It is
+    /// [ApiExplorerSettings(IgnoreApi = true)] so it never shows up in the
+    /// OpenAPI document, and GET /Users/Public hands out the GUIDs it needs
+    /// anonymously.
+    ///
+    /// Quick Connect is deliberately NOT matched: it is not password sign-in and
+    /// has to keep working while DisablePasswordLogin is on.</summary>
+    internal static bool TryMatchPasswordAuthEndpoint(HttpContext context, out Guid routeUserId)
     {
-        if (!HttpMethods.IsPost(context.Request.Method))
+        routeUserId = Guid.Empty;
+        return HttpMethods.IsPost(context.Request.Method)
+            && TryMatchPasswordAuthPath(context.Request.Path.Value, out routeUserId);
+    }
+
+    /// <summary>Path-only half, split out so the routing contract can be tested
+    /// without standing up an HttpContext.</summary>
+    internal static bool TryMatchPasswordAuthPath(string? rawPath, out Guid routeUserId)
+    {
+        routeUserId = Guid.Empty;
+        var path = (rawPath ?? string.Empty).TrimEnd('/');
+        if (path.EndsWith("/Users/AuthenticateByName", StringComparison.OrdinalIgnoreCase))
         {
-            return false;
+            return true;
         }
 
-        var path = (context.Request.Path.Value ?? string.Empty).TrimEnd('/');
-        return path.EndsWith("/Users/AuthenticateByName", StringComparison.OrdinalIgnoreCase);
+        var match = ObsoleteByIdAuthPath.Match(path);
+        return match.Success && Guid.TryParse(match.Groups[1].Value, out routeUserId);
     }
 
     private async Task<bool> IsLockedSafeAsync(Guid userId)
@@ -258,6 +326,19 @@ public class LockoutMessageMiddleware
             // Fail OPEN — never block a login because the lockout check threw.
             _logger.LogDebug(ex, "[2FA] lockout pre-check threw; passing the request through");
             return false;
+        }
+    }
+
+    private Jellyfin.Database.Implementations.Entities.User? ResolveUserByIdSafe(Guid userId)
+    {
+        try
+        {
+            return _userManager.GetUserById(userId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[2FA] could not resolve attempted login user by id; passing through");
+            return null;
         }
     }
 

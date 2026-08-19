@@ -72,6 +72,29 @@ public class OidcLoginTokenStore : IDisposable
     public static bool LooksLikeBridgeToken(string? value)
         => !string.IsNullOrEmpty(value) && value.StartsWith(TokenPrefix, StringComparison.Ordinal);
 
+    /// <summary>[v2.5.22] Non-consuming existence check for a bridge token.
+    ///
+    /// <see cref="LooksLikeBridgeToken"/> is a pure string-prefix test, which is
+    /// the right shape for "should the provider try the bridge fast-path" but
+    /// the WRONG shape for a security gate: any password beginning with
+    /// <c>oidcbr_</c> satisfies it. LockoutMessageMiddleware used it to decide
+    /// whether to waive DisablePasswordLogin, so a user could opt themselves
+    /// out of the server-wide policy by choosing such a password.
+    ///
+    /// This asks the store instead, so only a token this server actually minted
+    /// can waive the policy. Deliberately does NOT consume: the gate runs before
+    /// the provider, which is the code that legitimately consumes the token, and
+    /// consuming here would break every SSO sign-in.
+    ///
+    /// Deliberately does NOT check expiry either. An expired-but-real token
+    /// should still reach the provider so the user gets its accurate "Invalid or
+    /// expired sign-in token" error rather than a misleading "password sign-in
+    /// is disabled". An attacker cannot forge an entry in this dictionary, so
+    /// skipping the expiry check costs nothing: the provider's Consume still
+    /// enforces both expiry and single-use.</summary>
+    public bool IsKnownBridgeToken(string? value)
+        => LooksLikeBridgeToken(value) && _tokens.ContainsKey(value!);
+
     // ---------------------------------------------------------------------
     // [v2.5.9] (issue #64): native/webview device-poll flow.
     //
