@@ -1,0 +1,99 @@
+name: Dependabot lock files
+
+# Dependabot regenerates the packages.lock.json of the directory it watches,
+# and only that one. It has no way to know that tests/…Tests and tests/…Fuzz
+# record the *same* packages as "type": "Transitive" because both hold a
+# ProjectReference on src/Jellyfin.Plugin.TwoFactorAuth. So a src-side bump
+# lands as two changed files when the build needs four, and CI stops at
+#
+#   error NU1004: The project references jellyfin.plugin.twofactorauth whose
+#   dependencies has changed. The packages lock file is inconsistent with the
+#   project dependencies so restore can't be run in locked mode.
+#
+# This job closes that gap: it re-resolves the whole solution with
+# --force-evaluate and pushes the regenerated lock files back onto the
+# Dependabot branch.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/*.csproj"
+      - "**/packages.lock.json"
+
+# OSSF Scorecard Token-Permissions: read-all at top level, and the one job
+# that needs to write says so for itself.
+permissions: read-all
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+
+jobs:
+  sync:
+    name: Sync transitive lock files
+    # Two guards, both required:
+    #   actor       : only Dependabot's own PRs, never a contributor's.
+    #   head.repo   : only branches that live in this repository. A PR from a
+    #                 fork must never be pushed to, and a fork-triggered run
+    #                 gets a read-only token anyway.
+    if: >-
+      github.actor == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the Dependabot branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # head.ref is attacker-controlled in the general case, so: it is
+          # consumed here as an action input (git ref), never interpolated
+          # into a run: block, and the job guard above already restricts this
+          # to Dependabot's own branches inside this repository. Nothing
+          # below puts an event value on a shell command line either, and the
+          # PR number goes through env: and is an integer.
+          ref: ${{ github.event.pull_request.head.ref }}
+          # Falls back to GITHUB_TOKEN when the optional PAT is not configured.
+          # See the note on re-running checks in the step at the bottom.
+          token: ${{ secrets.LOCKFILE_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: "9.0.x"
+
+      # restore only, never build. Restoring resolves and unpacks packages but
+      # does not execute any code from them, so nothing in a Dependabot branch
+      # runs under the elevated token this job holds.
+      - name: Re-resolve every lock file
+        run: dotnet restore JellyfinSecurity.sln --force-evaluate
+
+      - name: Push the regenerated lock files
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- '**/packages.lock.json'; then
+            echo "Lock files were already consistent. Nothing to push."
+            exit 0
+          fi
+
+          echo "Lock files drifted:"
+          git --no-pager diff --stat -- '**/packages.lock.json'
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- '**/packages.lock.json'
+          git commit -m "deps: sync transitive lock files for #${PR_NUMBER}"
+          git push
+
+          # A push made with GITHUB_TOKEN deliberately does not start new
+          # workflow runs, so the checks on this PR stay pinned to the commit
+          # that failed. The branch is now correct and merges clean; to get a
+          # green tick, either comment "@dependabot recreate", or set a
+          # LOCKFILE_SYNC_TOKEN Dependabot secret (a PAT with contents:write)
+          # so this push does trigger a fresh run.
+          echo "::notice::Lock files synced. Comment '@dependabot recreate' to re-run checks, or configure LOCKFILE_SYNC_TOKEN to have this push trigger them automatically."

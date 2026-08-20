@@ -167,7 +167,7 @@
             this.textContent = _tr('tfa.pairconfirm.btn_pairing', 'Pairing…');
             fetch(window.tfaUrl('TwoFactorAuth/PairConfirm'), {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Emby-Token': getToken() },
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'MediaBrowser Token="' + getToken() + '"' },
                 body: JSON.stringify({ token: token })
             }).then(function(r) {
                 return r.json().then(function(b) { return { ok: r.ok, body: b }; });

@@ -123,7 +123,7 @@
         if (hasApiClient() && typeof window.ApiClient.accessToken === 'function') {
             try {
                 var token = window.ApiClient.accessToken();
-                if (token) headers['X-Emby-Token'] = token;
+                if (token) headers['Authorization'] = 'MediaBrowser Token="' + token + '"';
             } catch (e) { /* unauthenticated/standalone page */ }
         }
         return headers;
