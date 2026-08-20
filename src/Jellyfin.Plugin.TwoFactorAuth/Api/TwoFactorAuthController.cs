@@ -895,6 +895,20 @@ public class TwoFactorAuthController : ControllerBase
                 // response can't be used as a 2FA-code-validity oracle.
                 return Unauthorized(new { message = "Invalid username, password, or verification code." });
                 }
+                catch (MediaBrowser.Controller.Net.SecurityException ex)
+                {
+                    // Username, password and code were all accepted and Jellyfin then refused
+                    // to open the session on policy grounds: the simultaneous-session cap, or
+                    // the device not being permitted for this user. That is not a credential
+                    // failure, so it must not feed the per-IP ban counter, otherwise a user who
+                    // hits their own session cap bans their own address. The reason text comes
+                    // from Jellyfin so both refusal cases stay accurate.
+                    _logger.LogWarning(
+                        "[2FA] /Authenticate refused for {Name}: {Reason}",
+                        req.Username,
+                        ex.Message);
+                    return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+                }
             }
             finally
             {
@@ -3550,12 +3564,46 @@ public class TwoFactorAuthController : ControllerBase
     /// ISessionManager.Sessions list (which only holds currently-polling
     /// sessions and shows "no active sessions" for most signed-in browsers).
     /// </summary>
+    /// <summary>[v2.5.22] The caller's Jellyfin access token, taken from
+    /// whichever header the client actually used.
+    ///
+    /// Jellyfin 12 lets an operator switch the legacy <c>X-Emby-Token</c>
+    /// header off, and jellyfin-web moved to
+    /// <c>Authorization: MediaBrowser Token="..."</c> to match. Reading only
+    /// the legacy header therefore breaks silently on such a server, and the
+    /// three call sites below were the ones never widened when
+    /// RequestBlockerMiddleware and SecurityController were:
+    ///
+    ///   - SetPassword/Logout returned 400 "Cannot determine the current
+    ///     Jellyfin session", killing the #134 onboarding logout button.
+    ///   - Setup/QrPair/Begin lost its SEC-H4 ownership cross-check, which is
+    ///     written to fail OPEN when the token is absent - so it degraded
+    ///     silently from "the current device" to "any device you own".
+    ///   - MySessions stopped flagging which row is the current session.
+    ///
+    /// Static and HttpRequest-shaped so the contract is testable without
+    /// standing up the controller.</summary>
+    internal static string? ResolveAccessToken(HttpRequest request)
+    {
+        var token = request.Headers["X-Emby-Token"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(token))
+        {
+            return token;
+        }
+
+        // X-Emby-Authorization carries Client/Device/DeviceId/Version even on
+        // unauthenticated calls, so only a real Token= segment counts.
+        var header = request.Headers["X-Emby-Authorization"].FirstOrDefault()
+            ?? request.Headers["Authorization"].FirstOrDefault();
+        return TwoFactorEnforcementMiddleware.ParseEmbyAuth(header, "Token");
+    }
+
     [HttpGet("MySessions")]
     [Authorize]
     public IActionResult MySessions()
     {
         var userId = GetCurrentUserId();
-        var currentToken = HttpContext.Request.Headers["X-Emby-Token"].FirstOrDefault() ?? string.Empty;
+        var currentToken = ResolveAccessToken(HttpContext.Request) ?? string.Empty;
         var result = _deviceManager.GetDevices(new DeviceQuery { UserId = userId });
         var live = EnumerateSessions()
             .Where(s => s.UserId == userId)
@@ -4946,7 +4994,7 @@ public class TwoFactorAuthController : ControllerBase
         try { userId = GetCurrentUserId(); }
         catch (UnauthorizedAccessException) { return Unauthorized(); }
 
-        var token = HttpContext.Request.Headers["X-Emby-Token"].FirstOrDefault();
+        var token = ResolveAccessToken(HttpContext.Request);
         if (string.IsNullOrWhiteSpace(token))
         {
             return BadRequest(new { message = "Cannot determine the current Jellyfin session." });
@@ -5314,7 +5362,7 @@ public class TwoFactorAuthController : ControllerBase
         // device record for the calling user — without this, a signed-in user
         // could mint a QR token for an arbitrary deviceId and trick someone
         // into approving a device that isn't theirs.
-        var token = HttpContext.Request.Headers["X-Emby-Token"].FirstOrDefault();
+        var token = ResolveAccessToken(HttpContext.Request);
         var devices = _deviceManager.GetDevices(new DeviceQuery { UserId = userId });
         var ownsDevice = devices.Items.Any(d =>
             !string.IsNullOrEmpty(d.DeviceId)

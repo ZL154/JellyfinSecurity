@@ -161,6 +161,11 @@ public class SecurityController : ControllerBase
         public string TemplateUserId { get; set; } = string.Empty;
         // [v2.5.14] (#100) force a new OIDC user to set a local Jellyfin password.
         public bool ForcePasswordSetup { get; set; }
+
+        // [#134] RP-Initiated Logout, opt-in per provider.
+        public bool RpInitiatedLogoutEnabled { get; set; }
+
+        public string? RpInitiatedLogoutRedirectUri { get; set; }
         // [v2.5.14] (#94, Re4mstr) Optional explicit callback slug. The slug is the
         // last segment of the OIDC redirect URI (…/Oidc/Callback/&lt;slug&gt;).
         // Sending a non-empty value on UPDATE renames the provider's slug (e.g. to
@@ -258,6 +263,8 @@ public class SecurityController : ControllerBase
             buttonIconUrl = p.ButtonIconUrl,
             // [v2.5.14] (#100) force-password-on-onboarding opt-in.
             forcePasswordSetup = p.ForcePasswordSetup,
+            rpInitiatedLogoutEnabled = p.RpInitiatedLogoutEnabled,
+            rpInitiatedLogoutRedirectUri = p.RpInitiatedLogoutRedirectUri,
             createdAt = p.CreatedAt,
             // [v2.5.14] (#94/#98) Surface the exact callback/redirect URI the IdP
             // must be configured with, and the editable slug. This kills the
@@ -328,6 +335,8 @@ public class SecurityController : ControllerBase
             ButtonIconUrl = SanitizeButtonIconUrl(req.ButtonIconUrl),
             // [v2.5.14] (#100) force-password-on-onboarding opt-in.
             ForcePasswordSetup = req.ForcePasswordSetup,
+            RpInitiatedLogoutEnabled = req.RpInitiatedLogoutEnabled,
+            RpInitiatedLogoutRedirectUri = SanitizePostLogoutRedirectUri(req.RpInitiatedLogoutRedirectUri),
             CreatedAt = DateTime.UtcNow,
         };
         config.OidcProviders.Add(provider);
@@ -388,6 +397,8 @@ public class SecurityController : ControllerBase
         existing.ButtonIconUrl = SanitizeButtonIconUrl(req.ButtonIconUrl);
         // [v2.5.14] (#100) force-password-on-onboarding opt-in.
         existing.ForcePasswordSetup = req.ForcePasswordSetup;
+        existing.RpInitiatedLogoutEnabled = req.RpInitiatedLogoutEnabled;
+        existing.RpInitiatedLogoutRedirectUri = SanitizePostLogoutRedirectUri(req.RpInitiatedLogoutRedirectUri);
 
         // [v2.5.14] (#94, Re4mstr) Optional in-place callback-slug rename. The slug
         // is BOTH the last segment of the OIDC redirect URI (…/Oidc/Callback/<slug>)
@@ -880,6 +891,112 @@ public class SecurityController : ControllerBase
         return BuildOnboardingValidationHtml(result);
     }
 
+    /// <summary>[#134] RP-Initiated Logout. The Jellyfin web client owns the
+    /// Sign out button and revokes the access token itself; inject.js sends the
+    /// browser here afterwards, so by design this endpoint is reached with no
+    /// session left to authenticate. Hence [AllowAnonymous]: requiring a token
+    /// would make the feature fire only in the race where the redirect happens
+    /// to beat the revocation.
+    ///
+    /// It takes no user identity and returns none. All it does is look up an
+    /// admin-configured provider by id and 302 to that provider's published
+    /// end_session_endpoint, so the most an anonymous caller achieves is
+    /// redirecting themselves to an IdP sign-out page they could have typed by
+    /// hand. Every failure path lands on the local login page instead, because
+    /// someone who clicked Sign out must never end up looking at an error.</summary>
+    [HttpGet("Oidc/EndSession/{providerId}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> EndSession([FromRoute] string providerId)
+    {
+        // Same ban + rate-limit gate every other anonymous OIDC entry point
+        // carries. A cache-cold call here can trigger an outbound discovery
+        // fetch, and this endpoint takes no credential at all.
+        //
+        // Its own bucket rather than the oidc_login one: sharing it would let
+        // a household behind a single NAT address spend its sign-in budget on
+        // sign-outs and then fail to log back in.
+        //
+        // Both refusals return the local login page instead of a 403 or 429
+        // body. The caller already clicked Sign out and their session is
+        // already gone, so the worst outcome is that this one sign-out does
+        // not reach the IdP, which is precisely the pre-feature behaviour.
+        var ip = RateLimiter.ClientKey(HttpContext);
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_bans.CheckBanned(clientIp) is not null)
+        {
+            return LocalLoginRedirect();
+        }
+
+        if (!_oidcRateLimiter.CheckAndRecord("oidc_endsession:" + ip, 20, TimeSpan.FromMinutes(5)).allowed)
+        {
+            return LocalLoginRedirect();
+        }
+
+        var provider = Plugin.Instance?.Configuration.OidcProviders
+            .FirstOrDefault(p => p.Id == providerId);
+
+        // Not found, disabled, or RP logout switched off: behave exactly the
+        // way the plugin did before this feature existed. Re-read on every
+        // logout, so unticking the box is a real kill switch.
+        if (provider is null || !provider.Enabled || !provider.RpInitiatedLogoutEnabled)
+        {
+            return LocalLoginRedirect();
+        }
+
+        var url = await _oidc.TryBuildEndSessionUrlAsync(
+            provider,
+            string.IsNullOrWhiteSpace(provider.RpInitiatedLogoutRedirectUri)
+                ? null
+                : provider.RpInitiatedLogoutRedirectUri).ConfigureAwait(false);
+
+        if (string.IsNullOrEmpty(url))
+        {
+            _logger.LogDebug(
+                "[2FA] RP logout requested for provider {Id} but no usable end_session_endpoint; signed out locally only",
+                providerId);
+            return LocalLoginRedirect();
+        }
+
+        return Redirect(url);
+    }
+
+    /// <summary>[#134] Where the browser lands after the IdP sign-out, for the
+    /// admins who registered a post_logout_redirect_uri pointing back here.
+    /// Deliberately a redirect rather than a page of its own, so the feature
+    /// adds no new HTML surface to maintain or translate.</summary>
+    [HttpGet("Oidc/LoggedOut")]
+    [AllowAnonymous]
+    public IActionResult LoggedOut() => LocalLoginRedirect();
+
+    /// <summary>[#134] Keeps only an absolute https URL as the stored
+    /// post_logout_redirect_uri; anything else becomes empty, which means "do
+    /// not send the parameter at all". The value never steers a redirect issued
+    /// by this plugin (it is handed to the IdP, which matches it against what
+    /// the client registered), but it is admin-supplied free text that also
+    /// arrives through config import, so it gets normalised at the boundary
+    /// rather than trusted because of where it came from.</summary>
+    internal static string SanitizePostLogoutRedirectUri(string? value)
+        => !string.IsNullOrWhiteSpace(value)
+           && Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri)
+           && uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            // The trimmed original, not uri.ToString(): the latter
+            // percent-decodes and otherwise rewrites the value, and the IdP
+            // matches post_logout_redirect_uri against what was registered
+            // byte for byte, so canonicalising it can only break a match the
+            // admin already got right.
+            ? value.Trim()
+            : string.Empty;
+
+    /// <summary>Jellyfin's own login page, under the server's Base URL. The
+    /// safe landing spot for every RP-logout path that cannot reach the IdP.</summary>
+    private IActionResult LocalLoginRedirect()
+    {
+        var basePath = OidcRedirectUriBuilder.ResolveBasePath(
+            Request.PathBase.Value,
+            Request.Path.Value);
+        return Redirect(basePath + "/web/index.html");
+    }
+
     [HttpGet("Oidc/Callback/{providerId}")]
     [AllowAnonymous]
     public async Task<IActionResult> Callback(
@@ -1166,7 +1283,11 @@ public class SecurityController : ControllerBase
             + "<div id=\"err\" class=\"err\"></div></div><script>"
             + "(function(){"
             + "var u=" + uname + ",t=" + tok + ",bp=" + basePath + ",authPath=" + authPath
-            + ",land=" + land + ",loginPath=" + loginPath + ",forcePw=" + (mustSetPassword ? "true" : "false") + ";"
+            + ",land=" + land + ",loginPath=" + loginPath + ",forcePw=" + (mustSetPassword ? "true" : "false")
+            // [#134] Provider id, but only when RP-initiated logout is on for it,
+            // so the marker is never written for providers that cannot use it.
+            + ",rpLogoutId=" + System.Text.Json.JsonSerializer.Serialize(
+                provider.RpInitiatedLogoutEnabled ? provider.Id : null) + ";"
             + "var did=(function(){try{var x=localStorage.getItem('_deviceId2');if(!x){x=Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join('');localStorage.setItem('_deviceId2',x);}return x;}catch(e){return 'bridge-'+Date.now();}})();"
             + "var auth='MediaBrowser Client=\"Jellyfin Web\", Device=\"Browser\", DeviceId=\"'+did+'\", Version=\"10.11.0\"';"
             + "fetch(authPath,{method:'POST',headers:{'Content-Type':'application/json','X-Emby-Authorization':auth,'Authorization':auth},body:JSON.stringify({Username:u,Pw:t})})"
@@ -1209,6 +1330,11 @@ public class SecurityController : ControllerBase
             // set-password page on a successful set, or if the server reports no
             // setup pending (stale). This makes the forced step inescapable.
             + "try{if(forcePw)localStorage.setItem('__tfa_set_pw_required','1');}catch(e){}"
+            // [#134] Remember which provider signed this browser in, so a later
+            // sign-out can end the session at that IdP too. Always written or
+            // cleared, never left stale from an earlier provider.
+            + "try{if(rpLogoutId)localStorage.setItem('__tfa_rp_logout',rpLogoutId);"
+            + "else localStorage.removeItem('__tfa_rp_logout');}catch(e){}"
             + "document.getElementById('msg').textContent='Signed in as '+res.User.Name+' — redirecting…';"
             + "setTimeout(function(){window.location.href=land;},400);"
             + "})"
@@ -1485,6 +1611,10 @@ public class SecurityController : ControllerBase
             + "var ba=window.location.origin+su('');if(ba.charAt(ba.length-1)==='/')ba=ba.substring(0,ba.length-1);"
             + "var server={Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:1,ManualAddress:ba,LocalAddress:ba};"
             + "localStorage.setItem('jellyfin_credentials',JSON.stringify({Servers:[server]}));"
+            // [#134] The native webview breakout does not participate in
+            // RP-initiated logout, so drop any marker an earlier browser
+            // sign-in left behind rather than letting it fire later.
+            + "try{localStorage.removeItem('__tfa_rp_logout');}catch(e){}"
             + "st('Signed in as '+res.User.Name+' \\u2014 opening Jellyfin\\u2026');"
             + "setTimeout(function(){window.location.href=su('web/index.html');},400);"
             + "}).catch(function(e){st('Sign-in failed: '+e.message);});"

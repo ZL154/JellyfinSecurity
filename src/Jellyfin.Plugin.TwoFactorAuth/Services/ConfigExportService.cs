@@ -347,6 +347,17 @@ public class ConfigExportService
                     p.DiscoveryUrl = string.Empty;
                     p.Enabled = false;
                 }
+
+                // [#134] Same treatment for the RP-logout return URL: it is
+                // handed to the IdP as post_logout_redirect_uri, and an
+                // imported config never passes through the admin API's own
+                // sanitiser.
+                if (!string.IsNullOrEmpty(p.RpInitiatedLogoutRedirectUri)
+                    && !p.RpInitiatedLogoutRedirectUri.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning("[2FA] Import sanitize: stripped non-HTTPS RpInitiatedLogoutRedirectUri on provider {Pid}", p.Id);
+                    p.RpInitiatedLogoutRedirectUri = string.Empty;
+                }
             }
         }
 

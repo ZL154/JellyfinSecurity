@@ -246,6 +246,26 @@ public class OidcProvider
     /// PluginConfiguration.OnboardingPassword*). Default off.</summary>
     public bool ForcePasswordSetup { get; set; }
 
+    /// <summary>[#134] When enabled, signing out of Jellyfin also ends the
+    /// session at this provider (OIDC RP-Initiated Logout 1.0): after the local
+    /// sign-out completes the browser is sent to the OP's end_session_endpoint.
+    /// Opt-in and default OFF, because it only works once
+    /// <c>{server}/TwoFactorAuth/Oidc/LoggedOut</c> is registered as a valid
+    /// post-logout redirect URI at the IdP, and because it changes where the
+    /// user lands after clicking Sign out. Silently inert when the OP publishes
+    /// no end_session_endpoint.</summary>
+    public bool RpInitiatedLogoutEnabled { get; set; }
+
+    /// <summary>[#134] Optional absolute https URL handed to the OP as
+    /// post_logout_redirect_uri, so the browser returns here after the IdP
+    /// sign-out instead of stopping on the IdP's own logged-out page. Empty by
+    /// default, and empty means the parameter is not sent at all: most OPs
+    /// reject the whole logout request when it carries a URI that was never
+    /// registered against the client, so opting in has to be a deliberate act
+    /// by an admin who has registered it. Ignored unless
+    /// <see cref="RpInitiatedLogoutEnabled"/> is on.</summary>
+    public string RpInitiatedLogoutRedirectUri { get; set; } = string.Empty;
+
     public DateTime CreatedAt { get; set; }
 }
 
