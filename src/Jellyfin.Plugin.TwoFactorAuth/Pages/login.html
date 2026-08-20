@@ -192,6 +192,10 @@
         // actually set.
         function clearTfaClientState() {
             try { sessionStorage.removeItem('__tfa_pending'); } catch (e) {}
+            // [#134] This browser just signed in locally, so any RP-logout
+            // marker still sitting here belongs to an older OIDC session.
+            // Leaving it armed would send a password sign-out to that IdP.
+            try { localStorage.removeItem('__tfa_rp_logout'); } catch (e) {}
         }
 
         var params = new URLSearchParams(window.location.search);

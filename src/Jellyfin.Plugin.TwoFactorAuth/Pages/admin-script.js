@@ -1679,6 +1679,11 @@
                     var forcePwEl = page.querySelector('#ssoForcePassword');
                     if (forcePwEl) forcePwEl.checked = prov ? !!prov.forcePasswordSetup : false;
                     page.querySelector('#ssoRequireMfa').checked = prov ? !!prov.requireIdpMfa : false;
+                    // [#134] RP-initiated logout opt-in + optional return URL.
+                    var rpLogoutEl = page.querySelector('#ssoRpLogout');
+                    if (rpLogoutEl) rpLogoutEl.checked = prov ? !!prov.rpInitiatedLogoutEnabled : false;
+                    var rpRedirectEl = page.querySelector('#ssoRpLogoutRedirect');
+                    if (rpRedirectEl) rpRedirectEl.value = (prov && prov.rpInitiatedLogoutRedirectUri) || '';
                     page.querySelector('#ssoBypass2fa').checked = prov ? prov.bypassPluginTwoFa !== false : true;
                     page.querySelector('#ssoEnabled').checked = prov ? prov.enabled !== false : true;
                     // [v2.5.13] (#97) show built-in button toggle (default on).
@@ -1784,6 +1789,8 @@
                         // [v2.5.14] (#100) force-password-on-onboarding opt-in.
                         ForcePasswordSetup: (page.querySelector('#ssoForcePassword') || {}).checked === true,
                         RequireIdpMfa: page.querySelector('#ssoRequireMfa').checked,
+                        RpInitiatedLogoutEnabled: (page.querySelector('#ssoRpLogout') || {}).checked === true,
+                        RpInitiatedLogoutRedirectUri: ((page.querySelector('#ssoRpLogoutRedirect') || {}).value || '').trim(),
                         BypassPluginTwoFa: page.querySelector('#ssoBypass2fa').checked,
                         Enabled: page.querySelector('#ssoEnabled').checked,
                         // [v2.5.13] (#97) show built-in button on login page.

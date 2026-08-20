@@ -223,6 +223,9 @@
                 && window.ApiClient
                 && typeof window.ApiClient.logout === 'function') {
                 clearTfaPending();
+                // [#134] This sign-out exists to reopen the account picker, so
+                // it is not the user asking to end their IdP session.
+                tfaSuppressRpLogout();
                 var openUserPicker = function () {
                     window.location.href = serverUrl('web/index.html#/login');
                 };
@@ -1690,6 +1693,9 @@
         injectSettingsTile();
         injectOidcButtons();
         handleOidcCallback();
+        // [#134] ApiClient is created lazily and per-server, so the wrap is
+        // attempted on every pass and no-ops once it has taken.
+        tfaWrapLogoutForRpLogout();
     }
 
     function start() {
@@ -1730,6 +1736,71 @@
 
         window.addEventListener('hashchange', tryInject);
         window.addEventListener('popstate', tryInject);
+    }
+
+    // ---------------------------------------------------------------------
+    // [#134] OIDC RP-Initiated Logout.
+    //
+    // The OIDC bridge stamps localStorage['__tfa_rp_logout'] with the provider
+    // id when that provider has RP logout switched on. Signing out afterwards
+    // should also end the session at the IdP.
+    //
+    // The hook is ApiClient.logout and deliberately nothing else. Matching
+    // POST /Sessions/Logout inside the fetch / XMLHttpRequest interceptors
+    // above would have caught flows that are not a sign-out, and would have
+    // raced the access-token revocation those interceptors sit on.
+    // ApiClient.logout is where the user's actual intent lives.
+    //
+    // Everything degrades to stock behaviour: no ApiClient, no marker, or any
+    // throw, and the browser follows the normal post-logout path. The marker
+    // is consumed before the redirect, so a provider that has since been
+    // disabled (the server answers with a plain redirect to /web) cannot loop.
+    // ---------------------------------------------------------------------
+    var __tfaRpLogoutKey = '__tfa_rp_logout';
+    var __tfaRpLogoutWrapped = false;
+    var __tfaRpLogoutSuppressed = false;
+
+    function tfaSuppressRpLogout() { __tfaRpLogoutSuppressed = true; }
+
+    function tfaTakeRpLogoutProvider() {
+        try {
+            var id = window.localStorage.getItem(__tfaRpLogoutKey);
+            // Always consume, even when suppressed or unusable, so a stale
+            // marker can never outlive the session that set it.
+            window.localStorage.removeItem(__tfaRpLogoutKey);
+            if (__tfaRpLogoutSuppressed) return null;
+            return id && /^[A-Za-z0-9._-]{1,64}$/.test(id) ? id : null;
+        } catch (e) { return null; }
+    }
+
+    function tfaWrapLogoutForRpLogout() {
+        try {
+            if (__tfaRpLogoutWrapped) return;
+            var api = window.ApiClient;
+            if (!api || typeof api.logout !== 'function') return;
+            __tfaRpLogoutWrapped = true;
+
+            var origLogout = api.logout;
+            api.logout = function () {
+                var providerId = tfaTakeRpLogoutProvider();
+                var result = origLogout.apply(this, arguments);
+                if (!providerId) return result;
+                // Let Jellyfin finish its own sign-out first, then hand the
+                // browser to the IdP. Both settle paths lead to the same
+                // navigation: a local logout that failed is still a logout the
+                // user asked for.
+                var go = function () {
+                    try {
+                        window.location.href = serverUrl(
+                            'TwoFactorAuth/Oidc/EndSession/' + encodeURIComponent(providerId));
+                    } catch (e) { /* stay put; stock behaviour */ }
+                };
+                try {
+                    Promise.resolve(result).then(go, go);
+                } catch (e) { go(); }
+                return result;
+            };
+        } catch (e) { /* stock behaviour */ }
     }
 
     if (document.readyState === 'loading') {

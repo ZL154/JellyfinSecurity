@@ -42,7 +42,13 @@ public class OidcService : IDisposable
         string UserInfoEndpoint,
         string JwksUri,
         string Issuer,
-        DateTime CachedAt);
+        DateTime CachedAt,
+        // [#134] RP-Initiated Logout 1.0. Optional in the discovery document
+        // and absent from plenty of OPs, so empty is a normal value: every
+        // caller has to read it as "this provider cannot do RP logout", never
+        // as an error. Trailing optional parameter so the existing positional
+        // construction below stays untouched.
+        string EndSessionEndpoint = "");
 
     private record PendingFlow(
         string ProviderId,
@@ -861,6 +867,88 @@ public class OidcService : IDisposable
             // fail the exchange on a best-effort binding check.
             return true;
         }
+    }
+
+    /// <summary>[#134] Builds this provider's RP-Initiated Logout URL, or null
+    /// when the feature is off for the provider, the OP publishes no
+    /// end_session_endpoint, or the published value is not an absolute https
+    /// URL. Never throws: a logout must degrade to today's behaviour rather
+    /// than fail, so every problem here returns null.
+    ///
+    /// Deliberately does NOT send id_token_hint. The plugin never retains an
+    /// id_token past verification, and persisting one purely to hint a logout
+    /// would mean holding a credential-shaped artifact at rest for the life of
+    /// every SSO session, keyed by access token, invalidated by nothing. RP-
+    /// Initiated Logout 1.0 s2 makes id_token_hint RECOMMENDED, not REQUIRED,
+    /// and allows client_id alongside post_logout_redirect_uri instead;
+    /// Keycloak (>= 18) and Authentik both accept that form. An OP that
+    /// mandates id_token_hint will ignore post_logout_redirect_uri and land the
+    /// user on its own generic sign-out page, which is still strictly better
+    /// than the current behaviour of never reaching the OP at all.</summary>
+    public async Task<string?> TryBuildEndSessionUrlAsync(OidcProvider provider, string? postLogoutRedirectUri)
+    {
+        try
+        {
+            if (provider is null || !provider.Enabled || !provider.RpInitiatedLogoutEnabled)
+            {
+                return null;
+            }
+
+            var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
+            return BuildEndSessionUrl(disc.EndSessionEndpoint, provider.ClientId, postLogoutRedirectUri);
+        }
+        catch (Exception ex)
+        {
+            // Discovery can throw (IdP down, cert expired, DNS). Logging out
+            // must not depend on the IdP being reachable.
+            _logger.LogDebug(ex, "[2FA] RP logout URL unavailable for provider {Id}; falling back to local sign-out", provider?.Id);
+            return null;
+        }
+    }
+
+    /// <summary>[#134] Pure URL composition for RP-initiated logout, split out
+    /// so it can be tested without a discovery round-trip. Returns null when
+    /// the OP published nothing usable.</summary>
+    internal static string? BuildEndSessionUrl(
+        string? endSessionEndpoint,
+        string? clientId,
+        string? postLogoutRedirectUri)
+    {
+        // An absolute https URL is the only shape we will ever send a browser
+        // to. This rejects a relative path, a javascript: or data: value, and
+        // anything unparseable, so a malformed or hostile discovery document
+        // cannot turn the logout redirect into something that is not a
+        // navigation to the IdP.
+        if (string.IsNullOrWhiteSpace(endSessionEndpoint)
+            || !Uri.TryCreate(endSessionEndpoint, UriKind.Absolute, out var endSessionUri)
+            || !endSessionUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        // Build from the PARSED uri, never from the raw string. Uri.TryCreate
+        // accepts input that must not go out verbatim: control characters
+        // survive in the original text, and Redirect() then throws on the
+        // Location header, handing a 500 to someone who clicked Sign out. A
+        // fragment fails more quietly, since everything appended after it
+        // stays client-side and client_id never reaches the OP, which without
+        // id_token_hint is the only thing identifying us. GetLeftPart(Query)
+        // keeps scheme, host, path and any query the OP already publishes (a
+        // few tenanted OPs do), and drops the fragment.
+        var sb = new StringBuilder(endSessionUri.GetLeftPart(UriPartial.Query));
+        sb.Append(string.IsNullOrEmpty(endSessionUri.Query) ? '?' : '&');
+        sb.Append("client_id=").Append(Uri.EscapeDataString(clientId ?? string.Empty));
+
+        // https-only here too, independently of the controller's sanitiser: a
+        // config imported through ConfigExportService never passes through it.
+        if (!string.IsNullOrWhiteSpace(postLogoutRedirectUri)
+            && Uri.TryCreate(postLogoutRedirectUri, UriKind.Absolute, out var plUri)
+            && plUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            sb.Append("&post_logout_redirect_uri=").Append(Uri.EscapeDataString(postLogoutRedirectUri));
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>Shared pipeline that runs after an id_token has been verified:
@@ -2226,7 +2314,11 @@ public class OidcService : IDisposable
             resp.TryGetProperty("userinfo_endpoint", out var ui) ? ui.GetString() ?? "" : "",
             RequireDiscoveryEndpoint(resp, "jwks_uri", discoveryUrl),
             RequireDiscoveryEndpoint(resp, "issuer", discoveryUrl),
-            DateTime.UtcNow);
+            DateTime.UtcNow,
+            // [#134] Optional, exactly like userinfo_endpoint above: an OP that
+            // omits it simply cannot do RP-initiated logout, which is not an
+            // error and must not fail discovery for every other flow.
+            resp.TryGetProperty("end_session_endpoint", out var es) ? es.GetString() ?? "" : "");
 
         // Also validate the IdP-supplied endpoint URLs from the discovery
         // response. The DiscoveryUrl could be a perfectly fine public IdP
