@@ -856,5 +856,7 @@
   "tfa.setpassword.already_set": "Votre mot de passe est déjà défini. Redirection…",
   "tfa.setpassword.error_failed": "Impossible de définir le mot de passe. Réessayez.",
   "tfa.setpassword.error_network": "Erreur réseau. Réessayez.",
-  "tfa.setpassword.error_logout": "Impossible de se déconnecter. Réessayez."
+  "tfa.setpassword.error_logout": "Impossible de se déconnecter. Réessayez.",
+  "tfa.factor.password_login_disabled.label": "Connexion par mot de passe désactivée (SSO uniquement)",
+  "tfa.factor.password_login_disabled.action": "La connexion par mot de passe est désactivée, mais reste autorisée pour {hatches}. Fermez ces exemptions pour obtenir tous les points."
 }

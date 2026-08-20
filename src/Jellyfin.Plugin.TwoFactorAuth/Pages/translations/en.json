@@ -856,5 +856,7 @@
   "tfa.setpassword.already_set": "Your password is already set. Redirecting…",
   "tfa.setpassword.error_failed": "Could not set your password. Please try again.",
   "tfa.setpassword.error_network": "Network error. Please try again.",
-  "tfa.setpassword.error_logout": "Could not sign out. Please try again."
+  "tfa.setpassword.error_logout": "Could not sign out. Please try again.",
+  "tfa.factor.password_login_disabled.label": "Password sign-in disabled (SSO only)",
+  "tfa.factor.password_login_disabled.action": "Password sign-in is off, but still allowed for {hatches}. Close those exemptions for full credit."
 }

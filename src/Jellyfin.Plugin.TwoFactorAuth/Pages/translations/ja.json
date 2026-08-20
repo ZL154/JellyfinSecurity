@@ -856,5 +856,7 @@
   "tfa.setpassword.already_set": "パスワードは既に設定されています。リダイレクト中…",
   "tfa.setpassword.error_failed": "パスワードを設定できませんでした。もう一度お試しください。",
   "tfa.setpassword.error_network": "ネットワークエラーです。もう一度お試しください。",
-  "tfa.setpassword.error_logout": "サインアウトできませんでした。もう一度お試しください。"
+  "tfa.setpassword.error_logout": "サインアウトできませんでした。もう一度お試しください。",
+  "tfa.factor.password_login_disabled.label": "パスワードによるサインインを無効化 (SSO のみ)",
+  "tfa.factor.password_login_disabled.action": "パスワードによるサインインは無効ですが、{hatches} には引き続き許可されています。満点にするにはこれらの例外を解除してください。"
 }

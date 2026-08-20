@@ -856,5 +856,7 @@
   "tfa.setpassword.already_set": "密码已设置。正在跳转…",
   "tfa.setpassword.error_failed": "无法设置密码。请重试。",
   "tfa.setpassword.error_network": "网络错误。请重试。",
-  "tfa.setpassword.error_logout": "无法退出。请重试。"
+  "tfa.setpassword.error_logout": "无法退出。请重试。",
+  "tfa.factor.password_login_disabled.label": "已禁用密码登录（仅限 SSO）",
+  "tfa.factor.password_login_disabled.action": "密码登录已禁用，但仍允许 {hatches} 使用。关闭这些例外以获得满分。"
 }

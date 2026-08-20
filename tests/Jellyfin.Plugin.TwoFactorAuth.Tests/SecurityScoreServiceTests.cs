@@ -157,6 +157,77 @@ public class SecurityScoreComputeTests
         Assert.InRange(score.Total, 60, 75);
     }
 
+    // -----------------------------------------------------------------
+    // [v2.5.22] (#160, hax4dazy) password-sign-in-disabled credit.
+    // -----------------------------------------------------------------
+
+    [Fact]
+    public async Task PasswordLoginFactor_IsAbsentWhenTheSwitchIsOff()
+    {
+        // The factor must not exist at all rather than score zero. A server
+        // running password + 2FA is not insecure, and adding an 8-point factor
+        // it can never earn would silently drop every such server's grade on
+        // upgrade.
+        var svc = Build(out _, out var cfg);
+        cfg.DisablePasswordLogin = false;
+        var score = await svc.ComputeAsync();
+
+        Assert.DoesNotContain(score.Factors, f => f.Id == "password-login-disabled");
+        Assert.Equal(12, score.Factors.Count);
+    }
+
+    [Fact]
+    public async Task PasswordLoginFactor_GivesFullCreditWithNoEscapeHatches()
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.DisablePasswordLogin = true;
+        cfg.AllowAdminPasswordLogin = false;
+        cfg.AllowPasswordLoginOnLan = false;
+        var score = await svc.ComputeAsync();
+
+        var f = Assert.Single(score.Factors, x => x.Id == "password-login-disabled");
+        Assert.Equal(8, f.Earned);
+        Assert.Equal(8, f.Possible);
+        Assert.Equal("ok", f.Status);
+        Assert.Null(f.NextAction);
+    }
+
+    [Fact]
+    public async Task PasswordLoginFactor_IsDockedForEachOpenEscapeHatch()
+    {
+        // An admin or LAN exemption means password compromise is still in the
+        // threat model for those clients, so full credit would overstate it.
+        var svc = Build(out _, out var cfg);
+        cfg.DisablePasswordLogin = true;
+        cfg.AllowAdminPasswordLogin = true;
+        cfg.AllowPasswordLoginOnLan = true;
+        var score = await svc.ComputeAsync();
+
+        var f = Assert.Single(score.Factors, x => x.Id == "password-login-disabled");
+        Assert.Equal(4, f.Earned);
+        Assert.Equal("partial", f.Status);
+        Assert.NotNull(f.NextAction);
+        Assert.Contains("administrators", f.NextAction!, StringComparison.Ordinal);
+        Assert.Contains("LAN clients", f.NextAction!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PasswordLoginFactor_RaisesTheScoreRatherThanLoweringIt()
+    {
+        // The whole point of #160: turning the switch on must move the grade UP.
+        var off = Build(out _, out var cfgOff);
+        cfgOff.DisablePasswordLogin = false;
+        var scoreOff = (await off.ComputeAsync()).Total;
+
+        var on = Build(out _, out var cfgOn);
+        cfgOn.DisablePasswordLogin = true;
+        cfgOn.AllowAdminPasswordLogin = false;
+        cfgOn.AllowPasswordLoginOnLan = false;
+        var scoreOn = (await on.ComputeAsync()).Total;
+
+        Assert.True(scoreOn > scoreOff, $"expected {scoreOn} > {scoreOff}");
+    }
+
     [Theory]
     [InlineData(95, "A")]
     [InlineData(90, "A")]

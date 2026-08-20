@@ -856,5 +856,7 @@
   "tfa.setpassword.already_set": "Ihr Passwort ist bereits festgelegt. Weiterleitung…",
   "tfa.setpassword.error_failed": "Das Passwort konnte nicht festgelegt werden. Bitte versuchen Sie es erneut.",
   "tfa.setpassword.error_network": "Netzwerkfehler. Bitte versuchen Sie es erneut.",
-  "tfa.setpassword.error_logout": "Abmeldung fehlgeschlagen. Bitte versuchen Sie es erneut."
+  "tfa.setpassword.error_logout": "Abmeldung fehlgeschlagen. Bitte versuchen Sie es erneut.",
+  "tfa.factor.password_login_disabled.label": "Passwort-Anmeldung deaktiviert (nur SSO)",
+  "tfa.factor.password_login_disabled.action": "Die Passwort-Anmeldung ist deaktiviert, aber weiterhin erlaubt für {hatches}. Schließen Sie diese Ausnahmen für die volle Punktzahl."
 }

@@ -856,5 +856,7 @@
   "tfa.setpassword.already_set": "La password è già impostata. Reindirizzamento…",
   "tfa.setpassword.error_failed": "Impossibile impostare la password. Riprova.",
   "tfa.setpassword.error_network": "Errore di rete. Riprova.",
-  "tfa.setpassword.error_logout": "Impossibile disconnettersi. Riprova."
+  "tfa.setpassword.error_logout": "Impossibile disconnettersi. Riprova.",
+  "tfa.factor.password_login_disabled.label": "Accesso con password disattivato (solo SSO)",
+  "tfa.factor.password_login_disabled.action": "L'accesso con password è disattivato, ma è ancora consentito per {hatches}. Chiudi queste esenzioni per ottenere il punteggio pieno."
 }

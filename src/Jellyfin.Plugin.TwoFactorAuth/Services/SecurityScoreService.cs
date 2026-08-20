@@ -332,6 +332,70 @@ public class SecurityScoreService : IDisposable
                 : "tfa.factor.recovery_codes.action"
         });
 
+        // 13. [v2.5.22] (#160, hax4dazy) Credit a server that has turned password
+        //     sign-in off entirely, so only OIDC/SSO + Quick Connect remain.
+        //
+        //     Deliberately ADDITIVE: the factor is only appended when the switch is
+        //     on, so it raises the score for servers that earn it and never docks
+        //     the ones that don't. Password + 2FA is a perfectly sound posture, and
+        //     a factor that penalised every such server would make the grade less
+        //     accurate, not more.
+        //
+        //     Graded, because the escape hatches genuinely weaken the control. A
+        //     server still accepting admin or LAN passwords has not removed password
+        //     compromise from its threat model, only narrowed it.
+        //
+        //     NOTE: this credit is only honest as of v2.5.22. Before that, the
+        //     switch did not hold — password sign-in still succeeded via Jellyfin's
+        //     obsolete POST /Users/{userId}/Authenticate, and any password beginning
+        //     "oidcbr_" skipped the gate outright. Both are closed now; see
+        //     LockoutMessageMiddleware.TryMatchPasswordAuthEndpoint.
+        if (cfg.DisablePasswordLogin)
+        {
+            int pwEarned = 8;
+            var openHatches = new List<string>();
+            if (cfg.AllowAdminPasswordLogin)
+            {
+                pwEarned -= 2;
+                openHatches.Add("administrators");
+            }
+
+            if (cfg.AllowPasswordLoginOnLan)
+            {
+                pwEarned -= 2;
+                openHatches.Add("LAN clients");
+            }
+
+            if (cfg.PasswordLoginExemptCidrs is { Length: > 0 })
+            {
+                pwEarned -= 1;
+                openHatches.Add("exempt networks");
+            }
+
+            if (pwEarned < 3)
+            {
+                pwEarned = 3;
+            }
+
+            var hatchList = string.Join(", ", openHatches);
+            factors.Add(new ScoreFactor
+            {
+                Id = "password-login-disabled",
+                Label = "Password sign-in disabled (SSO only)",
+                LabelKey = "tfa.factor.password_login_disabled.label",
+                Earned = pwEarned,
+                Possible = 8,
+                Status = pwEarned == 8 ? "ok" : "partial",
+                NextAction = pwEarned == 8
+                    ? null
+                    : "Password sign-in is off, but still allowed for " + hatchList + ". Close those exemptions for full credit.",
+                NextActionKey = pwEarned == 8 ? null : "tfa.factor.password_login_disabled.action",
+                NextActionData = pwEarned == 8
+                    ? null
+                    : new Dictionary<string, object> { ["hatches"] = hatchList }
+            });
+        }
+
         int total = factors.Sum(f => f.Earned);
         int possible = factors.Sum(f => f.Possible);
         // v2.5.0: scale to a 100 ceiling so adding factors doesn't break the

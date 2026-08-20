@@ -856,5 +856,7 @@
   "tfa.setpassword.already_set": "Tu contraseña ya está establecida. Redirigiendo…",
   "tfa.setpassword.error_failed": "No se pudo establecer la contraseña. Inténtalo de nuevo.",
   "tfa.setpassword.error_network": "Error de red. Inténtalo de nuevo.",
-  "tfa.setpassword.error_logout": "No se pudo cerrar la sesión. Inténtalo de nuevo."
+  "tfa.setpassword.error_logout": "No se pudo cerrar la sesión. Inténtalo de nuevo.",
+  "tfa.factor.password_login_disabled.label": "Inicio de sesión con contraseña desactivado (solo SSO)",
+  "tfa.factor.password_login_disabled.action": "El inicio de sesión con contraseña está desactivado, pero sigue permitido para {hatches}. Cierre esas exenciones para obtener la puntuación completa."
 }

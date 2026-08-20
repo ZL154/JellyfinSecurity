@@ -856,5 +856,7 @@
   "tfa.setpassword.already_set": "A palavra-passe já está definida. A redirecionar…",
   "tfa.setpassword.error_failed": "Não foi possível definir a palavra-passe. Tente novamente.",
   "tfa.setpassword.error_network": "Erro de rede. Tente novamente.",
-  "tfa.setpassword.error_logout": "Não foi possível terminar a sessão. Tente novamente."
+  "tfa.setpassword.error_logout": "Não foi possível terminar a sessão. Tente novamente.",
+  "tfa.factor.password_login_disabled.label": "Início de sessão por palavra-passe desativado (apenas SSO)",
+  "tfa.factor.password_login_disabled.action": "O início de sessão por palavra-passe está desativado, mas continua permitido para {hatches}. Feche essas exceções para obter a pontuação total."
 }

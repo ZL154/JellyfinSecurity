@@ -24,11 +24,20 @@ public class TrustCookieMiddleware
     // auth-path predicate. Anchored on a / boundary so nested paths like
     // /Admin/Proxy/AuthenticateByName don't accidentally match.
     private static readonly System.Text.RegularExpressions.Regex _trustAuthPathRegex =
-        new(@"(?:^|/+)(?:Users/(?:AuthenticateByName|AuthenticateWithQuickConnect)|TwoFactorAuth/Authenticate|QuickConnect/Authorize)(?:/|$|\?)",
+        new(@"(?:^|/+)(?:Users/(?:AuthenticateByName|AuthenticateWithQuickConnect|[0-9a-fA-F-]{32,36}/Authenticate)|TwoFactorAuth/Authenticate|QuickConnect/Authorize)(?:/|$|\?)",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase
                 | System.Text.RegularExpressions.RegexOptions.Compiled
                 | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
             TimeSpan.FromMilliseconds(50));
+
+    /// <summary>[v2.5.22] Testable seam for the auth-path predicate above.
+    /// Exposed because the by-id endpoint was missing from this regex — the same
+    /// omission that produced the v2.5.22 DisablePasswordLogin bypass. Here it
+    /// failed CLOSED (no trust cookie issued, so more restrictive rather than
+    /// less), but it is pinned by tests now so the two predicates cannot drift
+    /// apart again.</summary>
+    internal static bool IsTrustAuthPath(string? path)
+        => !string.IsNullOrEmpty(path) && path.Length <= 256 && _trustAuthPathRegex.IsMatch(path);
 
     private readonly RequestDelegate _next;
     private readonly UserTwoFactorStore _store;
@@ -59,8 +68,7 @@ public class TrustCookieMiddleware
         // which Jellyfin might one day add. Compiled regex with a leading
         // / anchor + length cap matches the TwoFactorEnforcementMiddleware
         // pattern.
-        if (path.Length > 256) { await _next(context).ConfigureAwait(false); return; }
-        var isAuthPath = _trustAuthPathRegex.IsMatch(path);
+        var isAuthPath = IsTrustAuthPath(path);
 
         if (!isAuthPath)
         {
