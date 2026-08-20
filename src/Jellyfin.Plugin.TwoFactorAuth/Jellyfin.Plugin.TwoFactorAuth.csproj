@@ -45,7 +45,7 @@
     <!-- Pinned: QuestPDF 2026.6.0 produced an invalid recovery-codes PDF
          ("Failed to load PDF document"); 2026.5.0 renders correctly. Do not
          auto-bump (Dependabot #77 closed for this). -->
-    <PackageReference Include="QuestPDF" Version="2026.5.0" />
+    <PackageReference Include="QuestPDF" Version="2026.7.3" />
     <PackageReference Include="IdentityModel.OidcClient" Version="6.0.0" />
     <!-- [v2.5.10] Reverted Dependabot #62's bump (8.18.0 -> 8.19.1). 8.19.1
          broke OIDC id_token signature validation (IDX10511: "Signature
