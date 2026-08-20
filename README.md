@@ -66,11 +66,26 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.5.21
+## 🆕 What's new in v2.5.22
 
-This release fixes the "signed in successfully, then thrown back to the login page" class of bug at its root, makes the plugin work under a Jellyfin Base URL, and turns notifications into something you can actually authenticate and test. It is an in-place upgrade from any 2.5.x with no schema migration or config reset.
+This release closes a security-control bypass: **"Disable password sign-in" did not actually hold.** If you rely on that switch, update. It also adds sign-out at your identity provider, credits a passwordless setup in the security score, and clears a confusing 500 on the login page. In-place upgrade from any 2.5.x, no schema migration or config reset.
+
+**v2.5.22**
+
+- **🔐 "Disable password sign-in" now actually disables password sign-in** *(reported privately by @camarigor)* — **affects servers with that switch enabled; present since v2.5.11.** Two independent ways password sign-in still succeeded with the switch on and every escape hatch off:
+  - **Only one of Jellyfin's two password endpoints was gated.** The deprecated `POST /Users/{userId}/Authenticate` was never matched. It carries no authorization requirement, is hidden from the API docs, and reaches the same authentication code — and the user id it needs isn't secret, since `GET /Users/Public` hands out ids and names to anyone. **That endpoint also skipped empty-password blocking and per-account lockout, including the failed-attempt counter**, which made it an unthrottled, unaudited password-guessing path.
+  - **The SSO waiver was a string test, not a lookup.** Any password merely *starting with* the internal `oidcbr_` prefix skipped the gate, so a user could opt themselves out of the server-wide policy by choosing one — with nothing in the UI or logs to show it.
+
+  This is a security-control *bypass*, not an authentication bypass: valid credentials were always still required. What failed was the mitigation the switch exists to provide. Both are fixed — the gate matches both endpoints, and the SSO waiver is now a real lookup against the live token store. Quick Connect and the admin/LAN/CIDR escape hatches behave exactly as before.
+- **Sign out of your identity provider, not just Jellyfin** *(#170, raised by @Akruidenberg in #134; implemented by @camarigor)* — signing out used to end only the Jellyfin session, so "Sign in with …" walked straight back in with no prompt. Enable **RP-initiated logout** per provider (off by default) and the browser is handed to the provider's own sign-out endpoint afterwards. Needs the provider to publish an `end_session_endpoint` — Keycloak and Authentik do, **Google does not**, in which case the toggle has no effect and sign-out behaves as before.
+- **Turning off password sign-in improves your security score** *(#160, @hax4dazy)* — the credit is **additive**, appearing only when the switch is on, so servers running passwords with 2FA are never docked for it. It's also graded: leaving the admin, LAN, or exempt-network hatches open scores partial credit, because password compromise is still in the threat model for those clients.
+- **No more "Internal server error" at your session limit** *(#178, @camarigor)* — a user with the correct password and a correct 2FA code who had hit **Maximum number of simultaneous sessions** saw a generic internal error pointing at the `[2FA]` logs, where the 2FA step had already succeeded. The real reason now surfaces, and the refusal no longer feeds the per-IP ban counter, so hitting your own session cap can't ban your own address.
+- **Jellyfin 12 readiness** *(#174, @martin-77; completed in #180)* — the plugin's own pages and three server endpoints now accept `Authorization: MediaBrowser Token="…"` as well as the legacy `X-Emby-Token`, which is required once legacy authorization is disabled on Jellyfin 12. The legacy header still wins when present, so nothing changes for clients that send it. **This does not yet make the plugin load on Jellyfin 12** — that needs a separate build, tracked in [#172](https://github.com/ZL154/JellyfinSecurity/issues/172).
+- **Hardening and housekeeping** — the trust-cookie middleware had the same endpoint blind spot (it failed *closed*, so was never exploitable) and is fixed alongside; **private vulnerability reporting is now enabled**, so the channel documented in [SECURITY.md](SECURITY.md) works; CodeQL action pins now move in lockstep so they can't deadlock. **476 passing tests.**
 
 **v2.5.21**
+
+This release fixes the "signed in successfully, then thrown back to the login page" class of bug at its root, makes the plugin work under a Jellyfin Base URL, and turns notifications into something you can actually authenticate and test.
 
 - **No more bounce back to the login page after a successful 2FA or SSO sign-in** *(#137 jaymu1406, #98 Re4mstr)* — two independent causes, both fixed. The client-side "2FA pending" flag that suppresses API calls mid-challenge was only ever cleared by the OIDC bridge, so completing a password+2FA login left it armed and Jellyfin Web's entire bootstrap was blocked on the next page load. And the stored credential recorded connection mode **Remote** while only ever populating a manual address, so Jellyfin resolved the server address to `undefined`. This is why it reproduced externally but never on the LAN, where a bypass meant the flag was never set in the first place.
 - **The Setup page works behind a Base URL** *(#144, someRandomDude-a)* — every API call from `/TwoFactorAuth/Setup` was hard-coded to the origin root, so any server mounted under a path (`https://host/jellyfin/`) 404'd on `/Users/Me` and the page reported "We couldn't verify your Jellyfin session". Nothing was ever wrong with the session; the page was asking the wrong origin. The 2FA challenge page had the same bug in its credential-storage path.
@@ -167,6 +182,15 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 ---
 
 ## 🧩 Features
+
+### New in v2.5.22
+
+- **Password sign-in refusal covers both of Jellyfin's password endpoints** — the deprecated `POST /Users/{userId}/Authenticate` is now gated exactly like `AuthenticateByName`, which also brings empty-password blocking and per-account lockout (including the failed-attempt counter) to that path.
+- **OIDC bridge tokens are validated by lookup, not by prefix** — a password that merely starts with the internal token prefix no longer waives the password-sign-in policy.
+- **OIDC RP-initiated logout** — opt-in per provider; ends the IdP session on sign-out so "Sign in with …" prompts again (#170).
+- **Security score credits disabled password sign-in** — additive and graded by how many escape hatches remain open (#160).
+- **Accurate refusal when a user is at their session limit** — a real reason instead of a 500, and no per-IP ban counted (#178).
+- **Jellyfin 12 authorization headers** — `Authorization: MediaBrowser Token` accepted alongside the legacy `X-Emby-Token` on the plugin's pages and endpoints (#174, #180).
 
 ### New in v2.5.21
 - **Post-sign-in bounce fixed at the root** — the client-side 2FA-pending flag is cleared on every sign-in completion path (not just the OIDC bridge), and stored credentials now record connection mode **Manual** to match the manual address the plugin writes, so Jellyfin Web can resolve the server after a 2FA or SSO login (#137, #98).
