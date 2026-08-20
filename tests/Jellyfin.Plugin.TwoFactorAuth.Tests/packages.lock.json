@@ -524,8 +524,8 @@
       },
       "QuestPDF": {
         "type": "Transitive",
-        "resolved": "2026.5.0",
-        "contentHash": "QddELSgpJ7YFrNaqlqUik/OOhK2/yVDqdqGjtdH+V3nxml2cvjUorFp2yiK8xnTLLvR139SXpVt3G/0oVCynig=="
+        "resolved": "2026.7.3",
+        "contentHash": "MYpJrSLwUkgaX/POQj+9GY8QreFoLXjHCiUPCNl0XrHF+nLDT9KeUFZbeaUNu1P5spt5QeYzCbf2tDF0z5idHg=="
       },
       "System.Collections.Immutable": {
         "type": "Transitive",
@@ -658,7 +658,7 @@
           "Microsoft.IdentityModel.Tokens": "[8.18.0, )",
           "Otp.NET": "[1.4.1, )",
           "QRCoder": "[1.8.0, )",
-          "QuestPDF": "[2026.5.0, )",
+          "QuestPDF": "[2026.7.3, )",
           "System.IdentityModel.Tokens.Jwt": "[8.18.0, )"
         }
       }
