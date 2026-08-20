@@ -29,7 +29,9 @@ public class I18nConfigTests
 
         Assert.NotNull(script);
         Assert.Contains("window.ApiClient.accessToken()", script);
-        Assert.Contains("headers['X-Emby-Token'] = token;", script);
+        Assert.Contains("Authorization", script);
+        Assert.Contains("MediaBrowser Token", script);
+        Assert.DoesNotContain("X-Emby-Token", script);
         Assert.Contains("headers: getAuthHeaders(false)", script);
         Assert.Contains("headers: getAuthHeaders(true)", script);
     }

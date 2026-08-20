@@ -66,8 +66,12 @@
                 }
 
                 function getHeaders() {
+                    var headers = { 'Content-Type': 'application/json' };
                     var token = ApiClient && ApiClient.accessToken ? ApiClient.accessToken() : '';
-                    return { 'X-Emby-Token': token, 'Content-Type': 'application/json' };
+                    if (token) {
+                        headers['Authorization'] = 'MediaBrowser Token="' + token + '"';
+                    }
+                    return headers;
                 }
                 function apiGet(path) {
                     return fetch(ApiClient.serverAddress() + '/' + path, { headers: getHeaders() }).then(function(r) { return r.ok ? r.json() : Promise.reject(r); });
