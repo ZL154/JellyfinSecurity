@@ -100,4 +100,22 @@ public class IndexHtmlInjectionMiddlewareTests
         Assert.DoesNotContain("fetch('/Users/AuthenticateByName", html, StringComparison.Ordinal);
         Assert.DoesNotContain("window.location.href='/web/index.html'", html, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void AndroidOidcBreakout_MergesCredentialsWithManualConnectionMode()
+    {
+        // #172. Same defect as the in-app modal: a whole-store replace in
+        // connection mode 1 leaves Jellyfin 12 with no server address.
+        var html = SecurityController.BuildWebViewBreakoutHtml(
+            "https://idp.example/authorize",
+            "Example",
+            "oidcpoll_test");
+
+        Assert.DoesNotContain("LastConnectionMode:1", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("JSON.stringify({Servers:[server]})", html, StringComparison.Ordinal);
+        Assert.Contains("existing.LastConnectionMode=2;", html, StringComparison.Ordinal);
+        Assert.Contains("creds.Servers.unshift({", html, StringComparison.Ordinal);
+        Assert.Contains("LastConnectionMode:2,ManualAddress:ba", html, StringComparison.Ordinal);
+        Assert.Contains("sessionStorage.removeItem('__tfa_pending')", html, StringComparison.Ordinal);
+    }
 }

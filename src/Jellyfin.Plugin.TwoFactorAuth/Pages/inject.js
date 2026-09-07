@@ -1370,6 +1370,9 @@
     // the existing form-fill + bridge-token path. /web/ never unloads, so the
     // poller survives the trip to the browser and back.
     var OIDC_MODAL_ID = '__twofactor_oidc_modal';
+    // jellyfin-web ConnectionMode.Manual (Local=0, Remote=1, Manual=2). The
+    // stored credential is resolved to a server address by this mode alone.
+    var TFA_CONNECTION_MODE_MANUAL = 2;
 
     function hasNativeShell() {
         try {
@@ -1491,8 +1494,39 @@
                         address = window.ApiClient.serverAddress();
                     }
                 } catch (e) { /* use origin + base path */ }
-                var server = { Id: res.ServerId, Name: 'Jellyfin', AccessToken: res.AccessToken, UserId: res.User.Id, Type: 'Server', DateLastAccessed: Date.now(), LastConnectionMode: 1, ManualAddress: address, LocalAddress: address };
-                localStorage.setItem('jellyfin_credentials', JSON.stringify({ Servers: [server] }));
+                // [#172] Merge into the store Jellyfin Web already built, the
+                // way the browser bridge page has since v2.5.21 (#98, #137).
+                // This used to replace the whole store with one synthetic entry
+                // in connection mode 1 (Remote) and no RemoteAddress, so the
+                // web client resolved the server address to undefined. Jellyfin
+                // 10.11 reconnected first and quietly rewrote the mode; the 12
+                // router asks for an Api before that reconnect, the ApiClient
+                // constructor throws "Must supply a serverAddress", and an app
+                // never leaves the splash screen. Mode 2 is Manual: the address
+                // that just authenticated is the only one proven reachable.
+                var creds;
+                try { creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}'); } catch (e) { creds = {}; }
+                if (!creds || typeof creds !== 'object') creds = {};
+                if (!creds.Servers) creds.Servers = [];
+                var existing = null;
+                for (var i = 0; i < creds.Servers.length; i++) {
+                    if (creds.Servers[i] && creds.Servers[i].Id === res.ServerId) { existing = creds.Servers[i]; break; }
+                }
+                var now = Date.now();
+                if (existing) {
+                    existing.AccessToken = res.AccessToken;
+                    existing.UserId = res.User.Id;
+                    existing.DateLastAccessed = now;
+                    existing.ManualAddress = address;
+                    existing.LastConnectionMode = TFA_CONNECTION_MODE_MANUAL;
+                    if (!existing.Name) existing.Name = 'Jellyfin';
+                } else {
+                    creds.Servers.unshift({ Id: res.ServerId, Name: 'Jellyfin', AccessToken: res.AccessToken, UserId: res.User.Id, Type: 'Server', DateLastAccessed: now, LastConnectionMode: TFA_CONNECTION_MODE_MANUAL, ManualAddress: address });
+                }
+                localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+                // A stale pending flag would short-circuit the fresh session's
+                // bootstrap calls (#98); this sign-in just succeeded, so none applies.
+                try { clearTfaPending(); } catch (e) {}
                 oidcModalStatus(Tf('tfa.login.oidc_signed_as', 'Signed in as {name} — opening Jellyfin…', { name: (res.User && res.User.Name ? res.User.Name : user) }));
                 setTimeout(function () { closeOidcModal(); window.location.href = serverUrl('web/index.html'); }, 300);
             })

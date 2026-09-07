@@ -1609,8 +1609,18 @@ public class SecurityController : ControllerBase
             + ".then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})"
             + ".then(function(res){"
             + "var ba=window.location.origin+su('');if(ba.charAt(ba.length-1)==='/')ba=ba.substring(0,ba.length-1);"
-            + "var server={Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:1,ManualAddress:ba,LocalAddress:ba};"
-            + "localStorage.setItem('jellyfin_credentials',JSON.stringify({Servers:[server]}));"
+            // [#172] Merge into the existing store with connection mode 2
+            // (Manual), like the browser bridge page since v2.5.21 (#98, #137).
+            // Mode 1 with no RemoteAddress resolves to an undefined server
+            // address; Jellyfin 12 throws on it before reconnecting and the
+            // app never leaves the splash screen.
+            + "var creds;try{creds=JSON.parse(localStorage.getItem('jellyfin_credentials')||'{}');}catch(e){creds={};}"
+            + "if(!creds||typeof creds!=='object')creds={};if(!creds.Servers)creds.Servers=[];"
+            + "var existing=null;for(var i=0;i<creds.Servers.length;i++){if(creds.Servers[i]&&creds.Servers[i].Id===res.ServerId){existing=creds.Servers[i];break;}}"
+            + "if(existing){existing.AccessToken=res.AccessToken;existing.UserId=res.User.Id;existing.DateLastAccessed=Date.now();existing.ManualAddress=ba;existing.LastConnectionMode=2;if(!existing.Name)existing.Name='Jellyfin';}"
+            + "else{creds.Servers.unshift({Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:2,ManualAddress:ba});}"
+            + "localStorage.setItem('jellyfin_credentials',JSON.stringify(creds));"
+            + "try{sessionStorage.removeItem('__tfa_pending');}catch(e){}"
             // [#134] The native webview breakout does not participate in
             // RP-initiated logout, so drop any marker an earlier browser
             // sign-in left behind rather than letting it fire later.
