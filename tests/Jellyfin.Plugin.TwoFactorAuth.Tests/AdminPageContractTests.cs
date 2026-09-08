@@ -97,6 +97,38 @@ public class AdminPageContractTests
     }
 
     [Fact]
+    public void Admin_step_up_modal_offers_the_emailed_code_and_a_passkey()
+    {
+        // #194: the modal accepted a typed TOTP or recovery code and nothing
+        // else, so an admin whose factor is email OTP or a passkey could never
+        // clear the gate. The modal now reuses the self-service step-up
+        // endpoints and hands StepUp/Verify either a code or the passkey token.
+        var script = ResourceReader.ReadEmbeddedText("Jellyfin.Plugin.TwoFactorAuth.Pages.admin-script.js");
+        var page = ResourceReader.ReadEmbeddedText("Jellyfin.Plugin.TwoFactorAuth.Pages.admin.html");
+        var english = ResourceReader.ReadEmbeddedText("Jellyfin.Plugin.TwoFactorAuth.Pages.translations.en.json");
+
+        Assert.NotNull(script);
+        Assert.NotNull(page);
+        Assert.NotNull(english);
+
+        Assert.Contains("function promptStepUpProof()", script);
+        Assert.Contains("TwoFactorAuth/StepUp/UserPasskeyBegin", script);
+        Assert.Contains("TwoFactorAuth/StepUp/UserPasskeyVerify", script);
+        Assert.Contains("TwoFactorAuth/StepUp/UserEmailSend", script);
+        Assert.Contains("proof.stepUpToken ? { StepUpToken: proof.stepUpToken } : { Code: proof.code }", script);
+        Assert.DoesNotContain("promptStepUpCode()", script);
+
+        Assert.Contains("id=\"tfa-stepup-passkey\"", page);
+        Assert.Contains("id=\"tfa-stepup-email\"", page);
+        Assert.Contains("id=\"tfa-stepup-status\"", page);
+
+        foreach (var key in new[] { "tfa.admin.modal.use_passkey", "tfa.admin.modal.send_email", "tfa.admin.modal.email_sent", "tfa.admin.modal.email_failed", "tfa.admin.modal.passkey_failed", "tfa.admin.modal.err_https" })
+        {
+            Assert.Contains("\"" + key + "\"", english);
+        }
+    }
+
+    [Fact]
     public void Trusted_device_token_survives_cookie_loss_on_stock_and_standalone_login()
     {
         var injectedScript = ResourceReader.ReadEmbeddedText(

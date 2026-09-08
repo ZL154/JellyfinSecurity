@@ -89,6 +89,9 @@
             #tfa-stepup-code:focus { border-color:#00a4dc; outline:none; }
             #tfa-stepup-error { min-height:18px; color:#f44336; font-size:12px; margin-bottom:12px; }
             #tfa-stepup-modal .tfa-stepup-actions { display:flex; gap:10px; justify-content:flex-end; }
+            #tfa-stepup-status { min-height:18px; color:#a5d6a7; font-size:12px; margin-bottom:10px; }
+            #tfa-stepup-modal .tfa-stepup-alt { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+            #tfa-stepup-modal .tfa-stepup-alt .tfa-btn { flex:1; }
 
             /* === v2.5.0 Dashboard === */
             #TwoFactorAuth .tfa-posture { display: flex; gap: 18px; align-items: center; background: linear-gradient(135deg, rgba(0,164,220,0.08), rgba(0,164,220,0.02)); padding: 18px; border-radius: 10px; border: 1px solid rgba(0,164,220,0.15); margin-bottom: 16px; }
@@ -977,9 +980,14 @@
         <div id="tfa-stepup-overlay" role="dialog" aria-modal="true" aria-labelledby="tfa-stepup-title">
             <div id="tfa-stepup-modal">
                 <h3 id="tfa-stepup-title" data-i18n-key="tfa.admin.modal.title">Admin authentication required</h3>
-                <p data-i18n-key="tfa.admin.modal.body">This action requires a fresh verification code from your authenticator app (or a recovery code).</p>
+                <p data-i18n-key="tfa.admin.modal.body">This action requires fresh proof of your second factor: a code from your authenticator app or a recovery code, a code sent to your email, or a passkey.</p>
                 <input type="text" id="tfa-stepup-code" class="tfa-stepup-code" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="8" />
                 <div id="tfa-stepup-error"></div>
+                <div id="tfa-stepup-status"></div>
+                <div class="tfa-stepup-alt">
+                    <button type="button" class="tfa-btn" id="tfa-stepup-passkey" style="display:none" data-i18n-key="tfa.admin.modal.use_passkey">Use a passkey instead</button>
+                    <button type="button" class="tfa-btn" id="tfa-stepup-email" style="display:none" data-i18n-key="tfa.admin.modal.send_email">Send code by email</button>
+                </div>
                 <div class="tfa-stepup-actions">
                     <button type="button" class="tfa-btn" id="tfa-stepup-cancel" data-i18n-key="tfa.admin.common.cancel">Cancel</button>
                     <button type="button" class="tfa-btn tfa-btn-primary" id="tfa-stepup-submit" data-i18n-key="tfa.admin.modal.btn_verify">Verify</button>

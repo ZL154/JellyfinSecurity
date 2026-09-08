@@ -89,28 +89,69 @@
                 // .catch was also one of the "Uncaught (in promise)" console
                 // errors reported in #149.
                 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+                // [#194] WebAuthn transport helpers, same as the Setup page.
+                function b64uToBytes(s) { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; var b = atob(s); var a = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a.buffer; }
+                function bytesToB64u(buf) { var b = new Uint8Array(buf); var s = ''; for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 
                 // ---- v2.5.0: STEP-UP PROMPT MODAL ----
-                // promptStepUpCode opens the modal and returns a Promise that
-                // resolves with the entered code string, or null on cancel.
+                // [#194] promptStepUpProof opens the modal and returns a Promise
+                // that resolves with { code } (a TOTP, recovery or emailed code),
+                // { stepUpToken } (a passkey assertion, verified by the same
+                // endpoints the Setup page uses) or null on cancel. The passkey
+                // and email buttons appear only when the account has that factor.
                 var _stepUpResolve = null;
                 var stepUpOverlay = document.getElementById('tfa-stepup-overlay');
                 var stepUpCodeInput = document.getElementById('tfa-stepup-code');
                 var stepUpErrorEl = document.getElementById('tfa-stepup-error');
+                var stepUpStatusEl = document.getElementById('tfa-stepup-status');
+                var stepUpPasskeyBtn = document.getElementById('tfa-stepup-passkey');
+                var stepUpEmailBtn = document.getElementById('tfa-stepup-email');
+                var _stepUpFactorsPromise = null;
 
-                function promptStepUpCode() {
+                // Read once: passkeys from MyStatus, email OTP from the plugin
+                // configuration. A failed read only hides the buttons.
+                function loadStepUpFactors() {
+                    if (_stepUpFactorsPromise) return _stepUpFactorsPromise;
+                    var passkeys = apiGet('TwoFactorAuth/MyStatus')
+                        .then(function(s) { return (s && (s.passkeyCount || s.PasskeyCount)) || 0; })
+                        .catch(function() { return 0; });
+                    var email = (window.ApiClient && typeof ApiClient.getPluginConfiguration === 'function')
+                        ? ApiClient.getPluginConfiguration(pluginId).then(function(c) { return !!(c && c.EmailOtpEnabled); }).catch(function() { return false; })
+                        : Promise.resolve(false);
+                    _stepUpFactorsPromise = Promise.all([passkeys, email]).then(function(r) { return { passkeys: r[0], email: r[1] }; });
+                    return _stepUpFactorsPromise;
+                }
+
+                function promptStepUpProof() {
                     return new Promise(function(resolve) {
                         _stepUpResolve = resolve;
                         stepUpErrorEl.textContent = '';
+                        stepUpStatusEl.textContent = '';
                         stepUpCodeInput.value = '';
+                        stepUpPasskeyBtn.style.display = 'none';
+                        stepUpEmailBtn.style.display = 'none';
+                        stepUpEmailBtn.disabled = false;
+                        stepUpEmailBtn.textContent = _tr('tfa.admin.modal.send_email', 'Send code by email');
+                        loadStepUpFactors().then(function(f) {
+                            stepUpPasskeyBtn.style.display = f.passkeys > 0 ? '' : 'none';
+                            stepUpEmailBtn.style.display = f.email ? '' : 'none';
+                        });
                         stepUpOverlay.classList.add('active');
                         // Focus the code input on next tick so animation completes
                         setTimeout(function() { stepUpCodeInput.focus(); }, 50);
                     });
                 }
+                function resolveStepUp(proof) {
+                    if (!_stepUpResolve) return;
+                    var cb = _stepUpResolve;
+                    _stepUpResolve = null;
+                    stepUpOverlay.classList.remove('active');
+                    cb(proof);
+                }
                 function closeStepUpModal() {
                     stepUpOverlay.classList.remove('active');
                     stepUpErrorEl.textContent = '';
+                    stepUpStatusEl.textContent = '';
                     stepUpCodeInput.value = '';
                     if (_stepUpResolve) { _stepUpResolve(null); _stepUpResolve = null; }
                 }
@@ -122,12 +163,65 @@
                 document.getElementById('tfa-stepup-submit').addEventListener('click', function() {
                     var code = stepUpCodeInput.value.trim();
                     if (!code) { showStepUpError(_tr('tfa.admin.modal.err_enter_code', 'Enter a code.')); return; }
-                    if (_stepUpResolve) {
-                        var cb = _stepUpResolve;
-                        _stepUpResolve = null;
-                        stepUpOverlay.classList.remove('active');
-                        cb(code);
+                    resolveStepUp({ code: code });
+                });
+                // Passkey: assertion through the self-service step-up endpoints,
+                // which mint a single-use token that StepUp/Verify consumes.
+                stepUpPasskeyBtn.addEventListener('click', function() {
+                    if (!window.isSecureContext || !window.PublicKeyCredential) {
+                        showStepUpError(_tr('tfa.admin.modal.err_https', 'Passkeys require HTTPS. Reload this page via your HTTPS URL and try again.'));
+                        return;
                     }
+                    stepUpErrorEl.textContent = '';
+                    stepUpPasskeyBtn.disabled = true;
+                    apiPost('TwoFactorAuth/StepUp/UserPasskeyBegin').then(function(begin) {
+                        var pkOpts = begin.options;
+                        pkOpts.challenge = b64uToBytes(pkOpts.challenge);
+                        if (pkOpts.allowCredentials) pkOpts.allowCredentials.forEach(function(c) { c.id = b64uToBytes(c.id); });
+                        return navigator.credentials.get({ publicKey: pkOpts }).then(function(assertion) {
+                            var response = {
+                                id: assertion.id,
+                                rawId: bytesToB64u(assertion.rawId),
+                                type: assertion.type,
+                                response: {
+                                    clientDataJSON: bytesToB64u(assertion.response.clientDataJSON),
+                                    authenticatorData: bytesToB64u(assertion.response.authenticatorData),
+                                    signature: bytesToB64u(assertion.response.signature),
+                                    userHandle: assertion.response.userHandle ? bytesToB64u(assertion.response.userHandle) : null,
+                                },
+                                extensions: assertion.getClientExtensionResults ? assertion.getClientExtensionResults() : {},
+                            };
+                            return apiPost('TwoFactorAuth/StepUp/UserPasskeyVerify', { nonce: begin.nonce, response: JSON.stringify(response) });
+                        });
+                    }).then(function(verify) {
+                        if (verify && verify.stepUpToken) { resolveStepUp({ stepUpToken: verify.stepUpToken }); }
+                        else { showStepUpError(_tr('tfa.admin.modal.passkey_failed', 'Passkey verification failed.')); }
+                    }).catch(function(e) {
+                        showStepUpError((e && e.message) || _tr('tfa.admin.modal.passkey_failed', 'Passkey verification failed.'));
+                    }).then(function() { stepUpPasskeyBtn.disabled = false; });
+                });
+                // Email: the server sends a single-use step-up code to the
+                // account's address; the user types it in the code field.
+                stepUpEmailBtn.addEventListener('click', function() {
+                    stepUpErrorEl.textContent = '';
+                    stepUpEmailBtn.disabled = true;
+                    stepUpStatusEl.textContent = _tr('tfa.admin.modal.email_sending', 'Sending...');
+                    fetch(ApiClient.serverAddress() + '/TwoFactorAuth/StepUp/UserEmailSend', { method: 'POST', headers: getHeaders() }).then(function(r) {
+                        if (r.ok) {
+                            stepUpStatusEl.textContent = _tr('tfa.admin.modal.email_sent', 'Code sent. Check your email and enter the code above.');
+                            stepUpCodeInput.focus();
+                            return;
+                        }
+                        return r.json().catch(function() { return null; }).then(function(b) {
+                            stepUpEmailBtn.disabled = false;
+                            stepUpStatusEl.textContent = '';
+                            showStepUpError((b && b.message) || _tr('tfa.admin.modal.email_failed', 'Failed to send the email. Check SMTP and your account email.'));
+                        });
+                    }).catch(function() {
+                        stepUpEmailBtn.disabled = false;
+                        stepUpStatusEl.textContent = '';
+                        showStepUpError(_tr('tfa.admin.modal.email_failed', 'Failed to send the email. Check SMTP and your account email.'));
+                    });
                 });
                 stepUpCodeInput.addEventListener('keydown', function(e) {
                     if (e.key === 'Enter') { document.getElementById('tfa-stepup-submit').click(); }
@@ -162,12 +256,14 @@
                             // Retry loop — keeps the modal open until the user enters a
                             // correct code, cancels, or hits the server rate limit.
                             function tryVerify() {
-                                return promptStepUpCode().then(function(code) {
-                                    if (!code) return resp; // user cancelled — surface original 403
+                                return promptStepUpProof().then(function(proof) {
+                                    if (!proof) return resp; // user cancelled: surface the original 403
+                                    // [#194] a passkey assertion hands over a token, everything else a code
+                                    var body = proof.stepUpToken ? { StepUpToken: proof.stepUpToken } : { Code: proof.code };
                                     return fetch(ApiClient.serverAddress() + '/TwoFactorAuth/StepUp/Verify', {
                                         method: 'POST',
                                         headers: getHeaders(),
-                                        body: JSON.stringify({ Code: code }),
+                                        body: JSON.stringify(body),
                                     }).then(function(verifyResp) {
                                         if (verifyResp.ok) {
                                             // Verified — modal already closed by submit handler;
