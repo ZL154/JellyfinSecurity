@@ -1659,7 +1659,7 @@ public class SecurityController : ControllerBase
         // so it's not HTML-injected (it's URL-encoded), but we still don't
         // want to echo unlimited attacker-chosen text back to browsers.
         var safe = new string(msg.Take(200).Where(c => c >= 0x20 && c != 0x7F).ToArray());
-        return "/web/index.html#!/login.html?oidcError=" + Uri.EscapeDataString(safe);
+        return "/web/index.html#/login?oidcError=" + Uri.EscapeDataString(safe);
     }
 
     private string BuildRedirectUri(OidcProvider provider)
@@ -1785,7 +1785,7 @@ public class SecurityController : ControllerBase
             LandingPath: basePath + (mustSetPassword
                 ? "/TwoFactorAuth/SetPassword"
                 : "/web/index.html"),
-            LoginPath: basePath + "/web/index.html#!/login.html");
+            LoginPath: basePath + "/web/index.html#/login");
     }
 
     // =========================================================================

@@ -75,7 +75,7 @@ public class AdminPageContractTests
         Assert.Equal("/jellyfin", paths.BasePath);
         Assert.Equal("/jellyfin/Users/AuthenticateByName", paths.AuthenticatePath);
         Assert.Equal(expectedLanding, paths.LandingPath);
-        Assert.Equal("/jellyfin/web/index.html#!/login.html", paths.LoginPath);
+        Assert.Equal("/jellyfin/web/index.html#/login", paths.LoginPath);
     }
 
     [Fact]
