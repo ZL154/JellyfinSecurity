@@ -122,6 +122,12 @@ public class StepUpCodeRequest
 public class StepUpVerifyRequest
 {
     public string? Code { get; set; }
+
+    // [#194] Single-use 60-second token minted by
+    // /TwoFactorAuth/StepUp/UserPasskeyVerify (or UserCodeVerify). Lets the
+    // admin step-up modal accept a passkey assertion: the assertion mints
+    // the token, and this endpoint consumes it in place of a code.
+    public string? StepUpToken { get; set; }
 }
 
 /// <summary>v2.5.0: payload for the focused hardening-config save endpoint

@@ -1841,8 +1841,16 @@ public class TwoFactorAuthController : ControllerBase
 
         var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
 
-        var ok = !string.IsNullOrWhiteSpace(request?.Code)
-                 && _stepUp.VerifyUserCode(userData, request!.Code!);
+        // [#194] Same proofs as the self-service step-up: TOTP or recovery
+        // code, an emailed step-up code, or the single-use token the passkey
+        // assertion mints. The admin modal was limited to the first two, which
+        // locked out admins whose factor is email OTP or a passkey.
+        var ok = _stepUp.VerifyAdminProof(
+            userData,
+            userId,
+            request?.Code,
+            request?.StepUpToken,
+            c => _emailOtpService.ValidateStepUpCode(userId, c));
         if (!ok)
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { message = "Invalid code." });
@@ -1869,6 +1877,14 @@ public class TwoFactorAuthController : ControllerBase
                     match.Used = true;
                     match.UsedAt = cloneCode.UsedAt ?? DateTime.UtcNow;
                 }
+            }
+            // [#194] VerifyUserCode raises the TOTP replay floor on the clone
+            // (Finding 23); the self-service path persisted it and this one
+            // did not, so an admin step-up code stayed replayable for the
+            // rest of its 30 second step.
+            if (userData.LastUsedTotpStep > ud.LastUsedTotpStep)
+            {
+                ud.LastUsedTotpStep = userData.LastUsedTotpStep;
             }
         }).ConfigureAwait(false);
         _challengeStore.MarkStepUpVerified(userId);

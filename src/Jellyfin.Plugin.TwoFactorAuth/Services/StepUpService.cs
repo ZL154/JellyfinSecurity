@@ -43,6 +43,43 @@ public class StepUpService
     /// 2FA state. If a recovery code matches, it is marked Used on
     /// <paramref name="userData"/> — the CALLER MUST PERSIST userData (e.g.
     /// inside a UserTwoFactorStore.MutateAsync block) when this returns true.</summary>
+    /// <summary>[#194] Proof of possession for the admin step-up window.
+    /// Accepts what the self-service step-up accepts: a TOTP or recovery
+    /// code (<see cref="VerifyUserCode"/>), an emailed step-up code
+    /// (validated by <paramref name="validateEmailCode"/>, which consumes it),
+    /// or a single-use token minted by the passkey assertion endpoints
+    /// (<see cref="ChallengeStore.ConsumeUserStepUpToken"/>, bound to
+    /// <paramref name="userId"/>). A token is tried first when present, so a
+    /// stale code in the field cannot turn a valid assertion into a refusal.
+    /// Every proof is single use, so a refusal never leaves anything
+    /// reusable behind.</summary>
+    public bool VerifyAdminProof(
+        UserTwoFactorData userData,
+        Guid userId,
+        string? code,
+        string? stepUpToken,
+        Func<string, bool> validateEmailCode)
+    {
+        ArgumentNullException.ThrowIfNull(validateEmailCode);
+
+        if (!string.IsNullOrWhiteSpace(stepUpToken))
+        {
+            return _challenges.ConsumeUserStepUpToken(stepUpToken, userId);
+        }
+
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return false;
+        }
+
+        if (VerifyUserCode(userData, code))
+        {
+            return true;
+        }
+
+        return validateEmailCode(code);
+    }
+
     public bool VerifyUserCode(UserTwoFactorData userData, string code)
     {
         if (userData is null || string.IsNullOrWhiteSpace(code)) return false;
