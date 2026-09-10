@@ -80,7 +80,7 @@ This release closes a security-control bypass: **"Disable password sign-in" did 
 - **Sign out of your identity provider, not just Jellyfin** *(#170, raised by @Akruidenberg in #134; implemented by @camarigor)* — signing out used to end only the Jellyfin session, so "Sign in with …" walked straight back in with no prompt. Enable **RP-initiated logout** per provider (off by default) and the browser is handed to the provider's own sign-out endpoint afterwards. Needs the provider to publish an `end_session_endpoint` — Keycloak and Authentik do, **Google does not**, in which case the toggle has no effect and sign-out behaves as before.
 - **Turning off password sign-in improves your security score** *(#160, @hax4dazy)* — the credit is **additive**, appearing only when the switch is on, so servers running passwords with 2FA are never docked for it. It's also graded: leaving the admin, LAN, or exempt-network hatches open scores partial credit, because password compromise is still in the threat model for those clients.
 - **No more "Internal server error" at your session limit** *(#178, @camarigor)* — a user with the correct password and a correct 2FA code who had hit **Maximum number of simultaneous sessions** saw a generic internal error pointing at the `[2FA]` logs, where the 2FA step had already succeeded. The real reason now surfaces, and the refusal no longer feeds the per-IP ban counter, so hitting your own session cap can't ban your own address.
-- **Jellyfin 12 readiness** *(#174, @martin-77; completed in #180)* — the plugin's own pages and three server endpoints now accept `Authorization: MediaBrowser Token="…"` as well as the legacy `X-Emby-Token`, which is required once legacy authorization is disabled on Jellyfin 12. The legacy header still wins when present, so nothing changes for clients that send it. **This does not yet make the plugin load on Jellyfin 12** — that needs a separate build, tracked in [#172](https://github.com/ZL154/JellyfinSecurity/issues/172).
+- **Jellyfin 12 readiness** *(#174, @martin-77; completed in #180)* — the plugin's own pages and three server endpoints now accept `Authorization: MediaBrowser Token="…"` as well as the legacy `X-Emby-Token`, which is required once legacy authorization is disabled on Jellyfin 12. The legacy header still wins when present, so nothing changes for clients that send it. Since 12.0 GA the same build loads and runs on Jellyfin 12.0.0 as is; no separate build is needed. See [Jellyfin 12](#jellyfin-12) under Installation.
 - **Hardening and housekeeping** — the trust-cookie middleware had the same endpoint blind spot (it failed *closed*, so was never exploitable) and is fixed alongside; **private vulnerability reporting is now enabled**, so the channel documented in [SECURITY.md](SECURITY.md) works; CodeQL action pins now move in lockstep so they can't deadlock. **476 passing tests.**
 
 **v2.5.21**
@@ -329,7 +329,7 @@ The standard Jellyfin login page gets a small "Sign in with 2FA" button injected
 - Configurable TOTP issuer name (what users see in their authenticator app)
 - Per-user email address management (self-service from Setup page or admin-set)
 - "Sign in with 2FA" button auto-injected into Jellyfin's standard login page
-- "Two-Factor Auth" sidebar entry injected into Jellyfin's desktop and mobile dashboard navigation, with its label updated live when the Jellyfin language changes
+- "Two-Factor Auth" entry injected into Jellyfin's navigation: the desktop and mobile sidebar, and on Jellyfin 12's default layout the avatar menu (below Profile) and the user preferences list; its label is updated live when the Jellyfin language changes
 - Settings page tile so users can find Setup from their preferences
 - Security-posture diagnostics are isolated so one unavailable check cannot leave the whole dashboard stuck on **Computing...** or disable tab navigation.
 
@@ -381,6 +381,12 @@ https://raw.githubusercontent.com/ZL154/JellyfinSecurity/main/manifest.json
 4. Go to the **Catalogue** tab → install **Jellyfin Security**
 5. Restart Jellyfin
 
+### Jellyfin 12
+
+The current build runs on Jellyfin 12.0.0 as is: the official 12.0.0 image ships the .NET 10 runtime and loads the plugin's net9.0 assembly, and the manifest entry above installs on 12 because its `targetAbi` (10.11.0.0) is below the server version. Upgrading a 10.11 server in place keeps the plugin installed and active; there is no need to remove and reinstall it.
+
+One thing looks different on 12: its default web layout has no side drawer, so the **Two-Factor Auth** entry lives in the avatar menu (below **Profile**) and in the user preferences list instead. Jellyfin 12 also disables the legacy authorization headers by default; the plugin's pages and endpoints already send `Authorization: MediaBrowser Token` (#174, #180), so nothing needs changing on that side.
+
 ### Build from source
 
 ```powershell
@@ -429,7 +435,7 @@ Restart Jellyfin after copying.
 ### As a user (enroll in 2FA)
 
 1. Sign in to Jellyfin normally (no 2FA yet)
-2. Open **Profile → Two-Factor Authentication** (or visit `https://your-jellyfin/TwoFactorAuth/Setup`)
+2. Open **Profile → Two-Factor Authentication**, or **Two-Factor Auth** in the avatar menu on Jellyfin 12 (or visit `https://your-jellyfin/TwoFactorAuth/Setup`)
 3. Click **Set up Authenticator App**
 4. Scan the QR code with your authenticator (Google Authenticator, Authy, 1Password, Bitwarden, etc.)
 5. Enter the 6-digit code shown in the app to confirm
@@ -976,7 +982,7 @@ The Android app and mobile browsers can retain Jellyfin's web shell from before 
 4. Open `<your Jellyfin URL>/TwoFactorAuth/inject` in the same browser. It should return JavaScript, not a 404 or a proxy error.
 5. If you use nginx, Cloudflare, or another reverse proxy, do not cache `/web/index.html`, `/web/`, or `/TwoFactorAuth/*`.
 
-After one successful refresh, the login buttons and **Two-Factor Auth** dashboard entry should appear normally. Clearing the full app storage is not normally required and will sign the device out.
+After one successful refresh, the login buttons and the **Two-Factor Auth** entry (sidebar on 10.11, avatar menu on Jellyfin 12) should appear normally. Clearing the full app storage is not normally required and will sign the device out.
 
 ### SSO sign-in fails with "Sign-in token could not be verified"
 
