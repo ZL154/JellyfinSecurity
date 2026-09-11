@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
-using MaxMind.Db;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -17,6 +16,9 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// Implementation note: uses MaxMind.Db (Apache 2.0) directly instead of
 /// MaxMind.GeoIP2 (proprietary) so the plugin's MIT license stays clean.
 /// We parse the same mmdb files; just no convenience wrappers.
+///
+/// [#51] Each file is owned by a <see cref="GeoIpDatabase"/>, which keeps the
+/// reason a load failed, retries it, and falls back to an in-memory open.
 /// </summary>
 public class GeoIpService : IDisposable
 {
@@ -24,37 +26,46 @@ public class GeoIpService : IDisposable
 
     public static readonly Lookup Unknown = new(0, string.Empty, string.Empty);
 
+    private static readonly string[] SensitivePrefixes = { "/etc/", "/proc/", "/sys/", "/dev/", "/root/.ssh", "/run/secrets" };
+
     private readonly ILogger<GeoIpService> _logger;
-    private Reader? _asnReader;
-    private Reader? _countryReader;
-    private DateTime _asnLoadedAt;
-    private DateTime _countryLoadedAt;
-    private string? _loadedAsnPath;
-    private string? _loadedCountryPath;
+    private readonly GeoIpDatabase _asn;
+    private readonly GeoIpDatabase _country;
     private bool _disposed;
 
     public GeoIpService(ILogger<GeoIpService> logger)
     {
         _logger = logger;
+        _asn = new GeoIpDatabase("GeoLite2-ASN", logger);
+        _country = new GeoIpDatabase("GeoLite2-Country", logger);
     }
 
-    // [v2.5.7] (issue #51): trigger ReloadIfConfigChanged from both
-    // availability getters. Without this, the readers were only ever
-    // initialised by a Resolve() call; DiagnosticsService and
-    // SuspiciousLoginDetector both check AsnAvailable / CountryAvailable
-    // *before* Resolve runs, so the diagnostic showed "Fail" forever and
-    // the suspicious-login detector short-circuited before doing any
-    // lookups. Now any caller that checks availability also gets the
-    // first-touch load. ReloadIfConfigChanged is no-op when paths haven't
-    // changed, so the per-read cost is negligible in steady state.
-    public bool AsnAvailable { get { ReloadIfConfigChanged(); return _asnReader is not null; } }
-    public bool CountryAvailable { get { ReloadIfConfigChanged(); return _countryReader is not null; } }
+    // [v2.5.7] (issue #51): availability getters trigger the load, so the
+    // Diagnostics tab and the suspicious-login detector see a real answer
+    // before the first Resolve() call. Sync is a no-op in steady state.
+    public bool AsnAvailable { get { Sync(force: false); return _asn.Loaded; } }
+    public bool CountryAvailable { get { Sync(force: false); return _country.Loaded; } }
+
+    /// <summary>Retry any failed load right now, ignoring the retry interval.
+    /// The Diagnostics tab calls this so a re-run reflects a file that was
+    /// dropped in after the previous attempt.</summary>
+    public void Refresh() => Sync(force: true);
+
+    /// <summary>Per-database state for the Diagnostics tab.</summary>
+    public IReadOnlyList<GeoIpDatabaseStatus> Statuses
+    {
+        get
+        {
+            Sync(force: false);
+            return new[] { _asn.Status, _country.Status };
+        }
+    }
 
     public Lookup Resolve(string? ip)
     {
         if (string.IsNullOrWhiteSpace(ip)) return Unknown;
-        ReloadIfConfigChanged();
-        if (_asnReader is null && _countryReader is null) return Unknown;
+        Sync(force: false);
+        if (!_asn.Loaded && !_country.Loaded) return Unknown;
         if (!IPAddress.TryParse(ip, out var addr)) return Unknown;
 
         uint asn = 0;
@@ -63,31 +74,26 @@ public class GeoIpService : IDisposable
 
         try
         {
-            if (_asnReader is not null)
+            var asnRec = _asn.Find<Dictionary<string, object>>(addr);
+            if (asnRec is not null)
             {
-                var rec = _asnReader.Find<Dictionary<string, object>>(addr);
-                if (rec is not null)
+                if (asnRec.TryGetValue("autonomous_system_number", out var asnVal))
                 {
-                    if (rec.TryGetValue("autonomous_system_number", out var asnVal))
-                    {
-                        asn = Convert.ToUInt32(asnVal, System.Globalization.CultureInfo.InvariantCulture);
-                    }
-                    if (rec.TryGetValue("autonomous_system_organization", out var orgVal))
-                    {
-                        asnOrg = orgVal?.ToString() ?? string.Empty;
-                    }
+                    asn = Convert.ToUInt32(asnVal, System.Globalization.CultureInfo.InvariantCulture);
+                }
+                if (asnRec.TryGetValue("autonomous_system_organization", out var orgVal))
+                {
+                    asnOrg = orgVal?.ToString() ?? string.Empty;
                 }
             }
-            if (_countryReader is not null)
+
+            var countryRec = _country.Find<Dictionary<string, object>>(addr);
+            if (countryRec is not null
+                && countryRec.TryGetValue("country", out var countryNode)
+                && countryNode is Dictionary<string, object> countryDict
+                && countryDict.TryGetValue("iso_code", out var iso))
             {
-                var rec = _countryReader.Find<Dictionary<string, object>>(addr);
-                if (rec is not null
-                    && rec.TryGetValue("country", out var countryNode)
-                    && countryNode is Dictionary<string, object> countryDict
-                    && countryDict.TryGetValue("iso_code", out var iso))
-                {
-                    country = iso?.ToString() ?? string.Empty;
-                }
+                country = iso?.ToString() ?? string.Empty;
             }
         }
         catch (Exception ex)
@@ -98,105 +104,52 @@ public class GeoIpService : IDisposable
         return new Lookup(asn, asnOrg, country);
     }
 
-    private void ReloadIfConfigChanged()
+    private void Sync(bool force)
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null) return;
-
-        var asnPath = config.GeoIpAsnDbPath;
-        var countryPath = config.GeoIpCountryDbPath;
-
-        if (!string.Equals(asnPath, _loadedAsnPath, StringComparison.Ordinal))
-        {
-            _asnReader?.Dispose();
-            _asnReader = null;
-            _loadedAsnPath = asnPath;
-            if (!string.IsNullOrWhiteSpace(asnPath) && IsSafeGeoIpPath(asnPath, _logger) && File.Exists(asnPath))
-            {
-                try
-                {
-                    _asnReader = new Reader(asnPath);
-                    _asnLoadedAt = DateTime.UtcNow;
-                    _logger.LogInformation("[2FA] Loaded GeoLite2-ASN from {Path}", asnPath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[2FA] Failed to open GeoLite2-ASN at {Path}", asnPath);
-                }
-            }
-        }
-
-        if (!string.Equals(countryPath, _loadedCountryPath, StringComparison.Ordinal))
-        {
-            _countryReader?.Dispose();
-            _countryReader = null;
-            _loadedCountryPath = countryPath;
-            if (!string.IsNullOrWhiteSpace(countryPath) && IsSafeGeoIpPath(countryPath, _logger) && File.Exists(countryPath))
-            {
-                try
-                {
-                    _countryReader = new Reader(countryPath);
-                    _countryLoadedAt = DateTime.UtcNow;
-                    _logger.LogInformation("[2FA] Loaded GeoLite2-Country from {Path}", countryPath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[2FA] Failed to open GeoLite2-Country at {Path}", countryPath);
-                }
-            }
-        }
+        var now = DateTime.UtcNow;
+        _asn.Sync(config.GeoIpAsnDbPath, now, force);
+        _country.Sync(config.GeoIpCountryDbPath, now, force);
     }
 
-    /// <summary>SECURITY [v2.5.5] (Finding 8): only accept GeoIP DB paths that
-    /// are absolute, end with `.mmdb`, do not traverse via `..`, and (on
-    /// Windows) are not UNC paths. Reject sensitive Unix system paths
-    /// outright. Failing the check leaves the reader null = GeoIP inactive,
-    /// which degrades gracefully.</summary>
-    // SECURITY [v2.5.9] (audit medium #10): made internal static (logger
-    // passed in) so ImpossibleTravelDetector reuses the EXACT same path-safety
-    // validation before it opens GeoIpCityDbPath. Previously only GeoIpService
-    // applied it, leaving the City-DB loader able to mmap a symlinked or
-    // sensitive path the ASN/Country loaders would have refused.
+    // SECURITY [v2.5.5]: an admin-supplied path is opened by the server
+    // process, so refuse anything that is not a plain absolute .mmdb file:
+    // traversal, UNC/network paths, sensitive system directories, and
+    // symlinks that resolve to any of those.
     internal static bool IsSafeGeoIpPath(string path, ILogger logger)
+    {
+        if (TryValidatePath(path, out var reason)) return true;
+        logger.LogWarning("[2FA] GeoIP path rejected ({Reason}): {Path}", reason, path);
+        return false;
+    }
+
+    /// <summary>Same rules as <see cref="IsSafeGeoIpPath"/>, returning the
+    /// reason instead of logging it, so the Diagnostics tab can show it.</summary>
+    internal static bool TryValidatePath(string path, out string reason)
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(path)) return false;
-            if (path.Contains("..", StringComparison.Ordinal))
-            {
-                logger.LogWarning("[2FA] GeoIP path rejected (contains '..'): {Path}", path);
-                return false;
-            }
+            if (string.IsNullOrWhiteSpace(path)) { reason = "empty path"; return false; }
+            if (path.Contains("..", StringComparison.Ordinal)) { reason = "contains '..'"; return false; }
             if (path.StartsWith("\\\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal))
             {
-                logger.LogWarning("[2FA] GeoIP path rejected (UNC/network path): {Path}", path);
+                reason = "UNC/network path";
                 return false;
             }
-            if (!Path.IsPathFullyQualified(path))
-            {
-                logger.LogWarning("[2FA] GeoIP path rejected (not absolute): {Path}", path);
-                return false;
-            }
-            if (!path.EndsWith(".mmdb", StringComparison.OrdinalIgnoreCase))
-            {
-                logger.LogWarning("[2FA] GeoIP path rejected (must end with .mmdb): {Path}", path);
-                return false;
-            }
+            if (!Path.IsPathFullyQualified(path)) { reason = "not absolute"; return false; }
+            if (!path.EndsWith(".mmdb", StringComparison.OrdinalIgnoreCase)) { reason = "must end with .mmdb"; return false; }
+
             var lower = path.Replace('\\', '/').ToLowerInvariant();
-            foreach (var bad in new[] { "/etc/", "/proc/", "/sys/", "/dev/", "/root/.ssh", "/run/secrets" })
+            foreach (var bad in SensitivePrefixes)
             {
                 if (lower.StartsWith(bad, StringComparison.Ordinal))
                 {
-                    logger.LogWarning("[2FA] GeoIP path rejected (sensitive system path '{Bad}'): {Path}", bad, path);
+                    reason = $"sensitive system path '{bad}'";
                     return false;
                 }
             }
 
-            // SECURITY [v2.5.5] (N-A3): resolve symlinks. The string-level
-            // check above can be bypassed by `ln -s /etc/shadow legit.mmdb`
-            // — the path string starts with /opt/, the suffix is .mmdb, but
-            // the actual file the loader will mmap is /etc/shadow. Re-apply
-            // the sensitive-path blocklist against the resolved target.
             try
             {
                 var info = new FileInfo(path);
@@ -206,33 +159,33 @@ public class GeoIpService : IDisposable
                 if (!string.Equals(resolved, info.FullName, StringComparison.Ordinal))
                 {
                     var resolvedLower = resolved.Replace('\\', '/').ToLowerInvariant();
-                    foreach (var bad in new[] { "/etc/", "/proc/", "/sys/", "/dev/", "/root/.ssh", "/run/secrets" })
+                    foreach (var bad in SensitivePrefixes)
                     {
                         if (resolvedLower.StartsWith(bad, StringComparison.Ordinal))
                         {
-                            logger.LogWarning("[2FA] GeoIP path rejected: symlink {Path} resolves to sensitive {Resolved}", path, resolved);
+                            reason = $"symlink resolves to sensitive {resolved}";
                             return false;
                         }
                     }
                     if (!resolved.EndsWith(".mmdb", StringComparison.OrdinalIgnoreCase))
                     {
-                        logger.LogWarning("[2FA] GeoIP path rejected: symlink {Path} resolves to non-mmdb {Resolved}", path, resolved);
+                        reason = $"symlink resolves to non-mmdb {resolved}";
                         return false;
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                logger.LogDebug(ex, "[2FA] GeoIP symlink resolution non-fatal for {Path}", path);
-                // Fall through — the file may not exist yet, which is handled
-                // by the caller's File.Exists check.
+                // Symlink resolution is best effort: the file may not exist
+                // yet, and the caller's existence check reports that.
             }
 
+            reason = string.Empty;
             return true;
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "[2FA] GeoIP path validation threw, treating as unsafe: {Path}", path);
+            reason = $"validation threw: {ex.Message}";
             return false;
         }
     }
@@ -241,8 +194,8 @@ public class GeoIpService : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _asnReader?.Dispose();
-        _countryReader?.Dispose();
+        _asn.Dispose();
+        _country.Dispose();
         GC.SuppressFinalize(this);
     }
 }

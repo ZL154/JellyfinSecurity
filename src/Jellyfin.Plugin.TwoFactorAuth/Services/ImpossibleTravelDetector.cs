@@ -1,11 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
-using MaxMind.Db;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -25,8 +23,7 @@ public class ImpossibleTravelDetector : IDisposable
     private readonly UserTwoFactorStore _store;
     private readonly NotificationService _notifications;
     private readonly ILogger<ImpossibleTravelDetector> _logger;
-    private Reader? _cityReader;
-    private string? _loadedCityPath;
+    private readonly GeoIpDatabase _city;
     private bool _disposed;
 
     public ImpossibleTravelDetector(UserTwoFactorStore store, NotificationService notifications, ILogger<ImpossibleTravelDetector> logger)
@@ -34,7 +31,17 @@ public class ImpossibleTravelDetector : IDisposable
         _store = store;
         _notifications = notifications;
         _logger = logger;
+        _city = new GeoIpDatabase("GeoLite2-City", logger);
     }
+
+    /// <summary>Whether the City database is open; triggers the load.</summary>
+    public bool CityAvailable { get { Sync(force: false); return _city.Loaded; } }
+
+    /// <summary>State of the City database for the Diagnostics tab.</summary>
+    public GeoIpDatabaseStatus CityStatus { get { Sync(force: false); return _city.Status; } }
+
+    /// <summary>Retry a failed load right now (Diagnostics re-run).</summary>
+    public void Refresh() => Sync(force: true);
 
     /// <summary>Compare current sign-in location to last-known. Fires a
     /// notification + audit when the implied travel speed exceeds the
@@ -46,8 +53,8 @@ public class ImpossibleTravelDetector : IDisposable
         var config = Plugin.Instance?.Configuration;
         if (config is null || !config.ImpossibleTravelEnabled) return;
 
-        ReloadIfConfigChanged();
-        if (_cityReader is null) return;
+        Sync(force: false);
+        if (!_city.Loaded) return;
         if (string.IsNullOrEmpty(ip) || !IPAddress.TryParse(ip, out var addr)) return;
 
         var (lat, lon, country, asn) = ResolveCity(addr);
@@ -105,7 +112,7 @@ public class ImpossibleTravelDetector : IDisposable
     {
         try
         {
-            var rec = _cityReader!.Find<Dictionary<string, object>>(addr);
+            var rec = _city.Find<Dictionary<string, object>>(addr);
             if (rec is null) return (0, 0, string.Empty, 0);
 
             double lat = 0, lon = 0;
@@ -129,32 +136,14 @@ public class ImpossibleTravelDetector : IDisposable
         }
     }
 
-    private void ReloadIfConfigChanged()
+    // SECURITY [v2.5.9] (audit medium #10): the City path goes through the
+    // same validation as the ASN/Country paths (inside GeoIpDatabase), and
+    // [#51] a failed load is retried and reported instead of pinned.
+    private void Sync(bool force)
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null) return;
-        var path = config.GeoIpCityDbPath;
-        if (string.Equals(path, _loadedCityPath, StringComparison.Ordinal)) return;
-
-        _cityReader?.Dispose();
-        _cityReader = null;
-        _loadedCityPath = path;
-        // SECURITY [v2.5.9] (audit medium #10): apply the SAME path-safety
-        // validation GeoIpService uses for the ASN/Country DBs before mmap-ing
-        // the City DB — reject '..', UNC, non-absolute, non-.mmdb, sensitive
-        // system paths, and symlinks that resolve to any of those.
-        if (!string.IsNullOrWhiteSpace(path) && GeoIpService.IsSafeGeoIpPath(path, _logger) && File.Exists(path))
-        {
-            try
-            {
-                _cityReader = new Reader(path);
-                _logger.LogInformation("[2FA] Loaded GeoLite2-City from {Path}", path);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[2FA] Failed to open GeoLite2-City at {Path}", path);
-            }
-        }
+        _city.Sync(config.GeoIpCityDbPath, DateTime.UtcNow, force);
     }
 
     /// <summary>Great-circle distance in kilometres between two coords.</summary>
@@ -173,7 +162,7 @@ public class ImpossibleTravelDetector : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _cityReader?.Dispose();
+        _city.Dispose();
         GC.SuppressFinalize(this);
     }
 }
