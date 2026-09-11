@@ -73,14 +73,29 @@
                     }
                     return headers;
                 }
+                // [#198] The helpers go through stepUpFetch so a route the server
+                // gates behind step-up (403 + stepUpRequired) opens the code prompt
+                // instead of failing silently. stepUpFetch returns every other
+                // response untouched, so the r.ok checks below still apply.
                 function apiGet(path) {
-                    return fetch(ApiClient.serverAddress() + '/' + path, { headers: getHeaders() }).then(function(r) { return r.ok ? r.json() : Promise.reject(r); });
+                    return stepUpFetch(path, { headers: getHeaders() }).then(function(r) { return r.ok ? r.json() : Promise.reject(r); });
                 }
                 function apiPost(path, body) {
-                    return fetch(ApiClient.serverAddress() + '/' + path, { method: 'POST', headers: getHeaders(), body: body ? JSON.stringify(body) : undefined }).then(function(r) { return r.ok ? r.json().catch(function(){return{};}) : Promise.reject(r); });
+                    return stepUpFetch(path, { method: 'POST', headers: getHeaders(), body: body ? JSON.stringify(body) : undefined }).then(function(r) { return r.ok ? r.json().catch(function(){return{};}) : Promise.reject(r); });
                 }
                 function apiDelete(path) {
-                    return fetch(ApiClient.serverAddress() + '/' + path, { method: 'DELETE', headers: getHeaders() }).then(function(r) { return r.ok ? r.json().catch(function(){return{};}) : Promise.reject(r); });
+                    return stepUpFetch(path, { method: 'DELETE', headers: getHeaders() }).then(function(r) { return r.ok ? r.json().catch(function(){return{};}) : Promise.reject(r); });
+                }
+                // [#198] The reason behind a failed call: the server's own message
+                // when the body carries one, otherwise the HTTP status, so the
+                // admin sees why instead of a bare "Save failed".
+                function failureMessage(err) {
+                    if (!err || typeof err.clone !== 'function') {
+                        return Promise.resolve(err && err.message ? String(err.message) : '');
+                    }
+                    return err.clone().json().then(function(body) {
+                        return (body && body.message) ? String(body.message) : ('HTTP ' + err.status);
+                    }).catch(function() { return 'HTTP ' + err.status; });
                 }
                 // [v2.5.21] (#156/#149) The old downloadGet() helper was removed.
                 // Its only caller was the per-user Export button, which needs to
@@ -722,7 +737,11 @@
                             if (!confirm(_tr('tfa.admin.users.confirm_require_pw_setup', 'Flag this user to set a new local Jellyfin password on their next OIDC login? Their existing password remains valid until they complete setup.'))) return;
                             apiPost('TwoFactorAuth/Users/' + b.dataset.id + '/RequirePasswordSetup').then(function() {
                                 alert(_tr('tfa.admin.users.require_pw_setup_done', 'Done. The user will be prompted to set a new password on their next sign-in.'));
-                            }).catch(function() { alert(_tr('tfa.admin.common.error', 'An error occurred. Check that step-up is satisfied.')); });
+                            }).catch(function(err) {
+                                failureMessage(err).then(function(why) {
+                                    alert(_tr('tfa.admin.common.error', 'An error occurred. Check that step-up is satisfied.') + (why ? '\n' + why : ''));
+                                });
+                            });
                         });
                     });
                     wireUsersRowExtras();
@@ -809,7 +828,11 @@
                     var body = page.querySelector('#usersBody');
                     body.querySelectorAll('.tfa-toggle').forEach(function(btn) {
                         btn.addEventListener('click', function() {
-                            apiPost('TwoFactorAuth/Users/' + btn.dataset.id + '/Toggle', { enabled: btn.dataset.next === 'true' }).then(loadUsers);
+                            apiPost('TwoFactorAuth/Users/' + btn.dataset.id + '/Toggle', { enabled: btn.dataset.next === 'true' }).then(loadUsers).catch(function(err) {
+                                failureMessage(err).then(function(why) {
+                                    alert(_tr('tfa.admin.common.error', 'An error occurred. Check that step-up is satisfied.') + (why ? '\n' + why : ''));
+                                });
+                            });
                         });
                     });
                     body.querySelectorAll('.tfa-email').forEach(function(input) {
@@ -1542,7 +1565,11 @@
                         body.querySelectorAll('[data-sso-del]').forEach(function(b) {
                             b.addEventListener('click', function() {
                                 if (!confirm(_tr('tfa.admin.sso.confirm_delete', 'Delete this OIDC provider? Users linked to it will lose the link.'))) return;
-                                apiDelete('TwoFactorAuth/Oidc/Providers/' + encodeURIComponent(b.dataset.ssoDel)).then(loadSso);
+                                apiDelete('TwoFactorAuth/Oidc/Providers/' + encodeURIComponent(b.dataset.ssoDel)).then(loadSso).catch(function(err) {
+                                    failureMessage(err).then(function(why) {
+                                        alert(_tr('tfa.admin.common.error', 'An error occurred. Check that step-up is satisfied.') + (why ? '\n' + why : ''));
+                                    });
+                                });
                             });
                         });
                     }).catch(function() {
@@ -1825,9 +1852,9 @@
                     var status = page.querySelector('#ssoSaveStatus');
                     status.style.color = '#888'; status.textContent = _tr('tfa.admin.common.saving', 'Saving…');
                     var p = ssoEditingId
-                        ? fetch(ApiClient.serverAddress() + '/TwoFactorAuth/Oidc/Providers/' + encodeURIComponent(ssoEditingId),
+                        ? stepUpFetch(ApiClient.serverAddress() + '/TwoFactorAuth/Oidc/Providers/' + encodeURIComponent(ssoEditingId),
                             { method: 'PUT', headers: getHeaders(), body: JSON.stringify(body) })
-                        : fetch(ApiClient.serverAddress() + '/TwoFactorAuth/Oidc/Providers',
+                        : stepUpFetch(ApiClient.serverAddress() + '/TwoFactorAuth/Oidc/Providers',
                             { method: 'POST', headers: getHeaders(), body: JSON.stringify(body) });
                     p.then(function(r) {
                         if (!r.ok) throw r;
@@ -1845,8 +1872,11 @@
                         }
                         loadSso();
                     }).catch(function(err) {
-                        status.style.color = '#f44336'; status.textContent = '✗ ' + _tr('tfa.admin.common.save_failed', 'Save failed');
-                        if (err && err.text) { err.text().then(function(t) { console.error('[2FA] SSO save:', t); }); }
+                        failureMessage(err).then(function(why) {
+                            status.style.color = '#f44336';
+                            status.textContent = '✗ ' + _tr('tfa.admin.common.save_failed', 'Save failed') + (why ? ': ' + why : '');
+                            console.error('[2FA] SSO save:', why || err);
+                        });
                     });
                 });
 

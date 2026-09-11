@@ -179,4 +179,30 @@ public class AdminPageContractTests
         Assert.True(standalonePortal > stockPicker);
     }
 
+    [Fact]
+    public void Admin_helpers_and_the_provider_form_go_through_the_step_up_prompt()
+    {
+        var script = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.admin-script.js");
+
+        Assert.NotNull(script);
+        // #198 (and #148 before it): the OIDC provider routes are gated by
+        // StepUpGuard(ConfigChange) on the server, but the form used a raw fetch,
+        // so the 403 + stepUpRequired answer surfaced as a bare "Save failed"
+        // and the delete button did nothing. Everything the admin page sends
+        // now goes through the step-up aware fetch.
+        Assert.DoesNotContain("fetch(ApiClient.serverAddress() + '/TwoFactorAuth/Oidc/Providers", script.Replace("stepUpFetch(", string.Empty));
+        Assert.Contains("stepUpFetch(ApiClient.serverAddress() + '/TwoFactorAuth/Oidc/Providers/' + encodeURIComponent(ssoEditingId)", script);
+        Assert.Contains("stepUpFetch(ApiClient.serverAddress() + '/TwoFactorAuth/Oidc/Providers',", script);
+        Assert.DoesNotContain("return fetch(ApiClient.serverAddress() + '/' + path", script);
+        Assert.Contains("return stepUpFetch(path, { headers: getHeaders() })", script);
+        Assert.Contains("return stepUpFetch(path, { method: 'POST', headers: getHeaders()", script);
+        Assert.Contains("return stepUpFetch(path, { method: 'DELETE', headers: getHeaders() })", script);
+
+        // The status line and the alerts carry the server's reason.
+        Assert.Contains("function failureMessage(err)", script);
+        Assert.Contains("_tr('tfa.admin.common.save_failed', 'Save failed') + (why ? ': ' + why : '')", script);
+        Assert.Contains("encodeURIComponent(b.dataset.ssoDel)).then(loadSso).catch(", script);
+        Assert.Contains("{ enabled: btn.dataset.next === 'true' }).then(loadUsers).catch(", script);
+    }
 }
