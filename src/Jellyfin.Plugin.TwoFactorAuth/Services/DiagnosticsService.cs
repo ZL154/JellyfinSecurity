@@ -25,6 +25,7 @@ public class DiagnosticsService
     private readonly IApplicationPaths _paths;
     private readonly IServerApplicationHost _appHost;
     private readonly GeoIpService _geo;
+    private readonly ImpossibleTravelDetector _travel;
     private readonly ILogger<DiagnosticsService> _logger;
 
     public DiagnosticsService(
@@ -32,12 +33,14 @@ public class DiagnosticsService
         IApplicationPaths paths,
         IServerApplicationHost appHost,
         GeoIpService geo,
+        ImpossibleTravelDetector travel,
         ILogger<DiagnosticsService> logger)
     {
         _store = store;
         _paths = paths;
         _appHost = appHost;
         _geo = geo;
+        _travel = travel;
         _logger = logger;
     }
 
@@ -112,14 +115,15 @@ public class DiagnosticsService
                 CheckStatus.Warn, ex.Message));
         }
 
-        // --- GeoIP availability (only if admin configured paths) ---
-        var config = Plugin.Instance?.Configuration;
-        if (!string.IsNullOrEmpty(config?.GeoIpAsnDbPath) || !string.IsNullOrEmpty(config?.GeoIpCountryDbPath))
-        {
-            results.Add(new DiagnosticCheck("geoip", "GeoIP databases loaded",
-                _geo.AsnAvailable || _geo.CountryAvailable ? CheckStatus.Ok : CheckStatus.Fail,
-                $"ASN={_geo.AsnAvailable} Country={_geo.CountryAvailable}"));
-        }
+        // --- GeoIP databases (one row per configured file) ---
+        // [#51] A re-run retries any failed load at once, and each row says
+        // what the loader saw: the path, whether the file is visible to the
+        // Jellyfin process (and as which user), the rejection reason or the
+        // open error. Rows for unconfigured databases are left out.
+        _geo.Refresh();
+        _travel.Refresh();
+        var geoStatuses = new List<GeoIpDatabaseStatus>(_geo.Statuses) { _travel.CityStatus };
+        results.AddRange(GeoIpChecks(geoStatuses, _paths.ProgramDataPath));
 
         // --- Audit hash chain integrity ---
         try
@@ -151,6 +155,25 @@ public class DiagnosticsService
     /// skipped. The first retained hashed row may carry a non-zero anchor
     /// after AuditLogMaxEntries pruning removed its predecessor; that anchor
     /// is validated as a hash and included in the row's hash computation.</summary>
+    /// <summary>One Diagnostics row per configured GeoIP database. A file
+    /// the process cannot see also gets Jellyfin's data directory (the root of
+    /// the mounted volume, /config in the official image),
+    /// since a host path pasted instead of the container path is the usual cause.</summary>
+    internal static IEnumerable<DiagnosticCheck> GeoIpChecks(IEnumerable<GeoIpDatabaseStatus> statuses, string dataDirectory)
+    {
+        foreach (var status in statuses)
+        {
+            if (string.IsNullOrEmpty(status.ConfiguredPath)) continue;
+            var id = "geoip_" + status.Name.Replace("GeoLite2-", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
+            var detail = GeoIpDatabase.DescribeDetail(status);
+            if (!status.Loaded && detail.StartsWith("not found", StringComparison.Ordinal))
+            {
+                detail += $"; Jellyfin's data directory is {dataDirectory}";
+            }
+            yield return new DiagnosticCheck(id, $"GeoIP {status.Name} database", status.Loaded ? CheckStatus.Ok : CheckStatus.Fail, detail);
+        }
+    }
+
     private static int VerifyAuditChain(IReadOnlyList<Models.AuditEntry> entries)
     {
         int broken = 0;

@@ -666,7 +666,7 @@ Bans persist across restarts via `<config>/plugins/configurations/TwoFactorAuth/
 
 Flags sign-ins where the geographic distance vs. elapsed time exceeds commercial-jet cruise speed. London → Tokyo in 30 minutes ≈ Mach 20: notification fires.
 
-**Requires:** MaxMind GeoLite2-City.mmdb. [Free account](https://www.maxmind.com/en/geolite2/signup), download the City DB, drop it in `/config/geoip/`, paste the path in **Settings → Impossible-Travel Detection**.
+**Requires:** MaxMind GeoLite2-City.mmdb. [Free account](https://www.maxmind.com/en/geolite2/signup), download the City DB, drop it in `/config/geoip/`, paste the path in **Settings → Impossible-Travel Detection**. The path must be the one the Jellyfin process sees (inside the container, for Docker) and readable by the user Jellyfin runs as; the Diagnostics tab tells you which of those is not the case.
 
 **Signal path:** Triggers the same Notification channels the plugin already uses (ntfy, Gotify, webhook, admin emails). Includes distance, duration, inferred speed, and country hop in the message.
 
@@ -1454,7 +1454,7 @@ If you're on Tizen / Jellyfin for Smart TV and couldn't sign in after v1.4, this
 
 **Admin tools**
 - **Overview / adoption dashboard** — % enrolled, recent enrollments, failed verifies + lockouts in last 24h, users past the configured enrollment deadline.
-- **Diagnostics tab** — run a green/red checklist (signing keys readable, audit chain intact, IAuthenticationProvider registered, recovery hash format upgrade complete, GeoIP DBs loaded, etc.).
+- **Diagnostics tab** — run a green/red checklist (signing keys readable, audit chain intact, IAuthenticationProvider registered, recovery hash format upgrade complete, etc.). Each configured GeoIP database gets its own row saying where it loaded from, or why not: file not visible to the Jellyfin process (and as which user), rejected path, or open error; re-running the checklist retries the load.
 - **Rate-limit observability** — see when buckets trip, key by key, since last restart.
 - **Bulk user actions** — disable 2FA / rotate recovery / revoke paired / revoke trusted / force logout, applied across N users at once.
 - **User search + filter** in the Users tab.

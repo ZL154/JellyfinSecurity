@@ -125,16 +125,20 @@ public sealed class GeoIpDatabase : IDisposable
         }
     }
 
-    /// <summary>One line for the Diagnostics tab.</summary>
-    public static string Describe(GeoIpDatabaseStatus status)
+    /// <summary>One line for the log: the name plus <see cref="DescribeDetail"/>.</summary>
+    public static string Describe(GeoIpDatabaseStatus status) => $"{status.Name}: {DescribeDetail(status)}";
+
+    /// <summary>The state without the name, for a Diagnostics row that
+    /// already carries the database name in its label.</summary>
+    public static string DescribeDetail(GeoIpDatabaseStatus status)
     {
         if (status.Loaded)
         {
             var at = status.LoadedAt.HasValue ? status.LoadedAt.Value.ToString("u", System.Globalization.CultureInfo.InvariantCulture) : "unknown time";
-            return $"{status.Name}: loaded from {status.ConfiguredPath} at {at}";
+            return $"loaded from {status.ConfiguredPath} at {at}";
         }
 
-        return $"{status.Name}: {status.Failure ?? "not loaded"}";
+        return status.Failure ?? "not loaded";
     }
 
     private void Attempt(string path, DateTime utcNow)
@@ -200,16 +204,38 @@ public sealed class GeoIpDatabase : IDisposable
         }
     }
 
+    /// <summary>The account name, or the numeric uid when the process runs
+    /// as an id with no passwd entry (a container started with `user: 1000:1000`),
+    /// which is exactly the case worth showing in a "not found" row.</summary>
     private static string SafeUserName()
     {
         try
         {
-            return string.IsNullOrEmpty(Environment.UserName) ? "unknown" : Environment.UserName;
+            if (!string.IsNullOrEmpty(Environment.UserName)) return Environment.UserName;
         }
         catch
         {
-            return "unknown";
+            // fall through to the uid
         }
+
+        try
+        {
+            if (OperatingSystem.IsLinux() && File.Exists("/proc/self/status"))
+            {
+                foreach (var line in File.ReadLines("/proc/self/status"))
+                {
+                    if (!line.StartsWith("Uid:", StringComparison.Ordinal)) continue;
+                    var parts = line.Substring(4).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length > 0) return "uid " + parts[0];
+                }
+            }
+        }
+        catch
+        {
+            // no readable status file: report unknown below
+        }
+
+        return "unknown";
     }
 
     public void Dispose()

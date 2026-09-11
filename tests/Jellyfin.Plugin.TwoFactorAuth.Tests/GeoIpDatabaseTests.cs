@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -131,6 +132,30 @@ public class GeoIpDatabaseTests
     {
         var status = new GeoIpDatabaseStatus("GeoLite2-City", "/config/geoip/GeoLite2-City.mmdb", true, T0, T0, null);
         Assert.Equal("GeoLite2-City: loaded from /config/geoip/GeoLite2-City.mmdb at 2026-09-11 01:00:00Z", GeoIpDatabase.Describe(status));
+        Assert.Equal("loaded from /config/geoip/GeoLite2-City.mmdb at 2026-09-11 01:00:00Z", GeoIpDatabase.DescribeDetail(status));
+    }
+
+    [Fact]
+    public void Diagnostics_emit_one_row_per_configured_database_and_point_a_missing_file_at_the_data_directory()
+    {
+        var statuses = new[]
+        {
+            new GeoIpDatabaseStatus("GeoLite2-ASN", "/config/geoip/GeoLite2-ASN.mmdb", true, T0, T0, null),
+            new GeoIpDatabaseStatus("GeoLite2-Country", "/volume1/docker/geoip/GeoLite2-Country.mmdb", false, null, T0,
+                "not found at /volume1/docker/geoip/GeoLite2-Country.mmdb (its directory is not visible to the Jellyfin process; checked as user abc)"),
+            new GeoIpDatabaseStatus("GeoLite2-City", string.Empty, false, null, null, "not configured"),
+        };
+
+        var rows = DiagnosticsService.GeoIpChecks(statuses, "/config").ToList();
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("geoip_asn", rows[0].Id);
+        Assert.Equal("GeoIP GeoLite2-ASN database", rows[0].Label);
+        Assert.Equal(DiagnosticsService.CheckStatus.Ok, rows[0].Status);
+        Assert.Equal("loaded from /config/geoip/GeoLite2-ASN.mmdb at 2026-09-11 01:00:00Z", rows[0].Detail);
+        Assert.Equal("geoip_country", rows[1].Id);
+        Assert.Equal(DiagnosticsService.CheckStatus.Fail, rows[1].Status);
+        Assert.EndsWith("checked as user abc); Jellyfin's data directory is /config", rows[1].Detail);
     }
 
     [Theory]
