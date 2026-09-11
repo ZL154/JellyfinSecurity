@@ -97,6 +97,37 @@ public class AdminPageContractTests
     }
 
     [Fact]
+    public void InApp_oidc_completion_merges_credentials_with_manual_connection_mode()
+    {
+        // #172. The in-app OIDC completion replaced the whole credential
+        // store with one entry in connection mode 1 (Remote) and no
+        // RemoteAddress. Jellyfin 10.11 reconnected and rewrote the mode
+        // before anything read it; the Jellyfin 12 router reads it first,
+        // the ApiClient constructor throws, and an app never leaves the
+        // splash screen. The browser bridge page got the merge in v2.5.21;
+        // this pins the same shape on the path only apps use.
+        var script = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.inject.js");
+
+        Assert.NotNull(script);
+        Assert.Contains("var TFA_CONNECTION_MODE_MANUAL = 2;", script);
+        Assert.DoesNotContain("LastConnectionMode: 1", script);
+        Assert.DoesNotContain("JSON.stringify({ Servers: [server] })", script);
+
+        var complete = script.IndexOf("function completeWithBridgeToken(", StringComparison.Ordinal);
+        var merge = script.IndexOf("existing.LastConnectionMode = TFA_CONNECTION_MODE_MANUAL;", complete, StringComparison.Ordinal);
+        var insert = script.IndexOf("LastConnectionMode: TFA_CONNECTION_MODE_MANUAL", complete, StringComparison.Ordinal);
+        var pendingCleared = script.IndexOf("clearTfaPending();", merge, StringComparison.Ordinal);
+        var reload = script.IndexOf("window.location.href = serverUrl('web/index.html');", merge, StringComparison.Ordinal);
+
+        Assert.True(complete >= 0);
+        Assert.True(merge > complete);
+        Assert.True(insert > complete);
+        Assert.True(pendingCleared > merge);
+        Assert.True(reload > pendingCleared);
+    }
+
+    [Fact]
     public void Trusted_device_token_survives_cookie_loss_on_stock_and_standalone_login()
     {
         var injectedScript = ResourceReader.ReadEmbeddedText(
