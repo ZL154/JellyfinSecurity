@@ -289,6 +289,8 @@
     var STYLE_ID = '__twofactor_styles';
     var SIDEBAR_ID = '__twofactor_sidebar';
     var SETTINGS_TILE_ID = '__twofactor_settings_tile';
+    var USER_MENU_ID = '__twofactor_user_menu';
+    var PREFS_ROW_ID = '__twofactor_prefs_row';
 
     // ============================================================
     // 1. Intercept fetch + XHR. If Jellyfin's auth endpoint returns
@@ -884,6 +886,77 @@
     }
 
     // ============================================================
+    // 2b. [Jellyfin 12] Avatar menu entry + React preferences row.
+    //
+    // The "modern" layout, the default since 12.0, keeps .mainDrawer in the
+    // DOM only so legacy scripts do not throw; it is hidden, so the sidebar
+    // entry above exists and nobody sees it. The avatar menu (MUI Menu,
+    // id "app-user-menu", mounted while closed) is where a user looks now:
+    // clone its Profile item, place the entry right below, and point it at
+    // the setup page with a real navigation (the clone carries no React
+    // handler, and leaving the SPA is what the link does anyway). The
+    // preferences page is still the legacy view inside the new shell, so
+    // the tile below keeps working there once it stops anchoring on the
+    // menu. Legacy layouts still get the drawer entry too.
+    // ============================================================
+
+    function isInsideUserMenu(el) {
+        try { return !!(el && el.closest && el.closest('#app-user-menu')); } catch (e) { return false; }
+    }
+
+
+    function setupHref() {
+        return withLang(serverUrl('TwoFactorAuth/Setup'));
+    }
+
+    function decorateClonedRow(row, id, labelKey, labelFallback) {
+        row.id = id;
+        row.removeAttribute('aria-current');
+        row.className = (row.className || '').replace(/\bMui-selected\b/g, '').replace(/\s{2,}/g, ' ').trim();
+        var link = row.tagName === 'A' ? row : row.querySelector('a');
+        if (link) {
+            link.setAttribute('href', setupHref());
+            link.removeAttribute('aria-current');
+            link.className = (link.className || '').replace(/\bMui-selected\b/g, '').replace(/\s{2,}/g, ' ').trim();
+            // Recompute ?lang at click time, like the drawer entry (#79).
+            link.addEventListener('click', function () { try { link.setAttribute('href', setupHref()); } catch (e) {} });
+        }
+        var icon = row.querySelector('.MuiListItemIcon-root');
+        if (icon) {
+            icon.innerHTML = '<span class="material-icons" aria-hidden="true" style="font-family:Material Icons;font-size:24px;line-height:1;">security</span>';
+        }
+        var label = row.querySelector('.MuiListItemText-primary') || row.querySelector('.MuiListItemText-root .MuiTypography-root') || row.querySelector('.MuiListItemText-root');
+        if (label) {
+            label.textContent = T(labelKey, labelFallback);
+            label.setAttribute('data-i18n-key', labelKey);
+        }
+        try { if (window.tfaI18n) window.tfaI18n.applyTranslations(row); } catch (e) { /* ignore */ }
+        return row;
+    }
+
+    function injectUserMenu() {
+        try {
+            var menu = document.getElementById('app-user-menu');
+            if (!menu) return;
+            var list = menu.querySelector('ul[role="menu"]') || menu.querySelector('ul.MuiList-root');
+            if (!list) return;
+            var existing = document.getElementById(USER_MENU_ID);
+            if (existing && existing.parentNode === list) return;
+            if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+            var profile = list.querySelector('a[href*="/userprofile"]');
+            var template = profile || list.querySelector('a.MuiMenuItem-root') || list.querySelector('li.MuiMenuItem-root');
+            if (!template) return;
+            var item = decorateClonedRow(template.cloneNode(true), USER_MENU_ID, 'tfa.login.nav_entry', 'Two-Factor Auth');
+            if (profile && profile.nextSibling) list.insertBefore(item, profile.nextSibling);
+            else list.appendChild(item);
+            console.log('[2FA] Avatar menu entry inserted below Profile');
+        } catch (e) {
+            console.error('[2FA] injectUserMenu error:', e);
+        }
+    }
+
+
+    // ============================================================
     // 3. Settings page tile — for users who land on the user
     //    preferences page rather than open the side drawer.
     // ============================================================
@@ -896,7 +969,13 @@
                 || hash.indexOf('myprofile') >= 0
                 || hash.indexOf('preferences') >= 0;
             if (!onPrefsPage) return;
-            if (document.getElementById(SETTINGS_TILE_ID)) return;
+            var existingTile = document.getElementById(SETTINGS_TILE_ID);
+            if (existingTile) {
+                // [Jellyfin 12] A tile that ended up inside the avatar menu
+                // (see below) is worthless there and blocks the real one.
+                if (!isInsideUserMenu(existingTile)) return;
+                if (existingTile.parentNode) existingTile.parentNode.removeChild(existingTile);
+            }
 
             // Find Profile to anchor placement. We intentionally do NOT clone
             // any sibling tile's markup — themes (JellyFlare / StarTrack /
@@ -910,14 +989,21 @@
             // non-English Jellyfin UI (e.g. "Profil"/"Perfil"/"プロフィール"), which
             // is why the "Two-Factor Authentication" entry went missing from the
             // user-preferences list for affected users. Hrefs are locale-stable.
-            var hrefAnchor = document.querySelector(
+            // [Jellyfin 12] The avatar menu is an MUI Menu that stays mounted
+            // while closed, and its Profile item matches these selectors (and
+            // the English text fallback) before the page has rendered its own
+            // rows. Anchoring there put the tile inside the closed menu, where
+            // React dropped it on the next open, and the early return above
+            // then kept the real list without a tile. Never anchor inside it.
+            var hrefCandidates = document.querySelectorAll(
                 'a[href*="myprofile"], a[href*="mypreferencesmenu"], a[href*="userprofile"]');
-            if (hrefAnchor) {
-                profile = hrefAnchor;
+            for (var hi = 0; hi < hrefCandidates.length; hi++) {
+                if (!isInsideUserMenu(hrefCandidates[hi])) { profile = hrefCandidates[hi]; break; }
             }
             if (!profile) {
                 var all = document.querySelectorAll('a, button');
                 for (var i = 0; i < all.length; i++) {
+                    if (isInsideUserMenu(all[i])) continue;
                     var txt = (all[i].textContent || '').trim().toLowerCase();
                     if (txt === 'profile' || txt.indexOf('profile') === 0) {
                         profile = all[i];
@@ -929,8 +1015,11 @@
                 // Last resort: anchor to any other preferences sub-page link so the
                 // tile still lands in the list even when neither href nor English
                 // text matched.
-                profile = document.querySelector(
+                var lastResort = document.querySelectorAll(
                     'a[href*="mypreferences"], a[href*="#/myprofile"], a[href*="quickconnect"]');
+                for (var li = 0; li < lastResort.length; li++) {
+                    if (!isInsideUserMenu(lastResort[li])) { profile = lastResort[li]; break; }
+                }
             }
             if (!profile) {
                 console.warn('[2FA] injectSettingsTile: no profile/preferences anchor found — '
@@ -1370,6 +1459,9 @@
     // the existing form-fill + bridge-token path. /web/ never unloads, so the
     // poller survives the trip to the browser and back.
     var OIDC_MODAL_ID = '__twofactor_oidc_modal';
+    // jellyfin-web ConnectionMode.Manual (Local=0, Remote=1, Manual=2). The
+    // stored credential is resolved to a server address by this mode alone.
+    var TFA_CONNECTION_MODE_MANUAL = 2;
 
     function hasNativeShell() {
         try {
@@ -1491,8 +1583,39 @@
                         address = window.ApiClient.serverAddress();
                     }
                 } catch (e) { /* use origin + base path */ }
-                var server = { Id: res.ServerId, Name: 'Jellyfin', AccessToken: res.AccessToken, UserId: res.User.Id, Type: 'Server', DateLastAccessed: Date.now(), LastConnectionMode: 1, ManualAddress: address, LocalAddress: address };
-                localStorage.setItem('jellyfin_credentials', JSON.stringify({ Servers: [server] }));
+                // [#172] Merge into the store Jellyfin Web already built, the
+                // way the browser bridge page has since v2.5.21 (#98, #137).
+                // This used to replace the whole store with one synthetic entry
+                // in connection mode 1 (Remote) and no RemoteAddress, so the
+                // web client resolved the server address to undefined. Jellyfin
+                // 10.11 reconnected first and quietly rewrote the mode; the 12
+                // router asks for an Api before that reconnect, the ApiClient
+                // constructor throws "Must supply a serverAddress", and an app
+                // never leaves the splash screen. Mode 2 is Manual: the address
+                // that just authenticated is the only one proven reachable.
+                var creds;
+                try { creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}'); } catch (e) { creds = {}; }
+                if (!creds || typeof creds !== 'object') creds = {};
+                if (!creds.Servers) creds.Servers = [];
+                var existing = null;
+                for (var i = 0; i < creds.Servers.length; i++) {
+                    if (creds.Servers[i] && creds.Servers[i].Id === res.ServerId) { existing = creds.Servers[i]; break; }
+                }
+                var now = Date.now();
+                if (existing) {
+                    existing.AccessToken = res.AccessToken;
+                    existing.UserId = res.User.Id;
+                    existing.DateLastAccessed = now;
+                    existing.ManualAddress = address;
+                    existing.LastConnectionMode = TFA_CONNECTION_MODE_MANUAL;
+                    if (!existing.Name) existing.Name = 'Jellyfin';
+                } else {
+                    creds.Servers.unshift({ Id: res.ServerId, Name: 'Jellyfin', AccessToken: res.AccessToken, UserId: res.User.Id, Type: 'Server', DateLastAccessed: now, LastConnectionMode: TFA_CONNECTION_MODE_MANUAL, ManualAddress: address });
+                }
+                localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+                // A stale pending flag would short-circuit the fresh session's
+                // bootstrap calls (#98); this sign-in just succeeded, so none applies.
+                try { clearTfaPending(); } catch (e) {}
                 oidcModalStatus(Tf('tfa.login.oidc_signed_as', 'Signed in as {name} — opening Jellyfin…', { name: (res.User && res.User.Name ? res.User.Name : user) }));
                 setTimeout(function () { closeOidcModal(); window.location.href = serverUrl('web/index.html'); }, 300);
             })
@@ -1682,13 +1805,14 @@
         // Stripping the query params keeps the bridge token out of the
         // history/back button. Done before submit so a failed login leaves
         // the form clean rather than auto-resubmitting on reload.
-        try { history.replaceState(null, '', '#!/login.html'); } catch (e) {}
+        try { history.replaceState(null, '', '#/login'); } catch (e) {}
         submit.click();
     }
 
     function tryInject() {
         addLoginButton();
         injectSidebar();
+        injectUserMenu();
         injectDashboardNav();
         injectSettingsTile();
         injectOidcButtons();
