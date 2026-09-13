@@ -25,6 +25,24 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class SecurityController : ControllerBase
 {
+    // Both OIDC bridges must hand a 2FA response to the existing challenge page.
+    // Never trust a response-supplied redirect URL with the challenge token.
+    private const string OidcAuthResponseHandler = """
+        .then(function(r){
+            if(r.ok)return r.json();
+            if(r.status!==401&&r.status!==403)throw new Error('HTTP '+r.status);
+            return r.json().catch(function(){return null;}).then(function(body){
+                var token=body&&(body.ChallengeToken||body.challengeToken);
+                if(body&&(body.TwoFactorRequired===true||body.twoFactorRequired===true)&&typeof token==='string'&&token.trim()){
+                    try{sessionStorage.setItem('__tfa_pending',String(Date.now()));}catch(e){}
+                    window.location.href=bp+'/TwoFactorAuth/Challenge?token='+encodeURIComponent(token)+'&return='+encodeURIComponent(land);
+                    return null;
+                }
+                throw new Error('HTTP '+r.status);
+            });
+        })
+        """;
+
     internal sealed record OidcBridgePaths(
         string BasePath,
         string AuthenticatePath,
@@ -1291,8 +1309,20 @@ public class SecurityController : ControllerBase
             + "var did=(function(){try{var x=localStorage.getItem('_deviceId2');if(!x){x=Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join('');localStorage.setItem('_deviceId2',x);}return x;}catch(e){return 'bridge-'+Date.now();}})();"
             + "var auth='MediaBrowser Client=\"Jellyfin Web\", Device=\"Browser\", DeviceId=\"'+did+'\", Version=\"10.11.0\"';"
             + "fetch(authPath,{method:'POST',headers:{'Content-Type':'application/json','X-Emby-Authorization':auth,'Authorization':auth},body:JSON.stringify({Username:u,Pw:t})})"
-            + ".then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})"
+            + OidcAuthResponseHandler
             + ".then(function(res){"
+            // [v2.5.16] (#100, Re4mstr) For a force-password user, set a marker so
+            // inject.js bounces them back to /SetPassword if they later reach /web
+            // (e.g. by pressing Back) without completing it. Cleared by the
+            // set-password page on a successful set, or if the server reports no
+            // setup pending (stale). This makes the forced step inescapable.
+            + "try{if(forcePw)localStorage.setItem('__tfa_set_pw_required','1');}catch(e){}"
+            // [#134] Remember which provider signed this browser in, so a later
+            // sign-out can end the session at that IdP too. Always written or
+            // cleared, never left stale from an earlier provider.
+            + "try{if(rpLogoutId)localStorage.setItem('__tfa_rp_logout',rpLogoutId);"
+            + "else localStorage.removeItem('__tfa_rp_logout');}catch(e){}"
+            + "if(!res)return;"
             + "var address=window.location.origin+bp;"
             // [v2.5.21] (#98/#137) Two fixes here.
             //
@@ -1324,17 +1354,6 @@ public class SecurityController : ControllerBase
             // one device but not another (#98). The OIDC sign-in just succeeded, so
             // there is by definition no pending 2FA challenge to preserve.
             + "try{sessionStorage.removeItem('__tfa_pending');}catch(e){}"
-            // [v2.5.16] (#100, Re4mstr) For a force-password user, set a marker so
-            // inject.js bounces them back to /SetPassword if they later reach /web
-            // (e.g. by pressing Back) without completing it. Cleared by the
-            // set-password page on a successful set, or if the server reports no
-            // setup pending (stale). This makes the forced step inescapable.
-            + "try{if(forcePw)localStorage.setItem('__tfa_set_pw_required','1');}catch(e){}"
-            // [#134] Remember which provider signed this browser in, so a later
-            // sign-out can end the session at that IdP too. Always written or
-            // cleared, never left stale from an earlier provider.
-            + "try{if(rpLogoutId)localStorage.setItem('__tfa_rp_logout',rpLogoutId);"
-            + "else localStorage.removeItem('__tfa_rp_logout');}catch(e){}"
             + "document.getElementById('msg').textContent='Signed in as '+res.User.Name+' — redirecting…';"
             + "setTimeout(function(){window.location.href=land;},400);"
             + "})"
@@ -1603,11 +1622,14 @@ public class SecurityController : ControllerBase
             // returns the one-shot bridge token; complete login like the
             // browser bridge page (AuthenticateByName -> localStorage -> /web).
             + "function complete(u,t){"
+            + "var bp=su('').slice(0,-1),land=su('web/index.html');"
             + "var did=(function(){try{var x=localStorage.getItem('_deviceId2');if(!x){x=Array.from(crypto.getRandomValues(new Uint8Array(16))).map(function(b){return b.toString(16).padStart(2,'0');}).join('');localStorage.setItem('_deviceId2',x);}return x;}catch(e){return 'bridge-'+Date.now();}})();"
             + "var auth='MediaBrowser Client=\"Jellyfin Web\", Device=\"Browser\", DeviceId=\"'+did+'\", Version=\"10.11.0\"';"
             + "fetch(su('Users/AuthenticateByName'),{method:'POST',headers:{'Content-Type':'application/json','X-Emby-Authorization':auth,'Authorization':auth},body:JSON.stringify({Username:u,Pw:t})})"
-            + ".then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})"
+            + OidcAuthResponseHandler
             + ".then(function(res){"
+            + "try{localStorage.removeItem('__tfa_rp_logout');}catch(e){}"
+            + "if(!res)return;"
             + "var ba=window.location.origin+su('');if(ba.charAt(ba.length-1)==='/')ba=ba.substring(0,ba.length-1);"
             // [#172] Merge into the existing store with connection mode 2
             // (Manual), like the browser bridge page since v2.5.21 (#98, #137).
@@ -1621,10 +1643,6 @@ public class SecurityController : ControllerBase
             + "else{creds.Servers.unshift({Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:2,ManualAddress:ba});}"
             + "localStorage.setItem('jellyfin_credentials',JSON.stringify(creds));"
             + "try{sessionStorage.removeItem('__tfa_pending');}catch(e){}"
-            // [#134] The native webview breakout does not participate in
-            // RP-initiated logout, so drop any marker an earlier browser
-            // sign-in left behind rather than letting it fire later.
-            + "try{localStorage.removeItem('__tfa_rp_logout');}catch(e){}"
             + "st('Signed in as '+res.User.Name+' \\u2014 opening Jellyfin\\u2026');"
             + "setTimeout(function(){window.location.href=su('web/index.html');},400);"
             + "}).catch(function(e){st('Sign-in failed: '+e.message);});"
