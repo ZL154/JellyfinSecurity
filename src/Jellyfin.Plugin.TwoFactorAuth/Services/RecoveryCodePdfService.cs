@@ -75,12 +75,21 @@ public class RecoveryCodePdfService
 
         // QuestPDF probes plugin root first on this hosting model.
         // Ensure root has the native binaries for the current architecture.
-        TryCopyToRoot(nativeDir, pluginDir, "libsodium.so");
+        //
+        // #203: do NOT touch libsodium.so here. libsodium is NSec's native
+        // dependency (passkey Ed25519), NOT a QuestPDF/qpdf/Skia dependency —
+        // it was only ever grouped in by mistake. Eagerly dlopen'ing it from
+        // the PDF-init path meant a server that never uses passkeys still
+        // loaded it, and a late dlopen of libsodium (initial-exec TLS) can
+        // segfault glibc's loader on some hosts (linuxserver.io Jellyfin 12,
+        // reported on TrueNAS) — a hard coredump the TryLoad catch can't
+        // intercept. NSec loads libsodium on demand only when a passkey is
+        // actually used, so dropping it here removes the crash for everyone
+        // else and doesn't affect passkeys.
         TryCopyToRoot(nativeDir, pluginDir, "libqpdf.so");
         TryCopyToRoot(nativeDir, pluginDir, "libQuestPdfSkia.so");
 
-        // Load dependencies before QuestPDF native.
-        TryLoad(Path.Combine(nativeDir, "libsodium.so"));
+        // Load QuestPDF's own native dependencies before QuestPDF native.
         TryLoad(Path.Combine(nativeDir, "libqpdf.so"));
         TryLoad(Path.Combine(nativeDir, "libQuestPdfSkia.so"));
     }
