@@ -1,6 +1,4 @@
 using System.Collections.Generic;
-using System.IO;
-using System.Runtime.InteropServices;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -9,42 +7,65 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
 /// <summary>
 /// Renders the freshly-generated recovery codes as a single-page A4 PDF the
-/// user can print and stash. Codes are generation-time only — once dismissed
+/// user can print and stash. Codes are generation-time only: once dismissed
 /// the server has no way to re-derive them, so this PDF is the user's last
 /// chance to capture the plaintext.
 ///
-/// QuestPDF community license is free for projects under USD 1M revenue —
-/// applies to a self-hosted OSS plugin. License blurb is required in
+/// QuestPDF community license is free for projects under USD 1M revenue,
+/// which covers a self-hosted OSS plugin. License blurb is required in
 /// distribution; included in README.
+///
+/// [#203] Nothing native happens until the first Render. QuestPDF's Settings
+/// type runs SkNativeDependencyCompatibilityChecker from its own static
+/// constructor, and FontManager.RegisterFont goes straight into Skia, so the
+/// static constructor that used to live here loaded a 7 MB Skia build (and,
+/// until v2.6.1, libsodium as well) on the first request to any plugin
+/// endpoint, for a feature most requests never touch. It also depended on
+/// copying the right-RID binaries over the plugin root with an in-place
+/// overwrite; that job now belongs to NativeDependencyLayout, which runs at
+/// plugin construction and renames instead of truncating. Fonts and the
+/// license are registered lazily, once, the first time a PDF is rendered.
 /// </summary>
 public class RecoveryCodePdfService
 {
+    private static readonly object _initLock = new();
     private static bool _isReady;
     private static Exception? _initializationException;
 
-    static RecoveryCodePdfService()
+    /// <summary>Registers the embedded fonts and the community license the
+    /// first time a PDF is rendered. A failure is remembered rather than
+    /// retried, matching what the static constructor used to do: QuestPDF's
+    /// own message is the useful one, and repeating the attempt on every
+    /// download would only repeat it.</summary>
+    private static void EnsureReady()
     {
-        try
-        {
-            EnsureQuestPdfNativeDependenciesLoaded();
+        if (_isReady || _initializationException is not null)
+            return;
 
-            // Register embedded Lato fonts. Without this, on a Linux container
-            // with no system fonts installed (the typical Jellyfin Docker
-            // image), Skia falls back to "no glyphs" and the PDF renders as
-            // empty boxes. QuestPDF only auto-loads fonts that are actually
-            // registered — the constant string "Lato" by itself does nothing.
-            RegisterEmbeddedFont("Jellyfin.Plugin.TwoFactorAuth.Fonts.Lato-Regular.ttf");
-            RegisterEmbeddedFont("Jellyfin.Plugin.TwoFactorAuth.Fonts.Lato-Bold.ttf");
-
-            // Required once per process — license must be set before first render.
-            // Community license is free for projects with < $1M revenue.
-            QuestPDF.Settings.License = LicenseType.Community;
-            _isReady = true;
-        }
-        catch (Exception ex)
+        lock (_initLock)
         {
-            _isReady = false;
-            _initializationException = ex;
+            if (_isReady || _initializationException is not null)
+                return;
+
+            try
+            {
+                // Register embedded Lato fonts. Without this, on a Linux container
+                // with no system fonts installed (the typical Jellyfin Docker
+                // image), Skia falls back to "no glyphs" and the PDF renders as
+                // empty boxes. QuestPDF only auto-loads fonts that are actually
+                // registered; the constant string "Lato" by itself does nothing.
+                RegisterEmbeddedFont("Jellyfin.Plugin.TwoFactorAuth.Fonts.Lato-Regular.ttf");
+                RegisterEmbeddedFont("Jellyfin.Plugin.TwoFactorAuth.Fonts.Lato-Bold.ttf");
+
+                // Required once per process, and before the first render.
+                // Community license is free for projects with < $1M revenue.
+                QuestPDF.Settings.License = LicenseType.Community;
+                _isReady = true;
+            }
+            catch (Exception ex)
+            {
+                _initializationException = ex;
+            }
         }
     }
 
@@ -56,96 +77,10 @@ public class RecoveryCodePdfService
         QuestPDF.Drawing.FontManager.RegisterFont(stream);
     }
 
-    private static void EnsureQuestPdfNativeDependenciesLoaded()
-    {
-        if (!OperatingSystem.IsLinux())
-            return;
-
-        var rid = GetCurrentLinuxRid();
-        if (rid is null)
-            return;
-
-        var pluginDir = Path.GetDirectoryName(typeof(RecoveryCodePdfService).Assembly.Location);
-        if (string.IsNullOrWhiteSpace(pluginDir))
-            return;
-
-        var nativeDir = Path.Combine(pluginDir, "runtimes", rid, "native");
-        if (!Directory.Exists(nativeDir))
-            return;
-
-        // QuestPDF probes plugin root first on this hosting model.
-        // Ensure root has the native binaries for the current architecture.
-        //
-        // #203: do NOT touch libsodium.so here. libsodium is NSec's native
-        // dependency (passkey Ed25519), NOT a QuestPDF/qpdf/Skia dependency —
-        // it was only ever grouped in by mistake. Eagerly dlopen'ing it from
-        // the PDF-init path meant a server that never uses passkeys still
-        // loaded it, and a late dlopen of libsodium (initial-exec TLS) can
-        // segfault glibc's loader on some hosts (linuxserver.io Jellyfin 12,
-        // reported on TrueNAS) — a hard coredump the TryLoad catch can't
-        // intercept. NSec loads libsodium on demand only when a passkey is
-        // actually used, so dropping it here removes the crash for everyone
-        // else and doesn't affect passkeys.
-        TryCopyToRoot(nativeDir, pluginDir, "libqpdf.so");
-        TryCopyToRoot(nativeDir, pluginDir, "libQuestPdfSkia.so");
-
-        // Load QuestPDF's own native dependencies before QuestPDF native.
-        TryLoad(Path.Combine(nativeDir, "libqpdf.so"));
-        TryLoad(Path.Combine(nativeDir, "libQuestPdfSkia.so"));
-    }
-
-    private static string? GetCurrentLinuxRid()
-    {
-        return RuntimeInformation.ProcessArchitecture switch
-        {
-            Architecture.Arm64 => "linux-arm64",
-            Architecture.X64 => IsMusl() ? "linux-musl-x64" : "linux-x64",
-            _ => null
-        };
-    }
-
-    private static bool IsMusl()
-    {
-        return File.Exists("/lib/ld-musl-x86_64.so.1")
-            || File.Exists("/lib/ld-musl-aarch64.so.1")
-            || File.Exists("/lib64/ld-musl-x86_64.so.1")
-            || File.Exists("/lib64/ld-musl-aarch64.so.1");
-    }
-
-    private static void TryLoad(string path)
-    {
-        if (!File.Exists(path))
-            return;
-
-        try
-        {
-            NativeLibrary.Load(path);
-        }
-        catch
-        {
-            // QuestPDF will throw a detailed compatibility error later if load fails.
-        }
-    }
-
-    private static void TryCopyToRoot(string nativeDir, string pluginDir, string fileName)
-    {
-        var source = Path.Combine(nativeDir, fileName);
-        var target = Path.Combine(pluginDir, fileName);
-        if (!File.Exists(source))
-            return;
-
-        try
-        {
-            File.Copy(source, target, overwrite: true);
-        }
-        catch
-        {
-            // If copy fails, TryLoad still attempts absolute path from RID folder.
-        }
-    }
-
     public byte[] Render(string username, IReadOnlyList<string> codes, string serverName)
     {
+        EnsureReady();
+
         if (!_isReady)
         {
             throw new InvalidOperationException(
