@@ -55,7 +55,7 @@
          officially deprecated SmtpClient for SMTPS and recommends MailKit. -->
     <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Fido2" Version="4.0.1" />
-    <PackageReference Include="MaxMind.Db" Version="5.1.0" />
+    <PackageReference Include="MaxMind.Db" Version="5.2.0" />
     <!-- Pinned: QuestPDF 2026.6.0 produced an invalid recovery-codes PDF
          ("Failed to load PDF document"); 2026.5.0 renders correctly. Do not
          auto-bump (Dependabot #77 closed for this). -->
