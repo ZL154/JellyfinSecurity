@@ -62,6 +62,11 @@ $RequiredFiles = @(
     "System.IdentityModel.Tokens.Jwt.dll",
     "MailKit.dll",
     "MimeKit.dll",
+    # BCL overlays that MailKit 4.18 / MimeKit 4.18 bind to on .NET 9 (see
+    # NET9_ONLY_ASSEMBLIES in build.sh; this script builds the 10.11 package).
+    "System.Formats.Asn1.dll",
+    "System.Security.Cryptography.Pkcs.dll",
+    "Microsoft.Bcl.Cryptography.dll",
     "BouncyCastle.Cryptography.dll"
 )
 

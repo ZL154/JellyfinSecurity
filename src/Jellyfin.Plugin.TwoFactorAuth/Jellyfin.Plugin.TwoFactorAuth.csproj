@@ -53,9 +53,9 @@
          port 465 (Implicit TLS / SMTPS) because EnableSsl=true sends EHLO in
          plaintext to a server expecting an SSL ClientHello. Microsoft has
          officially deprecated SmtpClient for SMTPS and recommends MailKit. -->
-    <PackageReference Include="MailKit" Version="4.17.0" />
+    <PackageReference Include="MailKit" Version="4.18.0" />
     <PackageReference Include="Fido2" Version="4.0.1" />
-    <PackageReference Include="MaxMind.Db" Version="5.1.0" />
+    <PackageReference Include="MaxMind.Db" Version="5.2.0" />
     <!-- Pinned: QuestPDF 2026.6.0 produced an invalid recovery-codes PDF
          ("Failed to load PDF document"); 2026.5.0 renders correctly. Do not
          auto-bump (Dependabot #77 closed for this). -->
@@ -70,7 +70,7 @@
          live OIDC sign-in. -->
     <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.18.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.18.0" />
-    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.400">
+    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.401">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
