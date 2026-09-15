@@ -57,6 +57,7 @@ public class TwoFactorAuthController : ControllerBase
     private readonly SecurityScoreService _scoreService;
     private readonly ConfigExportService _export;
     private readonly OnboardingSessionProofStore _onboardingProofs;
+    private readonly SignInObserver _signInObserver;
     private readonly ILogger<TwoFactorAuthController> _logger;
 
     public TwoFactorAuthController(
@@ -88,6 +89,7 @@ public class TwoFactorAuthController : ControllerBase
         SecurityScoreService scoreService,
         ConfigExportService configExport,
         OnboardingSessionProofStore onboardingProofs,
+        SignInObserver signInObserver,
         ILogger<TwoFactorAuthController> logger)
     {
         _store = store;
@@ -118,6 +120,7 @@ public class TwoFactorAuthController : ControllerBase
         _scoreService = scoreService;
         _export = configExport;
         _onboardingProofs = onboardingProofs;
+        _signInObserver = signInObserver;
         _logger = logger;
     }
 
@@ -543,6 +546,10 @@ public class TwoFactorAuthController : ControllerBase
             Result = AuditResult.Success,
             Method = "forced_enroll_totp",
         }).ConfigureAwait(false);
+
+        // [#215] Forced enrolment ends in a signed-in session just like Verify
+        // does, so the sign-in is observed here too.
+        _signInObserver.Observe(challenge.UserId, challenge.Username, clientIp);
 
         if (string.IsNullOrEmpty(challenge.PendingAuthResponse))
         {
@@ -1049,6 +1056,11 @@ public class TwoFactorAuthController : ControllerBase
                         : "password_only",
             }).ConfigureAwait(false);
 
+            // [#215] The plugin's own sign-in endpoint: trusted-device and
+            // password-only sessions never reach Verify, so without this call
+            // those users are invisible to the detectors.
+            _signInObserver.Observe(user.Id, user.Username, clientIp);
+
             return Ok(result);
         }
         catch (Exception ex)
@@ -1472,6 +1484,12 @@ public class TwoFactorAuthController : ControllerBase
                 ? (request.Method ?? string.Empty)[..32]
                 : (request.Method ?? string.Empty),
         }).ConfigureAwait(false);
+
+        // [#215] The sign-in is complete, so hand it to the GeoIP detectors.
+        // clientIp rather than challenge.RemoteIp: this is the address the
+        // user is verifying from right now, already walked through the
+        // trusted-proxy chain, which is what the detectors have to compare.
+        _signInObserver.Observe(challenge.UserId, challenge.Username, clientIp);
 
         string? deviceToken = null;
         if (request.TrustDevice && !string.IsNullOrEmpty(challenge.DeviceId))
@@ -4027,6 +4045,10 @@ public class TwoFactorAuthController : ControllerBase
             Result = AuditResult.Success,
             Method = "passkey",
         }).ConfigureAwait(false);
+
+        // [#215] Same observation as the code path in Verify: a passkey
+        // assertion that reaches here is a completed sign-in.
+        _signInObserver.Observe(challenge.UserId, challenge.Username, ip);
 
         // Return the stashed Jellyfin auth payload verbatim — same shape the
         // standard challenge.html flow consumes (parses out AccessToken etc.).
