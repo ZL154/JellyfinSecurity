@@ -30,6 +30,9 @@
     "System.IdentityModel.Tokens.Jwt.dll",
     "MailKit.dll",
     "MimeKit.dll",
+    "System.Formats.Asn1.dll",
+    "System.Security.Cryptography.Pkcs.dll",
+    "Microsoft.Bcl.Cryptography.dll",
     "BouncyCastle.Cryptography.dll"
   ]
 }

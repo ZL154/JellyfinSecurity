@@ -12,14 +12,40 @@ OUTPUT_DIR="$SCRIPT_DIR/dist/TwoFactorAuth"
 # --- multi-ABI: which Jellyfin to build against ------------------------------
 # Default 10.11.9 (net9). Pass JELLYFIN_VERSION=12.0.0 (with a .NET 10 SDK on
 # PATH, or via DOTNET=/path/to/dotnet) for the Jellyfin 12 build; the csproj
-# maps 12.x -> net10 + a JELLYFIN12 symbol. On net10 the BCL ships
-# System.Formats.Cbor, so it is not bundled and drops out of the meta
-# assemblies list (a smoke test on real Jellyfin 12 caught this: listing a
-# missing assembly makes Jellyfin mark the plugin "Malfunctioned").
+# maps 12.x -> net10 + a JELLYFIN12 symbol. On net10 the BCL ships the
+# assemblies listed in NET9_ONLY_ASSEMBLIES below, so they are not bundled and
+# drop out of the meta assemblies list (a smoke test on real Jellyfin 12 caught
+# this: listing a missing assembly makes Jellyfin mark the plugin
+# "Malfunctioned").
 JELLYFIN_VERSION="${JELLYFIN_VERSION:-10.11.9}"
 DOTNET="${DOTNET:-dotnet}"
 IS_JF12=0
 case "$JELLYFIN_VERSION" in 12.*) IS_JF12=1 ;; esac
+
+# Assemblies that overlay the BCL on .NET 9 (Jellyfin 10.11) and are absent
+# from the net10 publish output because .NET 10 already ships them at the
+# version the packages reference: System.Formats.Cbor (Fido2), and the three
+# that MailKit 4.18 / MimeKit 4.18 bind to (System.Formats.Asn1 and
+# System.Security.Cryptography.Pkcs at 10.0.0.0, plus Microsoft.Bcl.Cryptography
+# behind Pkcs). .NET 9 ships older versions of them, so the 10.11 package must
+# carry them and list them in meta.json, and the Jellyfin 12 package must not.
+# Keep every entry before the last item of the meta assemblies list, so the
+# sed that removes them for Jellyfin 12 leaves valid JSON behind.
+NET9_ONLY_ASSEMBLIES=(
+    System.Formats.Cbor.dll
+    System.Formats.Asn1.dll
+    System.Security.Cryptography.Pkcs.dll
+    Microsoft.Bcl.Cryptography.dll
+)
+is_net9_only_assembly() {
+    local candidate
+    for candidate in "${NET9_ONLY_ASSEMBLIES[@]}"; do
+        if [ "$candidate" = "$1" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
 
 PROJECT_VERSION="$(grep -oPm1 '(?<=<Version>)[^<]+' "$PROJECT_DIR/Jellyfin.Plugin.TwoFactorAuth.csproj")"
 META_VERSION="$(grep -oPm1 '(?<=\"version\": \")[^\"]+' "$PROJECT_DIR/meta.json")"
@@ -100,11 +126,15 @@ for file in \
     System.IdentityModel.Tokens.Jwt.dll \
     MailKit.dll \
     MimeKit.dll \
+    System.Formats.Asn1.dll \
+    System.Security.Cryptography.Pkcs.dll \
+    Microsoft.Bcl.Cryptography.dll \
     BouncyCastle.Cryptography.dll \
 ; do
-    # net10 (Jellyfin 12) ships System.Formats.Cbor in the BCL, so it is not
-    # published as a bundled assembly and is dropped from the J12 meta below.
-    if [ "$IS_JF12" = "1" ] && [ "$file" = "System.Formats.Cbor.dll" ]; then
+    # net10 (Jellyfin 12) ships the NET9_ONLY_ASSEMBLIES in the BCL, so they
+    # are not published as bundled assemblies and are dropped from the J12
+    # meta below.
+    if [ "$IS_JF12" = "1" ] && is_net9_only_assembly "$file"; then
         continue
     fi
     if [ ! -f "$BASE_PUBLISH_DIR/$file" ]; then
@@ -140,17 +170,19 @@ for RID in "${RIDS[@]}"; do
 done
 
 # Copy meta.json (patch it for the Jellyfin 12 build: bump the version to the
-# .1 net10 line, raise targetAbi, and drop the BCL-provided assembly that net10
-# does not bundle). The version bump keeps the packaged meta in lockstep with
-# the -p:Version stamp on the published assemblies, so Jellyfin records the
-# installed version as X.Y.Z.1 and never re-offers the .0 net9 entry as an
+# .1 net10 line, raise targetAbi, and drop the BCL-provided assemblies that
+# net10 does not bundle). The version bump keeps the packaged meta in lockstep
+# with the -p:Version stamp on the published assemblies, so Jellyfin records
+# the installed version as X.Y.Z.1 and never re-offers the .0 net9 entry as an
 # "update" to a 12 host.
 cp "$PROJECT_DIR/meta.json" "$OUTPUT_DIR/"
 if [ "$IS_JF12" = "1" ]; then
     sed -i "s/\"version\": \"$PROJECT_VERSION\"/\"version\": \"$OUTPUT_VERSION\"/" "$OUTPUT_DIR/meta.json"
     sed -i 's/"targetAbi": "10.11.0.0"/"targetAbi": "12.0.0.0"/' "$OUTPUT_DIR/meta.json"
-    sed -i '/"System.Formats.Cbor.dll",/d' "$OUTPUT_DIR/meta.json"
-    echo "Patched meta.json for Jellyfin 12 (version $OUTPUT_VERSION, targetAbi 12.0.0.0, no System.Formats.Cbor.dll)."
+    for file in "${NET9_ONLY_ASSEMBLIES[@]}"; do
+        sed -i "/\"$file\",/d" "$OUTPUT_DIR/meta.json"
+    done
+    echo "Patched meta.json for Jellyfin 12 (version $OUTPUT_VERSION, targetAbi 12.0.0.0, without ${NET9_ONLY_ASSEMBLIES[*]})."
 fi
 # imageUrl only helps catalog installs. Jellyfin serves installed plugin
 # artwork from Manifest.ImagePath, so include it for manual packages too (#131).

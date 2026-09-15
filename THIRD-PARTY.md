@@ -21,6 +21,9 @@ licenses:
 | Microsoft.IdentityModel.\* / System.IdentityModel.Tokens.Jwt | MIT | <https://github.com/AzureAD/azure-activedirectory-identitymodel-extensions-for-dotnet> |
 | Microsoft.Bcl.Memory | MIT | <https://github.com/dotnet/runtime> |
 | System.Formats.Cbor | MIT | <https://github.com/dotnet/runtime> |
+| System.Formats.Asn1 | MIT | <https://github.com/dotnet/runtime> |
+| System.Security.Cryptography.Pkcs | MIT | <https://github.com/dotnet/runtime> |
+| Microsoft.Bcl.Cryptography | MIT | <https://github.com/dotnet/runtime> |
 | NSec.Cryptography | MIT | <https://github.com/ektrah/nsec> |
 | SharpFuzz | MIT | <https://github.com/Metalnem/sharpfuzz> |
 
