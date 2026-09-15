@@ -18,6 +18,7 @@ public class Jellyfin12ShellTests
     public void TheAvatarMenuGetsATwoFactorEntryBelowProfile()
     {
         var js = ResourceReader.ReadEmbeddedText("Jellyfin.Plugin.TwoFactorAuth.Pages.inject.js");
+        Assert.NotNull(js);
 
         Assert.Contains("function injectUserMenu()", js, StringComparison.Ordinal);
         Assert.Contains("getElementById('app-user-menu')", js, StringComparison.Ordinal);
@@ -37,6 +38,7 @@ public class Jellyfin12ShellTests
         // page has rendered, landed inside the closed menu, and its early
         // return then kept the real list without a tile.
         var js = ResourceReader.ReadEmbeddedText("Jellyfin.Plugin.TwoFactorAuth.Pages.inject.js");
+        Assert.NotNull(js);
 
         Assert.Contains("function isInsideUserMenu(el)", js, StringComparison.Ordinal);
         var tile = js.IndexOf("function injectSettingsTile()", StringComparison.Ordinal);
