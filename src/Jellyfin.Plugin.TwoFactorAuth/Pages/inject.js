@@ -1518,7 +1518,12 @@
         if (s) s.textContent = msg;
     }
 
-    function showOidcModal(name, authUrl) {
+    // [#216] qrBase64 is optional: a PNG of the same authorize URL, shown so a
+    // client that cannot open a browser (an LG webOS TV refuses the link and
+    // has no keyboard for the copy path) can hand the consent to a phone. The
+    // flow is already device-based, so the sign-in finishes on whichever
+    // screen is polling, not on the one that granted consent.
+    function showOidcModal(name, authUrl, qrBase64) {
         closeOidcModal();
         var safeName = String(name || 'your provider').replace(/[<>&"]/g, '');
         var ov = document.createElement('div');
@@ -1527,6 +1532,12 @@
         ov.innerHTML = '<div style="background:#16181c;border:1px solid #2a2d33;border-radius:14px;max-width:420px;width:100%;padding:24px;box-sizing:border-box;color:#e6e6e6;font-family:system-ui,-apple-system,sans-serif;">'
             + '<h2 style="font-size:19px;margin:0 0 10px;">' + Tf('tfa.login.oidc_title', 'Sign in with {name}', { name: safeName }) + '</h2>'
             + '<p style="color:#aeb4bd;font-size:14px;line-height:1.5;margin:0 0 14px;">' + T('tfa.login.oidc_help', 'Your browser will open to finish sign-in. Approve there, then come back to this screen — it completes automatically.') + '</p>'
+            + (qrBase64
+                ? '<div style="background:#fff;padding:14px;border-radius:10px;margin:0 0 14px;display:flex;justify-content:center;">'
+                    + '<img src="data:image/png;base64,' + qrBase64 + '" alt="" style="width:260px;height:260px;display:block;image-rendering:pixelated;" />'
+                    + '</div>'
+                    + '<p style="color:#aeb4bd;font-size:14px;line-height:1.5;margin:0 0 14px;">' + T('tfa.login.oidc_qr_help', 'Or scan this code with your phone, sign in there, and this screen finishes on its own.') + '</p>'
+                : '')
             + '<button id="' + OIDC_MODAL_ID + '_open" style="width:100%;padding:13px;border-radius:10px;border:0;background:#00a4dc;color:#fff;font-weight:600;font-size:15px;cursor:pointer;">' + T('tfa.login.oidc_open', 'Open sign-in in browser') + '</button>'
             + '<button id="' + OIDC_MODAL_ID + '_copy" style="width:100%;padding:12px;border-radius:10px;border:1px solid #2a2d33;background:#23262c;color:#e6e6e6;font-weight:600;font-size:14px;cursor:pointer;margin-top:10px;">' + T('tfa.login.oidc_copy', 'Copy sign-in link') + '</button>'
             + '<div id="' + OIDC_MODAL_ID + '_st" style="font-size:13px;color:#9aa0a8;margin-top:14px;min-height:18px;"></div>'
@@ -1651,13 +1662,13 @@
     }
 
     function startInAppOidc(id, name) {
-        showOidcModal(name, '#');
+        showOidcModal(name, '#', null);
         oidcModalStatus(T('tfa.login.oidc_starting', 'Starting…'));
         fetch(serverUrl('TwoFactorAuth/Oidc/LoginInfo/' + encodeURIComponent(id)), { headers: { 'Accept': 'application/json' } })
             .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(function (info) {
                 if (!info || !info.authUrl || !info.pollToken) throw new Error('bad response');
-                showOidcModal(name, info.authUrl);
+                showOidcModal(name, info.authUrl, info.qrCodeBase64 || info.QrCodeBase64 || null);
                 oidcModalStatus(T('tfa.login.oidc_opening', 'Opening your browser…'));
                 // [v2.5.12] (#64) if no native bridge opened a real browser, the
                 // auto window.open likely loaded inside the WebView (Google

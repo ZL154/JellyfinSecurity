@@ -625,6 +625,7 @@
   "tfa.login.oidc_title": "{name} でサインイン",
   "tfa.login.oidc_help": "サインインを完了するためにブラウザが開きます。そこで承認してから、この画面に戻ってください — 自動的に完了します。",
   "tfa.login.oidc_open": "ブラウザでサインインを開く",
+  "tfa.login.oidc_qr_help": "またはスマートフォンでこのコードを読み取り、そちらでサインインしてください。この画面は自動的に完了します。",
   "tfa.login.oidc_copy": "サインインリンクをコピー",
   "tfa.login.error_missing_username": "ユーザー名を入力してください。",
   "tfa.login.oidc_use_copy": "ブラウザにセキュリティエラーが表示される場合は、\"サインインリンクをコピー\" をタップして Chrome で開いてください。",
