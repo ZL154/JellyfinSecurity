@@ -370,6 +370,8 @@
   "tfa.admin.settings.lbl_geo_city": "Chemin GeoLite2-City.mmdb (facultatif)",
   "tfa.admin.settings.webauthn_heading": "WebAuthn / passkeys (v1.4)",
   "tfa.admin.settings.webauthn_note": "La plupart des configurations peuvent laisser ces champs vides — l'ID RP et l'origine sont déduits de la requête. Ne les remplacez que lorsque vous êtes derrière un proxy inverse dont le nom d'hôte public diffère de l'interne.",
+  "tfa.admin.settings.lbl_public_base_url": "URL publique du serveur",
+  "tfa.admin.settings.public_base_url_help": "Adresse à laquelle ce serveur est joint depuis l'extérieur, utilisée pour la redirection OIDC, les QR codes d'appairage et l'e-mail de réinitialisation. Laissez vide si tous les clients passent par votre proxy inverse : la requête porte déjà le bon hôte. Renseignez-la si un client joint Jellyfin directement sur une adresse du réseau local, ce que fait une smart TV. Vide, l'URL publique de Jellyfin (paramètres réseau) est utilisée.",
   "tfa.admin.settings.lbl_rp_id": "ID de la partie utilisatrice (Relying Party)",
   "tfa.admin.settings.lbl_rp_origins": "Origines autorisées (une par ligne, https://…)",
   "tfa.admin.settings.tunables_heading": "Paramètres ajustables (v1.4)",

@@ -57,6 +57,7 @@ public class TwoFactorAuthController : ControllerBase
     private readonly SecurityScoreService _scoreService;
     private readonly ConfigExportService _export;
     private readonly OnboardingSessionProofStore _onboardingProofs;
+    private readonly ExternalUrlResolver _externalUrls;
     private readonly ILogger<TwoFactorAuthController> _logger;
 
     public TwoFactorAuthController(
@@ -88,6 +89,7 @@ public class TwoFactorAuthController : ControllerBase
         SecurityScoreService scoreService,
         ConfigExportService configExport,
         OnboardingSessionProofStore onboardingProofs,
+        ExternalUrlResolver externalUrls,
         ILogger<TwoFactorAuthController> logger)
     {
         _store = store;
@@ -118,6 +120,7 @@ public class TwoFactorAuthController : ControllerBase
         _scoreService = scoreService;
         _export = configExport;
         _onboardingProofs = onboardingProofs;
+        _externalUrls = externalUrls;
         _logger = logger;
     }
 
@@ -3414,9 +3417,12 @@ public class TwoFactorAuthController : ControllerBase
         // Behind a TLS-terminating reverse proxy, HttpContext.Request.IsHttps
         // is always false; BypassEvaluator.ResolveScheme honours
         // X-Forwarded-Proto from trusted proxies.
-        var scheme = BypassEvaluator.ResolveScheme(HttpContext);
-        var host = HttpContext.Request.Host.Value;
-        var url = $"{scheme}://{host}/TwoFactorAuth/PairConfirm?token={Uri.EscapeDataString(token)}";
+        // [#216] The phone that scans this may be outside the network, so the
+        // link has to carry the public address when the admin declared one.
+        // Falling back to the request keeps the previous behaviour.
+        var pairBase = _externalUrls.Resolve()
+            ?? $"{BypassEvaluator.ResolveScheme(HttpContext)}://{HttpContext.Request.Host.Value}";
+        var url = $"{pairBase}/TwoFactorAuth/PairConfirm?token={Uri.EscapeDataString(token)}";
 
         // Generate QR
         using var qrGen = new QRCoder.QRCodeGenerator();
@@ -4833,7 +4839,11 @@ public class TwoFactorAuthController : ControllerBase
         var svc = ResolvePasswordResetService(HttpContext);
         if (svc is not null)
         {
-            var origin = $"{Request.Scheme}://{Request.Host}";
+            // [#216] This origin ends up in an email, opened on whatever
+            // device the person has. It must be the public address, and it was
+            // not even proxy-aware before.
+            var origin = _externalUrls.Resolve()
+                ?? $"{BypassEvaluator.ResolveScheme(HttpContext)}://{Request.Host}";
             var ip = RateLimiter.ClientKey(HttpContext);
             await svc.RequestResetAsync(body?.Identifier, origin, ip).ConfigureAwait(false);
         }
@@ -5397,9 +5407,12 @@ public class TwoFactorAuthController : ControllerBase
         // Behind a TLS-terminating reverse proxy, HttpContext.Request.IsHttps
         // is always false; BypassEvaluator.ResolveScheme honours
         // X-Forwarded-Proto from trusted proxies.
-        var scheme = BypassEvaluator.ResolveScheme(HttpContext);
-        var host = HttpContext.Request.Host.Value;
-        var url = $"{scheme}://{host}/TwoFactorAuth/PairConfirm?token={Uri.EscapeDataString(b64)}";
+        // [#216] The phone that scans this may be outside the network, so the
+        // link has to carry the public address when the admin declared one.
+        // Falling back to the request keeps the previous behaviour.
+        var pairBase = _externalUrls.Resolve()
+            ?? $"{BypassEvaluator.ResolveScheme(HttpContext)}://{HttpContext.Request.Host.Value}";
+        var url = $"{pairBase}/TwoFactorAuth/PairConfirm?token={Uri.EscapeDataString(b64)}";
 
         // SECURITY [v2.5.6] (U6): generate the QR PNG server-side instead of
         // letting the browser build a third-party URL (api.qrserver.com).

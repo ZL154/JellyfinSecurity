@@ -54,6 +54,9 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<OnboardingSessionProofStore>();
         serviceCollection.AddSingleton<IpBanService>();
         serviceCollection.AddSingleton<ImpossibleTravelDetector>();
+        // [#216] One place that knows this server's public address, for every
+        // link the plugin hands to an IdP, a phone or an email.
+        serviceCollection.AddSingleton<ExternalUrlResolver>();
         serviceCollection.AddSingleton<IpAllowlistService>();
         serviceCollection.AddSingleton<OidcLoginTokenStore>();
         // v2.4: HIBP password-breach check. Typed HttpClient gets its own
