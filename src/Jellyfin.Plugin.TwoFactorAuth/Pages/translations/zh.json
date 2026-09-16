@@ -625,6 +625,7 @@
   "tfa.login.oidc_title": "使用 {name} 登录",
   "tfa.login.oidc_help": "您的浏览器将打开以完成登录。请在那里批准，然后返回此屏幕——登录会自动完成。",
   "tfa.login.oidc_open": "在浏览器中打开登录",
+  "tfa.login.oidc_qr_help": "或用手机扫描此二维码并在手机上登录，此屏幕会自动完成。",
   "tfa.login.oidc_copy": "复制登录链接",
   "tfa.login.error_missing_username": "请输入您的用户名。",
   "tfa.login.oidc_use_copy": "如果您的浏览器显示安全错误，请点按 \"复制登录链接\" 并在 Chrome 中打开。",

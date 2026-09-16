@@ -625,6 +625,7 @@
   "tfa.login.oidc_title": "Iniciar sesión con {name}",
   "tfa.login.oidc_help": "Tu navegador se abrirá para finalizar el inicio de sesión. Apruébalo allí y luego vuelve a esta pantalla — se completa automáticamente.",
   "tfa.login.oidc_open": "Abrir el inicio de sesión en el navegador",
+  "tfa.login.oidc_qr_help": "O escanea este código con tu teléfono, inicia sesión allí y esta pantalla se completa sola.",
   "tfa.login.oidc_copy": "Copiar el enlace de inicio de sesión",
   "tfa.login.error_missing_username": "Introduce tu nombre de usuario.",
   "tfa.login.oidc_use_copy": "Si tu navegador muestra un error de seguridad, toca \"Copiar el enlace de inicio de sesión\" y ábrelo en Chrome.",

@@ -625,6 +625,7 @@
   "tfa.login.oidc_title": "Se connecter avec {name}",
   "tfa.login.oidc_help": "Votre navigateur va s'ouvrir pour terminer la connexion. Approuvez-la là-bas, puis revenez à cet écran — elle se termine automatiquement.",
   "tfa.login.oidc_open": "Ouvrir la connexion dans le navigateur",
+  "tfa.login.oidc_qr_help": "Ou scannez ce code avec votre téléphone, connectez-vous là-bas, et cet écran se termine tout seul.",
   "tfa.login.oidc_copy": "Copier le lien de connexion",
   "tfa.login.error_missing_username": "Saisissez votre nom d'utilisateur.",
   "tfa.login.oidc_use_copy": "Si votre navigateur affiche une erreur de sécurité, appuyez sur \"Copier le lien de connexion\" et ouvrez-le dans Chrome.",

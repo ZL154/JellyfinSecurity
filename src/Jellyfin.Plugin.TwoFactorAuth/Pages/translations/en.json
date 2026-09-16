@@ -628,6 +628,7 @@
   "tfa.login.oidc_title": "Sign in with {name}",
   "tfa.login.oidc_help": "Your browser will open to finish sign-in. Approve there, then come back to this screen — it completes automatically.",
   "tfa.login.oidc_open": "Open sign-in in browser",
+  "tfa.login.oidc_qr_help": "Or scan this code with your phone, sign in there, and this screen finishes on its own.",
   "tfa.login.oidc_copy": "Copy sign-in link",
   "tfa.login.error_missing_username": "Enter your username.",
   "tfa.login.oidc_use_copy": "If your browser shows a security error, tap \"Copy sign-in link\" and open it in Chrome.",
