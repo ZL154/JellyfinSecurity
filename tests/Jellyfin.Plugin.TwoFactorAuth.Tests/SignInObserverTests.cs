@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -83,18 +84,75 @@ public class SignInObserverTests
     {
         // The wiring is the whole point of #215, so pin the call sites: each
         // one passes the proxy-resolved address, never the raw peer. Reading
-        // the controller source is the only way to assert this without a full
-        // DI harness; the file is found relative to the test assembly.
-        var controller = SourceFile("src/Jellyfin.Plugin.TwoFactorAuth/Api/TwoFactorAuthController.cs");
-
-        var calls = controller
-            .Split('\n')
-            .Where(line => line.Contains("_signInObserver.Observe(", StringComparison.Ordinal))
-            .ToList();
+        // the source is the only way to assert this without a full DI harness;
+        // the file is found relative to the test assembly.
+        var calls = ObserveCalls("src/Jellyfin.Plugin.TwoFactorAuth/Api/TwoFactorAuthController.cs");
 
         Assert.Equal(4, calls.Count);
         Assert.All(calls, call => Assert.Matches(@"_signInObserver\.Observe\([^)]*,\s*(clientIp|ip)\);", call));
     }
+
+    [Fact]
+    public void Every_completed_sign_in_path_in_the_session_handler_hands_the_resolved_address_to_the_observer()
+    {
+        // The sign-ins that never reach the controller: device pre-verified,
+        // QuickConnect, app password, paired device and bypass. The reconnect
+        // path is deliberately absent, since a websocket reconnect on an
+        // already-verified token is not a fresh sign-in, and so is the
+        // challenge path, where no sign-in has happened yet.
+        var handler = SourceFile("src/Jellyfin.Plugin.TwoFactorAuth/Services/AuthenticationEventHandler.cs");
+        var calls = ObserveCalls("src/Jellyfin.Plugin.TwoFactorAuth/Services/AuthenticationEventHandler.cs");
+
+        Assert.Equal(5, calls.Count);
+        Assert.All(calls, call => Assert.Matches(@"_signInObserver\.Observe\([^)]*,\s*observedIp\);", call));
+
+        // observedIp must come from the proxy-aware resolution, not RemoteEndPoint.
+        Assert.Contains(
+            "var observedIp = BypassEvaluator.ResolveClientIp(info.RemoteEndPoint, forwardedFor);",
+            handler,
+            StringComparison.Ordinal);
+
+        var reconnect = handler.IndexOf("Method = \"reconnect\"", StringComparison.Ordinal);
+        Assert.True(reconnect > 0, "the reconnect path should still exist");
+        var afterReconnect = handler.Substring(reconnect, Math.Min(400, handler.Length - reconnect));
+        Assert.DoesNotContain("_signInObserver.Observe(", afterReconnect, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false, false, "no GeoIP database is loaded, so sign-ins are not resolved")]
+    [InlineData(true, false, "no sign-in observed since the server started")]
+    public void Diagnostics_says_when_no_sign_in_has_reached_the_detectors(
+        bool anyDatabaseLoaded, bool observed, string expectedDetail)
+    {
+        DateTime? last = observed ? DateTime.UtcNow : null;
+        var row = DiagnosticsService.SignInObservationCheck(last, anyDatabaseLoaded, DateTime.UtcNow);
+
+        Assert.Equal("signin_observation", row.Id);
+        Assert.Equal("Sign-ins reach the GeoIP detectors", row.Label);
+        Assert.Equal(DiagnosticsService.CheckStatus.Ok, row.Status);
+        Assert.Equal(expectedDetail, row.Detail);
+    }
+
+    [Fact]
+    public void Diagnostics_reports_how_long_ago_the_last_sign_in_was_observed()
+    {
+        var now = new DateTime(2026, 9, 15, 20, 0, 0, DateTimeKind.Utc);
+
+        Assert.StartsWith("last sign-in observed less than a minute ago",
+            DiagnosticsService.SignInObservationCheck(now.AddSeconds(-30), true, now).Detail);
+        Assert.StartsWith("last sign-in observed 5 minute(s) ago",
+            DiagnosticsService.SignInObservationCheck(now.AddMinutes(-5), true, now).Detail);
+        Assert.StartsWith("last sign-in observed 3 hour(s) ago",
+            DiagnosticsService.SignInObservationCheck(now.AddHours(-3), true, now).Detail);
+        Assert.EndsWith("(2026-09-15 17:00:00Z)",
+            DiagnosticsService.SignInObservationCheck(now.AddHours(-3), true, now).Detail);
+    }
+
+    private static List<string> ObserveCalls(string repoRelativePath)
+        => SourceFile(repoRelativePath)
+            .Split('\n')
+            .Where(line => line.Contains("_signInObserver.Observe(", StringComparison.Ordinal))
+            .ToList();
 
     private static string SourceFile(string repoRelativePath)
     {
