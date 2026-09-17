@@ -375,6 +375,8 @@
   "tfa.admin.settings.tunables_heading": "可调参数(v1.4)",
   "tfa.admin.settings.lbl_preverify": "预验证窗口(秒,30-900)",
   "tfa.admin.settings.lbl_trust_ttl": "信任 Cookie TTL(天,1-90)",
+  "tfa.admin.settings.opt_pair_second_screen": "记住在其他屏幕上批准的设备(登录二维码、Quick Connect)",
+  "tfa.admin.settings.pair_second_screen_help": "电视无法呈现验证页面，因此通过在手机上完成的批准登录。启用后，该设备会被加入用户的已配对设备，而不是被遗忘，可在那里查看和撤销，并可在允许的情况下标记为无限期信任。只有同时启用了裸设备 ID 绕过时，才会跳过双因素验证。默认关闭。",
   "tfa.admin.settings.lbl_max_sess": "每个用户的默认最大并发会话数(0 = 无限)",
   "tfa.admin.settings.lbl_deadline": "注册截止时间(UTC,可选 — yyyy-MM-dd)",
   "tfa.admin.settings.opt_hairpin": "将服务器自己的公共 IP 视为 LAN(NAT 发夹)— 请看安全说明",

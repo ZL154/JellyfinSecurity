@@ -375,6 +375,8 @@
   "tfa.admin.settings.tunables_heading": "Feineinstellungen (v1.4)",
   "tfa.admin.settings.lbl_preverify": "Pre-Verify-Fenster (Sekunden, 30-900)",
   "tfa.admin.settings.lbl_trust_ttl": "TTL für Vertrauens-Cookie (Tage, 1-90)",
+  "tfa.admin.settings.opt_pair_second_screen": "Geräte merken, die auf einem anderen Bildschirm bestätigt wurden (Anmelde-QR, Quick Connect)",
+  "tfa.admin.settings.pair_second_screen_help": "Ein Fernseher kann die Bestätigungsseite nicht darstellen und meldet sich deshalb über eine Bestätigung am Telefon an. Ist dies aktiviert, wird das Gerät in die gekoppelten Geräte des Benutzers aufgenommen, statt vergessen zu werden: dort bleibt es sichtbar und widerrufbar und kann, wo erlaubt, unbefristetes Vertrauen erhalten. Die 2FA wird nur übersprungen, wenn zusätzlich der Bypass über die reine Geräte-ID aktiv ist. Standardmäßig aus.",
   "tfa.admin.settings.lbl_max_sess": "Standard-Höchstzahl gleichzeitiger Sitzungen pro Benutzer (0 = unbegrenzt)",
   "tfa.admin.settings.lbl_deadline": "Registrierungs-Stichtag (UTC, optional — JJJJ-MM-TT)",
   "tfa.admin.settings.opt_hairpin": "Öffentliche IP des Servers als LAN behandeln (NAT-Hairpin) — siehe Sicherheitshinweis",

@@ -378,6 +378,8 @@
   "tfa.admin.settings.tunables_heading": "Tunables (v1.4)",
   "tfa.admin.settings.lbl_preverify": "Pre-verify window (seconds, 30-900)",
   "tfa.admin.settings.lbl_trust_ttl": "Trust cookie TTL (days, 1-90)",
+  "tfa.admin.settings.opt_pair_second_screen": "Remember devices approved from another screen (sign-in QR, Quick Connect)",
+  "tfa.admin.settings.pair_second_screen_help": "A TV cannot render the challenge page, so it signs in through an approval given on a phone. With this on, that device is added to the user's paired devices instead of being forgotten, so it stays visible and revocable there, and can be marked as indefinitely trusted where that is allowed. It only skips 2FA if the bare device ID bypass is also on. Off by default.",
   "tfa.admin.settings.lbl_max_sess": "Default max concurrent sessions per user (0 = unlimited)",
   "tfa.admin.settings.lbl_deadline": "Enrollment deadline (UTC, optional — yyyy-MM-dd)",
   "tfa.admin.settings.opt_hairpin": "Treat server's own public IP as LAN (NAT hairpin) — see security note",

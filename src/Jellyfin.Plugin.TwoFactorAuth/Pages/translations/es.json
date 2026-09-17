@@ -375,6 +375,8 @@
   "tfa.admin.settings.tunables_heading": "Parámetros ajustables (v1.4)",
   "tfa.admin.settings.lbl_preverify": "Ventana de preverificación (segundos, 30-900)",
   "tfa.admin.settings.lbl_trust_ttl": "TTL de cookie de confianza (días, 1-90)",
+  "tfa.admin.settings.opt_pair_second_screen": "Recordar dispositivos aprobados en otra pantalla (QR de inicio de sesión, Quick Connect)",
+  "tfa.admin.settings.pair_second_screen_help": "Un televisor no puede mostrar la página de desafío, así que inicia sesión mediante una aprobación hecha en el teléfono. Con esto activado, ese dispositivo se añade a los dispositivos emparejados del usuario en lugar de olvidarse, queda visible y revocable allí, y puede recibir confianza indefinida donde se permita. Solo omite el 2FA si también está activo el bypass por ID de dispositivo. Desactivado por defecto.",
   "tfa.admin.settings.lbl_max_sess": "Máximo de sesiones concurrentes por usuario por defecto (0 = ilimitado)",
   "tfa.admin.settings.lbl_deadline": "Fecha límite de registro (UTC, opcional — aaaa-MM-dd)",
   "tfa.admin.settings.opt_hairpin": "Tratar la IP pública del propio servidor como LAN (NAT hairpin) — ver nota de seguridad",

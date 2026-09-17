@@ -249,6 +249,24 @@ public class AuthenticationEventHandler : IHostedService
                 Result = AuditResult.Bypassed,
                 Method = "quickconnect",
             }).ConfigureAwait(false);
+
+            // [#216] The other sign-in a person approves on a second screen.
+            // The allowance consumed just above is a one-shot with a
+            // two-minute life, so without this the TV meets the same wall on
+            // its next session. This is also the first point that knows the
+            // TV's own DeviceId: at /QuickConnect/Authorize the caller is the
+            // phone doing the approving.
+            await SecondScreenPairing.RecordAsync(
+                _store,
+                config,
+                info.UserId,
+                info.UserName ?? string.Empty,
+                info.DeviceId,
+                info.DeviceName,
+                info.Client,
+                info.RemoteEndPoint,
+                SecondScreenPairing.SourceQuickConnect,
+                _logger).ConfigureAwait(false);
             return;
         }
 
