@@ -51,6 +51,7 @@ public class SecurityController : ControllerBase
 
     private readonly OidcService _oidc;
     private readonly OidcLoginTokenStore _oidcBridge;
+    private readonly ExternalUrlResolver _externalUrls;
     private readonly IpBanService _bans;
     private readonly IpAllowlistService _allowlist;
     private readonly UserTwoFactorStore _store;
@@ -82,6 +83,7 @@ public class SecurityController : ControllerBase
         ChallengeStore challenges,
         OnboardingSessionProofStore onboardingProofs,
         ISessionManager sessionManager,
+        ExternalUrlResolver externalUrls,
         ILogger<SecurityController> logger)
     {
         _oidc = oidc;
@@ -97,6 +99,7 @@ public class SecurityController : ControllerBase
         _challenges = challenges;
         _onboardingProofs = onboardingProofs;
         _sessionManager = sessionManager;
+        _externalUrls = externalUrls;
         _logger = logger;
     }
 
@@ -1725,7 +1728,8 @@ public class SecurityController : ControllerBase
             forceHttps: inferHttps,
             basePath: OidcRedirectUriBuilder.ResolveBasePath(
                 Request.PathBase.Value,
-                Request.Path.Value));
+                Request.Path.Value),
+            publicBaseUrl: _externalUrls.Resolve());
     }
 
     /// <summary>

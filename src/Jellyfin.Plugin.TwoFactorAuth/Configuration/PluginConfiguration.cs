@@ -449,6 +449,20 @@ public class PluginConfiguration : BasePluginConfiguration
     /// deployments.</summary>
     public string[] WebAuthnOrigins { get; set; } = Array.Empty<string>();
 
+    /// <summary>[#216] Public base URL of this server, e.g.
+    /// "https://jellyfin.example.com" or "https://example.com/jellyfin". Used
+    /// for the links the plugin hands to someone else: the OIDC redirect_uri,
+    /// the pairing QR codes and the password reset email.
+    ///
+    /// Leave empty on a server that is only reached through a reverse proxy
+    /// that sets X-Forwarded-Host, or directly on its public name: the request
+    /// already carries the right address. Set it when a client reaches
+    /// Jellyfin on an address the outside world does not use, which is the
+    /// normal case for a smart TV on the LAN. When empty the plugin also
+    /// accepts Jellyfin's own published server URI (Networking settings), so
+    /// most servers need nothing here.</summary>
+    public string PublicBaseUrl { get; set; } = string.Empty;
+
     /// <summary>v1.4.3: when a user is routed through a non-default
     /// IAuthenticationProvider (LDAP, SSO via jellyfin-plugin-sso, etc),
     /// their auth was already handled at the IdP — typically with that

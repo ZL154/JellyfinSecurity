@@ -913,6 +913,11 @@
                             <h2 data-i18n-key="tfa.admin.settings.webauthn_heading">WebAuthn / passkeys (v1.4)</h2>
                             <div class="tfa-note" data-i18n-key="tfa.admin.settings.webauthn_note">Most setups can leave these blank — RP ID and origin are derived from the request. Override only when behind a reverse proxy whose public hostname differs from the internal one.</div>
                             <div class="tfa-row">
+                                <label data-i18n-key="tfa.admin.settings.lbl_public_base_url">Public base URL</label>
+                                <input type="text" id="cfgPublicBaseUrl" class="tfa-input" style="width:300px;" placeholder="e.g. https://jellyfin.example.com" />
+                            </div>
+                            <div class="tfa-help" data-i18n-key="tfa.admin.settings.public_base_url_help">Address this server is reached at from outside, used for the OIDC redirect, the pairing QR codes and the password reset email. Leave blank when every client arrives through your reverse proxy: the request already carries the right host. Set it when a client reaches Jellyfin directly on a LAN address, which is what a smart TV does. Jellyfin's own published server URL (Networking settings) is used when this is blank.</div>
+                            <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_rp_id">Relying Party ID</label>
                                 <input type="text" id="cfgRpId" class="tfa-input" style="width:300px;" placeholder="e.g. jellyfin.example.com" />
                             </div>
