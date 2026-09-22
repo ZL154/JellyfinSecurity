@@ -57,6 +57,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // [#216] One place that knows this server's public address, for every
         // link the plugin hands to an IdP, a phone or an email.
         serviceCollection.AddSingleton<ExternalUrlResolver>();
+        // [#215] Both detectors were registered but nothing ever called them.
+        // SignInObserver is the single place that hands a completed sign-in to
+        // the pair, so the wiring cannot go quiet again one path at a time.
+        serviceCollection.AddSingleton<SignInObserver>();
         serviceCollection.AddSingleton<IpAllowlistService>();
         serviceCollection.AddSingleton<OidcLoginTokenStore>();
         // v2.4: HIBP password-breach check. Typed HttpClient gets its own

@@ -320,4 +320,31 @@ public class BypassEvaluatorTests
             BypassEvaluator.HashApiKey("api-key-A"),
             BypassEvaluator.HashApiKey("api-key-B"));
     }
+
+    // [#215] The overload AuthenticationEventHandler uses: the same resolution
+    // for a caller that holds the peer address and the forwarded header it
+    // snapshotted, but no HttpContext. Plugin.Instance is null under test, so
+    // what is pinned here is the no-configuration fallback, which is the safe
+    // one: return the peer and never invent a client from an unverified
+    // header. The proxy walk itself is covered by the PickRealClientIp tests
+    // above, which this overload delegates to once a peer is trusted.
+    [Theory]
+    [InlineData("203.0.113.9", "8.8.8.8", "203.0.113.9")]
+    [InlineData("172.18.0.1", "8.8.8.8, 172.18.0.1", "172.18.0.1")]
+    [InlineData("172.18.0.1", null, "172.18.0.1")]
+    [InlineData("172.18.0.1", "", "172.18.0.1")]
+    public void ResolveClientIp_without_http_context_falls_back_to_the_peer_when_no_proxy_is_configured(
+        string peer, string? forwardedFor, string expected)
+    {
+        Assert.Equal(expected, BypassEvaluator.ResolveClientIp(peer, forwardedFor));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ResolveClientIp_without_http_context_has_no_answer_without_a_peer(string? peer)
+    {
+        Assert.Null(BypassEvaluator.ResolveClientIp(peer, "8.8.8.8"));
+    }
 }

@@ -26,6 +26,7 @@ public class DiagnosticsService
     private readonly IServerApplicationHost _appHost;
     private readonly GeoIpService _geo;
     private readonly ImpossibleTravelDetector _travel;
+    private readonly SignInObserver _signIns;
     private readonly ILogger<DiagnosticsService> _logger;
 
     public DiagnosticsService(
@@ -34,6 +35,7 @@ public class DiagnosticsService
         IServerApplicationHost appHost,
         GeoIpService geo,
         ImpossibleTravelDetector travel,
+        SignInObserver signIns,
         ILogger<DiagnosticsService> logger)
     {
         _store = store;
@@ -41,6 +43,7 @@ public class DiagnosticsService
         _appHost = appHost;
         _geo = geo;
         _travel = travel;
+        _signIns = signIns;
         _logger = logger;
     }
 
@@ -125,6 +128,15 @@ public class DiagnosticsService
         var geoStatuses = new List<GeoIpDatabaseStatus>(_geo.Statuses) { _travel.CityStatus };
         results.AddRange(GeoIpChecks(geoStatuses, _paths.ProgramDataPath));
 
+        // [#215] Whether sign-ins actually reach those databases. The detectors
+        // spent every release until now wired to nothing, and the symptom was
+        // indistinguishable from "nothing suspicious happened": rows above said
+        // Ok while no sign-in was ever resolved. This row separates the two.
+        results.Add(SignInObservationCheck(
+            _signIns.LastObservedAt,
+            geoStatuses.Exists(s => s.Loaded),
+            DateTime.UtcNow));
+
         // --- Audit hash chain integrity ---
         try
         {
@@ -148,6 +160,41 @@ public class DiagnosticsService
     /// engine can read the broken-chain count without re-implementing the hash cascade.</summary>
     public static int VerifyAuditChainPublic(IReadOnlyList<Models.AuditEntry> entries)
         => VerifyAuditChain(entries);
+
+    /// <summary>[#215] One row saying whether a sign-in has reached the GeoIP
+    /// detectors since this server started, and when. Always Ok, because every
+    /// state it reports is legitimate: a server that just restarted has no
+    /// sign-in yet, and one with no database loaded is not expected to resolve
+    /// anything. The value is the timestamp, not an alarm; an admin who sees
+    /// the databases Ok and this row stuck on "no sign-in observed" after
+    /// people have signed in is looking at the bug this row was added for.</summary>
+    internal static DiagnosticCheck SignInObservationCheck(
+        DateTime? lastObservedAt, bool anyDatabaseLoaded, DateTime utcNow)
+    {
+        const string Id = "signin_observation";
+        const string Label = "Sign-ins reach the GeoIP detectors";
+
+        if (!anyDatabaseLoaded)
+        {
+            return new DiagnosticCheck(Id, Label, CheckStatus.Ok,
+                "no GeoIP database is loaded, so sign-ins are not resolved");
+        }
+
+        if (lastObservedAt is null)
+        {
+            return new DiagnosticCheck(Id, Label, CheckStatus.Ok,
+                "no sign-in observed since the server started");
+        }
+
+        var age = utcNow - lastObservedAt.Value;
+        var ago = age < TimeSpan.FromMinutes(1)
+            ? "less than a minute ago"
+            : age < TimeSpan.FromHours(1)
+                ? $"{(int)age.TotalMinutes} minute(s) ago"
+                : $"{(int)age.TotalHours} hour(s) ago";
+        return new DiagnosticCheck(Id, Label, CheckStatus.Ok,
+            $"last sign-in observed {ago} ({lastObservedAt.Value:yyyy-MM-dd HH:mm:ss}Z)");
+    }
 
     /// <summary>Walks the audit log re-computing each entry's expected hash.
     /// Returns count of entries whose stored EntryHash mismatches the
