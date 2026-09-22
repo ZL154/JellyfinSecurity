@@ -496,13 +496,23 @@ public class BypassEvaluator
     /// proxy is configured or trusted. Centralises the SEC-H2 fix so every
     /// caller (rate limiter, IP ban checks, audit logs) sees the same view.</summary>
     public static string? ResolveClientIp(HttpContext context)
+        => ResolveClientIp(
+            context.Connection.RemoteIpAddress?.ToString(),
+            context.Request.Headers["X-Forwarded-For"].ToString());
+
+    /// <summary>Same resolution for callers that hold the peer address and the
+    /// forwarded header but no HttpContext. AuthenticationEventHandler is the
+    /// case: SessionStarted snapshots X-Forwarded-For while the request is
+    /// alive and then works on a background task, where HttpContext is gone.
+    /// Without this overload such a caller can only see the peer, which behind
+    /// a reverse proxy is the proxy itself for every user on the server.</summary>
+    public static string? ResolveClientIp(string? peer, string? forwardedFor)
     {
-        var peer = context.Connection.RemoteIpAddress;
-        var peerStr = peer?.ToString();
+        var peerStr = string.IsNullOrWhiteSpace(peer) ? null : peer;
         var config = Plugin.Instance?.Configuration;
         if (config is null || !config.TrustForwardedFor || config.TrustedProxyCidrs.Length == 0)
             return peerStr;
-        if (string.IsNullOrEmpty(peerStr)) return null;
+        if (peerStr is null) return null;
 
         // Direct peer must be a trusted proxy before XFF is honoured at all.
         var peerTrusted = false;
@@ -512,8 +522,7 @@ public class BypassEvaluator
         }
         if (!peerTrusted) return peerStr;
 
-        var xff = context.Request.Headers["X-Forwarded-For"].ToString();
-        var real = PickRealClientIp(xff, config.TrustedProxyCidrs);
+        var real = PickRealClientIp(forwardedFor, config.TrustedProxyCidrs);
         return real ?? peerStr;
     }
 
