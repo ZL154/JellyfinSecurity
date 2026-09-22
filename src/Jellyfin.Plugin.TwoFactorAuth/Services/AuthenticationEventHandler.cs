@@ -27,6 +27,7 @@ public class AuthenticationEventHandler : IHostedService
     private readonly IDeviceManager _deviceManager;
     private readonly IUserManager _userManager;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly SignInObserver _signInObserver;
     private readonly ILogger<AuthenticationEventHandler> _logger;
 
     public AuthenticationEventHandler(
@@ -39,6 +40,7 @@ public class AuthenticationEventHandler : IHostedService
         IDeviceManager deviceManager,
         IUserManager userManager,
         IHttpContextAccessor httpContextAccessor,
+        SignInObserver signInObserver,
         ILogger<AuthenticationEventHandler> logger)
     {
         _sessionManager = sessionManager;
@@ -50,6 +52,7 @@ public class AuthenticationEventHandler : IHostedService
         _deviceManager = deviceManager;
         _userManager = userManager;
         _httpContextAccessor = httpContextAccessor;
+        _signInObserver = signInObserver;
         _logger = logger;
     }
 
@@ -125,6 +128,13 @@ public class AuthenticationEventHandler : IHostedService
 
         _logger.LogDebug("[2FA] SessionStarted for user {Name} (id={Id}) device={Device} ip={Ip}",
             info.UserName, info.UserId, info.DeviceName, info.RemoteEndPoint);
+
+        // [#215] The address the GeoIP detectors have to see: the peer walked
+        // through the trusted-proxy chain with the X-Forwarded-For snapshot
+        // OnSessionStarted took while the request was still alive. RemoteEndPoint
+        // on its own is the reverse proxy for every remote user, which would
+        // make "new location" and "impossible travel" meaningless behind one.
+        var observedIp = BypassEvaluator.ResolveClientIp(info.RemoteEndPoint, forwardedFor);
 
         // Look up the access token that Jellyfin minted for this session. The
         // middleware's response-intercept runs on a parallel code path and
@@ -223,6 +233,9 @@ public class AuthenticationEventHandler : IHostedService
                 Result = AuditResult.Success,
                 Method = "totp",
             }).ConfigureAwait(false);
+
+            // [#215] A completed sign-in that never touches the controller.
+            _signInObserver.Observe(info.UserId, info.UserName, observedIp);
             return;
         }
 
@@ -249,6 +262,9 @@ public class AuthenticationEventHandler : IHostedService
                 Result = AuditResult.Bypassed,
                 Method = "quickconnect",
             }).ConfigureAwait(false);
+
+            // [#215] A completed sign-in that never touches the controller.
+            _signInObserver.Observe(info.UserId, info.UserName, observedIp);
             return;
         }
 
@@ -276,6 +292,9 @@ public class AuthenticationEventHandler : IHostedService
                 Result = AuditResult.Bypassed,
                 Method = "app_password",
             }).ConfigureAwait(false);
+
+            // [#215] A completed sign-in that never touches the controller.
+            _signInObserver.Observe(info.UserId, info.UserName, observedIp);
             return;
         }
 
@@ -328,6 +347,9 @@ public class AuthenticationEventHandler : IHostedService
                 Result = AuditResult.Bypassed,
                 Method = "paired_device",
             }).ConfigureAwait(false);
+
+            // [#215] A completed sign-in that never touches the controller.
+            _signInObserver.Observe(info.UserId, info.UserName, observedIp);
             return;
         }
 
@@ -424,6 +446,9 @@ public class AuthenticationEventHandler : IHostedService
                 Result = AuditResult.Bypassed,
                 Method = bypass.Reason ?? "bypass",
             }).ConfigureAwait(false);
+
+            // [#215] A completed sign-in that never touches the controller.
+            _signInObserver.Observe(info.UserId, info.UserName, observedIp);
             return;
         }
 
