@@ -715,12 +715,42 @@ public class SecurityController : ControllerBase
             var pollToken = _oidcBridge.BeginDeviceFlow(state);
             Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
             _logger.LogInformation("[2FA] OIDC in-page device flow begun (provider={Pid})", providerId);
-            return Ok(new { authUrl, pollToken });
+            // [#216] A QR of the same authorize URL, so a client that cannot
+            // open a browser can hand the consent to a phone. This is already
+            // a device flow: the poll token, not the device, is what finishes
+            // the sign-in, so the consent may happen anywhere. A TV is the
+            // case that needs it (LG webOS refuses to open the link, and
+            // "copy link" is useless without a keyboard), but it costs any
+            // other client nothing to ignore the extra field.
+            return Ok(new { authUrl, pollToken, qrCodeBase64 = RenderQrPng(authUrl) });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[2FA] OIDC LoginInfo begin failed for {Provider}", providerId);
             return StatusCode(StatusCodes.Status502BadGateway, new { message = "Failed to start OIDC sign-in — check server logs." });
+        }
+    }
+
+    /// <summary>[#216] PNG QR of a URL, base64 for embedding in a data URI.
+    /// Returns an empty string rather than throwing: the QR is a convenience
+    /// on top of a flow that already works with a real browser, and a sign-in
+    /// must never fail because a picture could not be drawn.</summary>
+    private string RenderQrPng(string url)
+    {
+        try
+        {
+            using var generator = new QRCoder.QRCodeGenerator();
+            using var data = generator.CreateQrCode(url, QRCoder.QRCodeGenerator.ECCLevel.M);
+            using var png = new QRCoder.PngByteQRCode(data);
+            // Scale 6 rather than the 5 used for the TOTP enrolment QR: this
+            // one is scanned across a room from a television, not held in the
+            // hand at desk distance.
+            return Convert.ToBase64String(png.GetGraphic(6));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Could not render the OIDC sign-in QR");
+            return string.Empty;
         }
     }
 

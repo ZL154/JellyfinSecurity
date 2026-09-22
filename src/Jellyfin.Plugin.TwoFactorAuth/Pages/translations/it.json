@@ -627,6 +627,7 @@
   "tfa.login.oidc_title": "Accedi con {name}",
   "tfa.login.oidc_help": "Il tuo browser si aprirà per completare l'accesso. Approva lì, poi torna a questa schermata — si completa automaticamente.",
   "tfa.login.oidc_open": "Apri l'accesso nel browser",
+  "tfa.login.oidc_qr_help": "Oppure inquadra questo codice con il telefono, accedi da lì, e questa schermata si completa da sola.",
   "tfa.login.oidc_copy": "Copia il link di accesso",
   "tfa.login.error_missing_username": "Inserisci il tuo nome utente.",
   "tfa.login.oidc_use_copy": "Se il tuo browser mostra un errore di sicurezza, tocca \"Copia il link di accesso\" e aprilo in Chrome.",

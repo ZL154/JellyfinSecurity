@@ -627,6 +627,7 @@
   "tfa.login.oidc_title": "Entrar com {name}",
   "tfa.login.oidc_help": "Seu navegador será aberto para concluir o login. Aprove lá e depois volte a esta tela — ela é concluída automaticamente.",
   "tfa.login.oidc_open": "Abrir o login no navegador",
+  "tfa.login.oidc_qr_help": "Ou aponte a câmera do celular para este código, faça login por lá, e esta tela se conclui sozinha.",
   "tfa.login.oidc_copy": "Copiar o link de login",
   "tfa.login.error_missing_username": "Informe seu usuário.",
   "tfa.login.oidc_use_copy": "Se o seu navegador exibir um erro de segurança, toque em \"Copiar o link de login\" e abra-o no Chrome.",
