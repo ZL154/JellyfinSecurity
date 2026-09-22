@@ -56,8 +56,20 @@ internal static class OidcRedirectUriBuilder
         IReadOnlyList<string> trustedCidrs,
         string providerId,
         bool forceHttps = false,
-        string? basePath = null)
+        string? basePath = null,
+        string? publicBaseUrl = null)
     {
+        // [#216] An explicitly declared public base wins over anything derived
+        // from the request. A client that reaches Jellyfin directly on the LAN
+        // (a smart TV) sends no forwarded headers and its Host is the private
+        // address, so the derivation below cannot produce the URI the IdP has
+        // registered. The declared value already carries scheme, host and any
+        // base path, so nothing else applies to it.
+        if (!string.IsNullOrEmpty(publicBaseUrl))
+        {
+            return $"{publicBaseUrl}/TwoFactorAuth/Oidc/Callback/{providerId}";
+        }
+
         var proxyTrusted = trustedCidrs.Any(c => BypassEvaluator.IsIpInCidr(peer, c));
 
         var scheme = proxyTrusted && !string.IsNullOrEmpty(forwardedProto)

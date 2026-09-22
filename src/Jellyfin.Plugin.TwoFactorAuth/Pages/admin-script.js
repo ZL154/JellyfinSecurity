@@ -1289,6 +1289,7 @@
                         page.querySelector('#cfgAllowPrivateNotifTargets').checked = !!c.AllowPrivateNotificationTargets;
                         page.querySelector('#cfgGeoAsn').value = c.GeoIpAsnDbPath || '';
                         page.querySelector('#cfgGeoCountry').value = c.GeoIpCountryDbPath || '';
+                        page.querySelector('#cfgPublicBaseUrl').value = c.PublicBaseUrl || '';
                         page.querySelector('#cfgRpId').value = c.WebAuthnRpId || '';
                         page.querySelector('#cfgRpOrigins').value = (c.WebAuthnOrigins || []).join('\n');
                         page.querySelector('#cfgPreVerify').value = c.PreVerifyWindowSeconds || 120;
@@ -1474,6 +1475,7 @@
                         c.AllowPrivateNotificationTargets = page.querySelector('#cfgAllowPrivateNotifTargets').checked;
                         c.GeoIpAsnDbPath = page.querySelector('#cfgGeoAsn').value.trim();
                         c.GeoIpCountryDbPath = page.querySelector('#cfgGeoCountry').value.trim();
+                        c.PublicBaseUrl = page.querySelector('#cfgPublicBaseUrl').value.trim();
                         c.WebAuthnRpId = page.querySelector('#cfgRpId').value.trim();
                         c.WebAuthnOrigins = page.querySelector('#cfgRpOrigins').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.PreVerifyWindowSeconds = Math.max(30, Math.min(900, parseInt(page.querySelector('#cfgPreVerify').value) || 120));
