@@ -370,6 +370,8 @@
   "tfa.admin.settings.lbl_geo_city": "GeoLite2-City.mmdbのパス(任意)",
   "tfa.admin.settings.webauthn_heading": "WebAuthn/パスキー(v1.4)",
   "tfa.admin.settings.webauthn_note": "ほとんどの環境ではこれらを空のままで構いません — RP IDとオリジンはリクエストから導出されます。リバースプロキシ越しで公開ホスト名が内部と異なる場合のみオーバーライドしてください。",
+  "tfa.admin.settings.lbl_public_base_url": "公開ベースURL",
+  "tfa.admin.settings.public_base_url_help": "このサーバーに外部から到達するアドレスです。OIDC のリダイレクト、ペアリングの QR コード、パスワード再設定メールに使われます。すべてのクライアントがリバースプロキシ経由で来る場合は空のままにしてください。リクエストが正しいホストを運びます。スマートテレビのようにクライアントが LAN アドレスで直接到達する場合に設定します。空の場合は Jellyfin の公開サーバー URL（ネットワーク設定）が使われます。",
   "tfa.admin.settings.lbl_rp_id": "Relying Party ID",
   "tfa.admin.settings.lbl_rp_origins": "許可オリジン(1行に1つ、https://...)",
   "tfa.admin.settings.tunables_heading": "チューニング項目(v1.4)",
