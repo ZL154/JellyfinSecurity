@@ -110,8 +110,10 @@ public class PasskeyService
 
         return new Fido2(new Fido2Configuration
         {
-            ServerDomain = rpId,
-            ServerName = "Jellyfin",
+            // [Fido2 4.1] ServerDomain/ServerName were renamed to RPID/RPName;
+            // same values, the old names are obsolete and removed in a future major.
+            RPID = rpId,
+            RPName = "Jellyfin",
             Origins = origins,
             // Soft fail keeps registration usable for authenticators that fail
             // attestation root path lookups (FIDO MDS not bundled). The crypto

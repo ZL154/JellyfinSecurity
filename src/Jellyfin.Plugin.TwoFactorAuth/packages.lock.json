@@ -4,11 +4,11 @@
     "net9.0": {
       "Fido2": {
         "type": "Direct",
-        "requested": "[4.0.1, )",
-        "resolved": "4.0.1",
-        "contentHash": "k/+JLt4J4k4zccYwtV1yiRMZEphwj+GacQeVj1p7foEp787a8vJFkHtLnyzSRsnbf9JDYEh7SF8VBWlTTbdsdQ==",
+        "requested": "[4.1.0, )",
+        "resolved": "4.1.0",
+        "contentHash": "Z8wgC8OEF0JsNjohq4JM1eju60hF0uMxHms1XiiXSOQcsXh+bXKvZO22JOoeb1zrYSTcYIxSPd2JDVFEmwz93g==",
         "dependencies": {
-          "Fido2.Models": "4.0.1",
+          "Fido2.Models": "4.1.0",
           "Microsoft.Extensions.Http": "9.0.0",
           "Microsoft.IdentityModel.JsonWebTokens": "8.2.0",
           "NSec.Cryptography": "25.4.0",
@@ -134,8 +134,8 @@
       },
       "Fido2.Models": {
         "type": "Transitive",
-        "resolved": "4.0.1",
-        "contentHash": "SepPhuYlDEWFwObg39xea9e5Ck5a7qpUP0vjIWzkEOCXDWsKQaW9sdN+m+h9phiCzb0r3w1yauypnHN11CozIw==",
+        "resolved": "4.1.0",
+        "contentHash": "Dm7mGBJOCHdortPnnqFYnT6Ruf27CglnelrLTQ0Www9BNL9OmRknd0Y/UFb4ntEKbBK5sZgdzT39W0WIKQJ9+g==",
         "dependencies": {
           "Microsoft.Bcl.Memory": "9.0.14"
         }

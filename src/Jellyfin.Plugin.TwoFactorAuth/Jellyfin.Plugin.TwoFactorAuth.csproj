@@ -54,7 +54,7 @@
          plaintext to a server expecting an SSL ClientHello. Microsoft has
          officially deprecated SmtpClient for SMTPS and recommends MailKit. -->
     <PackageReference Include="MailKit" Version="4.18.0" />
-    <PackageReference Include="Fido2" Version="4.0.1" />
+    <PackageReference Include="Fido2" Version="4.1.0" />
     <PackageReference Include="MaxMind.Db" Version="5.2.0" />
     <!-- Pinned: QuestPDF 2026.6.0 produced an invalid recovery-codes PDF
          ("Failed to load PDF document"); 2026.5.0 renders correctly. Do not
