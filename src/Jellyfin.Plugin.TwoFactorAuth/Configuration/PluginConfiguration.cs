@@ -113,6 +113,27 @@ public class PluginConfiguration : BasePluginConfiguration
     // secure factor and isn't affected by this flag.
     public bool BareDeviceIdBypassEnabled { get; set; } = false;
 
+    /// <summary>[#216] When true, a device that signed in through an approval
+    /// someone gave on a second screen (the OIDC device flow behind the login
+    /// QR, or a QuickConnect authorisation) is remembered in that user's
+    /// paired devices instead of being forgotten.
+    ///
+    /// Both of those sign-ins are currently one-shot: the OIDC bridge only
+    /// marks the device pre-verified in memory, and the QuickConnect
+    /// allowance expires two minutes after it is granted. A TV cannot render
+    /// the challenge page, so every later session starts from the same wall.
+    /// The record written here is the one the Setup page's approval flow
+    /// writes, so it is visible, revocable, and eligible for indefinite trust
+    /// when <see cref="AllowIndefiniteTrust"/> is on.
+    ///
+    /// Off by default and deliberately independent of everything else:
+    /// a paired device only waives 2FA while
+    /// <see cref="BareDeviceIdBypassEnabled"/> is on, for the reason
+    /// documented above it. With that flag off, turning this on changes what
+    /// the user sees in their device list and nothing about what the server
+    /// accepts.</summary>
+    public bool PairDeviceOnSecondScreenApproval { get; set; } = false;
+
     /// <summary>Legacy v2.3-style global flag. Kept for backwards compat: if
     /// true, behaves identically to EnforcementScope=All. Set the v2.4
     /// EnforcementScope to opt into the per-role policy.</summary>

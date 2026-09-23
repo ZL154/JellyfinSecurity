@@ -377,6 +377,8 @@
   "tfa.admin.settings.tunables_heading": "Ajustes (v1.4)",
   "tfa.admin.settings.lbl_preverify": "Janela de pré-verificação (segundos, 30-900)",
   "tfa.admin.settings.lbl_trust_ttl": "TTL do cookie de confiança (dias, 1-90)",
+  "tfa.admin.settings.opt_pair_second_screen": "Lembrar aparelhos aprovados em outra tela (QR de login, Quick Connect)",
+  "tfa.admin.settings.pair_second_screen_help": "Uma TV não consegue exibir a página de desafio, então ela entra por uma aprovação feita no celular. Com isto ligado, esse aparelho passa a constar nos dispositivos pareados do usuário em vez de ser esquecido, ficando visível e revogável ali, e podendo receber confiança indefinida onde isso for permitido. Ele só dispensa o 2FA se o bypass por ID de dispositivo também estiver ligado. Desligado por padrão.",
   "tfa.admin.settings.lbl_max_sess": "Máximo padrão de sessões simultâneas por usuário (0 = ilimitado)",
   "tfa.admin.settings.lbl_deadline": "Prazo de registro (UTC, opcional — aaaa-MM-dd)",
   "tfa.admin.settings.opt_hairpin": "Tratar o IP público do próprio servidor como LAN (hairpin NAT) — veja a nota de segurança",

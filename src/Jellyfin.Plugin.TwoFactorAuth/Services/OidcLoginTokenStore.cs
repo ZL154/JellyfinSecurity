@@ -20,7 +20,12 @@ public class OidcLoginTokenStore : IDisposable
 {
     public const string TokenPrefix = "oidcbr_";
 
-    private record Entry(Guid UserId, string Username, string ProviderId, bool BypassPluginTwoFa, DateTime ExpiresAt);
+    // [#216] ViaDeviceFlow records that this token was handed to a client
+    // polling for someone else to finish the consent (the TV showing a QR),
+    // as opposed to a browser that completed the callback itself. Only the
+    // first kind describes a device a person deliberately approved on another
+    // screen, which is what SecondScreenPairing is allowed to remember.
+    private record Entry(Guid UserId, string Username, string ProviderId, bool BypassPluginTwoFa, DateTime ExpiresAt, bool ViaDeviceFlow = false);
 
     private readonly ConcurrentDictionary<string, Entry> _tokens = new();
     private readonly Timer _sweep;
@@ -56,7 +61,7 @@ public class OidcLoginTokenStore : IDisposable
     /// <summary>Look up + atomically consume. Returns null if missing/expired.
     /// Username check guards against the rare case where the login form
     /// submits a different username than the one the IdP authenticated.</summary>
-    public (Guid UserId, string ProviderId, bool BypassPluginTwoFa)? Consume(string token, string username)
+    public (Guid UserId, string ProviderId, bool BypassPluginTwoFa, bool ViaDeviceFlow)? Consume(string token, string username)
     {
         if (!token.StartsWith(TokenPrefix, StringComparison.Ordinal)) return null;
         if (!_tokens.TryRemove(token, out var entry)) return null;
@@ -66,7 +71,7 @@ public class OidcLoginTokenStore : IDisposable
         // insensitive match would let `ADMIN` consume a token minted for
         // `admin` if both existed as distinct Jellyfin users.
         if (!string.Equals(entry.Username, username, StringComparison.Ordinal)) return null;
-        return (entry.UserId, entry.ProviderId, entry.BypassPluginTwoFa);
+        return (entry.UserId, entry.ProviderId, entry.BypassPluginTwoFa, entry.ViaDeviceFlow);
     }
 
     public static bool LooksLikeBridgeToken(string? value)
@@ -178,7 +183,21 @@ public class OidcLoginTokenStore : IDisposable
         if (entry.BridgeToken is null || entry.Username is null) return null; // still pending
         var result = (entry.Username, entry.BridgeToken);
         RemoveDeviceFlow(entry); // one-shot
+        MarkDeliveredByDeviceFlow(entry.BridgeToken);
         return result;
+    }
+
+    /// <summary>[#216] Stamps the bridge token as delivered through the poll
+    /// side of the device flow, so the provider can tell a TV that had its
+    /// consent approved elsewhere from an ordinary browser sign-in. Called
+    /// only from <see cref="PollDeviceFlow"/>: the stamp has to describe how
+    /// the token reached the client, and this is the one place that knows.</summary>
+    private void MarkDeliveredByDeviceFlow(string bridgeToken)
+    {
+        if (!_tokens.TryGetValue(bridgeToken, out var entry) || entry.ViaDeviceFlow) return;
+        // TryUpdate, not an unconditional write: a token consumed between the
+        // lookup and here must stay consumed rather than be resurrected.
+        _tokens.TryUpdate(bridgeToken, entry with { ViaDeviceFlow = true }, entry);
     }
 
     private void RemoveDeviceFlow(DeviceEntry entry)

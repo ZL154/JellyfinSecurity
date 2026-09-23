@@ -377,6 +377,8 @@
   "tfa.admin.settings.tunables_heading": "Paramètres ajustables (v1.4)",
   "tfa.admin.settings.lbl_preverify": "Fenêtre de pré-vérification (secondes, 30-900)",
   "tfa.admin.settings.lbl_trust_ttl": "TTL du cookie de confiance (jours, 1-90)",
+  "tfa.admin.settings.opt_pair_second_screen": "Mémoriser les appareils approuvés depuis un autre écran (QR de connexion, Quick Connect)",
+  "tfa.admin.settings.pair_second_screen_help": "Un téléviseur ne peut pas afficher la page de vérification: il se connecte donc via une approbation donnée sur un téléphone. Avec cette option, cet appareil est ajouté aux appareils appairés de l'utilisateur au lieu d'être oublié, il y reste visible et révocable, et peut recevoir une confiance illimitée là où cela est autorisé. Le 2FA n'est ignoré que si le contournement par identifiant d'appareil est aussi actif. Désactivé par défaut.",
   "tfa.admin.settings.lbl_max_sess": "Sessions simultanées maximales par défaut par utilisateur (0 = illimité)",
   "tfa.admin.settings.lbl_deadline": "Date limite d'inscription (UTC, facultatif — aaaa-MM-jj)",
   "tfa.admin.settings.opt_hairpin": "Traiter l'IP publique du serveur comme du LAN (NAT hairpin) — voir note de sécurité",

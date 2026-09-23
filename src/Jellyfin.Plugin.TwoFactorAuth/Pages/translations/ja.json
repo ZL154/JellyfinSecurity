@@ -377,6 +377,8 @@
   "tfa.admin.settings.tunables_heading": "チューニング項目(v1.4)",
   "tfa.admin.settings.lbl_preverify": "事前認証ウィンドウ(秒、30-900)",
   "tfa.admin.settings.lbl_trust_ttl": "信頼Cookie TTL(日、1-90)",
+  "tfa.admin.settings.opt_pair_second_screen": "別の画面で承認した端末を記憶する(ログインQR、Quick Connect)",
+  "tfa.admin.settings.pair_second_screen_help": "テレビは確認ページを表示できないため、スマートフォンでの承認によってサインインします。これを有効にすると、その端末は忘れられる代わりにユーザーのペアリング済み端末に追加され、そこで確認と取り消しができ、許可されている場合は無期限の信頼を設定できます。2FAが省略されるのは、端末IDのみによるバイパスも有効な場合だけです。既定では無効です。",
   "tfa.admin.settings.lbl_max_sess": "ユーザーごとのデフォルト最大同時セッション数(0 = 無制限)",
   "tfa.admin.settings.lbl_deadline": "登録期限(UTC、任意 — yyyy-MM-dd)",
   "tfa.admin.settings.opt_hairpin": "サーバー自身のパブリックIPをLAN扱いにする(NATヘアピン) — セキュリティ注釈を参照",

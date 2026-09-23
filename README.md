@@ -183,6 +183,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 ### Native client support
 - **App passwords** — revocable long random passwords for native apps (Swiftfin, Findroid, Symfonium, Seerr, etc.), stored as PBKDF2-SHA256 hashes; entered in the client's password field to bypass 2FA for that client only.
 - **Device pairing** — passwordless users can pair native clients by approving a pending request from the Setup page.
+- **Remembering a second-screen approval** (`PairDeviceOnSecondScreenApproval`, off by default): a sign-in someone approved on another screen, the OIDC login QR on a TV or a Quick Connect code, adds that device to the user's paired devices instead of forgetting it. The record is visible and revocable on the Setup page, and it only waives 2FA where the bare device ID bypass is enabled.
 - **Quick Connect pass-through** — a 2FA-verified user approving a Quick Connect code lets the new device inherit verified status, so TVs sign in without a TOTP prompt.
 - **Active sessions view** — see every active session with device/IP/last-activity and sign them out individually.
 - **Official Android / mobile hand-off** — preserves Base URLs, returns to the app after verification, and recognises the trusted session on follow-up requests.

@@ -211,6 +211,30 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 Result = consumed.Value.BypassPluginTwoFa ? AuditResult.Bypassed : AuditResult.Success,
                 Method = (consumed.Value.BypassPluginTwoFa ? "oidc:" : "oidc_primary:") + consumed.Value.ProviderId,
             }).ConfigureAwait(false);
+
+            // [#216] The device-flow half of this fast path: the token was
+            // picked up by a client polling while someone approved the consent
+            // on another screen, so the device on this end is one the user
+            // deliberately let in. Remember it when the admin asked for that.
+            // A browser callback lands in the same fast path and is
+            // deliberately left out: an ordinary desktop sign-in already has
+            // the signed trusted-device cookie, and pairing it would put a
+            // browser on the bare-DeviceId list instead.
+            if (consumed.Value.ViaDeviceFlow)
+            {
+                await SecondScreenPairing.RecordAsync(
+                    _store,
+                    Plugin.Instance?.Configuration,
+                    bridgeUser.Id,
+                    bridgeUser.Username ?? username,
+                    oidcDeviceId,
+                    GetDeviceHeader("X-Emby-Device-Name", "Device"),
+                    GetHeader("X-Emby-Client") ?? ParseClientFromEmbyAuth(GetHeader("X-Emby-Authorization")),
+                    GetRemoteIp(),
+                    SecondScreenPairing.SourceOidc,
+                    _logger).ConfigureAwait(false);
+            }
+
             _ipBans.RecordSuccess(authIp ?? string.Empty);
             _logger.LogInformation("[2FA] OIDC sign-in for {User} via {Provider}",
                 bridgeUser.Username, consumed.Value.ProviderId);

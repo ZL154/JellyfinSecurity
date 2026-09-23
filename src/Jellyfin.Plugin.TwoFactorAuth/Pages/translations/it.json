@@ -377,6 +377,8 @@
   "tfa.admin.settings.tunables_heading": "Parametri regolabili (v1.4)",
   "tfa.admin.settings.lbl_preverify": "Finestra di pre-verifica (secondi, 30-900)",
   "tfa.admin.settings.lbl_trust_ttl": "TTL del cookie di fiducia (giorni, 1-90)",
+  "tfa.admin.settings.opt_pair_second_screen": "Ricorda i dispositivi approvati da un altro schermo (QR di accesso, Quick Connect)",
+  "tfa.admin.settings.pair_second_screen_help": "Un televisore non può mostrare la pagina di verifica, quindi accede tramite un'approvazione data sul telefono. Con questa opzione attiva, quel dispositivo viene aggiunto ai dispositivi associati dell'utente invece di essere dimenticato, resta lì visibile e revocabile e può ricevere fiducia illimitata dove è consentito. Salta il 2FA solo se è attivo anche il bypass tramite ID dispositivo. Disattivato per impostazione predefinita.",
   "tfa.admin.settings.lbl_max_sess": "Numero massimo predefinito di sessioni simultanee per utente (0 = illimitato)",
   "tfa.admin.settings.lbl_deadline": "Scadenza di registrazione (UTC, opzionale — yyyy-MM-dd)",
   "tfa.admin.settings.opt_hairpin": "Tratta l'IP pubblico del server come LAN (hairpin NAT) — vedere nota sulla sicurezza",

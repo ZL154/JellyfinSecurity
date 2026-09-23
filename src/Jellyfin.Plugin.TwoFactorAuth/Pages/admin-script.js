@@ -1294,6 +1294,12 @@
                         page.querySelector('#cfgRpOrigins').value = (c.WebAuthnOrigins || []).join('\n');
                         page.querySelector('#cfgPreVerify').value = c.PreVerifyWindowSeconds || 120;
                         page.querySelector('#cfgTrustTtl').value = c.TrustCookieTtlDays || 30;
+                        // [#216] Defensive lookup: the page HTML is cached
+                        // separately from this script, so a browser that still
+                        // has the older admin.html must not break the whole
+                        // settings load on a missing element.
+                        var pairEl = page.querySelector('#cfgPairSecondScreen');
+                        if (pairEl) pairEl.checked = !!c.PairDeviceOnSecondScreenApproval;
                         page.querySelector('#cfgMaxSess').value = c.DefaultMaxConcurrentSessions || 0;
                         page.querySelector('#cfgDeadline').value = c.EnrollmentDeadline ? String(c.EnrollmentDeadline).slice(0,10) : '';
                         page.querySelector('#cfgHairpin').checked = !!c.NatHairpinSelfIpBypass;
@@ -1474,6 +1480,10 @@
                         c.WebAuthnOrigins = page.querySelector('#cfgRpOrigins').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.PreVerifyWindowSeconds = Math.max(30, Math.min(900, parseInt(page.querySelector('#cfgPreVerify').value) || 120));
                         c.TrustCookieTtlDays = Math.max(1, Math.min(90, parseInt(page.querySelector('#cfgTrustTtl').value) || 30));
+                        var pairSaveEl = page.querySelector('#cfgPairSecondScreen');
+                        c.PairDeviceOnSecondScreenApproval = pairSaveEl
+                            ? pairSaveEl.checked
+                            : (c.PairDeviceOnSecondScreenApproval === true);
                         c.DefaultMaxConcurrentSessions = Math.max(0, Math.min(100, parseInt(page.querySelector('#cfgMaxSess').value) || 0));
                         var dl = page.querySelector('#cfgDeadline').value.trim();
                         c.EnrollmentDeadline = dl ? new Date(dl + 'T00:00:00Z').toISOString() : null;
