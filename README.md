@@ -182,7 +182,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 
 ### Native client support
 - **App passwords** — revocable long random passwords for native apps (Swiftfin, Findroid, Symfonium, Seerr, etc.), stored as PBKDF2-SHA256 hashes; entered in the client's password field to bypass 2FA for that client only.
-- **Device pairing** — passwordless users can pair native clients by approving a pending request from the Setup page.
+- **Device pairing**: passwordless users can pair native clients by approving a pending request from the Setup page. A paired device only skips 2FA while the admin has `BareDeviceIdBypassEnabled` turned on, which is off by default (see [First-time setup](#-first-time-setup)).
 - **Remembering a second-screen approval** (`PairDeviceOnSecondScreenApproval`, off by default): a sign-in someone approved on another screen, the OIDC login QR on a TV or a Quick Connect code, adds that device to the user's paired devices instead of forgetting it. The record is visible and revocable on the Setup page, and it only waives 2FA where the bare device ID bypass is enabled.
 - **Quick Connect pass-through** — a 2FA-verified user approving a Quick Connect code lets the new device inherit verified status, so TVs sign in without a TOTP prompt.
 - **Active sessions view** — see every active session with device/IP/last-activity and sign them out individually.
@@ -375,13 +375,13 @@ New registrations request **ES256**, the WebAuthn-required portable algorithm. T
 
 The official Jellyfin Android app and compatible web-shell clients can use the injected 2FA/SSO hand-off. If the buttons are missing after an upgrade, follow the [mobile cache steps](#2fa--sso-buttons-or-the-security-sidebar-are-missing-on-android-or-mobile-web).
 
-TVs and native clients that cannot display the browser challenge use **device pairing** instead:
+TVs and native clients that cannot display the browser challenge can use **device pairing** instead, as long as the admin has turned on `BareDeviceIdBypassEnabled`. It is off by default since v2.5.6, because a device ID is chosen by the client and is not a secret: anyone who has the password and sends a paired device's ID skips the second factor. There is no switch for it on the admin page; set `<BareDeviceIdBypassEnabled>true</BareDeviceIdBypassEnabled>` in `/config/plugins/configurations/Jellyfin.Plugin.TwoFactorAuth.xml` and restart Jellyfin. With it off, **Trust** below still records the device, but the retry gets the 2FA challenge again; use an [app password](#native-apps-that-cant-do-the-pairing-flow-scripts-older-tools) instead.
 
 1. Open the native app and sign in with your username + password
 2. The app will show "Invalid" or fail to load — that's expected. The server recorded a **pending pairing** for this device.
 3. On any already-trusted device (your laptop, phone browser), go to **Setup → Devices Waiting for Approval**
 4. You'll see the TV/app listed. Click **Trust**.
-5. Back on the TV/app, retry sign-in — it now works and is remembered permanently.
+5. Back on the TV/app, retry sign-in. With `BareDeviceIdBypassEnabled` on, it now works and stays paired until you revoke it on the Setup page.
 
 This way a TV/console/media-box that can't type a TOTP code still gets its own credential you can revoke later.
 
@@ -403,18 +403,20 @@ Use **app passwords**: in Setup → App Passwords → Generate. You get a one-ti
 
 On the official Android app, sign in normally and complete the injected 2FA page; after verification the app returns to Jellyfin and the trusted session is recognised on its follow-up requests.
 
-For clients without that browser-capable flow, use the **device pairing** process described in [First-time setup](#-first-time-setup):
+For clients without that browser-capable flow, use the **device pairing** process described in [First-time setup](#-first-time-setup), which needs `BareDeviceIdBypassEnabled` turned on (see there):
 
 1. Sign in on the TV/mobile app with your password
 2. It'll fail once — that's normal, the server recorded a pending pairing
 3. Approve the device from Setup on any already-trusted browser
-4. Retry on the TV/app — it now works permanently
+4. Retry on the TV/app. With `BareDeviceIdBypassEnabled` on, it now works until you revoke the device.
 
-Alternative: generate an **app password** in Setup and use it in place of your real password. Useful for older apps or anything that can't tolerate the pairing-request delay.
+Alternative: generate an **app password** in Setup and use it in place of your real password. Useful for older apps or anything that can't tolerate the pairing-request delay, and it works with the default settings.
 
 ### Sonarr / Radarr / Overseerr / Jellyseerr
 
-Use Jellyfin's standard API keys (Dashboard → API Keys). API key auth bypasses user authentication entirely, so 2FA doesn't apply.
+Use Jellyfin's standard API keys (Dashboard → API Keys) for the connection between these apps and Jellyfin. API key auth bypasses user authentication entirely, so 2FA doesn't apply to that connection.
+
+Seerr and Jellyseerr also let people sign in with their Jellyfin username and password, and the API key does not cover that sign-in: the app forwards the credentials to Jellyfin as that user. An account with TOTP or a passkey gets the 2FA challenge, which these apps cannot complete, so the sign-in fails. Have each user create an [app password](#native-apps-that-cant-do-the-pairing-flow-scripts-older-tools) (the Setup page asks for TOTP on the account first) and use it in the app instead of their Jellyfin password, or sign in with Quick Connect where the app offers it (Seerr 3.4 and later). Putting the app's address in the LAN bypass list also works, but then every sign-in that arrives through the app skips 2FA. Do not add the app's address to **Trusted proxy CIDRs** instead: with proxy support on, Seerr forwards the left-most `X-Forwarded-For` address it received, which the client can write itself, so the LAN bypass would follow whatever address the client claims.
 
 ---
 
