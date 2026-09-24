@@ -134,6 +134,11 @@ public class AuthenticationEventHandler : IHostedService
         // OnSessionStarted took while the request was still alive. RemoteEndPoint
         // on its own is the reverse proxy for every remote user, which would
         // make "new location" and "impossible travel" meaningless behind one.
+        // [#228] It is also the address every record below carries (audit
+        // entries, pending and paired devices, the admin notification), so a
+        // bypass decided on a forwarded address is logged with that address
+        // and not with the proxy's. The bypass decision itself still gets the
+        // raw peer and the header, because the evaluator walks the chain.
         var observedIp = BypassEvaluator.ResolveClientIp(info.RemoteEndPoint, forwardedFor);
 
         // Look up the access token that Jellyfin minted for this session. The
@@ -227,7 +232,7 @@ public class AuthenticationEventHandler : IHostedService
                 Timestamp = DateTime.UtcNow,
                 UserId = info.UserId,
                 Username = info.UserName ?? string.Empty,
-                RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                RemoteIp = observedIp ?? string.Empty,
                 DeviceId = info.DeviceId ?? string.Empty,
                 DeviceName = info.DeviceName ?? string.Empty,
                 Result = AuditResult.Success,
@@ -256,7 +261,7 @@ public class AuthenticationEventHandler : IHostedService
                 Timestamp = DateTime.UtcNow,
                 UserId = info.UserId,
                 Username = info.UserName ?? string.Empty,
-                RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                RemoteIp = observedIp ?? string.Empty,
                 DeviceId = info.DeviceId ?? string.Empty,
                 DeviceName = info.DeviceName ?? string.Empty,
                 Result = AuditResult.Bypassed,
@@ -280,7 +285,7 @@ public class AuthenticationEventHandler : IHostedService
                 info.DeviceId,
                 info.DeviceName,
                 info.Client,
-                info.RemoteEndPoint,
+                observedIp,
                 SecondScreenPairing.SourceQuickConnect,
                 _logger).ConfigureAwait(false);
             return;
@@ -304,7 +309,7 @@ public class AuthenticationEventHandler : IHostedService
                 Timestamp = DateTime.UtcNow,
                 UserId = info.UserId,
                 Username = info.UserName ?? string.Empty,
-                RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                RemoteIp = observedIp ?? string.Empty,
                 DeviceId = info.DeviceId ?? string.Empty,
                 DeviceName = info.DeviceName ?? string.Empty,
                 Result = AuditResult.Bypassed,
@@ -351,7 +356,7 @@ public class AuthenticationEventHandler : IHostedService
                 if (p is not null)
                 {
                     p.LastUsedAt = DateTime.UtcNow;
-                    p.LastIp = info.RemoteEndPoint ?? string.Empty;
+                    p.LastIp = observedIp ?? string.Empty;
                 }
             }).ConfigureAwait(false);
             await _store.AddAuditEntryAsync(new AuditEntry
@@ -359,7 +364,7 @@ public class AuthenticationEventHandler : IHostedService
                 Timestamp = DateTime.UtcNow,
                 UserId = info.UserId,
                 Username = info.UserName ?? string.Empty,
-                RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                RemoteIp = observedIp ?? string.Empty,
                 DeviceId = info.DeviceId ?? string.Empty,
                 DeviceName = info.DeviceName ?? string.Empty,
                 Result = AuditResult.Bypassed,
@@ -401,7 +406,7 @@ public class AuthenticationEventHandler : IHostedService
         if (bypass.IsBypassed)
         {
             _logger.LogInformation("[2FA] Bypass applied for {Name} from {Ip} (reason={Reason})",
-                info.UserName, info.RemoteEndPoint, bypass.Reason);
+                info.UserName, observedIp, bypass.Reason);
             if (approvedToken is not null)
             {
                 _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
@@ -458,7 +463,7 @@ public class AuthenticationEventHandler : IHostedService
                 Timestamp = DateTime.UtcNow,
                 UserId = info.UserId,
                 Username = info.UserName ?? string.Empty,
-                RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                RemoteIp = observedIp ?? string.Empty,
                 DeviceId = info.DeviceId ?? string.Empty,
                 DeviceName = info.DeviceName ?? string.Empty,
                 Result = AuditResult.Bypassed,
@@ -488,7 +493,7 @@ public class AuthenticationEventHandler : IHostedService
                 Timestamp = DateTime.UtcNow,
                 UserId = info.UserId,
                 Username = info.UserName ?? string.Empty,
-                RemoteIp = info.RemoteEndPoint ?? string.Empty,
+                RemoteIp = observedIp ?? string.Empty,
                 DeviceId = info.DeviceId ?? string.Empty,
                 DeviceName = info.DeviceName ?? string.Empty,
                 Result = AuditResult.Success,
@@ -527,7 +532,7 @@ public class AuthenticationEventHandler : IHostedService
             info.DeviceId ?? string.Empty,
             info.DeviceName ?? "Unknown",
             info.Client ?? string.Empty,
-            info.RemoteEndPoint ?? string.Empty);
+            observedIp ?? string.Empty);
 
         // Fail closed if the response-intercept middleware misses this auth
         // response. The Verify endpoint unblocks the stashed token after a
@@ -546,7 +551,7 @@ public class AuthenticationEventHandler : IHostedService
             Timestamp = DateTime.UtcNow,
             UserId = info.UserId,
             Username = info.UserName ?? string.Empty,
-            RemoteIp = info.RemoteEndPoint ?? string.Empty,
+            RemoteIp = observedIp ?? string.Empty,
             DeviceId = info.DeviceId ?? string.Empty,
             DeviceName = info.DeviceName ?? string.Empty,
             Result = AuditResult.ChallengeIssued,
@@ -566,7 +571,7 @@ public class AuthenticationEventHandler : IHostedService
             {
                 await _notificationService.NotifyLoginAttemptAsync(
                     info.UserName ?? "unknown",
-                    info.RemoteEndPoint ?? "unknown",
+                    observedIp ?? "unknown",
                     info.DeviceName ?? "unknown",
                     requiresTwoFactor: true).ConfigureAwait(false);
             }
