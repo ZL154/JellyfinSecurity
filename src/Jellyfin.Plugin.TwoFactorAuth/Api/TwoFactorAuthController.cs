@@ -1536,42 +1536,8 @@ public class TwoFactorAuthController : ControllerBase
         });
     }
 
-    // Reflection-based enumeration to dodge Jellyfin 10.11.9's
-    // IUserManager.Users return-type ABI break. See issue #27 — the IL
-    // call site compiled against 10.11.8 throws MissingMethodException on
-    // a 10.11.9 host; reflection re-binds at runtime against either ABI.
-    // Empty enumeration on any failure so admin endpoints degrade gracefully.
-    private IEnumerable<User> EnumerateAllUsers()
-    {
-        // Jellyfin 10.11.10 renamed `IUserManager.Users` (property) →
-        // `GetUsers()` (method). Try the method first; fall back to the
-        // old property via string-named reflection for any older 10.11.x
-        // host. `nameof(IUserManager.Users)` was the previous shim but
-        // fails to COMPILE against 10.11.10 since the symbol is gone.
-        IEnumerable? raw = null;
-        try
-        {
-            var getUsersMethod = typeof(IUserManager).GetMethod("GetUsers", Type.EmptyTypes);
-            if (getUsersMethod is not null)
-            {
-                raw = getUsersMethod.Invoke(_userManager, null) as IEnumerable;
-            }
-            else
-            {
-                var prop = typeof(IUserManager).GetProperty("Users");
-                raw = prop?.GetValue(_userManager) as IEnumerable;
-            }
-        }
-        catch (Exception)
-        {
-            yield break;
-        }
-        if (raw is null) yield break;
-        foreach (var item in raw)
-        {
-            if (item is User u) yield return u;
-        }
-    }
+    // Issue #27 ABI shim, now shared with the uninstall restore (#213).
+    private IEnumerable<User> EnumerateAllUsers() => UserEnumeration.All(_userManager);
 
     // v2.5.3 (issue #37 follow-up): same reflection shim applied to
     // ISessionManager.Sessions. Jellyfin 10.11.9+ also changed the return

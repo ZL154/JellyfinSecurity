@@ -3,18 +3,33 @@ using System.Collections.Generic;
 using System.IO;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
+using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth;
 
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
-    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+    private readonly IApplicationHost _appHost;
+    private readonly ILogger<Plugin> _logger;
+
+    // [#213] IApplicationHost rather than IUserManager: the user manager is
+    // resolved only when the plugin is uninstalled, the same lazy lookup
+    // TwoFactorAuthProvider uses, so building the plugin never pulls the user
+    // manager (and with it every authentication provider) into existence.
+    public Plugin(
+        IApplicationPaths applicationPaths,
+        IXmlSerializer xmlSerializer,
+        IApplicationHost appHost,
+        ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
+        _appHost = appHost;
+        _logger = logger;
         Instance = this;
 
         // [#203] The zip ships the last RID's native libraries at the plugin
@@ -28,6 +43,19 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     public static Plugin? Instance { get; private set; }
+
+    /// <summary>
+    /// [#213] Jellyfin calls this before it removes the plugin, while the server
+    /// is still running. Accounts moved onto this plugin's sign-in provider are
+    /// handed back first; left there, they could not sign in once the plugin
+    /// was gone. They are also listed, so a reinstall takes them back
+    /// (<see cref="SignInProviderReclaimService"/>).
+    /// </summary>
+    public override void OnUninstalling()
+    {
+        SignInProviderRestore.RestoreOnUninstall(_appHost, ApplicationPaths, _logger);
+        base.OnUninstalling();
+    }
 
     public override string Name => "Jellyfin Security";
 

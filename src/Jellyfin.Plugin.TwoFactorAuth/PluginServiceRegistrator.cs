@@ -49,6 +49,9 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // password hash. Read-only audit; the auth-time block in
         // TwoFactorAuthProvider does the actual exploit mitigation.
         serviceCollection.AddHostedService<EmptyPasswordAuditService>();
+        // [#213] After a reinstall, takes back the accounts the uninstall
+        // handed to Jellyfin's own provider, so their app passwords work again.
+        serviceCollection.AddHostedService<SignInProviderReclaimService>();
         // v2.0
         serviceCollection.AddSingleton<OidcService>();
         serviceCollection.AddSingleton<OnboardingSessionProofStore>();

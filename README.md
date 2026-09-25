@@ -837,6 +837,36 @@ SSH into the Jellyfin server and edit the user data file:
 
 Restart Jellyfin. The user can now log in normally and re-enroll.
 
+### Sign-in refused after the plugin stopped loading (`InvalidAuthProvider`)
+Signing in with a passkey, creating an app password, or signing in through SSO moves that account onto the plugin's own sign-in provider. If Jellyfin then stops loading the plugin (for example a build made for another Jellyfin version, or missing files), it has no provider for those accounts and refuses their password, the correct one included, administrators too. The Jellyfin log shows:
+
+```text
+User alice was found with invalid/missing Authentication Provider Jellyfin.Plugin.TwoFactorAuth.Services.TwoFactorAuthProvider. Assigning user to InvalidAuthProvider until this is corrected
+Authentication request for alice has been denied (IP: ...).
+```
+
+Uninstalling or disabling the plugin from **Dashboard → Plugins** no longer causes this: the plugin first hands those accounts back to Jellyfin's own provider, and takes them back the next time it starts. The steps below are for a plugin that does not load at all, which never gets that chance.
+
+1. **Get the plugin loading again, if you can.** Nothing is lost: the accounts sign in as before as soon as it loads. If **Dashboard → Plugins** lists it as **Disabled**, enable it and restart Jellyfin. With no administrator able to sign in, set `"status": "Active"` in the plugin's `meta.json` (in its folder under `/config/plugins/`) and restart Jellyfin.
+2. **If an administrator can still sign in,** open **Dashboard → Users**, pick the account and press **Save** without changing anything. With the plugin not loaded, Jellyfin offers only its own provider, so saving the profile moves the account onto it. If another sign-in plugin (LDAP, for example) is installed, the page shows **Authentication Provider**: pick the one the account should use.
+3. **If no administrator can sign in,** move the accounts in Jellyfin's database. Stop Jellyfin, run the commands below (with the `sqlite3` tool) and start Jellyfin again:
+
+   ```bash
+   # In the official Docker image the database is data/jellyfin.db inside the folder mounted at /config.
+   # Elsewhere, find it with: find / -name jellyfin.db 2>/dev/null
+   cp /path/to/jellyfin.db* /path/to/backup/
+
+   # The accounts on the plugin's provider
+   sqlite3 /path/to/jellyfin.db "SELECT Username FROM Users WHERE AuthenticationProviderId = 'Jellyfin.Plugin.TwoFactorAuth.Services.TwoFactorAuthProvider';"
+
+   # Move them to Jellyfin's own provider; prints how many were moved
+   sqlite3 /path/to/jellyfin.db "UPDATE Users SET AuthenticationProviderId = 'Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider' WHERE AuthenticationProviderId = 'Jellyfin.Plugin.TwoFactorAuth.Services.TwoFactorAuthProvider'; SELECT changes();"
+   ```
+
+The plugin does not undo steps 2 and 3. Once it runs again, an account moved this way still gets its second factor, but its app passwords are refused until it creates a new one; after that, its older app passwords work again too.
+
+To always have a way in, keep one administrator account that never signs in with a passkey, never creates an app password and never signs in through SSO. That account stays on Jellyfin's own provider, so it can sign in and run step 2 for the others even when the plugin does not load.
+
 ---
 
 ## 🛠️ Troubleshooting
@@ -899,6 +929,8 @@ Disable the plugin without uninstalling:
 ```
 
 Restart Jellyfin. All 2FA enforcement turns off; users can log in normally.
+
+`Enabled` is read by the plugin itself, so it only helps while Jellyfin still loads the plugin. If the plugin does not load at all and accounts are refused, see [Sign-in refused after the plugin stopped loading](#sign-in-refused-after-the-plugin-stopped-loading-invalidauthprovider).
 
 ### Behind SWAG / fail2ban: other services on the same proxy go offline after a 2FA login
 
