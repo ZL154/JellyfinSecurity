@@ -48,11 +48,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// [#213] Jellyfin calls this before it removes the plugin, while the server
     /// is still running. Accounts moved onto this plugin's sign-in provider are
     /// handed back first; left there, they could not sign in once the plugin
-    /// was gone.
+    /// was gone. They are also listed, so a reinstall takes them back
+    /// (<see cref="SignInProviderReclaimService"/>).
     /// </summary>
     public override void OnUninstalling()
     {
-        SignInProviderRestore.RestoreOnUninstall(_appHost, _logger);
+        SignInProviderRestore.RestoreOnUninstall(_appHost, ApplicationPaths, _logger);
         base.OnUninstalling();
     }
 
