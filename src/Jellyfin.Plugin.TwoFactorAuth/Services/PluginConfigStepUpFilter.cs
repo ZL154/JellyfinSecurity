@@ -123,11 +123,13 @@ public class PluginConfigStepUpFilter : IAsyncActionFilter
 /// as a global MVC filter so it runs against every controller action,
 /// including Jellyfin core's PluginsController. Plugin-owned controllers
 /// also pay this filter but short-circuit on path mismatch — no
-/// observable cost.</summary>
+/// observable cost. [#213] <see cref="PluginDisableHandBackFilter"/> is
+/// registered the same way, for the same reason.</summary>
 public class PluginMvcOptionsSetup : IConfigureOptions<Microsoft.AspNetCore.Mvc.MvcOptions>
 {
     public void Configure(Microsoft.AspNetCore.Mvc.MvcOptions options)
     {
         options.Filters.Add<PluginConfigStepUpFilter>();
+        options.Filters.Add<PluginDisableHandBackFilter>();
     }
 }

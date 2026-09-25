@@ -17,13 +17,14 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// [#213] A passkey sign-in, an app password and the OIDC bridge move an account
 /// onto <see cref="TwoFactorAuthProvider"/>, and nothing ever moved it back. Once
 /// the plugin was gone, Jellyfin put every such account on its InvalidAuthProvider
-/// and refused all of its sign-ins, administrators included. Uninstalling now
-/// hands those accounts back to the provider this plugin was passing their
-/// password checks to, so they sign in exactly as they did while it was
-/// installed, and lists them in the plugin's data folder, which an uninstall
-/// leaves in place. The first start after a reinstall moves the listed accounts
-/// back onto <see cref="TwoFactorAuthProvider"/>; without that, their app
-/// passwords would fail until each account created a new one. A plugin that
+/// and refused all of its sign-ins, administrators included. Uninstalling the
+/// plugin, or disabling it in Jellyfin's dashboard, now hands those accounts back
+/// to the provider this plugin was passing their password checks to, so they sign
+/// in exactly as they did while it was running, and lists them in the plugin's
+/// data folder, which neither action touches. The next start with the plugin
+/// loaded, after a reinstall or after enabling it again, moves the listed
+/// accounts back onto <see cref="TwoFactorAuthProvider"/>; without that, their
+/// app passwords would fail until each account created a new one. A plugin that
 /// fails to load runs none of this; the README recovery section covers that case.
 /// </summary>
 public static class SignInProviderRestore
@@ -34,7 +35,7 @@ public static class SignInProviderRestore
     /// </summary>
     internal const string JellyfinDefaultProviderId = "Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider";
 
-    /// <summary>The list of accounts an uninstall handed back and a reinstall has yet to take back.</summary>
+    /// <summary>The accounts handed back that the plugin has yet to take back.</summary>
     internal const string RecordFileName = "handed-back.json";
 
     private static readonly JsonSerializerOptions RecordJsonOptions = new() { WriteIndented = true };
@@ -46,8 +47,16 @@ public static class SignInProviderRestore
     internal static string RecordPath(IApplicationPaths paths)
         => Path.Combine(paths.PluginConfigurationsPath, "TwoFactorAuth", RecordFileName);
 
-    /// <summary>Called from <see cref="Plugin.OnUninstalling"/>. Never throws.</summary>
+    /// <summary>Called from <see cref="Plugin.OnUninstalling"/>, which is synchronous. Never throws.</summary>
     public static void RestoreOnUninstall(IApplicationHost appHost, IApplicationPaths paths, ILogger logger)
+        => HandBackAsync(appHost, paths, "Uninstall", logger).GetAwaiter().GetResult();
+
+    /// <summary>
+    /// Hands every account on this plugin's provider back to the provider it
+    /// passes password checks to, and lists them for <see cref="ReclaimAtStartAsync"/>.
+    /// <paramref name="reason"/> only labels the log lines. Never throws.
+    /// </summary>
+    internal static async Task HandBackAsync(IApplicationHost appHost, IApplicationPaths paths, string reason, ILogger logger)
     {
         try
         {
@@ -56,24 +65,25 @@ public static class SignInProviderRestore
             // Materialised first: saving an account while enumerating
             // Jellyfin's user collection would modify it underneath us.
             var users = UserEnumeration.All(userManager).ToList();
-            var handedBack = RestoreAsync(users, target, user => userManager.UpdateUserAsync(user), logger)
-                .GetAwaiter().GetResult();
-            logger.LogInformation("[2FA] Uninstall: {Count} account(s) handed back to {Provider}", handedBack.Count, target);
-            ListHandedBack(RecordPath(paths), target, handedBack, logger);
+            var handedBack = await RestoreAsync(users, target, user => userManager.UpdateUserAsync(user), reason, logger)
+                .ConfigureAwait(false);
+            logger.LogInformation("[2FA] {Reason}: {Count} account(s) handed back to {Provider}", reason, handedBack.Count, target);
+            ListHandedBack(RecordPath(paths), target, handedBack, reason, logger);
         }
         catch (Exception ex)
         {
             logger.LogError(
                 ex,
-                "[2FA] Uninstall: could not hand accounts back from TwoFactorAuthProvider; they cannot sign in until they are moved back (README, Recovery)");
+                "[2FA] {Reason}: could not hand accounts back from TwoFactorAuthProvider; they cannot sign in without the plugin until they are moved back (README, Recovery)",
+                reason);
         }
     }
 
     /// <summary>
     /// Called from <see cref="SignInProviderReclaimService"/> at every start; a
-    /// no-op unless an uninstall left a list behind. Never throws.
+    /// no-op unless an uninstall or a disable left a list behind. Never throws.
     /// </summary>
-    public static async Task ReclaimAfterReinstallAsync(IUserManager userManager, IApplicationPaths paths, ILogger logger)
+    public static async Task ReclaimAtStartAsync(IUserManager userManager, IApplicationPaths paths, ILogger logger)
     {
         var path = RecordPath(paths);
         try
@@ -92,7 +102,7 @@ public static class SignInProviderRestore
         {
             logger.LogError(
                 ex,
-                "[2FA] Reinstall: could not move the accounts listed in {Path} back to TwoFactorAuthProvider; trying again at the next start",
+                "[2FA] Start: could not move the accounts listed in {Path} back to TwoFactorAuthProvider; trying again at the next start",
                 path);
         }
     }
@@ -116,6 +126,7 @@ public static class SignInProviderRestore
         IEnumerable<User> users,
         string targetProviderId,
         Func<User, Task> save,
+        string reason,
         ILogger logger)
     {
         var handedBack = new List<User>();
@@ -132,12 +143,12 @@ public static class SignInProviderRestore
             {
                 await save(user).ConfigureAwait(false);
                 handedBack.Add(user);
-                logger.LogInformation("[2FA] Uninstall: {User} moved back to {Provider}", user.Username, targetProviderId);
+                logger.LogInformation("[2FA] {Reason}: {User} moved back to {Provider}", reason, user.Username, targetProviderId);
             }
             catch (Exception ex)
             {
                 user.AuthenticationProviderId = previous;
-                logger.LogError(ex, "[2FA] Uninstall: could not move {User} back to {Provider}", user.Username, targetProviderId);
+                logger.LogError(ex, "[2FA] {Reason}: could not move {User} back to {Provider}", reason, user.Username, targetProviderId);
             }
         }
 
@@ -146,7 +157,7 @@ public static class SignInProviderRestore
 
     /// <summary>
     /// Moves each listed account back onto this plugin's provider, but only
-    /// while it is still on the provider the uninstall left it on: an account
+    /// while it is still on the provider it was handed back to: an account
     /// someone moved elsewhere since is left alone, and one deleted since is
     /// dropped. Returns the entries whose save failed, to try again at the next
     /// start.
@@ -164,14 +175,14 @@ public static class SignInProviderRestore
             var user = findUser(entry.UserId);
             if (user is null)
             {
-                logger.LogInformation("[2FA] Reinstall: account {UserId} no longer exists", entry.UserId);
+                logger.LogInformation("[2FA] Start: account {UserId} no longer exists", entry.UserId);
                 continue;
             }
 
             if (!string.Equals(user.AuthenticationProviderId, entry.Provider, StringComparison.OrdinalIgnoreCase))
             {
                 logger.LogInformation(
-                    "[2FA] Reinstall: {User} is on {Current} now, not {Provider}; left there",
+                    "[2FA] Start: {User} is on {Current} now, not {Provider}; left there",
                     user.Username,
                     user.AuthenticationProviderId,
                     entry.Provider);
@@ -184,7 +195,7 @@ public static class SignInProviderRestore
             {
                 await save(user).ConfigureAwait(false);
                 reclaimed++;
-                logger.LogInformation("[2FA] Reinstall: {User} moved back to TwoFactorAuthProvider", user.Username);
+                logger.LogInformation("[2FA] Start: {User} moved back to TwoFactorAuthProvider", user.Username);
             }
             catch (Exception ex)
             {
@@ -192,14 +203,14 @@ public static class SignInProviderRestore
                 remaining.Add(entry);
                 logger.LogError(
                     ex,
-                    "[2FA] Reinstall: could not move {User} back to TwoFactorAuthProvider; trying again at the next start",
+                    "[2FA] Start: could not move {User} back to TwoFactorAuthProvider; trying again at the next start",
                     user.Username);
             }
         }
 
         if (reclaimed > 0)
         {
-            logger.LogInformation("[2FA] Reinstall: {Count} account(s) taken back from the uninstall", reclaimed);
+            logger.LogInformation("[2FA] Start: {Count} handed-back account(s) taken back", reclaimed);
         }
 
         return remaining;
@@ -251,10 +262,10 @@ public static class SignInProviderRestore
     }
 
     /// <summary>
-    /// Adds the accounts this uninstall handed back to the list, keeping any an
-    /// earlier uninstall left there that no reinstall has taken back yet.
+    /// Adds the accounts just handed back to the list, keeping any an earlier
+    /// hand-back left there that the plugin has not taken back yet.
     /// </summary>
-    private static void ListHandedBack(string path, string targetProviderId, IReadOnlyList<User> handedBack, ILogger logger)
+    private static void ListHandedBack(string path, string targetProviderId, IReadOnlyList<User> handedBack, string reason, ILogger logger)
     {
         if (handedBack.Count == 0)
         {
@@ -271,19 +282,20 @@ public static class SignInProviderRestore
             }
 
             WritePending(path, pending);
-            logger.LogInformation("[2FA] Uninstall: listed them in {Path} so a reinstall moves them back", path);
+            logger.LogInformation("[2FA] {Reason}: listed them in {Path}; the plugin's next start moves them back", reason, path);
         }
         catch (Exception ex)
         {
             logger.LogError(
                 ex,
-                "[2FA] Uninstall: could not list the accounts handed back in {Path}; after a reinstall, their app passwords work again once each account creates a new one",
+                "[2FA] {Reason}: could not list the accounts handed back in {Path}; once the plugin runs again, their app passwords only work after each account creates a new one",
+                reason,
                 path);
         }
     }
 }
 
-/// <summary>An account an uninstall handed back, and the provider it left the account on.</summary>
+/// <summary>An account handed back, and the provider it was handed back to.</summary>
 internal sealed class HandedBackAccount
 {
     public Guid UserId { get; set; }

@@ -8,10 +8,11 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
 /// <summary>
-/// [#213] On the first start after a reinstall, moves the accounts the uninstall
-/// handed to Jellyfin's own provider back onto <see cref="TwoFactorAuthProvider"/>,
-/// so the app passwords they already had work again. Does nothing when no
-/// uninstall left a list behind. See <see cref="SignInProviderRestore"/>.
+/// [#213] On the first start after a reinstall, or after the plugin is enabled
+/// again, moves the accounts the uninstall or the disable handed to Jellyfin's
+/// own provider back onto <see cref="TwoFactorAuthProvider"/>, so the app
+/// passwords they already had work again. Does nothing when no list was left
+/// behind. See <see cref="SignInProviderRestore"/>.
 /// </summary>
 public class SignInProviderReclaimService : IHostedService
 {
@@ -30,7 +31,7 @@ public class SignInProviderReclaimService : IHostedService
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
-        => SignInProviderRestore.ReclaimAfterReinstallAsync(_userManager, _paths, _logger);
+        => SignInProviderRestore.ReclaimAtStartAsync(_userManager, _paths, _logger);
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
