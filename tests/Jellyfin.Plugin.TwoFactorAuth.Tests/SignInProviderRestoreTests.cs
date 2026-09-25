@@ -116,7 +116,7 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Tests
         {
             var ours = (IAuthenticationProvider)RuntimeHelpers.GetUninitializedObject(typeof(TwoFactorAuthProvider));
 
-            var target = SignInProviderRestore.PasswordProviderId(
+            var target = SignInProviderRestore.DelegateProviderId(
                 new IAuthenticationProvider[] { ours, new DisabledProvider(), new EnabledProvider() });
 
             Assert.Equal(typeof(EnabledProvider).FullName, target);
@@ -127,7 +127,7 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Tests
         {
             var ours = (IAuthenticationProvider)RuntimeHelpers.GetUninitializedObject(typeof(TwoFactorAuthProvider));
 
-            Assert.Equal(Target, SignInProviderRestore.PasswordProviderId(new[] { ours }));
+            Assert.Equal(Target, SignInProviderRestore.DelegateProviderId(new[] { ours }));
         }
 
         [Fact]

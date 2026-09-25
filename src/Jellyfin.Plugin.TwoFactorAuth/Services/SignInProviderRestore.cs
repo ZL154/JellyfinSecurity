@@ -61,7 +61,7 @@ public static class SignInProviderRestore
         try
         {
             var userManager = appHost.Resolve<IUserManager>();
-            var target = PasswordProviderId(appHost.GetExports<IAuthenticationProvider>(false));
+            var target = DelegateProviderId(appHost.GetExports<IAuthenticationProvider>(false));
             // Materialised first: saving an account while enumerating
             // Jellyfin's user collection would modify it underneath us.
             var users = UserEnumeration.All(userManager).ToList();
@@ -112,7 +112,7 @@ public static class SignInProviderRestore
     /// to: the first enabled one that is not this plugin's. The same rule, so an
     /// account moved back keeps signing in against the same credentials.
     /// </summary>
-    internal static string PasswordProviderId(IEnumerable<IAuthenticationProvider> providers)
+    internal static string DelegateProviderId(IEnumerable<IAuthenticationProvider> providers)
         => providers.FirstOrDefault(p => p is not TwoFactorAuthProvider && p.IsEnabled)?.GetType().FullName
             ?? JellyfinDefaultProviderId;
 
