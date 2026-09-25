@@ -893,6 +893,8 @@ Two changes in v2.5.21 are worth knowing about:
 
 **If the error mentions the signing algorithm**, the provider is signing with HMAC (`HS256`) rather than a key pair. In Authentik that means the provider has no **Signing Key** selected. Pick an RSA certificate there. The plugin accepts the standard asymmetric OIDC algorithms (RS256/384/512, ES256/384/512, PS256/384/512) and deliberately refuses HMAC and `none` — that allowlist is what closes the RS256→HS256 algorithm-confusion attack, so it is not configurable.
 
+**If the error names a `RSA-OAEP` / `RSA-OAEP-256` (or another `RSA-*`, `ECDH-ES*`, `*KW`, or `dir`) algorithm**, that is a key-*encryption* algorithm, not a signing one: your IdP is returning an **encrypted** ID token (JWE), and the plugin, like most OIDC clients, verifies a **signed** token (JWS) against your IdP's published keys rather than decrypting one. In Authentik this is the provider's **Encryption Key** under **Advanced protocol settings** — set it to blank / `---------` so Authentik returns the plain signed JWT the plugin can verify. Keep the **Signing Key** set (an RS256 certificate is fine); it is only the Encryption Key that causes this. Encrypting the ID token buys little here anyway, since the exchange is already over TLS and the token is validated server-side. Encrypted (JWE) ID tokens are not supported today. (Reported in discussion [#188](https://github.com/ZL154/JellyfinSecurity/discussions/188).)
+
 If you changed or rotated the signing key and sign-in still fails, restart Jellyfin so the JWKS cache picks up the new key. See Authentik's [certificate management](https://docs.goauthentik.io/sys-mgmt/certificates/) and [OAuth2/OIDC provider](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/) documentation.
 
 ### Chromium console errors about `Permissions-Policy` and synchronous XHR
@@ -934,7 +936,9 @@ Restart Jellyfin. All 2FA enforcement turns off; users can log in normally.
 
 ### Behind SWAG / fail2ban: other services on the same proxy go offline after a 2FA login
 
-If you run Jellyfin behind [SWAG](https://github.com/linuxserver/docker-swag) (linuxserver.io's all-in-one nginx + fail2ban + Let's Encrypt container) or any other stack with a fail2ban jail watching for HTTP 401s, you may see this symptom:
+> **Fixed at the source in v2.4.12 — on a current build you should not hit this.** Requests blocked pending 2FA now return **403**, not 401, and SWAG's default `nginx-unauthorized` jail only counts 401s, so a normal 2FA login no longer trips a ban (issue #36). The injected script also short-circuits the follow-up API calls so the browser stops hammering the server while the challenge is open. The tuning below is kept only for older builds, or if you run a **custom** jail that also bans on 403.
+
+If you run Jellyfin behind [SWAG](https://github.com/linuxserver/docker-swag) (linuxserver.io's all-in-one nginx + fail2ban + Let's Encrypt container) or any other stack with a fail2ban jail watching for HTTP 401s, on **a build older than v2.4.12** you may have seen this symptom:
 
 - Jellyfin works fine on the LAN
 - External access via the reverse proxy fails with `ERR_CONNECTION_REFUSED`
@@ -981,7 +985,7 @@ enabled = false
 
 You lose protection against generic 401-burst attacks on **all** apps behind SWAG (not just Jellyfin), but the other default SWAG jails (`nginx-http-auth`, `nginx-badbots`, `nginx-botsearch`, `nginx-deny`) still cover the common brute-force vectors.
 
-**Why this isn't strictly a plugin bug.** The plugin behaves correctly per HTTP/OAuth (401 on unverified tokens). SWAG's fail2ban behaves correctly per brute-force-protection norms. The collision sits in the gap between the two — fail2ban can't tell a legitimate 2FA enforcement burst from an attack just by reading status codes in the access log. A future plugin release may reduce the 401 burst size at the source ([tracking issue #36](https://github.com/ZL154/JellyfinSecurity/issues/36)) but the jail-threshold fix above resolves it today.
+**Why this isn't strictly a plugin bug.** The plugin behaves correctly per HTTP/OAuth (401 on unverified tokens). SWAG's fail2ban behaves correctly per brute-force-protection norms. The collision sits in the gap between the two — fail2ban can't tell a legitimate 2FA enforcement burst from an attack just by reading status codes in the access log. This was resolved at the source in **v2.4.12** ([issue #36](https://github.com/ZL154/JellyfinSecurity/issues/36)): the blocked-request response is now **403**, which the default `nginx-unauthorized` jail does not count, so a normal 2FA login no longer trips it. The jail-threshold tuning above is only needed on older builds or a custom jail that also bans on 403.
 
 ---
 
