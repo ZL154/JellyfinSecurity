@@ -24,7 +24,7 @@
   <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/ci.yml?branch=main&style=for-the-badge&labelColor=000000&label=CI&logo=github&logoColor=white" alt="CI" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/codeql.yml?branch=main&style=for-the-badge&labelColor=000000&label=CodeQL&logo=github&logoColor=white" alt="CodeQL" /></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity"><img src="https://img.shields.io/ossf-scorecard/github.com/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=OSSF%20Score&color=00a4dc" alt="OpenSSF Scorecard" /></a>
-  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-344%20passing-00a4dc?style=for-the-badge&labelColor=000000&logo=xunit&logoColor=white" alt="Tests" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-597%20passing-00a4dc?style=for-the-badge&labelColor=000000&logo=xunit&logoColor=white" alt="Tests" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/blob/main/SECURITY.md"><img src="https://img.shields.io/badge/Security-Policy-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=gitbook&logoColor=white" alt="Security policy" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/wiki"><img src="https://img.shields.io/badge/Docs-Wiki-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc&logo=gitbook&logoColor=white" alt="Wiki" /></a>
 </p>
@@ -32,7 +32,7 @@
 <p align="center">
   <a href="https://github.com/ZL154/JellyfinSecurity/stargazers"><img src="https://img.shields.io/github/stars/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Stars&color=00a4dc&logo=github&logoColor=white" alt="Stars" /></a>
   <!-- Static last-commit badge — bump when pushing meaningful changes. img.shields.io/github/last-commit is the most rate-limited GitHub-API endpoint in the shields family and has been intermittently unavailable. Static avoids it. -->
-  <a href="https://github.com/ZL154/JellyfinSecurity/commits/main"><img src="https://img.shields.io/badge/Last%20commit-2026--07--24-2b2b2b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=github&logoColor=white" alt="Last commit" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/commits/main"><img src="https://img.shields.io/badge/Last%20commit-2026--09--25-2b2b2b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=github&logoColor=white" alt="Last commit" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/security/advisories"><img src="https://img.shields.io/github/issues-search/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=Open%20advisories&query=is%3Aopen%20label%3Asecurity&color=00a4dc&logo=github&logoColor=white" alt="Open security advisories" /></a>
 </p>
 
@@ -51,10 +51,10 @@ Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email O
 You don't have to take my word for it. Every signal below is automated and
 visible to anyone, including you:
 
-- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (344 tests covering crypto, parsers, authentication flows, translations, and middleware). Green = tests pass.
+- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (597 tests covering crypto, parsers, authentication flows, translations, and middleware). Green = tests pass.
 - **[CodeQL badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml)** — GitHub's static security scanner runs the `security-extended` + `security-and-quality` C# query packs on every push, PR, and weekly. Green = no security findings.
 - **[OpenSSF Scorecard](https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity)** — the Linux Foundation's automated security-posture rating (0–10). Scores branch protection, CodeQL, dependency updates, pinned actions, signed releases, security policy, token permissions, and more. Click the badge to see the per-check breakdown.
-- **[Test suite](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — 344 xUnit tests covering the security-critical code paths (cookie HMAC, TOTP replay protection, recovery-code PBKDF2, CIDR parser, X-Forwarded-For trust-walk, refuse-LAN-bypass-when-XFF-missing guard, device-token binding, AES-GCM v2 AAD, HIBP k-anonymity hashing, atomic challenge consumption, OIDC redirect_uri proxy-header resolution, OIDC userinfo claim merge, SMTP port 465 socket-option mapping, step-up code verification, step-up action classification, ChallengeStore step-up tokens). Runs on every PR + push.
+- **[Test suite](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — 597 xUnit tests covering the security-critical code paths (cookie HMAC, TOTP replay protection, recovery-code PBKDF2, CIDR parser, X-Forwarded-For trust-walk, refuse-LAN-bypass-when-XFF-missing guard, device-token binding, AES-GCM v2 AAD, HIBP k-anonymity hashing, atomic challenge consumption, OIDC redirect_uri proxy-header resolution, OIDC userinfo claim merge, SMTP port 465 socket-option mapping, step-up code verification, step-up action classification, ChallengeStore step-up tokens). Runs on every PR + push.
 - **[Open security advisories](https://github.com/ZL154/JellyfinSecurity/security/advisories)** — historical vulnerabilities filed via [SECURITY.md](SECURITY.md), with patch versions, severity, and CVE references.
 - **[Dependabot PRs](https://github.com/ZL154/JellyfinSecurity/pulls?q=is%3Apr+author%3Aapp%2Fdependabot)** — security and version updates for every NuGet dependency. Frequent merges = vulnerabilities don't sit unpatched.
 - **[Pull request review history](https://github.com/ZL154/JellyfinSecurity/pulls?q=is%3Apr+is%3Aclosed)** — non-trivial changes go through review even when the maintainer is solo, and the diff is public.
@@ -66,17 +66,22 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.6.0
+## 🆕 What's new in v2.6.3
 
-**Jellyfin 12 support, without dropping 10.11.** The plugin now ships two builds from one source, .NET 9 for Jellyfin 10.11.x and .NET 10 for Jellyfin 12.x, both in the one catalog entry, so your server installs the build that matches its version automatically. This release also fixes the admin step-up prompt on the settings and OIDC-provider paths, gives the GeoIP diagnostics a real reason instead of a blank "Fail", and folds in five contributor PRs. In-place upgrade from any 2.5.x, no schema migration or config reset.
+**No more lockouts, and Jellyfin 12 sign-in is finished.** Since v2.6.0 the plugin gained a safety net so that uninstalling, disabling, or losing it never strands the accounts that used it; finished OIDC sign-in for TVs and other keyboard-less devices; wired up the GeoIP alerts; and cleared the OIDC→2FA and `libsodium` crash reports. In-place upgrade from any 2.5.x or 2.6.x, no schema migration or config reset.
 
-**v2.6.0**
+**v2.6.3**
 
-- **🧩 Jellyfin 12 supported, 10.11 unchanged** *(#196, #172)* — Jellyfin 12 moved to .NET 10, and a 10.11-built plugin cannot load there, which is why every action returned 401 on 12. The plugin now builds twice from one source: a **.NET 9** package for 10.11.x and a **.NET 10** package for 12.x, both published under the same catalog entry. Jellyfin routes each host to its build, so there is nothing to choose and existing installs update themselves. Verified end to end on real 10.11 and 12 servers.
-- **🔐 The admin step-up prompt appears everywhere it should** *(#198/#199, #194/#195; camarigor)* — creating, editing and deleting an OIDC provider, the user-2FA toggle, "require password setup" and the audit log are all step-up-gated, but some called the server with a plain fetch, so a required step-up surfaced as a bare "Save failed" and Delete did nothing. They now route through the step-up-aware fetch. The modal also accepts an **emailed code or a passkey**, not just a typed TOTP, so admins whose factor is email or a passkey are no longer locked out.
-- **🌍 GeoIP diagnostics that explain themselves** *(#200, camarigor; refs #51)* — a database that would not load used to read as a blank "Fail". The loader now keeps the reason, retries, and falls back to an in-memory open, and the Diagnostics tab prints what it saw for each database (`not found at … (directory not visible to the Jellyfin process)`, `rejected (not absolute)`, and so on).
-- **📲 In-app OIDC and the setup page on 12** *(#191, #193; camarigor)* — in-app "Sign in with …" no longer freezes on a blank screen on 12 (the stored credential now carries a resolvable address in the connection mode 12 expects), and 12's changed web routes get a working way back to the setup page from the avatar menu.
-- **500 passing tests.** Sigstore-signed and SLSA build-provenance attested.
+- **🔓 Uninstalling or disabling the plugin never locks you out** *(#233, #232; camarigor)* — passkeys, app passwords and OIDC move an account onto the plugin's sign-in provider. The plugin now hands those accounts back to Jellyfin's own provider on uninstall or disable, and reclaims them on the next start, so a removed, disabled, or non-loading plugin can no longer refuse sign-in for those accounts (administrators included). This fixes the lockout root cause behind #213.
+
+**Also since v2.6.0**
+
+- **📺 OIDC sign-in on a TV** *(#216; #218/#219/#220, camarigor)* — the sign-in prompt shows a **QR code** you scan to finish the consent on a phone, a new **Public base URL** setting makes the OIDC `redirect_uri`, pairing QRs and reset links use the right public host, and a device that completed a second-screen approval can optionally be remembered (opt-in, off by default). *(v2.6.2)*
+- **📍 GeoIP alerts actually fire** *(#215/#217, camarigor)* — the suspicious-login and impossible-travel detectors are now called on every completed sign-in, with a Diagnostics check that proves sign-ins are reaching them. *(v2.6.2)*
+- **🔑 OIDC → 2FA hand-off** *(#204/#205, Faffu)* — an OIDC user who also has plugin 2FA now reaches the TOTP prompt instead of stopping on "HTTP 401". *(v2.6.1)*
+- **💥 No more `libsodium` core dumps** *(#203/#212, camarigor)* — the recovery-code PDF path no longer drags in the wrong native library, and the correct one is repaired for the host's architecture at load. *(v2.6.1)*
+- **🔌 Clearer Seerr / Jellyseerr guidance** *(#228, #230/#231)* — those apps want an app password or Quick Connect; a plain username/password sign-in correctly gets a 2FA challenge. *(v2.6.2)*
+- **597 passing tests.** Sigstore-signed and SLSA build-provenance attested.
 
 > Full version history is in the [Changelog](#-changelog) below and on [GitHub Releases](https://github.com/ZL154/JellyfinSecurity/releases).
 
@@ -153,6 +158,8 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - **Group / role authorization** — allowed-users, admin elevation, and role→library mapping, including Keycloak nested `realm_access` / `resource_access` roles.
 - **Onboarding controls** — opt-in exact-username linking, verified-email matching, forced local-password setup, and template-user permission inheritance for auto-created users.
 - **RP-initiated logout** — ends the IdP session on sign-out (opt-in per provider) so "Sign in with…" prompts again.
+- **Sign in on a TV / keyboard-less device** — the OIDC prompt shows a QR of the authorize URL so the consent can be finished on a phone (device flow), with an optional "remember this device after a second-screen approval" (off by default).
+- **Correct public links** — a **Public base URL** setting (falling back to Jellyfin's own published server URI) makes the OIDC `redirect_uri`, pairing QRs, and password-reset email link use the server's real public host rather than the address a direct/LAN client reached it on.
 - **Per-provider tuning** — custom button text/icon, IdP email auto-fill from a configurable claim, private/LAN IdP allow, and an "omit `prompt=login`" toggle for IdPs that reject forced re-auth.
 
 ### Enforcement
@@ -179,6 +186,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - TOTP replay prevention (used time-steps tracked per user); recovery codes marked used immediately on validation, so a stolen code can't be retried.
 - Atomic file writes for user data — a crash mid-write can't corrupt 2FA state.
 - Generic error messages prevent account enumeration ("invalid credentials" whether the password or the code is wrong).
+- **No lockout if the plugin goes away** — uninstalling or disabling the plugin hands accounts it had moved onto its own sign-in provider (via passkey / app password / OIDC) back to Jellyfin's default provider, and reclaims them on the next start, so a removed or disabled plugin never refuses sign-in for those accounts (a plugin that cannot load at all has a documented recovery path).
 
 ### Native client support
 - **App passwords** — revocable long random passwords for native apps (Swiftfin, Findroid, Symfonium, Seerr, etc.), stored as PBKDF2-SHA256 hashes; entered in the client's password field to bypass 2FA for that client only.
@@ -1082,6 +1090,24 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.6.3
+
+- Handed accounts back to Jellyfin's own authentication provider when the plugin is uninstalled or disabled, and reclaimed them on the next start, so a removed, disabled, or non-loading plugin no longer refuses sign-in for accounts that a passkey, app password, or OIDC had moved onto the plugin's provider (administrators included). Added a README recovery section for a plugin that cannot load (#233, fixes #232, root cause behind #213).
+- 597 passing tests. Both ABIs built, signed, SLSA-attested, and validated live on Jellyfin 10.11 and 12 (uninstall/disable hand-back and reinstall reclaim).
+
+### 2.6.2
+
+- OIDC sign-in works on a TV or other keyboard-less device: the sign-in prompt shows a QR of the authorize URL to finish the consent on a phone (#218), and a device that completed a second-screen approval can optionally be remembered (opt-in, off by default) (#220) (#216).
+- Added a Public base URL resolver so the OIDC `redirect_uri`, pairing QRs, and password-reset email link use the server's real public address instead of the request host (a LAN address for a TV that reaches Jellyfin directly). Empty by default, falling back to Jellyfin's own published server URI; the value comes only from admin config, never a request header (#219).
+- Wired the GeoIP suspicious-login and impossible-travel detectors to every completed sign-in (they shipped implemented but nothing called them), fire-and-forget so they can never delay or fail a login, plus a Diagnostics check that sign-ins reach them; session-start audit records now use the proxy-resolved client address (#217, #231, fixes #215).
+- Corrected the README guidance for Seerr / Jellyseerr (use an app password or Quick Connect; a username/password sign-in correctly gets a 2FA challenge) and for device pairing, and warned against adding a proxy's address to the trusted-proxy CIDRs (#230, addresses #228).
+- Bumped Fido2 to 4.1.0 (with the `RPID`/`RPName` rename) and routine test tooling; QuestPDF and IdentityModel pins deliberately held (#229).
+
+### 2.6.1
+
+- Fixed OIDC sign-in for a user who also has plugin 2FA: the callback now recognises the `TwoFactorRequired` response and continues to the TOTP prompt instead of stopping on "Sign-in could not be completed. Error: HTTP 401". Applies to both the browser callback and the in-app webview (#205, fixes #204).
+- Fixed random `libsodium.so` core dumps (seen on the linuxserver.io image on Jellyfin 12): the recovery-code PDF path no longer eagerly loads `libsodium`, and the plugin repairs the architecture-correct native library at load; `libsodium` is loaded only when a passkey is actually used (#212, fixes #203).
 
 ### 2.6.0
 
