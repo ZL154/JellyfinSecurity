@@ -168,3 +168,10 @@ test('in-app dialog: a sign-in that works still stores the session', async () =>
     assert.match(result.status, /^Signed in as test-user/);
     assert.equal(result.stored, true);
 });
+
+test('in-app dialog: the English translation is the text the dialog falls back to', () => {
+    const english = JSON.parse(readFileSync(new URL('../src/Jellyfin.Plugin.TwoFactorAuth/Pages/translations/en.json', import.meta.url), 'utf8'));
+    const fallback = dialogSource.match(/T\('tfa\.login\.oidc_refused', '([^']+)'\)/)?.[1];
+    assert.ok(fallback, 'the dialog must name tfa.login.oidc_refused with an English fallback');
+    assert.equal(english['tfa.login.oidc_refused'], fallback);
+});

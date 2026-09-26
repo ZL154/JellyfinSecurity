@@ -640,6 +640,7 @@
   "tfa.login.oidc_signed_as": "Connecté en tant que {name} — ouverture de Jellyfin…",
   "tfa.login.oidc_failed": "Échec de la connexion : {msg}. Appuyez sur le bouton pour réessayer.",
   "tfa.login.oidc_expired": "Ce code de connexion a expiré ou a été bloqué. Fermez ceci et appuyez de nouveau sur « Se connecter avec votre fournisseur » pour recommencer. Si l’échec persiste, un proxy inverse (p. ex. Cloudflare) bloque peut-être la requête.",
+  "tfa.login.oidc_refused": "Jellyfin a refusé ce compte ici. Un administrateur peut le vérifier dans Tableau de bord > Utilisateurs : connexions distantes, compte désactivé, horaires autorisés, appareils autorisés ou limite de sessions. Un proxy inverse devant Jellyfin peut aussi refuser la requête.",
   "tfa.admin.sso.lbl_additional_cidrs": "CIDR autorisés supplémentaires",
   "tfa.admin.sso.lbl_additional_cidrs_pill": "Avancé",
   "tfa.admin.sso.ph_additional_cidrs": "p. ex. 169.254.1.2/32, 10.10.10.0/24",
