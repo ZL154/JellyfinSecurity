@@ -640,6 +640,7 @@
   "tfa.login.oidc_signed_as": "已以 {name} 身份登录——正在打开 Jellyfin…",
   "tfa.login.oidc_failed": "登录失败：{msg}。点击按钮重试。",
   "tfa.login.oidc_expired": "该登录代码已过期或被拦截。请关闭并再次点按“使用你的提供商登录”重新开始。如果仍然失败，可能是反向代理（如 Cloudflare）拦截了请求。",
+  "tfa.login.oidc_refused": "Jellyfin 拒绝了此账户从这里登录。管理员可以在“控制台 > 用户”中检查：远程连接、账户是否被禁用、允许的时间段、允许的设备或会话数上限。Jellyfin 前面的反向代理也可能拒绝该请求。",
   "tfa.admin.sso.lbl_additional_cidrs": "额外允许的 CIDR",
   "tfa.admin.sso.lbl_additional_cidrs_pill": "高级",
   "tfa.admin.sso.ph_additional_cidrs": "例如 169.254.1.2/32, 10.10.10.0/24",
