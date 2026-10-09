@@ -161,6 +161,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - **Sign in on a TV / keyboard-less device** — the OIDC prompt shows a QR of the authorize URL so the consent can be finished on a phone (device flow), with an optional "remember this device after a second-screen approval" (off by default).
 - **Correct public links** — a **Public base URL** setting (falling back to Jellyfin's own published server URI) makes the OIDC `redirect_uri`, pairing QRs, and password-reset email link use the server's real public host rather than the address a direct/LAN client reached it on.
 - **Per-provider tuning** — custom button text/icon, IdP email auto-fill from a configurable claim, private/LAN IdP allow, and an "omit `prompt=login`" toggle for IdPs that reject forced re-auth.
+- **SSO-only account page**: an opt-in setting hides the plugin's own 2FA setup from users who sign in through a linked provider and are not administrators, so their account page shows their sessions and devices instead of factors their provider already covers.
 
 ### Enforcement
 - Session-level enforcement via `ISessionManager.SessionStarted` — works for all clients, not just web.
@@ -757,6 +758,8 @@ For OIDC-only deployments where every user signs in through your IdP and the plu
 Each is independent — pick any combination. Configured OIDC provider buttons stay visible regardless of these flags.
 
 **Login-link placement & Forgot-password (v2.5.16, #79, ZEROX7):** an opt-in **Settings → Hardening → "Show the SSO / 2FA / passkey links below the Use Quick Connect button"** toggle (default off) moves the injected links beneath Quick Connect instead of directly under Sign In. Separately, the native "Forgot password" link is now hidden automatically when there's no visible password field (e.g. OIDC-only login), since there'd be nothing to recover.
+
+**Account page for SSO users (#247):** **Settings → Hardening → "Hide this plugin's 2FA setup from users who sign in with SSO"** (default off) does the same for the account page users open from the user menu. For a user who has a linked identity provider and is not an administrator, the page stops offering the authenticator app, passkeys, the email code, "I lost my phone" and the linked sign-in methods, and the status card names the provider they sign in through. Administrators always see the full page, because they can still sign in with a password and that path needs the plugin's 2FA. A factor the user already has stays visible so it can be removed, and the email card stays while password recovery by email is on, since it holds the recovery address. Creating an app password still requires an authenticator app, so users without one do not see the App Passwords card. The setting only changes the page: no factor is turned off and the endpoints keep working. Pair it with **Disable password sign-in** so these accounts sign in only through the identity provider.
 
 ⚠ **The `/TwoFactorAuth/Login` page still works directly** even when both toggles are on. Admins/fallback users can always reach it by URL, so you don't lock yourself out of the plugin's login flow if your IdP becomes unreachable.
 
