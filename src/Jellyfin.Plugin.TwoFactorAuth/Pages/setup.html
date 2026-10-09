@@ -889,6 +889,9 @@
                 // [v2.5.6] (round-5c): expose passkey count to tfaPromptForCode
                 // so it can decide whether to render the "Use a passkey" button.
                 window.__tfa_userPasskeyCount = passkeyCount;
+                // [#248] The app password prompt words itself for accounts
+                // that confirm with a passkey or their provider, not a code.
+                window.__tfa_userTotpOn = !!totpOn;
                 // [v2.5.7] OIDC step-up: expose linked-provider list to the
                 // step-up modal so it can render per-provider "Sign in with X"
                 // buttons. Each entry has { providerId, providerDisplay, ... }.
@@ -915,7 +918,9 @@
                 renderEmail(r[4]);
                 renderPending(r[7]);
                 renderPaired(totpOn, r[6]);
-                renderAppPasswords(totpOn, r[5]);
+                // [#248] The server decides who may create app passwords (any
+                // factor the step-up can verify, not only TOTP).
+                renderAppPasswords(!!(myStatus && (myStatus.canCreateAppPasswords || myStatus.CanCreateAppPasswords)), r[5]);
                 renderTrusted(r[2]);
                 renderSessions(r[8]);
                 document.getElementById('cardDisable').style.display = totpOn ? 'block' : 'none';
@@ -1222,8 +1227,13 @@
                 });
             });
         }
-        function renderAppPasswords(totpOn, list) {
-            document.getElementById('cardAppPasswords').style.display = totpOn ? 'block' : 'none';
+        function renderAppPasswords(canCreate, list) {
+            // [#248] Also shown while the account keeps app passwords it can no
+            // longer create (say, after unlinking its provider), so they can
+            // still be revoked; the Generate row only when it can create one.
+            var hasAny = !!(list && list.length);
+            document.getElementById('cardAppPasswords').style.display = (canCreate || hasAny) ? 'block' : 'none';
+            document.getElementById('btnCreateAp').parentElement.style.display = canCreate ? '' : 'none';
             var box = document.getElementById('apList');
             if (!list || !list.length) {
                 box.innerHTML = '<div class="empty">' + _tr('tfa.setup.ap.empty', 'No app passwords yet.') + '</div>';
@@ -1534,7 +1544,11 @@
             var r;
             try {
                 r = await mutateWithStepUp('POST', 'TwoFactorAuth/AppPasswords', { label: label }, {
-                    message: _tr('tfa.setup.stepup.app_pw_msg', 'Enter your current TOTP or recovery code to create an app password.')
+                    // [#248] Without TOTP there is no code to type; point at the
+                    // passkey or provider buttons the prompt shows instead.
+                    message: window.__tfa_userTotpOn
+                        ? _tr('tfa.setup.stepup.app_pw_msg', 'Enter your current TOTP or recovery code to create an app password.')
+                        : _tr('tfa.setup.stepup.app_pw_msg_no_totp', 'Confirm it is you with one of the options below to create an app password.')
                 });
             } catch (e) {
                 if (e && e.cancelled) return;

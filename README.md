@@ -168,7 +168,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - Per-IP rate limiting on verify (10/min) and email send (5/5min); per-challenge attempt limit (5 before the challenge is burned).
 - Per-user lockout after 5 failed attempts (15-minute cool-down, configurable).
 - LAN bypass (configurable CIDR ranges), and a force-2FA-for-all-users mode.
-- **Disable password sign-in** — OIDC / Quick-Connect-only mode with independently toggleable admin / LAN / exempt-CIDR escape hatches.
+- **Disable password sign-in** — OIDC / Quick-Connect-only mode with independently toggleable admin / LAN / exempt-CIDR escape hatches, plus an opt-in setting that lets app passwords (never the account password) through for native apps.
 
 ### Brute-force & anomaly protection
 - **Brute-force IP banning** — auto-bans source IPs that exceed N failed sign-ins in M minutes, persisted across restarts, with an admin list/unban UI.
@@ -397,6 +397,8 @@ This way a TV/console/media-box that can't type a TOTP code still gets its own c
 
 Use **app passwords**: in Setup → App Passwords → Generate. You get a one-time shown random password. Use it in the app **in place of your Jellyfin password**. The plugin matches it via PBKDF2 hash and bypasses the 2FA prompt. Each app password can be revoked independently.
 
+Any account with TOTP, a passkey or a linked sign-in provider can create one; the Setup page asks the user to confirm with one of those first, so someone who only signs in through SSO confirms with their provider (#248). With **Disable password sign-in** on, app passwords are refused like any other password unless an escape hatch covers the client or **Let app passwords sign in while password sign-in is disabled** is checked. That setting is off by default because an app password keeps working after the identity provider stops letting that person in, until it is revoked, and the security score counts it as an open escape hatch.
+
 ---
 
 ## 🔄 Daily use
@@ -424,7 +426,7 @@ Alternative: generate an **app password** in Setup and use it in place of your r
 
 Use Jellyfin's standard API keys (Dashboard → API Keys) for the connection between these apps and Jellyfin. API key auth bypasses user authentication entirely, so 2FA doesn't apply to that connection.
 
-Seerr and Jellyseerr also let people sign in with their Jellyfin username and password, and the API key does not cover that sign-in: the app forwards the credentials to Jellyfin as that user. An account with TOTP or a passkey gets the 2FA challenge, which these apps cannot complete, so the sign-in fails. Have each user create an [app password](#native-apps-that-cant-do-the-pairing-flow-scripts-older-tools) (the Setup page asks for TOTP on the account first) and use it in the app instead of their Jellyfin password, or sign in with Quick Connect where the app offers it (Seerr 3.4 and later). Putting the app's address in the LAN bypass list also works, but then every sign-in that arrives through the app skips 2FA. Do not add the app's address to **Trusted proxy CIDRs** instead: with proxy support on, Seerr forwards the left-most `X-Forwarded-For` address it received, which the client can write itself, so the LAN bypass would follow whatever address the client claims.
+Seerr and Jellyseerr also let people sign in with their Jellyfin username and password, and the API key does not cover that sign-in: the app forwards the credentials to Jellyfin as that user. An account with TOTP or a passkey gets the 2FA challenge, which these apps cannot complete, so the sign-in fails. Have each user create an [app password](#native-apps-that-cant-do-the-pairing-flow-scripts-older-tools) (the account needs TOTP, a passkey or a linked sign-in provider first) and use it in the app instead of their Jellyfin password, or sign in with Quick Connect where the app offers it (Seerr 3.4 and later). Putting the app's address in the LAN bypass list also works, but then every sign-in that arrives through the app skips 2FA. Do not add the app's address to **Trusted proxy CIDRs** instead: with proxy support on, Seerr forwards the left-most `X-Forwarded-For` address it received, which the client can write itself, so the LAN bypass would follow whatever address the client claims.
 
 ---
 

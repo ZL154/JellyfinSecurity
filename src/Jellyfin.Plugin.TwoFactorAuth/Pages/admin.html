@@ -633,6 +633,9 @@
                                     <label data-i18n-key="tfa.admin.settings.lbl_password_exempt_cidrs" style="margin-top:10px;">Extra IP ranges that may always use a password (CIDR, one per line)</label>
                                     <textarea id="cfgPasswordExemptCidrs" class="tfa-input" style="width:360px;height:64px;" placeholder="203.0.113.5/32"></textarea>
                                     <div class="tfa-help" data-i18n-key="tfa.admin.settings.password_exempt_cidrs_help">Clients in these ranges can always sign in with a password even when it's disabled — e.g. your home IP. Matched against the real client IP (proxy-aware when Trust X-Forwarded-For is configured).</div>
+                                    <!-- [#248]: app passwords while password sign-in is off. -->
+                                    <label style="margin-top:10px;"><input type="checkbox" id="cfgAllowAppPasswordsWhenPasswordLoginDisabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_allow_app_passwords_pw_disabled">Let app passwords sign in while password sign-in is disabled</span></label>
+                                    <div class="tfa-help" data-i18n-key="tfa.admin.settings.allow_app_passwords_pw_disabled_help">For apps that ask for a password (Seerr, Swiftfin, Findroid and the like) on a server where users sign in through your identity provider. This lets only app passwords through; the account password is still refused unless another option above allows it. Off by default: an app password keeps working after your identity provider stops letting that person in, until it is revoked.</div>
                                 </div>
                             </div>
                             <!-- [v2.5.11] (issue #71, ZEROX7): email password recovery. -->
