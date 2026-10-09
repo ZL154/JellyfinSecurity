@@ -295,6 +295,13 @@ public class PluginConfiguration : BasePluginConfiguration
     /// an admin's home IP). Empty by default.</summary>
     public string[] PasswordLoginExemptCidrs { get; set; } = Array.Empty<string>();
 
+    /// <summary>[#248] While <see cref="DisablePasswordLogin"/> is on, still let
+    /// a user sign in with one of their app passwords, never with the account
+    /// password. For SSO-only servers whose users run native apps that ask for a
+    /// password. Off by default: an app password keeps working after the
+    /// identity provider stops letting that person in, until it is revoked.</summary>
+    public bool AllowAppPasswordsWhenPasswordLoginDisabled { get; set; }
+
     /// <summary>[v2.5.11] (issue #71, ZEROX7): enable self-service password
     /// recovery by email. Requires SMTP configured. When on, the login page
     /// shows a "Forgot password?" link that emails a one-time, expiring reset

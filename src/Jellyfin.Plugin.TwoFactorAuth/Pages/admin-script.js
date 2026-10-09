@@ -1240,6 +1240,9 @@
                             page.querySelector('#cfgAllowAdminPasswordLogin').checked = c.AllowAdminPasswordLogin !== false;
                             page.querySelector('#cfgAllowPasswordLoginOnLan').checked = c.AllowPasswordLoginOnLan !== false;
                             page.querySelector('#cfgPasswordExemptCidrs').value = (c.PasswordLoginExemptCidrs || []).join('\n');
+                            // [#248] app passwords while password sign-in is off (default false).
+                            var apPwOffEl = page.querySelector('#cfgAllowAppPasswordsWhenPasswordLoginDisabled');
+                            if (apPwOffEl) apPwOffEl.checked = c.AllowAppPasswordsWhenPasswordLoginDisabled === true;
                             var escRow = page.querySelector('#cfgPwLoginEscapeRow');
                             var syncEsc = function () { if (escRow) escRow.style.display = disPwEl.checked ? '' : 'none'; };
                             syncEsc();
@@ -1422,6 +1425,9 @@
                             c.AllowAdminPasswordLogin = page.querySelector('#cfgAllowAdminPasswordLogin').checked;
                             c.AllowPasswordLoginOnLan = page.querySelector('#cfgAllowPasswordLoginOnLan').checked;
                             c.PasswordLoginExemptCidrs = page.querySelector('#cfgPasswordExemptCidrs').value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+                            // [#248]
+                            var apPwOffSaveEl = page.querySelector('#cfgAllowAppPasswordsWhenPasswordLoginDisabled');
+                            c.AllowAppPasswordsWhenPasswordLoginDisabled = apPwOffSaveEl ? apPwOffSaveEl.checked : false;
                         }
                         // [v2.5.11] (#71) email password recovery.
                         if (page.querySelector('#cfgEnablePasswordRecovery')) {
