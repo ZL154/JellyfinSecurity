@@ -221,16 +221,11 @@ public class TwoFactorAuthController : ControllerBase
         // currently protects the account, not just TOTP/passkeys. v2.5.7
         // added OIDC step-up but this gate didn't recognise OIDC-only or
         // email-only users, so a hijacked session for those users could
-        // add/replace the attacker's own factor with no step-up. Include:
-        //   - SSO/OIDC links (the user authenticates via an IdP)
-        //   - email OTP, when the server has it enabled and the user relies
-        //     on it (EmailOtpPreferred)
-        var emailFactorActive = config.EmailOtpEnabled && userData.EmailOtpPreferred;
-        var hasExisting2fa = (userData.TotpEnabled && userData.TotpVerified)
-                             || userData.Passkeys.Count > 0
-                             || userData.SsoLinks.Count > 0
-                             || emailFactorActive;
-        if (!hasExisting2fa) return null;
+        // add/replace the attacker's own factor with no step-up. The list
+        // (SSO/OIDC links and email OTP included) lives in
+        // SelfServiceFactors.HasAny [#248], which app password creation
+        // shares.
+        if (!SelfServiceFactors.HasAny(userData, config)) return null;
 
         var modeRequiresStepUp = config.SelfServiceStepUpMode switch
         {
@@ -2436,6 +2431,10 @@ public class TwoFactorAuthController : ControllerBase
             // whether to prompt for the current code on each mutation.
             SelfServiceStepUpMode = (cfg?.SelfServiceStepUpMode ?? Configuration.SelfServiceStepUpMode.Forced).ToString(),
             RequireStepUpForChanges = data.RequireStepUpForChanges,
+            // [#248] Same rule as app password creation, so the Setup page
+            // offers the App Passwords card to exactly the accounts the
+            // server lets create one.
+            CanCreateAppPasswords = SelfServiceFactors.HasAny(data, cfg ?? new Configuration.PluginConfiguration()),
         });
     }
 
@@ -3102,9 +3101,12 @@ public class TwoFactorAuthController : ControllerBase
         if (stepUp is not null) return stepUp;
 
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
-        if (!data.TotpEnabled || !data.TotpVerified)
+        // [#248] Any factor the step-up above can verify backs an app password,
+        // not only TOTP: accounts that sign in through SSO or with a passkey
+        // had no way to create one.
+        if (!SelfServiceFactors.HasAny(data, Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration()))
         {
-            return BadRequest(new { message = "Set up TOTP first before creating app passwords." });
+            return BadRequest(new { message = "Set up two-factor authentication or link a sign-in provider before creating app passwords." });
         }
 
         if (data.AppPasswords.Count >= 20)
