@@ -561,7 +561,15 @@ public class TwoFactorEnforcementMiddleware
             // App-password bypass: user submitted a generated app password instead
             // of (or as) the regular password. We verify against PBKDF2 hashes.
             // Rate-limited to prevent brute force through the Jellyfin auth endpoint.
-            if (!string.IsNullOrEmpty(submittedPassword) && userData.AppPasswords.Count > 0)
+            // [#244] Never for the web interface, which shows the challenge; the
+            // provider already refuses it there, and this keeps the bypass closed
+            // on its own.
+            var appPasswordClient = AppPasswordClientPolicy.ResolveClientName(
+                context.Request.Headers["Authorization"].FirstOrDefault(),
+                context.Request.Headers["X-Emby-Authorization"].FirstOrDefault(),
+                context.Request.Headers["X-Emby-Client"].FirstOrDefault());
+            if (!string.IsNullOrEmpty(submittedPassword) && userData.AppPasswords.Count > 0
+                && !AppPasswordClientPolicy.IsRefused(appPasswordClient))
             {
                 var apIp = RateLimiter.ClientKey(context);
                 var apRl = _rateLimiter.CheckAndRecord("mw_ap:" + apIp, 10, TimeSpan.FromMinutes(1));
@@ -752,7 +760,7 @@ public class TwoFactorEnforcementMiddleware
     /// concatenated into the audit log Method field. Strips colons (the
     /// Method-delimiter), strips ASCII control chars, caps length so a
     /// malicious admin can't pad the field with bogus content.</summary>
-    private static string SanitizeLabel(string? label)
+    internal static string SanitizeLabel(string? label)
     {
         if (string.IsNullOrEmpty(label)) return string.Empty;
         var sb = new System.Text.StringBuilder(Math.Min(label.Length, 32));

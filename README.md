@@ -395,7 +395,7 @@ This way a TV/console/media-box that can't type a TOTP code still gets its own c
 
 ### Native apps that can't do the pairing flow (scripts, older tools)
 
-Use **app passwords**: in Setup → App Passwords → Generate. You get a one-time shown random password. Use it in the app **in place of your Jellyfin password**. The plugin matches it via PBKDF2 hash and bypasses the 2FA prompt. Each app password can be revoked independently.
+Use **app passwords**: in Setup → App Passwords → Generate. You get a one-time shown random password. Use it in the app **in place of your Jellyfin password**. The plugin matches it via PBKDF2 hash and bypasses the 2FA prompt. Each app password can be revoked independently. The Jellyfin web interface refuses app passwords (#244): a browser shows the 2FA challenge, so sign in there with your account password.
 
 ---
 
