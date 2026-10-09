@@ -739,6 +739,14 @@
                                 </label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.hardening.hide_builtin_passkey_help">Hides only the passkey shortcut button. Combine with the 2FA toggle above for full OIDC-only mode where only your configured IdP buttons remain visible.</div>
                             </div>
+                            <!-- [#247]: OIDC-only account page. -->
+                            <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
+                                <label class="tfa-check-label">
+                                    <input type="checkbox" id="cfgHideTwoFactorSetupForSsoUsers" is="emby-checkbox" />
+                                    <span data-i18n-key="tfa.admin.hardening.hide_setup_for_sso_label">Hide this plugin's 2FA setup from users who sign in with SSO</span>
+                                </label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.hardening.hide_setup_for_sso_help">For OIDC-only servers. Users who have a linked identity provider and are not administrators stop seeing the authenticator app, passkey, "I lost my phone" and linked sign-in cards on their account page, and the email card too unless password recovery by email is on; a factor they already set up stays visible so they can remove it. Administrators always see the full page. This only changes the page and turns no factor off. Pair it with "Disable password sign-in" so these accounts sign in only through the identity provider.</div>
+                            </div>
                             <!-- [v2.5.16] (#79, ZEROX7): place injected login links below Quick Connect. -->
                             <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
                                 <label class="tfa-check-label">

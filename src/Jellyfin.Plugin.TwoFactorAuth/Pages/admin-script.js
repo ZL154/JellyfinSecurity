@@ -1333,6 +1333,9 @@
                         if (hideTwoFaEl) hideTwoFaEl.checked = !!c.HideBuiltInTwoFactorButton;
                         var hidePasskeyEl = page.querySelector('#cfgHideBuiltInPasskeyButton');
                         if (hidePasskeyEl) hidePasskeyEl.checked = !!c.HideBuiltInPasskeyButton;
+                        // [#247] OIDC-only account page.
+                        var hideSetupSsoEl = page.querySelector('#cfgHideTwoFactorSetupForSsoUsers');
+                        if (hideSetupSsoEl) hideSetupSsoEl.checked = !!c.HideTwoFactorSetupForSsoUsers;
                         // [v2.5.6] (round-5 fix D): tri-state hardened-security
                         // control. Default to "Forced" when the server didn't
                         // emit the property (older config XML).
@@ -1510,6 +1513,9 @@
                         c.HideBuiltInTwoFactorButton = hideTwoFaSaveEl ? hideTwoFaSaveEl.checked : false;
                         var hidePasskeySaveEl = page.querySelector('#cfgHideBuiltInPasskeyButton');
                         c.HideBuiltInPasskeyButton = hidePasskeySaveEl ? hidePasskeySaveEl.checked : false;
+                        // [#247] Also a UI-only toggle, saved the same way.
+                        var hideSetupSsoSaveEl = page.querySelector('#cfgHideTwoFactorSetupForSsoUsers');
+                        c.HideTwoFactorSetupForSsoUsers = hideSetupSsoSaveEl ? hideSetupSsoSaveEl.checked : false;
                         // v2.5.0: persist hardening toggles through the gated endpoint.
                         // Broader plugin config (other fields) still posts to the
                         // standard /Plugins/{guid}/Configuration endpoint. Store

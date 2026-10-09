@@ -134,8 +134,8 @@
         <p style="margin-bottom:18px;">
             <a href="../web/index.html" style="color:#888;font-size:13px;text-decoration:none;" data-i18n-key="tfa.setup.back_to_jellyfin">← Back to Jellyfin</a>
         </p>
-        <h1 data-i18n-key="tfa.setup.title">Two-Factor Authentication</h1>
-        <p class="subtitle" data-i18n-key="tfa.setup.subtitle">Protect your Jellyfin account with TOTP, recovery codes, and device-level controls.</p>
+        <h1 id="pageTitle" data-i18n-key="tfa.setup.title">Two-Factor Authentication</h1>
+        <p class="subtitle" id="pageSubtitle" data-i18n-key="tfa.setup.subtitle">Protect your Jellyfin account with TOTP, recovery codes, and device-level controls.</p>
 
         <div class="grid">
             <!-- =========== STATUS / ENROLL =========== -->
@@ -143,7 +143,7 @@
                 <div class="card-head">
                     <div>
                         <h2><span class="icon">🛡️</span> <span data-i18n-key="tfa.setup.status.heading">Account Status</span></h2>
-                        <div class="desc" data-i18n-key="tfa.setup.status.desc">Authenticator app is the primary factor. Recovery codes and email are backups.</div>
+                        <div class="desc" id="statusDesc" data-i18n-key="tfa.setup.status.desc">Authenticator app is the primary factor. Recovery codes and email are backups.</div>
                     </div>
                     <span class="pill off" id="statusPill" data-i18n-key="tfa.admin.common.loading">Loading…</span>
                 </div>
@@ -909,8 +909,18 @@
                     || (stepUpMode === 'UserChoice' && userOptedIn);
                 window.__tfa_userHasFactor = hasFactor && modeRequires;
                 renderStepUpToggle(stepUpMode, userOptedIn);
-                renderStatus(me, totpOn);
-                renderEnroll(totpOn);
+                // [#247] OIDC-only account page, see ssoOnlyPage below.
+                var ssoPage = ssoOnlyPage({
+                    hideSetupForSso: publicCfg.hideTwoFactorSetupForSsoUsers === true,
+                    isAdmin: !!(me.Policy && me.Policy.IsAdministrator),
+                    ssoLinkCount: window.__tfa_userOidcLinks.length,
+                    totpOn: !!totpOn,
+                    passkeyCount: passkeyCount,
+                    passwordRecoveryEnabled: publicCfg.passwordRecoveryEnabled === true,
+                });
+                applySsoOnlyPage(ssoPage);
+                renderStatus(me, totpOn, ssoPage.ssoStatus ? window.__tfa_userOidcLinks : null);
+                renderEnroll(totpOn, ssoPage.hideEnroll);
                 renderRecovery(totpOn, r[3]);
                 renderEmail(r[4]);
                 renderPending(r[7]);
@@ -1017,11 +1027,68 @@
                 status.textContent = '✗ ' + (err.message || _tr('tfa.admin.common.save_failed', 'Save failed'));
             });
         });
-        function renderStatus(me, totpOn) {
+        // [#247] With the admin setting hideTwoFactorSetupForSsoUsers, a user who
+        // signs in through a linked identity provider does not see the plugin's
+        // own 2FA setup: the provider handles sign-in and its second factor.
+        // Administrators keep the whole page, since they can still sign in with
+        // a password and that path needs the plugin's 2FA. A factor the user
+        // already has stays visible so it can still be removed. The cards that
+        // only exist with TOTP (recovery codes, rotate, paired devices, app
+        // passwords, Danger Zone) already follow totpOn. Pure, so
+        // tests/sso-account-page.test.mjs can run it.
+        function ssoOnlyPage(s) {
+            var on = s.hideSetupForSso && !s.isAdmin && s.ssoLinkCount > 0;
+            return {
+                ssoStatus: on && !s.totpOn,
+                hideEnroll: on,
+                hidePasskeys: on && s.passkeyCount === 0,
+                // The email card also holds the password recovery address.
+                hideEmail: on && !s.passwordRecoveryEnabled,
+                hideEmergency: on && !s.totpOn && s.passkeyCount === 0,
+                hideSsoLinks: on,
+            };
+        }
+        function applySsoOnlyPage(p) {
+            var hidden = {
+                cardPasskeys: p.hidePasskeys,
+                cardEmail: p.hideEmail,
+                cardEmergency: p.hideEmergency,
+                cardSsoLinks: p.hideSsoLinks,
+            };
+            Object.keys(hidden).forEach(function(id) {
+                document.getElementById(id).style.display = hidden[id] ? 'none' : '';
+            });
+            relabel('pageTitle', p.ssoStatus, 'tfa.setup.title', 'Two-Factor Authentication',
+                'tfa.setup.title_sso', 'Account security');
+            relabel('pageSubtitle', p.ssoStatus, 'tfa.setup.subtitle', 'Protect your Jellyfin account with TOTP, recovery codes, and device-level controls.',
+                'tfa.setup.subtitle_sso', 'See where your Jellyfin account is signed in and manage the devices it trusts.');
+            relabel('statusDesc', p.ssoStatus, 'tfa.setup.status.desc', 'Authenticator app is the primary factor. Recovery codes and email are backups.',
+                'tfa.setup.status.desc_sso', 'Your identity provider handles sign-in for this account.');
+        }
+        // Swaps the i18n key too, so a later applyTranslations keeps the text.
+        function relabel(id, sso, key, fallback, ssoKey, ssoFallback) {
+            var el = document.getElementById(id);
+            el.setAttribute('data-i18n-key', sso ? ssoKey : key);
+            el.textContent = sso ? _tr(ssoKey, ssoFallback) : _tr(key, fallback);
+        }
+        function renderStatus(me, totpOn, ssoLinks) {
             var pill = document.getElementById('statusPill');
             // [v2.5.6] (round-5e): strip data-i18n-key so applyTranslations
             // doesn't reset the pill back to "Loading…".
             pill.removeAttribute('data-i18n-key');
+            if (ssoLinks) {
+                // [#247] Name the provider(s) the user signs in through.
+                pill.className = 'pill on';
+                pill.textContent = _tr('tfa.setup.status.pill_sso', 'Signed in with SSO');
+                var providers = ssoLinks.map(function(l) { return escapeHtml(l.providerDisplay || l.providerId); }).join(', ');
+                document.getElementById('statusContent').innerHTML =
+                    '<div style="font-size:14px;line-height:1.6;">' +
+                    _tr('tfa.setup.status.signed_in_as', 'Signed in as') + ' <strong>' + escapeHtml(me.Name) + '</strong>. ' +
+                    _tr('tfa.setup.status.sso_through', 'You sign in through') + ' <strong>' + providers + '</strong>. ' +
+                    _tr('tfa.setup.status.sso_second_factor', 'Set up two-factor authentication there, not on this page.') +
+                    '</div>';
+                return;
+            }
             pill.className = 'pill ' + (totpOn ? 'on' : 'off');
             pill.textContent = totpOn ? _tr('tfa.setup.status.pill_on', '2FA Enabled') : _tr('tfa.setup.status.pill_off', 'Not Set Up');
             document.getElementById('statusContent').innerHTML =
@@ -1032,8 +1099,8 @@
                     : '<span style="color:#ffa726;">' + _tr('tfa.setup.status.not_protected', 'Your account is not yet protected. Set up TOTP below.') + '</span>') +
                 '</div>';
         }
-        function renderEnroll(totpOn) {
-            document.getElementById('cardEnroll').style.display = totpOn ? 'none' : 'block';
+        function renderEnroll(totpOn, hidden) {
+            document.getElementById('cardEnroll').style.display = (totpOn || hidden) ? 'none' : 'block';
         }
         function renderRecovery(totpOn, rc) {
             document.getElementById('cardRecovery').style.display = totpOn ? 'block' : 'none';
