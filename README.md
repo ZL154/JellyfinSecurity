@@ -397,7 +397,7 @@ This way a TV/console/media-box that can't type a TOTP code still gets its own c
 
 Use **app passwords**: in Setup → App Passwords → Generate. You get a one-time shown random password. Use it in the app **in place of your Jellyfin password**. The plugin matches it via PBKDF2 hash and bypasses the 2FA prompt. Each app password can be revoked independently.
 
-Any account with TOTP, a passkey or a linked sign-in provider can create one; the Setup page asks the user to confirm with one of those first, so someone who only signs in through SSO confirms with their provider (#248). With **Disable password sign-in** on, app passwords are refused like any other password unless an escape hatch covers the client or **Let app passwords sign in while password sign-in is disabled** is checked. That setting is off by default because an app password keeps working after the identity provider stops letting that person in, until it is revoked.
+Any account with TOTP, a passkey or a linked sign-in provider can create one; the Setup page asks the user to confirm with one of those first, so someone who only signs in through SSO confirms with their provider (#248). With **Disable password sign-in** on, app passwords are refused like any other password unless an escape hatch covers the client or **Let app passwords sign in while password sign-in is disabled** is checked. That setting is off by default because an app password keeps working after the identity provider stops letting that person in, until it is revoked, and the security score counts it as an open escape hatch.
 
 ---
 

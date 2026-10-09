@@ -372,6 +372,16 @@ public class SecurityScoreService : IDisposable
                 openHatches.Add("exempt networks");
             }
 
+            // [#248] An app password keeps a sign-in that does not go through
+            // the identity provider (disabling the person there does not stop
+            // it), so the server is no longer SSO-only. Narrower than the admin
+            // or LAN hatches: only random, revocable app passwords get through.
+            if (cfg.AllowAppPasswordsWhenPasswordLoginDisabled)
+            {
+                pwEarned -= 1;
+                openHatches.Add("app passwords");
+            }
+
             if (pwEarned < 3)
             {
                 pwEarned = 3;
