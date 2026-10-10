@@ -241,6 +241,85 @@ public class SecurityScoreComputeTests
     {
         Assert.Equal(expected, SecurityScoreService.GradeFromTotal(total));
     }
+
+    // -----------------------------------------------------------------
+    // [#258] Geographic checks done outside the plugin.
+    // -----------------------------------------------------------------
+
+    private static ScoreFactor Travel(SecurityScore score)
+        => Assert.Single(score.Factors, f => f.Id == "travel");
+
+    [Fact]
+    public async Task TravelFactor_StillFailsWithoutTheDetectorByDefault()
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.ImpossibleTravelEnabled = false;
+
+        var travel = Travel(await svc.ComputeAsync());
+
+        Assert.Equal("fail", travel.Status);
+        Assert.Equal(0, travel.Earned);
+        Assert.Equal(7, travel.Possible);
+        Assert.Equal("tfa.factor.travel.action", travel.NextActionKey);
+        Assert.Null(travel.Note);
+    }
+
+    [Theory]
+    [InlineData(false, "")]
+    [InlineData(false, "/config/GeoLite2-City.mmdb")]
+    [InlineData(true, "")]
+    public async Task TravelFactor_IsNotCountedWhenGeoChecksAreDoneElsewhere(bool detectorEnabled, string cityDb)
+    {
+        // Detector off (with or without a city database), or on without the
+        // city database it needs: either way the plugin does not run it, and
+        // the admin says it is covered outside.
+        var svc = Build(out _, out var cfg);
+        cfg.ImpossibleTravelEnabled = detectorEnabled;
+        cfg.GeoIpCityDbPath = cityDb;
+        cfg.GeoProtectionHandledExternally = true;
+
+        var travel = Travel(await svc.ComputeAsync());
+
+        Assert.Equal("na", travel.Status);
+        Assert.Equal(0, travel.Earned);
+        Assert.Equal(0, travel.Possible);
+        Assert.Null(travel.NextAction);
+        Assert.Equal("tfa.factor.travel.not_counted", travel.NoteKey);
+        Assert.False(string.IsNullOrEmpty(travel.Note));
+    }
+
+    [Fact]
+    public async Task TravelFactor_KeepsItsCreditWhenTheDetectorRunsHere()
+    {
+        // The setting only waives the penalty; it never takes away points.
+        var svc = Build(out _, out var cfg);
+        cfg.ImpossibleTravelEnabled = true;
+        cfg.GeoIpCityDbPath = "/tmp/GeoLite2-City.mmdb";
+        cfg.GeoProtectionHandledExternally = true;
+
+        var travel = Travel(await svc.ComputeAsync());
+
+        Assert.Equal("ok", travel.Status);
+        Assert.Equal(7, travel.Earned);
+        Assert.Equal(7, travel.Possible);
+        Assert.Null(travel.Note);
+    }
+
+    [Fact]
+    public async Task A_factor_that_is_not_counted_leaves_the_total_instead_of_lowering_it()
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.ImpossibleTravelEnabled = false;
+        var counted = await svc.ComputeAsync();
+
+        cfg.GeoProtectionHandledExternally = true;
+        var notCounted = await svc.ComputeAsync();
+
+        Assert.Equal(counted.Factors.Sum(f => f.Possible) - 7, notCounted.Factors.Sum(f => f.Possible));
+        Assert.Equal(counted.Factors.Sum(f => f.Earned), notCounted.Factors.Sum(f => f.Earned));
+        Assert.True(notCounted.Total > counted.Total, $"{notCounted.Total} should be above {counted.Total}");
+        Assert.Equal(counted.Factors.Count, notCounted.Factors.Count);
+    }
 }
 
 public class SecurityScoreSnapshotTests : IDisposable

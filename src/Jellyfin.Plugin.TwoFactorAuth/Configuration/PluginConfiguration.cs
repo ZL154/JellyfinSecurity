@@ -542,6 +542,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// (more false positives), higher = less.</summary>
     public int ImpossibleTravelMaxKmh { get; set; } = 900;
 
+    /// <summary>[#258] The server's geographic checks are done outside this
+    /// plugin (a WAF, CrowdSec, a firewall). Off by default. On, the security
+    /// score leaves impossible-travel detection out of the total when this
+    /// plugin does not run it, instead of counting it as failed. It never
+    /// removes the credit the factor earns when the detector is enabled and
+    /// configured, and it does not turn either detector on or off.</summary>
+    public bool GeoProtectionHandledExternally { get; set; }
+
     /// <summary>Optional Ed25519 private key (PEM) for signing webhook bodies
     /// asymmetrically. Receivers verify with the matching public key. Empty =
     /// HMAC-only signing (current v1.4 behaviour). Asymmetric is preferred

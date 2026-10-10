@@ -4664,7 +4664,9 @@ public class TwoFactorAuthController : ControllerBase
                     status = f.Status,
                     nextAction = f.NextAction,
                     nextActionKey = f.NextActionKey,
-                    nextActionData = f.NextActionData
+                    nextActionData = f.NextActionData,
+                    note = f.Note,
+                    noteKey = f.NoteKey
                 }),
                 computedAt = score.ComputedAt
             },
