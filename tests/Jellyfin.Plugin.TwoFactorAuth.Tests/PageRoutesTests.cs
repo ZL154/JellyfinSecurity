@@ -27,10 +27,17 @@ public class PageRoutesTests
         @"['""`](?:\.\./|/)?TwoFactorAuth/(?<path>[A-Za-z][^'""`\s]*)['""`]",
         RegexOptions.Compiled);
 
-    /// <summary>The same literal behind the page's request helper, which also
-    /// names the HTTP method.</summary>
-    private static readonly Regex ApiCall = new(
-        @"\b(?:api|apiCall|tfaApi|apiFetch)\(\s*['""](?<verb>GET|POST|PUT|DELETE|PATCH)['""]\s*,\s*['""]TwoFactorAuth/(?<path>[^'""]*)['""]",
+    /// <summary>The same literal behind a request helper that takes the HTTP
+    /// method first: <c>api('GET', ...)</c> and
+    /// <c>mutateWithStepUp('POST', ...)</c> on the Setup page.</summary>
+    private static readonly Regex VerbFirstCall = new(
+        @"\b(?:api|apiCall|tfaApi|apiFetch|mutateWithStepUp)\(\s*['""](?<verb>GET|POST|PUT|DELETE|PATCH)['""]\s*,\s*['""]TwoFactorAuth/(?<path>[^'""]*)['""]",
+        RegexOptions.Compiled);
+
+    /// <summary>... or one named after the method:
+    /// <c>apiGet('TwoFactorAuth/...')</c> and the like in the admin script.</summary>
+    private static readonly Regex VerbInNameCall = new(
+        @"\bapi(?<verb>Get|Post|Put|Delete|Patch)\(\s*['""]TwoFactorAuth/(?<path>[^'""]*)['""]",
         RegexOptions.Compiled);
 
     private sealed record DeclaredRoute(string Verb, string[] Segments);
@@ -41,6 +48,7 @@ public class PageRoutesTests
         var routes = DeclaredRoutes();
         var missing = new List<string>();
         var found = 0;
+        var foundWithVerb = 0;
 
         foreach (var page in PageResources())
         {
@@ -48,12 +56,13 @@ public class PageRoutesTests
             Assert.NotNull(text);
             var withVerb = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (Match call in ApiCall.Matches(text))
+            foreach (var call in VerbFirstCall.Matches(text).Concat(VerbInNameCall.Matches(text)))
             {
-                var verb = call.Groups["verb"].Value;
+                var verb = call.Groups["verb"].Value.ToUpperInvariant();
                 var path = call.Groups["path"].Value;
                 withVerb.Add(path);
                 found++;
+                foundWithVerb++;
                 if (!routes.Any(r => r.Verb == verb && Serves(r.Segments, path)))
                 {
                     missing.Add($"{page[PagePrefix.Length..]}: {verb} TwoFactorAuth/{path}");
@@ -76,9 +85,10 @@ public class PageRoutesTests
             }
         }
 
-        // A floor, so a change in how the pages build their URLs cannot turn
-        // this into a test that checks nothing.
+        // Floors, so a change in how the pages build their URLs or call their
+        // helpers cannot turn this into a test that checks nothing.
         Assert.True(found >= 100, $"Only {found} plugin paths found in the pages.");
+        Assert.True(foundWithVerb >= 60, $"Only {foundWithVerb} of them came with an HTTP method.");
         Assert.Empty(missing);
     }
 
@@ -106,13 +116,19 @@ public class PageRoutesTests
             .Where(t => typeof(ControllerBase).IsAssignableFrom(t) && !t.IsAbstract);
         foreach (var controller in controllers)
         {
-            var prefix = controller.GetCustomAttribute<RouteAttribute>()?.Template ?? string.Empty;
+            var prefixes = controller.GetCustomAttributes<RouteAttribute>()
+                .Select(r => r.Template)
+                .DefaultIfEmpty(string.Empty)
+                .ToList();
             foreach (var method in controller.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly))
             {
                 foreach (var http in method.GetCustomAttributes<HttpMethodAttribute>())
                 {
-                    var segments = Segments(prefix + "/" + http.Template);
-                    routes.AddRange(http.HttpMethods.Select(verb => new DeclaredRoute(verb, segments)));
+                    foreach (var prefix in prefixes)
+                    {
+                        var segments = Segments(prefix + "/" + http.Template);
+                        routes.AddRange(http.HttpMethods.Select(verb => new DeclaredRoute(verb, segments)));
+                    }
                 }
             }
         }

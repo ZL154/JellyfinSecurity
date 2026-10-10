@@ -218,7 +218,7 @@
                 <div class="alert error" id="rotateError"></div>
                 <div class="alert success" id="rotateSuccess"></div>
                 <div id="rotateNewQr" style="display:none;margin-top:10px;">
-                    <p class="muted" data-i18n-key="tfa.setup.rotate.scan_then_confirm">Scan this with your authenticator app, then enter a code from the new entry below. Your current authenticator keeps working until you do.</p>
+                    <p class="muted" data-i18n-key="tfa.setup.rotate.scan_then_confirm">Scan this with your authenticator app. The new entry has today's date in its name; enter a code from it below. Your current authenticator keeps working until you do.</p>
                     <div style="text-align:center;"><div class="qr-wrap"><img id="rotateNewQrImg" alt="New QR" /></div></div>
                     <div class="secret-key" id="rotateNewKey"></div>
                     <input type="text" id="rotateNewCode" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" placeholder="000000" />
@@ -913,6 +913,10 @@
                 renderSessions(r[8]);
                 document.getElementById('cardDisable').style.display = totpOn ? 'block' : 'none';
                 document.getElementById('cardTotpRotate').style.display = totpOn ? 'block' : 'none';
+                // Once TOTP is off (disabled here or by an admin), a rotation
+                // left on screen could never be confirmed; clear it so it does
+                // not come back if TOTP is enrolled again on this page.
+                if (!totpOn) closeRotation();
                 loadSsoLinks();
                 loadIpAllowlist();
             });
@@ -1794,12 +1798,16 @@
             document.getElementById('rotateNewCode').value = '';
         }
         document.getElementById('btnRotateTotp').addEventListener('click', function() {
+            var btn = this;
+            if (btn.disabled) return; // guard against double-submit: the second request fails as a replay and counts toward the lockout
             var err = document.getElementById('rotateError'); err.classList.remove('show');
             document.getElementById('rotateSuccess').classList.remove('show');
             var cur = document.getElementById('rotateCurCode').value.trim();
             var rec = document.getElementById('rotateRecCode').value.trim();
             if (!cur || !rec) { err.textContent = _tr('tfa.setup.rotate.err_both', 'Enter both codes.'); err.classList.add('show'); return; }
+            btn.disabled = true;
             api('POST', 'TwoFactorAuth/Setup/Totp/Rotate', { currentCode: cur, recoveryCode: rec }).then(function(r) {
+                btn.disabled = false;
                 document.getElementById('rotateNewQr').style.display = 'block';
                 document.getElementById('rotateNewQrImg').src = 'data:image/png;base64,' + r.qrCode;
                 document.getElementById('rotateNewKey').textContent = r.manualEntryKey;
@@ -1808,7 +1816,11 @@
                 document.getElementById('rotateNewCode').value = '';
                 document.getElementById('btnRotateConfirm').disabled = false;
                 document.getElementById('rotateNewCode').focus();
-            }).catch(function(e) { err.textContent = (e.body && e.body.message) || _tr('tfa.setup.rotate.failed', 'Rotate failed.'); err.classList.add('show'); });
+            }).catch(function(e) {
+                btn.disabled = false;
+                err.textContent = (e.body && e.body.message) || _tr('tfa.setup.rotate.failed', 'Rotate failed.');
+                err.classList.add('show');
+            });
         });
         document.getElementById('btnRotateConfirm').addEventListener('click', function() {
             var btn = this;
@@ -1820,19 +1832,22 @@
             api('POST', 'TwoFactorAuth/Setup/Totp/Rotate/Confirm', { code: code }).then(function() {
                 closeRotation();
                 var ok = document.getElementById('rotateSuccess');
-                ok.textContent = _tr('tfa.setup.rotate.done', 'Authenticator replaced. Codes from the old entry no longer work, so you can delete it from your app.');
+                ok.textContent = _tr('tfa.setup.rotate.done', 'Authenticator replaced. Only the new entry works now, so you can delete the old one from your app.');
                 ok.classList.add('show');
                 loadAll();
             }).catch(function(e) {
                 if (e && e.status === 409) {
-                    // Expired, finished elsewhere, or dropped by a disable, a
-                    // reset or a lockout: no code can finish it any more, and
-                    // the account may have changed, so reload its state.
+                    // Expired, dropped by a disable, a reset or a lockout, or
+                    // already confirmed (in another tab, or by a request whose
+                    // answer never arrived): no code can finish it any more,
+                    // and the account may have changed, so reload its state.
                     closeRotation();
-                    err.textContent = _tr('tfa.setup.rotate.expired', 'This change expired or was cancelled. Start again if you still want to replace your authenticator.');
+                    err.textContent = _tr('tfa.setup.rotate.not_pending', 'This change is no longer waiting for a code: it expired, was cancelled or was already completed. Start again if you still want to replace your authenticator.');
                     loadAll();
                 } else if (e && e.status === 400) {
-                    err.textContent = _tr('tfa.setup.invalid_code', 'Invalid code. Codes rotate every 30s, so try the latest one.');
+                    // Most likely a code from the old entry, which still looks
+                    // the same in the app apart from the date.
+                    err.textContent = _tr('tfa.setup.rotate.wrong_code', 'That code did not match. Use the current code from the new entry, the one with today\'s date in its name.');
                     btn.disabled = false;
                 } else {
                     err.textContent = (e && e.body && e.body.message) || _tr('tfa.setup.rotate.failed', 'Rotate failed.');
