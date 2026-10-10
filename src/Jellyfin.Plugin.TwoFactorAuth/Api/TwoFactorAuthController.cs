@@ -1602,12 +1602,24 @@ public class TwoFactorAuthController : ControllerBase
     // 2. POST /TwoFactorAuth/Setup/Totp [Authorize]
     // -------------------------------------------------------------------------
 
+    private const string TotpAlreadyEnabledMessage =
+        "TOTP is already enabled. Replace the authenticator with Setup/Totp/Rotate.";
+
     [HttpPost("Setup/Totp")]
     [Authorize]
     [ProducesResponseType(typeof(TotpSetupResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<TotpSetupResponse>> SetupTotp([FromBody] StepUpCodeRequest? request = null)
     {
         var userId = GetCurrentUserId();
+
+        // An active authenticator is replaced through Setup/Totp/Rotate, which
+        // keeps it working until the new one is confirmed. Enrolling over it
+        // here cleared TotpVerified at once and left the account without TOTP
+        // until Setup/Totp/Confirm. Checked before the step-up, so nobody is
+        // asked for a code for a request that is refused anyway.
+        if (TotpRotation.HasActiveTotp(await _store.GetUserDataAsync(userId).ConfigureAwait(false)))
+            return Conflict(new { message = TotpAlreadyEnabledMessage });
 
         // SECURITY [v2.5.6] (ext review self-service-takeover): a stolen
         // session must not be able to silently swap the user's TOTP secret
@@ -1628,14 +1640,25 @@ public class TwoFactorAuthController : ControllerBase
         // v2.4.1: stash the secret only. TotpEnabled flips to true on Confirm
         // (see ConfirmTotp). Otherwise a user who backs out of setup leaves
         // the account half-enrolled.
+        var refused = false;
         await _store.MutateAsync(userId, ud =>
         {
+            // The rule above again, under the store's lock: an enrolment that
+            // was confirmed since that check is not overwritten either.
+            if (TotpRotation.HasActiveTotp(ud))
+            {
+                refused = true;
+                return;
+            }
+
             ud.TotpVerified = false;
             ud.EncryptedTotpSecret = encryptedSecret;
             TotpRotation.Clear(ud);
             // SEC-M4: reset replay floor on new secret.
             ud.LastUsedTotpStep = 0;
         }).ConfigureAwait(false);
+        if (refused)
+            return Conflict(new { message = TotpAlreadyEnabledMessage });
 
         // New secret ⇒ old replay cache entries can collide with codes the
         // authenticator is about to show. See TotpService.ResetReplayCache.
@@ -5284,7 +5307,7 @@ public class TwoFactorAuthController : ControllerBase
             return StatusCode(429, new { message = "Account locked" });
 
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
-        if (!data.TotpEnabled || string.IsNullOrEmpty(data.EncryptedTotpSecret))
+        if (!data.TotpEnabled || !data.TotpVerified || string.IsNullOrEmpty(data.EncryptedTotpSecret))
             return BadRequest(new { message = "TOTP not enabled" });
 
         // SECURITY [v2.5.5]: decrypt the stored AES-GCM ciphertext before
@@ -5316,7 +5339,8 @@ public class TwoFactorAuthController : ControllerBase
             return Unauthorized(new { message = "Recovery code is invalid" });
         }
 
-        var (newSecret, newQr, newManual) = _totpService.GenerateSecret(user.Username);
+        var issuedAt = DateTime.UtcNow;
+        var (newSecret, newQr, newManual) = _totpService.GenerateSecret(TotpRotation.EntryLabel(user.Username, issuedAt));
         // SECURITY [v2.5.5] (N-A10, CRITICAL regression fix): encrypt the new
         // base32 secret BEFORE persisting. Prior batch-2 build stored the raw
         // base32 plaintext in EncryptedTotpSecret, which (a) leaked the live
@@ -5329,22 +5353,39 @@ public class TwoFactorAuthController : ControllerBase
         // miss-encrypt. Matches the SetupTotp / ConfirmForcedTotpEnrollment
         // pattern that every other rotate-style path already uses.
         var newEncrypted = _totpService.EncryptSecret(newSecret, userId);
-        var issuedAt = DateTime.UtcNow;
+        var recoveryHash = data.RecoveryCodes[rIdx].Hash;
+        var started = false;
         await _store.MutateAsync(userId, ud =>
         {
-            // The new secret waits next to the active one until a code from
-            // it reaches Setup/Totp/Rotate/Confirm, so the account is never
-            // left without TOTP in between. See TotpRotation.
-            TotpRotation.Begin(ud, newEncrypted, issuedAt);
+            // Both proofs were checked against an earlier read, so go ahead
+            // only if that recovery code is still unused (a parallel request
+            // may have spent it) and TryBegin still finds the authenticator
+            // the code was checked against. The new secret then waits next
+            // to the active one until a code from it reaches
+            // Setup/Totp/Rotate/Confirm: the account keeps TOTP throughout.
+            var recovery = rIdx < ud.RecoveryCodes.Count ? ud.RecoveryCodes[rIdx] : null;
+            if (recovery is null || recovery.Used || !string.Equals(recovery.Hash, recoveryHash, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (!TotpRotation.TryBegin(ud, data.EncryptedTotpSecret, newEncrypted, issuedAt))
+            {
+                return;
+            }
+
+            started = true;
             if (rotateMatchedStep > ud.LastUsedTotpStep)
             {
                 ud.LastUsedTotpStep = rotateMatchedStep;
             }
             // Mark the recovery code we used as consumed so the same one
             // can't be replayed.
-            if (rIdx < ud.RecoveryCodes.Count) ud.RecoveryCodes[rIdx].Used = true;
-            if (rIdx < ud.RecoveryCodes.Count) ud.RecoveryCodes[rIdx].UsedAt = DateTime.UtcNow;
+            recovery.Used = true;
+            recovery.UsedAt = DateTime.UtcNow;
         }).ConfigureAwait(false);
+        if (!started)
+            return Conflict(new { message = "Your two-factor settings changed while this request ran. Reload the page and start again." });
 
         await _store.AddAuditEntryAsync(new AuditEntry
         {
@@ -5395,7 +5436,12 @@ public class TwoFactorAuthController : ControllerBase
         var replayKey = TotpRotation.ReplayKey(userId);
         var newSecret = _totpService.DecryptSecret(pending, userId);
         if (!_totpService.ValidateCode(newSecret, req.Code, replayKey, persistedFloor: 0, out var acceptedStep))
+        {
+            // Not counted toward the lockout (see the rate limit above), so
+            // this log line is the only trace of wrong codes.
+            _logger.LogWarning("[2FA] Wrong code for the pending TOTP rotation of {Username}", user.Username);
             return BadRequest(new { message = "Invalid code. Enter the current code from the new entry." });
+        }
 
         var completed = false;
         await _store.MutateAsync(userId, ud =>

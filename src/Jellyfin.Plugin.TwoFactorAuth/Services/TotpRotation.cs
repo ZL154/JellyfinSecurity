@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -23,6 +24,12 @@ internal static class TotpRotation
     /// secret. Long enough to scan a QR and type a code.</summary>
     internal static readonly TimeSpan PendingLifetime = TimeSpan.FromMinutes(10);
 
+    /// <summary>How far ahead of the server clock a pending secret's issue
+    /// time may be. Further than that, the clock was set back since the
+    /// rotation started, and the rotation counts as expired instead of
+    /// living until the clock catches up.</summary>
+    internal static readonly TimeSpan ClockSkewAllowance = TimeSpan.FromMinutes(1);
+
     /// <summary>Replay-cache key for codes from the pending secret. The
     /// rotation request itself spends a code from the active secret, and the
     /// cache tracks time steps, not secrets: under the user's own key a code
@@ -30,16 +37,39 @@ internal static class TotpRotation
     /// a replay.</summary>
     internal static string ReplayKey(Guid userId) => "totp-rotation:" + userId.ToString("N");
 
+    /// <summary>Whether the account has a confirmed authenticator: the state a
+    /// rotation starts from, and must still find when it finishes.</summary>
+    internal static bool HasActiveTotp(UserTwoFactorData data)
+        => data.TotpEnabled && data.TotpVerified && !string.IsNullOrEmpty(data.EncryptedTotpSecret);
+
+    /// <summary>The account name for the new secret's QR. The authenticator
+    /// app shows the issuer and this name, and without the date the new entry
+    /// would look exactly like the one it replaces, leaving the user unable to
+    /// tell which one to delete afterwards.</summary>
+    internal static string EntryLabel(string username, DateTime utcNow)
+        => username + " (" + utcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ")";
+
     /// <summary>Stores <paramref name="encryptedSecret"/> as the pending
-    /// secret. The active secret and TotpVerified are left as they are.</summary>
-    internal static void Begin(UserTwoFactorData data, string encryptedSecret, DateTime utcNow)
+    /// secret, leaving the active secret and TotpVerified as they are. Only on
+    /// the record the rotation's proofs were checked against: the account must
+    /// still have an active authenticator, and it must still be
+    /// <paramref name="activeSecret"/>. Returns false, changing nothing, when a
+    /// disable, a reset or another rotation came in between.</summary>
+    internal static bool TryBegin(UserTwoFactorData data, string? activeSecret, string encryptedSecret, DateTime utcNow)
     {
+        if (!HasActiveTotp(data) || !string.Equals(data.EncryptedTotpSecret, activeSecret, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
         data.PendingEncryptedTotpSecret = encryptedSecret;
         data.PendingTotpSecretIssuedAt = utcNow;
+        return true;
     }
 
     /// <summary>The pending secret, or null when there is none, it expired,
-    /// or TOTP stopped being active after the rotation started.</summary>
+    /// its issue time is ahead of the clock, or TOTP stopped being active
+    /// after the rotation started.</summary>
     internal static string? PendingSecret(UserTwoFactorData data, DateTime utcNow)
     {
         if (string.IsNullOrEmpty(data.PendingEncryptedTotpSecret) || data.PendingTotpSecretIssuedAt is not { } issuedAt)
@@ -47,7 +77,7 @@ internal static class TotpRotation
             return null;
         }
 
-        if (!data.TotpEnabled || !data.TotpVerified || utcNow - issuedAt > PendingLifetime)
+        if (!HasActiveTotp(data) || utcNow - issuedAt > PendingLifetime || issuedAt - utcNow > ClockSkewAllowance)
         {
             return null;
         }
@@ -63,7 +93,10 @@ internal static class TotpRotation
     /// write.</summary>
     internal static bool TryComplete(UserTwoFactorData data, string confirmedSecret, long acceptedStep, DateTime utcNow)
     {
-        if (!string.Equals(PendingSecret(data, utcNow), confirmedSecret, StringComparison.Ordinal))
+        // No pending secret also reads as null, so an empty one must never
+        // count as a match: that would wipe the active secret.
+        if (string.IsNullOrEmpty(confirmedSecret)
+            || !string.Equals(PendingSecret(data, utcNow), confirmedSecret, StringComparison.Ordinal))
         {
             return false;
         }
