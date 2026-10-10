@@ -151,6 +151,57 @@ public class EmailOtpService
         await SendMimeMessageAsync(config, msg).ConfigureAwait(false);
     }
 
+    /// <summary>[#259] True when the SMTP host and from address are set, the
+    /// two settings every email this plugin sends needs.</summary>
+    internal static bool IsSmtpConfigured(Configuration.PluginConfiguration config)
+        => !string.IsNullOrEmpty(config.SmtpHost) && !string.IsNullOrEmpty(config.SmtpFromAddress);
+
+    /// <summary>[#259] Email one security alert, the same title and message the
+    /// other notification channels get, to each admin address: one message per
+    /// address, so they do not see each other, over one SMTP connection, so a
+    /// server that does not answer costs one timeout instead of one per
+    /// address. Returns the addresses that failed, with the reason. Throws when
+    /// SMTP is not configured or the connection or sign-in fails.</summary>
+    public async Task<IReadOnlyList<(string Address, Exception Error)>> SendAlertEmailsAsync(
+        IReadOnlyList<string> toAddresses, string subject, string body)
+    {
+        var config = Plugin.Instance?.Configuration ?? throw new InvalidOperationException("Plugin not initialized");
+        if (!IsSmtpConfigured(config))
+        {
+            throw new InvalidOperationException("SMTP host and from address must be set in plugin settings.");
+        }
+
+        var fromName = string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName;
+        var failed = new List<(string Address, Exception Error)>();
+        var budget = TimeSpan.FromSeconds(30 + (10 * toAddresses.Count));
+        await WithSmtpConnectionAsync(config, budget, async (smtp, ct) =>
+        {
+            for (var i = 0; i < toAddresses.Count; i++)
+            {
+                try
+                {
+                    var msg = BuildMimeMessage(config.SmtpFromAddress, fromName, toAddresses[i], subject, body);
+                    await smtp.SendAsync(msg, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    failed.Add((toAddresses[i], ex));
+                    if (!smtp.IsConnected)
+                    {
+                        // The connection is gone: the rest fail for the same reason.
+                        for (var j = i + 1; j < toAddresses.Count; j++)
+                        {
+                            failed.Add((toAddresses[j], ex));
+                        }
+
+                        break;
+                    }
+                }
+            }
+        }).ConfigureAwait(false);
+        return failed;
+    }
+
     /// <summary>[v2.5.11] (#71) Email a one-time password-reset link. No-ops if
     /// SMTP isn't configured. Callers must NOT surface success/failure to the
     /// requester (anti-enumeration).</summary>
@@ -253,16 +304,26 @@ public class EmailOtpService
         return SecureSocketOptions.StartTlsWhenAvailable;
     }
 
-    private async Task SendMimeMessageAsync(Configuration.PluginConfiguration config, MimeMessage msg)
+    private static Task SendMimeMessageAsync(Configuration.PluginConfiguration config, MimeMessage msg)
+        => WithSmtpConnectionAsync(config, TimeSpan.FromSeconds(30), (smtp, ct) => smtp.SendAsync(msg, ct));
+
+    /// <summary>Connects and signs in to the configured SMTP server, runs
+    /// <paramref name="use"/> on that connection, then sends QUIT.
+    /// [#259] Shared by the single emails and by an alert that goes to several
+    /// addresses over one connection.</summary>
+    private static async Task WithSmtpConnectionAsync(
+        Configuration.PluginConfiguration config,
+        TimeSpan budget,
+        Func<SmtpClient, CancellationToken, Task> use)
     {
         using var smtp = new SmtpClient
         {
-            // 10s connect/handshake budget — same as the old SmtpClient.Timeout.
+            // 10s connect/handshake budget, same as the old SmtpClient.Timeout.
             Timeout = 10_000,
         };
 
         var options = PickSocketOptions(config.SmtpPort, config.SmtpUseSsl);
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var cts = new CancellationTokenSource(budget);
         try
         {
             await smtp.ConnectAsync(config.SmtpHost, config.SmtpPort, options, cts.Token).ConfigureAwait(false);
@@ -270,7 +331,7 @@ public class EmailOtpService
             {
                 await smtp.AuthenticateAsync(config.SmtpUsername, config.SmtpPassword, cts.Token).ConfigureAwait(false);
             }
-            await smtp.SendAsync(msg, cts.Token).ConfigureAwait(false);
+            await use(smtp, cts.Token).ConfigureAwait(false);
         }
         finally
         {
@@ -286,7 +347,7 @@ public class EmailOtpService
     /// PII string. "alice@example.com" -> "a***@example.com". Domain is
     /// preserved because it's typically the IdP host (gmail/outlook/...) and
     /// useful for debugging delivery issues.</summary>
-    private static string MaskEmail(string? email)
+    internal static string MaskEmail(string? email)
     {
         if (string.IsNullOrEmpty(email)) return "(empty)";
         var at = email.IndexOf('@');

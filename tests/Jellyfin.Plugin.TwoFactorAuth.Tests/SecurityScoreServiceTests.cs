@@ -241,6 +241,38 @@ public class SecurityScoreComputeTests
     {
         Assert.Equal(expected, SecurityScoreService.GradeFromTotal(total));
     }
+
+    // [#259] Alert emails go out now, so they count as a notification channel
+    // once there is an address and SMTP to send with.
+    [Fact]
+    public async Task Alert_emails_with_SMTP_count_as_a_notification_channel()
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.NotifyEmailAddresses = new[] { "admin@example.com" };
+        cfg.SmtpHost = "smtp.example.com";
+        cfg.SmtpFromAddress = "jellyfin@example.com";
+
+        var factor = Assert.Single((await svc.ComputeAsync()).Factors, f => f.Id == "webhook");
+
+        Assert.Equal(5, factor.Earned);
+        Assert.Null(factor.NextAction);
+    }
+
+    [Theory]
+    [InlineData("", "jellyfin@example.com")]
+    [InlineData("smtp.example.com", "")]
+    public async Task Alert_addresses_without_SMTP_do_not_count(string host, string from)
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.NotifyEmailAddresses = new[] { "admin@example.com" };
+        cfg.SmtpHost = host;
+        cfg.SmtpFromAddress = from;
+
+        var factor = Assert.Single((await svc.ComputeAsync()).Factors, f => f.Id == "webhook");
+
+        Assert.Equal(0, factor.Earned);
+        Assert.Equal("tfa.factor.webhook.action", factor.NextActionKey);
+    }
 }
 
 public class SecurityScoreSnapshotTests : IDisposable

@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -98,9 +99,37 @@ public class NotificationService
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
     }
 
+    // [#259] Email alerts reuse the SMTP settings of the email sign-in code.
+    // Alerts sent in the background go one at a time, so a burst of events
+    // does not open a connection per event (providers such as Gmail refuse
+    // that). The admin test button does not wait behind them.
+    private static readonly SemaphoreSlim _emailGate = new(1, 1);
+
+    private readonly Func<IReadOnlyList<string>, string, string, Task<IReadOnlyList<(string Address, Exception Error)>>>? _sendAlertEmails;
+    private readonly Func<PluginConfiguration?> _configAccessor;
+
+    // Without an EmailOtpService (tests that do not exercise email) the email
+    // channel reports that it cannot send. DI uses the constructor below.
     public NotificationService(ILogger<NotificationService> logger)
+        : this(logger, null, () => Plugin.Instance?.Configuration)
+    {
+    }
+
+    public NotificationService(ILogger<NotificationService> logger, EmailOtpService email)
+        : this(logger, email.SendAlertEmailsAsync, () => Plugin.Instance?.Configuration)
+    {
+    }
+
+    // [#259] Test seam, as in SecurityScoreService: tests hand in the
+    // configuration and record the alert emails instead of sending them.
+    internal NotificationService(
+        ILogger<NotificationService> logger,
+        Func<IReadOnlyList<string>, string, string, Task<IReadOnlyList<(string Address, Exception Error)>>>? sendAlertEmails,
+        Func<PluginConfiguration?> configAccessor)
     {
         _logger = logger;
+        _sendAlertEmails = sendAlertEmails;
+        _configAccessor = configAccessor;
     }
 
     public async Task NotifyLoginAttemptAsync(string username, string remoteIp, string deviceName, bool requiresTwoFactor)
@@ -236,16 +265,20 @@ public class NotificationService
             "Jellyfin Security test notification",
             "This is a test notification from the Jellyfin Security plugin. If you can read this, the channel is configured correctly.",
             "test",
-            new { test = true });
+            new { test = true },
+            waitForEmail: true);
 
-    /// <summary>Centralised dispatch — sends to ntfy, Gotify, the configured
-    /// webhook (with optional HMAC signature), and logs a stub for email.
+    /// <summary>Centralised dispatch: sends to ntfy, Gotify, the admin email
+    /// addresses and the configured webhook (with optional HMAC signature).
     /// `event` is the machine-readable type for webhook consumers; `payload`
-    /// is an event-specific bag serialised into the webhook body.</summary>
-    private async Task<IReadOnlyList<ChannelResult>> SendToAllBackendsAsync(string title, string message, string @event, object payload)
+    /// is an event-specific bag serialised into the webhook body.
+    /// [#259] Several callers await this inside a request, so email, which can
+    /// take up to 30 seconds per message, goes out in the background unless
+    /// <paramref name="waitForEmail"/> asks for its result (the test button).</summary>
+    private async Task<IReadOnlyList<ChannelResult>> SendToAllBackendsAsync(string title, string message, string @event, object payload, bool waitForEmail = false)
     {
         var results = new List<ChannelResult>();
-        var config = Plugin.Instance?.Configuration;
+        var config = _configAccessor();
         if (config is null)
         {
             return results;
@@ -393,9 +426,34 @@ public class NotificationService
             }
         }
 
-        if (config.NotifyEmailAddresses.Length > 0)
+        // [#259] This used to log a line and send nothing. The alert now goes to
+        // each admin address over the SMTP settings of the email sign-in code.
+        var emailResult = new ChannelResult { Channel = "email" };
+        results.Add(emailResult);
+        var emailTargets = AlertEmailTargets(config);
+        if (emailTargets.Length > 0)
         {
-            _logger.LogInformation("Email notification for '{Title}': {Message}", title, message);
+            emailResult.Configured = true;
+            if (!EmailOtpService.IsSmtpConfigured(config))
+            {
+                emailResult.Error = "SMTP is not configured: set the SMTP host and from address.";
+            }
+            else if (_sendAlertEmails is null)
+            {
+                emailResult.Error = "Email sending is not available.";
+            }
+            else
+            {
+                var body = BuildAlertEmailBody(message, @event, DateTime.UtcNow);
+                if (waitForEmail)
+                {
+                    await DeliverAlertEmailsAsync(emailTargets, title, body, emailResult, queue: false).ConfigureAwait(false);
+                }
+                else
+                {
+                    _ = Task.Run(() => DeliverAlertEmailsAsync(emailTargets, title, body, emailResult, queue: true));
+                }
+            }
         }
 
         // v1.4 webhook — single endpoint, JSON body, optional HMAC signature.
@@ -542,6 +600,75 @@ public class NotificationService
         }
 
         return results;
+    }
+
+    /// <summary>[#259] The admin addresses that get alert emails: blank lines
+    /// dropped, each address once.</summary>
+    internal static string[] AlertEmailTargets(PluginConfiguration config)
+        => (config.NotifyEmailAddresses ?? Array.Empty<string>())
+            .Select(a => a.Trim())
+            .Where(a => a.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    /// <summary>[#259] Plain text, like the other emails this plugin sends. The
+    /// title goes in the subject.</summary>
+    internal static string BuildAlertEmailBody(string message, string @event, DateTime utcNow)
+        => message
+            + "\n\nEvent: " + @event
+            + "\nTime: " + utcNow.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC"
+            + "\n\nSent by the Jellyfin Security plugin to the alert addresses in its notification settings.";
+
+    /// <summary>[#259] Sends the alert to every address in one SMTP session and
+    /// records the outcome. <paramref name="queue"/> makes background alerts
+    /// wait their turn; the test button passes false.</summary>
+    private async Task DeliverAlertEmailsAsync(string[] targets, string subject, string body, ChannelResult result, bool queue)
+    {
+        if (queue)
+        {
+            await _emailGate.WaitAsync().ConfigureAwait(false);
+        }
+
+        try
+        {
+            IReadOnlyList<(string Address, Exception Error)> failed;
+            try
+            {
+                failed = await _sendAlertEmails!(targets, subject, body).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // No connection or no sign-in: nothing went out.
+                _logger.LogError(ex, "Failed to send the email notification '{Title}' to {Count} address(es)", subject, targets.Length);
+                result.Error = $"SMTP send failed ({ex.GetType().Name}).";
+                return;
+            }
+
+            foreach (var (address, error) in failed)
+            {
+                _logger.LogError(error, "Failed to send the email notification to {Email}", EmailOtpService.MaskEmail(address));
+            }
+
+            result.Success = failed.Count == 0;
+            if (failed.Count == 0)
+            {
+                _logger.LogInformation("Email notification '{Title}' sent to {Count} address(es)", subject, targets.Length);
+            }
+            else
+            {
+                var reason = failed[0].Error.GetType().Name;
+                result.Error = failed.Count == targets.Length
+                    ? $"SMTP send failed ({reason})."
+                    : $"SMTP send failed for {failed.Count} of {targets.Length} addresses ({reason}).";
+            }
+        }
+        finally
+        {
+            if (queue)
+            {
+                _emailGate.Release();
+            }
+        }
     }
 
     /// <summary>[v2.5.21] (#143): describe an HTTP failure to the admin without
