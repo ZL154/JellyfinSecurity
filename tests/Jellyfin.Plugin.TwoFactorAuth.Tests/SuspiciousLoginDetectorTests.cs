@@ -36,9 +36,15 @@ public sealed class SuspiciousLoginDetectorTests : IDisposable
         Directory.Delete(_sandbox, recursive: true);
     }
 
-    private SuspiciousLoginDetector Build(PluginConfiguration cfg)
+    // onGeoRead runs each time GeoIpService reads the configuration, which it
+    // does on every availability check and lookup before touching a database.
+    private SuspiciousLoginDetector Build(PluginConfiguration cfg, Action? onGeoRead = null)
     {
-        _geo = new GeoIpService(NullLogger<GeoIpService>.Instance, () => cfg);
+        _geo = new GeoIpService(NullLogger<GeoIpService>.Instance, () =>
+        {
+            onGeoRead?.Invoke();
+            return cfg;
+        });
         return new SuspiciousLoginDetector(
             _store,
             _geo,
@@ -73,6 +79,28 @@ public sealed class SuspiciousLoginDetectorTests : IDisposable
 
         Assert.False(await detector.ObserveAsync(user, "alice", Address));
         Assert.Empty((await _store.GetUserDataAsync(user)).SeenContexts);
+    }
+
+    [Fact]
+    public async Task A_disabled_detector_does_not_touch_the_databases()
+    {
+        // The switch is checked before the databases, so a server that turned
+        // the detector off does not load them on its behalf.
+        var cfg = new PluginConfiguration
+        {
+            GeoIpAsnDbPath = WriteAsnDatabase(64500, "Example AS"),
+            SuspiciousLoginEnabled = false,
+        };
+        var geoReads = 0;
+        var detector = Build(cfg, () => geoReads++);
+
+        Assert.False(await detector.ObserveAsync(Guid.NewGuid(), "alice", Address));
+        Assert.Equal(0, geoReads);
+
+        // Control: the same detector, switched on, does reach the databases.
+        cfg.SuspiciousLoginEnabled = true;
+        Assert.True(await detector.ObserveAsync(Guid.NewGuid(), "alice", Address));
+        Assert.True(geoReads > 0);
     }
 
     [Fact]

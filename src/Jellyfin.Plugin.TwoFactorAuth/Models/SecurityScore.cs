@@ -23,7 +23,7 @@ public class ScoreFactor
     public string? NoteKey { get; set; }
 
     /// <summary>One-line user-facing hint shown when the factor is short of full credit.
-    /// Null when fully earned. Drives the "+N pts available" nudge list.</summary>
+    /// Null when fully earned or not counted ("na"). Drives the "+N pts available" nudge list.</summary>
     public string? NextAction { get; set; }
 
     /// <summary>v2.5.0: i18n key for <see cref="Label"/> so the admin UI can localize it.
@@ -31,7 +31,7 @@ public class ScoreFactor
     /// fallback when the bundle lacks the key.</summary>
     public string? LabelKey { get; set; }
 
-    /// <summary>v2.5.0: i18n key for <see cref="NextAction"/>. Null when fully earned.</summary>
+    /// <summary>v2.5.0: i18n key for <see cref="NextAction"/>. Null when fully earned or not counted.</summary>
     public string? NextActionKey { get; set; }
 
     /// <summary>v2.5.0: interpolation data for <see cref="NextActionKey"/>. The frontend

@@ -211,8 +211,9 @@ public class SecurityScoreService : IDisposable
         // [#258] A server whose geographic checks run outside the plugin (a
         // WAF, CrowdSec, a firewall) can leave this factor out of the total
         // instead of failing it. The plugin cannot see that protection, so the
-        // factor is not counted rather than credited, and a detector that does
-        // run here keeps its 7 points.
+        // factor is not counted rather than credited, and a detector that is
+        // enabled with a city DB path keeps its 7 points. Like travelEnabled,
+        // this reads the settings; it does not check that the database loads.
         var travelNotCounted = !travelEnabled && cfg.GeoProtectionHandledExternally;
         factors.Add(new ScoreFactor
         {

@@ -462,8 +462,10 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>[#258] Runs the suspicious-login detector when an ASN or
     /// Country database is configured. On by default, which is how the
-    /// detector behaved before this setting existed. Off stops it without
-    /// clearing the two database paths, which only this detector reads.</summary>
+    /// detector behaved before this setting existed. Off stops it and keeps
+    /// the two database paths (impossible-travel uses the City database, not
+    /// these). Impossible-travel alerts go out through the same notification,
+    /// so this does not stop them.</summary>
     public bool SuspiciousLoginEnabled { get; set; } = true;
 
     /// <summary>Optional explicit Relying Party ID for WebAuthn. If empty, the
@@ -550,10 +552,11 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>[#258] The server's geographic checks are done outside this
     /// plugin (a WAF, CrowdSec, a firewall). Off by default. On, the security
-    /// score leaves impossible-travel detection out of the total when this
-    /// plugin does not run it, instead of counting it as failed. It never
-    /// removes the credit the factor earns when the detector is enabled and
-    /// configured, and it does not turn either detector on or off.</summary>
+    /// score leaves impossible-travel detection out of the total while it is
+    /// off or has no GeoIpCityDbPath, instead of counting it as failed. It
+    /// never removes the credit the factor earns when the detector is enabled
+    /// with a city database path, and it does not turn either detector on or
+    /// off.</summary>
     public bool GeoProtectionHandledExternally { get; set; }
 
     /// <summary>Optional Ed25519 private key (PEM) for signing webhook bodies
