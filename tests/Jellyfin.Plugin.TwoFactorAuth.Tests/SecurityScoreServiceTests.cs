@@ -228,20 +228,6 @@ public class SecurityScoreComputeTests
         Assert.True(scoreOn > scoreOff, $"expected {scoreOn} > {scoreOff}");
     }
 
-    [Theory]
-    [InlineData(95, "A")]
-    [InlineData(90, "A")]
-    [InlineData(85, "B+")]
-    [InlineData(75, "B")]
-    [InlineData(65, "C")]
-    [InlineData(55, "D")]
-    [InlineData(49, "F")]
-    [InlineData(0, "F")]
-    public void GradeFromTotal_MatchesThresholds(int total, string expected)
-    {
-        Assert.Equal(expected, SecurityScoreService.GradeFromTotal(total));
-    }
-
     // [#259] Alert emails go out now, so they count as a notification channel
     // once there is an address and SMTP to send with.
     [Fact]
@@ -295,6 +281,20 @@ public class SecurityScoreComputeTests
         var factor = Assert.Single((await svc.ComputeAsync()).Factors, f => f.Id == "webhook");
 
         Assert.Equal(0, factor.Earned);
+    }
+
+    [Theory]
+    [InlineData(95, "A")]
+    [InlineData(90, "A")]
+    [InlineData(85, "B+")]
+    [InlineData(75, "B")]
+    [InlineData(65, "C")]
+    [InlineData(55, "D")]
+    [InlineData(49, "F")]
+    [InlineData(0, "F")]
+    public void GradeFromTotal_MatchesThresholds(int total, string expected)
+    {
+        Assert.Equal(expected, SecurityScoreService.GradeFromTotal(total));
     }
 }
 
