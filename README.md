@@ -208,7 +208,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - **8 languages** (English, German, Spanish, French, Italian, Japanese, Portuguese, Chinese) at full key parity, following Jellyfin's own display language automatically and served on cache-immune paths.
 
 ### Notifications
-- Push notifications for login events via **ntfy**, **Gotify**, generic **webhooks** (HMAC-signed, with custom headers), or **email**, with authentication for each channel.
+- Push notifications for login events via **ntfy**, **Gotify**, **Telegram** (a bot token and a chat ID), generic **webhooks** (HMAC-signed, with custom headers), or **email** to the admin alert addresses over the SMTP settings, with authentication for each channel (#259).
 - **Self-hosted LAN targets supported** via an opt-in "Allow notifications to private/LAN addresses" toggle (default off; link-local / cloud-metadata always blocked).
 - Repeated native-client session events are deduplicated by logical user/device identity, so changing forwarded addresses don't produce notification storms.
 
@@ -305,7 +305,7 @@ Restart Jellyfin after copying.
    - Enable **Trust X-Forwarded-For**
    - Add your proxy IPs (or Cloudflare's IP ranges) to **Trusted Proxy CIDRs**
    - Without this, rate limiting collapses to a single bucket because every request looks like it comes from the proxy's loopback.
-5. Optional: configure **Notifications** (Gotify, ntfy, or webhook) to get alerts when someone triggers a 2FA prompt.
+5. Optional: configure **Notifications** (Gotify, ntfy, Telegram, email or webhook) to get alerts when someone triggers a 2FA prompt.
 
 ### As a user (enroll in 2FA)
 
@@ -451,10 +451,12 @@ Paginated, filterable login attempt history. Tracks success, failures, lockouts,
 - **General** — plugin toggle, force 2FA for all users, email OTP toggle
 - **LAN Bypass** — CIDR ranges, X-Forwarded-For trust, trusted proxies
 - **Security** — failed-attempt threshold, lockout duration, audit log size, and OIDC onboarding password policy (minimum length plus optional uppercase, lowercase, number, and symbol requirements)
-- **SMTP** — host, port, SSL, credentials, from-address (required for email OTP)
-- **Push Notifications** — ntfy URL/topic, Gotify URL/token, admin email addresses
+- **SMTP**: host, port, SSL, credentials, from-address (required for email OTP and for alert emails)
+- **Push Notifications**: ntfy URL/topic, Gotify URL/token, Telegram bot token and chat ID, admin email addresses for alerts
 - **Hardening (v2.5)** — `RequireTwoFactorToDisable` (re-prompts before a user can self-disable 2FA), `StepUpLevel` (which admin actions re-prompt for 2FA), `AllowIndefiniteTrust` (gates the user-side opt-in for never-expiring trust), `DefaultLanguage` (server-wide UI default; users can still override per-user)
 - **Audit chain (v2.5)** — **Rebuild audit chain** button repairs the hash chain after disk corruption / manual edits (step-up gated)
+
+**Telegram and email alerts (#259):** for Telegram, create a bot with @BotFather, paste its token in **Settings → Push Notifications → Telegram bot token** and set **Telegram chat ID** to your user ID, a group or channel ID (negative) or @channelusername; the bot must be able to post there, so start a chat with it or add it to the group or channel. The token is sent only to api.telegram.org and is kept out of the server log, and when Telegram refuses a message the test button shows its reason ("Bad Request: chat not found"). For email, every address under **Admin email addresses for security alerts** gets its own copy of each alert over the SMTP settings used for email OTP. **Send test notification** reports each configured channel separately.
 
 ---
 
@@ -551,7 +553,7 @@ Flags sign-ins where the geographic distance vs. elapsed time exceeds commercial
 
 **Requires:** MaxMind GeoLite2-City.mmdb. [Free account](https://www.maxmind.com/en/geolite2/signup), download the City DB, drop it in `/config/geoip/`, paste the path in **Settings → Impossible-Travel Detection**. The path must be the one the Jellyfin process sees (inside the container, for Docker) and readable by the user Jellyfin runs as; the Diagnostics tab tells you which of those is not the case.
 
-**Signal path:** Triggers the same Notification channels the plugin already uses (ntfy, Gotify, webhook, admin emails). Includes distance, duration, inferred speed, and country hop in the message.
+**Signal path:** Triggers the same Notification channels the plugin already uses (ntfy, Gotify, Telegram, webhook, admin emails). Includes distance, duration, inferred speed, and country hop in the message.
 
 Off by default; enable in Settings once the city DB is in place.
 
@@ -634,7 +636,7 @@ In v2.5.20, posture checks initialise independently on Jellyfin 10.11.11. A fail
 | Clean 7-day audit | 5 | No failed admin sign-ins in the last 7 days |
 | Require-to-disable | 8 | `RequireTwoFactorToDisable` is on |
 | Step-up | 7 | `StepUpLevel` is `Destructive` or stronger |
-| Webhook | 5 | Push notifications (ntfy / Gotify / webhook) configured |
+| Webhook | 5 | A notification channel configured: ntfy, Gotify, Telegram, a webhook, or alert emails with SMTP set (#259) |
 | Recovery codes | 5 | At least one user has generated recovery codes |
 
 ### Auth-activity overview
@@ -797,7 +799,7 @@ Closes the "session permanently 403'd after restart" issue (#52). Before v2.5.7,
 
 ## 📧 SMTP setup (email OTP)
 
-Email OTP requires SMTP credentials. Common providers:
+Email OTP requires SMTP credentials, and so do the alert emails to the admin addresses under **Push Notifications** (#259). Common providers:
 
 ### Gmail (with app password)
 ```
