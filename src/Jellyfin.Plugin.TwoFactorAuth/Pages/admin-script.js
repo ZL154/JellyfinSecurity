@@ -1195,6 +1195,15 @@
                         if (telegramTokenEl) c.TelegramBotToken = telegramToken;
                         if (telegramChatEl) c.TelegramChatId = telegramChat;
                         c.NotifyEmailAddresses = alertEmails;
+                        // [#259] The alert emails go out over the SMTP settings,
+                        // so the test uses the ones on screen too.
+                        c.SmtpHost = page.querySelector('#cfgSmtpHost').value.trim();
+                        c.SmtpPort = parseInt(page.querySelector('#cfgSmtpPort').value) || 587;
+                        c.SmtpUseSsl = page.querySelector('#cfgSmtpSsl').checked;
+                        c.SmtpUsername = page.querySelector('#cfgSmtpUser').value;
+                        c.SmtpPassword = page.querySelector('#cfgSmtpPass').value;
+                        c.SmtpFromAddress = page.querySelector('#cfgSmtpFrom').value.trim();
+                        c.SmtpFromName = page.querySelector('#cfgSmtpFromName').value.trim();
                         c.WebhookUrl = webhookUrl;
                         c.WebhookSecret = page.querySelector('#cfgWebhookSecret').value.trim();
                         c.WebhookHeaders = page.querySelector('#cfgWebhookHeaders').value

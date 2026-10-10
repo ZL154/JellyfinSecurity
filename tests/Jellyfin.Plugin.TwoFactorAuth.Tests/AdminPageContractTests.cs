@@ -44,6 +44,10 @@ public class AdminPageContractTests
         Assert.Contains("if (telegramTokenSaveEl) c.TelegramBotToken = telegramTokenSaveEl.value.trim();", script);
         Assert.Contains("&& !(telegramToken && telegramChat) && alertEmails.length === 0) {", script);
         Assert.Contains("c.NotifyEmailAddresses = alertEmails;", script);
+        // The test button also saves the SMTP settings the alert emails use, so
+        // this line appears there as well as in the main Save Settings.
+        var smtpFromSave = "c.SmtpFromAddress = page.querySelector('#cfgSmtpFrom').value.trim();";
+        Assert.Equal(2, script!.Split(smtpFromSave).Length - 1);
     }
 
     [Fact]
