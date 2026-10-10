@@ -170,20 +170,37 @@ public class TrustCookieMiddleware
                 // not exploitable (the legitimate user's retry just re-runs
                 // through this same path) but eliminates the inconsistency
                 // window flagged by the audit.
-                trustRecord.LastUsedAt = DateTime.UtcNow;
+                // The use is recorded on the stored record, under the store's
+                // lock. Saving the copy read above would undo whatever another
+                // request changed since then, and would write this record back
+                // if the user revoked it in the meantime. A record that is gone
+                // by now is not trusted, like a revoked one above.
+                var recordStillExists = false;
+                var usedAt = DateTime.UtcNow;
                 try
                 {
-                    await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+                    await _store.MutateAsync(userId, ud =>
+                    {
+                        recordStillExists = UserDataUpdates.TouchTrustedDevice(ud, trustRecord.Id, usedAt);
+                    }).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    // Save failed — do NOT pre-verify. Let the request fall
+                    // Save failed: do NOT pre-verify. Let the request fall
                     // through to the normal 2FA challenge path; the user
                     // retries with a fresh cookie next round.
                     _logger.LogWarning(ex, "[2FA] Trust cookie save failed; falling through to challenge for {UserId}", userId);
                     await _next(context).ConfigureAwait(false);
                     return;
                 }
+
+                if (!recordStillExists)
+                {
+                    _logger.LogInformation("[2FA] Trust cookie record {Id} was revoked during sign-in", trustRecord.Id);
+                    await _next(context).ConfigureAwait(false);
+                    return;
+                }
+
                 _challengeStore.MarkDevicePreVerified(userId, signedDeviceId);
                 _challengeStore.UnblockDevice(userId, signedDeviceId);
 
