@@ -27,11 +27,6 @@ updates:
       # Floating wildcards on the Jellyfin SDK are intentional — pin/upgrade via csproj.
       - dependency-name: "Jellyfin.Controller"
       - dependency-name: "Jellyfin.Model"
-      # Microsoft.IdentityModel 8.19.x breaks OIDC id_token validation — pinned to
-      # 8.18 and upgraded deliberately via csproj after re-testing SSO. (Auto-bump
-      # PRs #74/#78 were closed for this reason.)
-      - dependency-name: "Microsoft.IdentityModel.Tokens"
-      - dependency-name: "System.IdentityModel.Tokens.Jwt"
 
   - package-ecosystem: "nuget"
     directory: "/tests/Jellyfin.Plugin.TwoFactorAuth.Tests"
@@ -46,6 +41,12 @@ updates:
       - "tests"
     commit-message:
       prefix: "deps(tests)"
+    # This project references the plugin project, so this entry also sees the
+    # plugin's packages and opens bumps against its csproj (#39 and #72 came
+    # this way). The Jellyfin SDK stays pinned, as in the first entry.
+    ignore:
+      - dependency-name: "Jellyfin.Controller"
+      - dependency-name: "Jellyfin.Model"
 
   - package-ecosystem: "nuget"
     directory: "/tests/Jellyfin.Plugin.TwoFactorAuth.Fuzz"
@@ -60,6 +61,10 @@ updates:
       - "fuzz"
     commit-message:
       prefix: "deps(fuzz)"
+    # Same reason as the tests entry (#31, #59 and #87 came this way).
+    ignore:
+      - dependency-name: "Jellyfin.Controller"
+      - dependency-name: "Jellyfin.Model"
 
   - package-ecosystem: "docker"
     directory: "/.clusterfuzzlite"
