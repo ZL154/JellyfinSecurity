@@ -864,8 +864,9 @@
                             <h2 data-i18n-key="tfa.admin.settings.suspicious_heading">Suspicious-login detection (v1.4)</h2>
                             <div class="tfa-note" data-i18n-key="tfa.admin.settings.suspicious_note">Resolve sign-in IPs to ASN + country via MaxMind GeoLite2 .mmdb files. Sign in once with a free MaxMind account, download GeoLite2-ASN and GeoLite2-Country, place the .mmdb files inside Jellyfin's config directory, and paste the absolute paths below. Without these the plugin still works — just no first-seen alerts.</div>
                             <!-- [#258] Off stops the detector and keeps the paths below. -->
-                            <div class="tfa-row">
+                            <div class="tfa-row tfa-row-stack">
                                 <label><input type="checkbox" id="cfgSuspiciousEnabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_suspicious_enabled">Enable</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.suspicious_enabled_help">On by default. Off stops these alerts and keeps the database paths below. Impossible-travel alerts go out as the same notification ("Sign-in from a new location", webhook event suspicious_login), so they keep arriving while impossible-travel detection is on.</div>
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_geo_asn">GeoLite2-ASN.mmdb path</label>
@@ -918,7 +919,7 @@
                             <!-- [#258] For servers whose geographic checks run outside the plugin. -->
                             <div class="tfa-row tfa-row-stack">
                                 <label><input type="checkbox" id="cfgGeoExternal" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_geo_external">Geographic checks are done outside this plugin (a WAF, CrowdSec, a firewall)</span></label>
-                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.geo_external_help">Off by default. When on and this plugin does not run impossible-travel detection, the security score leaves that factor out of the total instead of counting it as failed. The plugin cannot see that protection, so it gives no points for it, and this setting does not turn any detector on or off.</div>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.geo_external_help">Off by default. When on, and impossible-travel detection is off or its GeoLite2-City.mmdb path is empty, the security score leaves that factor out of the total instead of counting it as failed. The plugin cannot see that protection, so it gives no points for it, and this setting does not turn any detector on or off.</div>
                             </div>
                         </div>
 

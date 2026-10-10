@@ -389,7 +389,12 @@
                         // pair so the Top-action banner reads in the user's language
                         // instead of falling through to the English literal.
                         const gaps = data.score.factors.filter(f => f.nextAction);
-                        document.getElementById('postureSummary').textContent = gaps.length === 0
+                        // [#258] With a factor left out of the total, "all factors"
+                        // would also claim the one that is not counted.
+                        const anyNotCounted = data.score.factors.some(f => f.status === 'na');
+                        document.getElementById('postureSummary').textContent = gaps.length === 0 && anyNotCounted
+                            ? _tr('tfa.admin.posture_all_counted_full', 'All counted factors at full credit. Well done.')
+                            : gaps.length === 0
                             ? _tr('tfa.admin.posture_all_full', 'All factors at full credit — well done.')
                             : `${_tr('tfa.admin.posture_top_action', 'Top action:')} ${_trWithData(gaps[0].nextActionKey, gaps[0].nextAction, gaps[0].nextActionData)} (+${gaps[0].possible - gaps[0].earned} pts)`;
 
