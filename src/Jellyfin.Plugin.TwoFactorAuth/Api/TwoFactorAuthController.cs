@@ -5384,9 +5384,11 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        // 409 like the race below, not 400: the Setup page tells "start over"
+        // apart from a mistyped code by the status.
         var pending = TotpRotation.PendingSecret(data, DateTime.UtcNow);
         if (pending is null)
-            return BadRequest(new { message = "No authenticator change is waiting for a code. Start the rotation again." });
+            return Conflict(new { message = "No authenticator change is waiting for a code. Start the rotation again." });
 
         // Floor 0, as in ConfirmTotp: the persisted floor records time steps
         // the active secret spent, and this secret has spent none.
