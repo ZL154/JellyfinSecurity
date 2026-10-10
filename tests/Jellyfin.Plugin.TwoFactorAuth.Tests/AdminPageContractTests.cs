@@ -268,4 +268,30 @@ public class AdminPageContractTests
         Assert.Contains("encodeURIComponent(b.dataset.ssoDel)).then(loadSso).catch(", script);
         Assert.Contains("{ enabled: btn.dataset.next === 'true' }).then(loadUsers).catch(", script);
     }
+
+    [Fact]
+    public void Geo_settings_and_a_factor_left_out_of_the_score_reach_the_admin_page()
+    {
+        var page = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.admin.html");
+        var script = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.admin-script.js");
+
+        Assert.NotNull(page);
+        Assert.NotNull(script);
+        // #258: both boxes exist, are read and saved through lookups that keep
+        // the server's value when an older cached admin.html lacks them, and a
+        // factor whose status is "na" shows its note instead of "0 / 0".
+        Assert.Contains("id=\"cfgSuspiciousEnabled\"", page);
+        Assert.Contains("data-i18n-key=\"tfa.admin.settings.suspicious_enabled_help\"", page);
+        Assert.Contains("id=\"cfgGeoExternal\"", page);
+        Assert.Contains("data-i18n-key=\"tfa.admin.settings.geo_external_help\"", page);
+        Assert.Contains("if (suspiciousEl) suspiciousEl.checked = c.SuspiciousLoginEnabled !== false;", script);
+        Assert.Contains("if (geoExternalEl) geoExternalEl.checked = c.GeoProtectionHandledExternally === true;", script);
+        Assert.Contains(": (c.SuspiciousLoginEnabled !== false);", script);
+        Assert.Contains(": (c.GeoProtectionHandledExternally === true);", script);
+        Assert.Contains("const notCounted = f.status === 'na';", script);
+        Assert.Contains("escapeHtml(_tr(f.noteKey, f.note || ''))", script);
+        Assert.Contains("_tr('tfa.admin.posture_all_counted_full',", script);
+    }
 }

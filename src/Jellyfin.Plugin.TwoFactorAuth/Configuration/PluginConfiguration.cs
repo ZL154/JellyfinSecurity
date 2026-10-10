@@ -460,6 +460,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// without it, suspicious-login detection still works on ASN alone.</summary>
     public string GeoIpCountryDbPath { get; set; } = string.Empty;
 
+    /// <summary>[#258] Runs the suspicious-login detector when an ASN or
+    /// Country database is configured. On by default, which is how the
+    /// detector behaved before this setting existed. Off stops it and keeps
+    /// the two database paths (impossible-travel uses the City database, not
+    /// these). Impossible-travel alerts go out through the same notification,
+    /// so this does not stop them.</summary>
+    public bool SuspiciousLoginEnabled { get; set; } = true;
+
     /// <summary>Optional explicit Relying Party ID for WebAuthn. If empty, the
     /// plugin derives it from the request Host. Required when behind a reverse
     /// proxy where the public hostname differs from the internal one.</summary>
@@ -541,6 +549,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// cruise speed; anything above is suspicious. Lower = more sensitive
     /// (more false positives), higher = less.</summary>
     public int ImpossibleTravelMaxKmh { get; set; } = 900;
+
+    /// <summary>[#258] The server's geographic checks are done outside this
+    /// plugin (a WAF, CrowdSec, a firewall). Off by default. On, the security
+    /// score leaves impossible-travel detection out of the total while it is
+    /// off or has no GeoIpCityDbPath, instead of counting it as failed. It
+    /// never removes the credit the factor earns when the detector is enabled
+    /// with a city database path, and it does not turn either detector on or
+    /// off.</summary>
+    public bool GeoProtectionHandledExternally { get; set; }
 
     /// <summary>Optional Ed25519 private key (PEM) for signing webhook bodies
     /// asymmetrically. Receivers verify with the matching public key. Empty =

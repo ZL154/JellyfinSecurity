@@ -173,6 +173,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 ### Brute-force & anomaly protection
 - **Brute-force IP banning** — auto-bans source IPs that exceed N failed sign-ins in M minutes, persisted across restarts, with an admin list/unban UI.
 - **Impossible-travel detection** — flags consecutive sign-ins that exceed commercial-jet cruise speed, using MaxMind GeoLite2-City for geolocation.
+- **Suspicious-login alerts**: a notification the first time a user signs in from a network (ASN) and country pair the plugin has not seen for them, using a MaxMind GeoLite2-ASN database, a GeoLite2-Country database, or both. Its **Enable** box in **Settings → Suspicious-login detection** turns it off and keeps the database paths (#258). Impossible-travel alerts go out as the same notification ("Sign-in from a new location", webhook event `suspicious_login`), so they keep arriving while impossible-travel detection is on.
 - **Per-user IP allowlist** — pin high-value accounts (e.g. admin) to specific CIDRs so sign-in is refused from everywhere else.
 
 ### Step-up authentication
@@ -553,7 +554,9 @@ Flags sign-ins where the geographic distance vs. elapsed time exceeds commercial
 
 **Signal path:** Triggers the same Notification channels the plugin already uses (ntfy, Gotify, webhook, admin emails). Includes distance, duration, inferred speed, and country hop in the message.
 
-Off by default; enable in Settings once the city DB is in place.
+The **Enable** box is on by default, but the detector does nothing until the city DB is in place and its path is set.
+
+**Geographic checks done outside the plugin (#258):** if a WAF, CrowdSec, a firewall or another layer in front of Jellyfin already covers this, tick **Settings → Impossible-Travel Detection → "Geographic checks are done outside this plugin"** (default off). While impossible-travel detection is off or has no city DB path set, the security score then leaves the impossible-travel factor out of the total instead of counting it as failed, and its card reads "Not counted". The score reads these two settings and does not check that the City database loads. The plugin cannot see that outside protection, so the factor earns no points for it, and a detector that is enabled with a city DB path set keeps its 7 points whatever the setting says. The setting does not turn either detector on or off.
 
 ---
 
@@ -629,7 +632,7 @@ In v2.5.20, posture checks initialise independently on Jellyfin 10.11.11. A fail
 | Enforcement | 15 | `RequireForAll` is on |
 | Audit chain | 10 | Hash chain is intact (no breakage) |
 | IP ban | 8 | Brute-force banning enabled with sane threshold |
-| Impossible travel | 7 | Functional — requires `GeoIpCityDbPath` set to a valid MaxMind file |
+| Impossible travel | 7 | Impossible-travel detection enabled with `GeoIpCityDbPath` set (the path, not whether the file loads). Left out of the total, instead of failed, when it is not and "Geographic checks are done outside this plugin" is on (#258) |
 | HIBP | 5 | Have-I-Been-Pwned password check enabled |
 | Clean 7-day audit | 5 | No failed admin sign-ins in the last 7 days |
 | Require-to-disable | 8 | `RequireTwoFactorToDisable` is on |

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -29,13 +30,22 @@ public class GeoIpService : IDisposable
     private static readonly string[] SensitivePrefixes = { "/etc/", "/proc/", "/sys/", "/dev/", "/root/.ssh", "/run/secrets" };
 
     private readonly ILogger<GeoIpService> _logger;
+    private readonly Func<PluginConfiguration?> _configAccessor;
     private readonly GeoIpDatabase _asn;
     private readonly GeoIpDatabase _country;
     private bool _disposed;
 
     public GeoIpService(ILogger<GeoIpService> logger)
+        : this(logger, () => Plugin.Instance?.Configuration)
+    {
+    }
+
+    // [#258] Test seam, as in SecurityScoreService: tests hand in the
+    // database paths without spinning up the Plugin singleton.
+    internal GeoIpService(ILogger<GeoIpService> logger, Func<PluginConfiguration?> configAccessor)
     {
         _logger = logger;
+        _configAccessor = configAccessor;
         _asn = new GeoIpDatabase("GeoLite2-ASN", logger);
         _country = new GeoIpDatabase("GeoLite2-Country", logger);
     }
@@ -106,7 +116,7 @@ public class GeoIpService : IDisposable
 
     private void Sync(bool force)
     {
-        var config = Plugin.Instance?.Configuration;
+        var config = _configAccessor();
         if (config is null) return;
         var now = DateTime.UtcNow;
         _asn.Sync(config.GeoIpAsnDbPath, now, force);
