@@ -342,6 +342,16 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public string GotifyAppToken { get; set; } = string.Empty;
 
+    /// <summary>[#259] Telegram bot token from @BotFather. With
+    /// <see cref="TelegramChatId"/> also set, security alerts go to that chat
+    /// through the Telegram Bot API. The token is part of the API URL, so the
+    /// plugin keeps it out of every log line and error it shows.</summary>
+    public string TelegramBotToken { get; set; } = string.Empty;
+
+    /// <summary>[#259] Chat that receives the alerts: a user or group id
+    /// (group and channel ids are negative) or @channelusername.</summary>
+    public string TelegramChatId { get; set; } = string.Empty;
+
     /// <summary>[v2.5.17] (#116): allow notification targets (ntfy / Gotify /
     /// webhook) that resolve to private/LAN/loopback addresses. Default false
     /// keeps the v2.5.6 SSRF guard, which refuses RFC1918 / loopback / ULA so a

@@ -426,6 +426,71 @@ public class NotificationService
             }
         }
 
+        // [#259] Telegram Bot API. The token travels in the URL path (the API
+        // has no header form), so it is checked for shape before it goes into
+        // the URL, the SSRF guard sees the host alone, and the token is
+        // scrubbed from anything logged or shown, as for Gotify above.
+        var telegramResult = new ChannelResult { Channel = "telegram" };
+        results.Add(telegramResult);
+        if (TelegramConfigured(config))
+        {
+            telegramResult.Configured = true;
+            var telegramToken = config.TelegramBotToken.Trim();
+            var telegramChat = config.TelegramChatId.Trim();
+            var telegramAddrs = IsTelegramToken(telegramToken) && IsTelegramChatId(telegramChat)
+                ? GetSafeWebhookAddresses(TelegramApiBase)
+                : null;
+            if (!IsTelegramToken(telegramToken))
+            {
+                telegramResult.Error = "The bot token does not look like a Telegram token (digits, a colon, then letters, digits, - and _).";
+            }
+            else if (!IsTelegramChatId(telegramChat))
+            {
+                telegramResult.Error = "The chat ID must be a number (negative for groups and channels) or @channelusername.";
+            }
+            else if (telegramAddrs is null || telegramAddrs.Length == 0)
+            {
+                telegramResult.Error = "api.telegram.org was refused by the SSRF guard (see server log).";
+            }
+            else
+            {
+                try
+                {
+                    using var req = new HttpRequestMessage(HttpMethod.Post, TelegramSendMessageUrl(telegramToken))
+                    {
+                        Content = JsonContent.Create(new
+                        {
+                            chat_id = telegramChat,
+                            text = BuildTelegramText(title, message, @event),
+                            disable_web_page_preview = true,
+                        }),
+                    };
+                    _pinnedAllowedAddresses.Value = telegramAddrs;
+                    try
+                    {
+                        using var response = await _webhookHttpClient.SendAsync(req).ConfigureAwait(false);
+                        telegramResult.Success = response.IsSuccessStatusCode;
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            var raw = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                            telegramResult.Error = DescribeTelegramFailure((int)response.StatusCode, raw, telegramToken);
+                            _logger.LogError("Failed to send Telegram notification: {Error}", telegramResult.Error);
+                        }
+                    }
+                    finally
+                    {
+                        _pinnedAllowedAddresses.Value = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    telegramResult.Error = ex.GetType().Name;
+                    _logger.LogError("Failed to send Telegram notification: {Type}: {Msg}",
+                        ex.GetType().Name, ScrubToken(ex.Message, telegramToken));
+                }
+            }
+        }
+
         // [#259] This used to log a line and send nothing. The alert now goes to
         // each admin address over the SMTP settings of the email sign-in code.
         var emailResult = new ChannelResult { Channel = "email" };
@@ -601,6 +666,77 @@ public class NotificationService
 
         return results;
     }
+
+    /// <summary>[#259] The Telegram Bot API host. The SSRF guard checks this
+    /// URL, which carries no token.</summary>
+    internal const string TelegramApiBase = "https://api.telegram.org/";
+
+    // Token: the bot id, a colon, then the secret. Chat: a numeric id (groups
+    // and channels are negative) or @channelusername.
+    private static readonly System.Text.RegularExpressions.Regex _telegramToken =
+        new(@"^\d+:[A-Za-z0-9_-]+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static readonly System.Text.RegularExpressions.Regex _telegramChat =
+        new(@"^(-?\d+|@[A-Za-z][A-Za-z0-9_]{3,})$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>[#259] Both Telegram settings are filled in.</summary>
+    internal static bool TelegramConfigured(PluginConfiguration config)
+        => !string.IsNullOrWhiteSpace(config.TelegramBotToken) && !string.IsNullOrWhiteSpace(config.TelegramChatId);
+
+    internal static bool IsTelegramToken(string token) => _telegramToken.IsMatch(token);
+
+    internal static bool IsTelegramChatId(string chatId) => _telegramChat.IsMatch(chatId);
+
+    /// <summary>[#259] Only called with a token that passed
+    /// <see cref="IsTelegramToken"/>, so nothing in it can change the path.</summary>
+    internal static string TelegramSendMessageUrl(string token)
+        => TelegramApiBase + "bot" + token + "/sendMessage";
+
+    /// <summary>[#259] Plain text, so nothing needs escaping, cut to the
+    /// 4096 characters Telegram accepts.</summary>
+    internal static string BuildTelegramText(string title, string message, string @event)
+    {
+        var text = title + "\n\n" + message + "\n\nEvent: " + @event;
+        return text.Length <= 4096 ? text : string.Concat(text.AsSpan(0, 4093), "...");
+    }
+
+    /// <summary>[#259] Unlike ntfy and Gotify, Telegram's error body is worth
+    /// showing: its description ("Bad Request: chat not found") says what to
+    /// fix. It is shortened, and the token is scrubbed in case it shows up.</summary>
+    internal static string DescribeTelegramFailure(int status, string? body, string token)
+    {
+        string? description = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(body ?? string.Empty);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("description", out var d)
+                && d.ValueKind == JsonValueKind.String)
+            {
+                description = d.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+            // Not Telegram's JSON (a proxy page, say): the status alone.
+        }
+
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return $"Telegram refused the message (HTTP {status}).";
+        }
+
+        var clean = ScrubToken(description, token);
+        if (clean.Length > 200)
+        {
+            clean = clean[..200];
+        }
+
+        return $"Telegram refused the message (HTTP {status}): {clean}";
+    }
+
+    internal static string ScrubToken(string text, string token)
+        => string.IsNullOrEmpty(token) ? text : text.Replace(token, "***", StringComparison.Ordinal);
 
     /// <summary>[#259] The admin addresses that get alert emails: blank lines
     /// dropped, each address once.</summary>

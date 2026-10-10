@@ -273,6 +273,29 @@ public class SecurityScoreComputeTests
         Assert.Equal(0, factor.Earned);
         Assert.Equal("tfa.factor.webhook.action", factor.NextActionKey);
     }
+
+    [Fact]
+    public async Task Telegram_with_a_chat_counts_as_a_notification_channel()
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.TelegramBotToken = "123456789:AAH-fake_token-for-tests";
+        cfg.TelegramChatId = "-1001234567890";
+
+        var factor = Assert.Single((await svc.ComputeAsync()).Factors, f => f.Id == "webhook");
+
+        Assert.Equal(5, factor.Earned);
+    }
+
+    [Fact]
+    public async Task A_Telegram_token_without_a_chat_does_not_count()
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.TelegramBotToken = "123456789:AAH-fake_token-for-tests";
+
+        var factor = Assert.Single((await svc.ComputeAsync()).Factors, f => f.Id == "webhook");
+
+        Assert.Equal(0, factor.Earned);
+    }
 }
 
 public class SecurityScoreSnapshotTests : IDisposable
