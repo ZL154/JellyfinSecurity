@@ -349,7 +349,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public string TelegramBotToken { get; set; } = string.Empty;
 
     /// <summary>[#259] Chat that receives the alerts: a user or group id
-    /// (group and channel ids are negative) or @channelusername.</summary>
+    /// (group and channel ids are negative) or a public channel's @username.</summary>
     public string TelegramChatId { get; set; } = string.Empty;
 
     /// <summary>[v2.5.17] (#116): allow notification targets (ntfy / Gotify /
