@@ -554,7 +554,7 @@ Flags sign-ins where the geographic distance vs. elapsed time exceeds commercial
 
 **Signal path:** Triggers the same Notification channels the plugin already uses (ntfy, Gotify, webhook, admin emails). Includes distance, duration, inferred speed, and country hop in the message.
 
-Off by default; enable in Settings once the city DB is in place.
+The **Enable** box is on by default, but the detector does nothing until the city DB is in place and its path is set.
 
 **Geographic checks done outside the plugin (#258):** if a WAF, CrowdSec, a firewall or another layer in front of Jellyfin already covers this, tick **Settings → Impossible-Travel Detection → "Geographic checks are done outside this plugin"** (default off). While impossible-travel detection is off or has no city DB path set, the security score then leaves the impossible-travel factor out of the total instead of counting it as failed, and its card reads "Not counted". The score reads these two settings and does not check that the City database loads. The plugin cannot see that outside protection, so the factor earns no points for it, and a detector that is enabled with a city DB path set keeps its 7 points whatever the setting says. The setting does not turn either detector on or off.
 
