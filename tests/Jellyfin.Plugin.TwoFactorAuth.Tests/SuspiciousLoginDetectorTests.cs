@@ -109,7 +109,8 @@ public sealed class SuspiciousLoginDetectorTests : IDisposable
         // An existing install's XML has neither element, and the serializer
         // leaves a missing element at the property's initial value.
         const string xml = "<PluginConfiguration><GeoIpAsnDbPath>/config/geoip/GeoLite2-ASN.mmdb</GeoIpAsnDbPath></PluginConfiguration>";
-        var cfg = (PluginConfiguration)new XmlSerializer(typeof(PluginConfiguration)).Deserialize(new StringReader(xml))!;
+        using var reader = new StringReader(xml);
+        var cfg = (PluginConfiguration)new XmlSerializer(typeof(PluginConfiguration)).Deserialize(reader)!;
 
         Assert.Equal("/config/geoip/GeoLite2-ASN.mmdb", cfg.GeoIpAsnDbPath);
         Assert.True(cfg.SuspiciousLoginEnabled);
