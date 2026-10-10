@@ -1166,9 +1166,19 @@
                     var gotifyUrl = page.querySelector('#cfgGotifyUrl').value.trim();
                     var gotifyToken = page.querySelector('#cfgGotifyToken').value.trim();
                     var webhookUrl = page.querySelector('#cfgWebhookUrl').value.trim();
-                    if (!(ntfyUrl && ntfyTopic) && !(gotifyUrl && gotifyToken) && !webhookUrl) {
+                    // [#259] Telegram and the alert emails are channels too. The
+                    // Telegram boxes are looked up defensively: a cached older
+                    // admin.html does not have them.
+                    var telegramTokenEl = page.querySelector('#cfgTelegramToken');
+                    var telegramChatEl = page.querySelector('#cfgTelegramChat');
+                    var telegramToken = telegramTokenEl ? telegramTokenEl.value.trim() : '';
+                    var telegramChat = telegramChatEl ? telegramChatEl.value.trim() : '';
+                    var alertEmails = page.querySelector('#cfgEmails').value
+                        .split('\n').map(function(s){return s.trim();}).filter(Boolean);
+                    if (!(ntfyUrl && ntfyTopic) && !(gotifyUrl && gotifyToken) && !webhookUrl
+                        && !(telegramToken && telegramChat) && alertEmails.length === 0) {
                         out.style.color = '#f44336';
-                        out.textContent = '✗ ' + _tr('tfa.admin.settings.notify_need_channel', 'Configure ntfy, Gotify or a webhook first.');
+                        out.textContent = '✗ ' + _tr('tfa.admin.settings.notify_need_channel', 'Configure ntfy, Gotify, Telegram, an alert email or a webhook first.');
                         return;
                     }
                     out.style.color = '#888'; out.textContent = _tr('tfa.admin.settings.saving_sending', 'Saving + sending…');
@@ -1182,6 +1192,9 @@
                         c.NtfyPassword = page.querySelector('#cfgNtfyPassword').value;
                         c.GotifyUrl = gotifyUrl;
                         c.GotifyAppToken = gotifyToken;
+                        if (telegramTokenEl) c.TelegramBotToken = telegramToken;
+                        if (telegramChatEl) c.TelegramChatId = telegramChat;
+                        c.NotifyEmailAddresses = alertEmails;
                         c.WebhookUrl = webhookUrl;
                         c.WebhookSecret = page.querySelector('#cfgWebhookSecret').value.trim();
                         c.WebhookHeaders = page.querySelector('#cfgWebhookHeaders').value
@@ -1280,6 +1293,12 @@
                         page.querySelector('#cfgNtfyPassword').value = c.NtfyPassword || '';
                         page.querySelector('#cfgGotifyUrl').value = c.GotifyUrl || '';
                         page.querySelector('#cfgGotifyToken').value = c.GotifyAppToken || '';
+                        // [#259] Defensive lookups, as for #cfgPairSecondScreen
+                        // below: a cached older admin.html has no Telegram boxes.
+                        var telegramTokenLoadEl = page.querySelector('#cfgTelegramToken');
+                        if (telegramTokenLoadEl) telegramTokenLoadEl.value = c.TelegramBotToken || '';
+                        var telegramChatLoadEl = page.querySelector('#cfgTelegramChat');
+                        if (telegramChatLoadEl) telegramChatLoadEl.value = c.TelegramChatId || '';
                         page.querySelector('#cfgEmails').value = (c.NotifyEmailAddresses || []).join('\n');
                         page.querySelector('#cfgIssuer').value = c.TotpIssuerName || 'Jellyfin';
                         // v1.4 fields
@@ -1462,6 +1481,10 @@
                         c.NtfyPassword = page.querySelector('#cfgNtfyPassword').value;
                         c.GotifyUrl = page.querySelector('#cfgGotifyUrl').value.trim();
                         c.GotifyAppToken = page.querySelector('#cfgGotifyToken').value.trim();
+                        var telegramTokenSaveEl = page.querySelector('#cfgTelegramToken');
+                        if (telegramTokenSaveEl) c.TelegramBotToken = telegramTokenSaveEl.value.trim();
+                        var telegramChatSaveEl = page.querySelector('#cfgTelegramChat');
+                        if (telegramChatSaveEl) c.TelegramChatId = telegramChatSaveEl.value.trim();
                         c.NotifyEmailAddresses = page.querySelector('#cfgEmails').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.TotpIssuerName = page.querySelector('#cfgIssuer').value.trim() || 'Jellyfin';
                         // v1.4 fields

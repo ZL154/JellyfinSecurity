@@ -24,6 +24,29 @@ public class AdminPageContractTests
     }
 
     [Fact]
+    public void Telegram_and_alert_emails_are_settings_and_channels_on_the_admin_page()
+    {
+        var page = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.admin.html");
+        var script = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.admin-script.js");
+
+        Assert.NotNull(page);
+        Assert.NotNull(script);
+        // #259: the bot token is a masked box; both Telegram boxes are read and
+        // saved through lookups that keep the server's values when an older
+        // cached admin.html lacks them; and the test button counts Telegram and
+        // the alert emails as channels and saves them before sending.
+        Assert.Contains("type=\"password\" id=\"cfgTelegramToken\"", page);
+        Assert.Contains("id=\"cfgTelegramChat\"", page);
+        Assert.Contains("data-i18n-key=\"tfa.admin.settings.alert_emails_note\"", page);
+        Assert.Contains("if (telegramTokenLoadEl) telegramTokenLoadEl.value = c.TelegramBotToken || '';", script);
+        Assert.Contains("if (telegramTokenSaveEl) c.TelegramBotToken = telegramTokenSaveEl.value.trim();", script);
+        Assert.Contains("&& !(telegramToken && telegramChat) && alertEmails.length === 0) {", script);
+        Assert.Contains("c.NotifyEmailAddresses = alertEmails;", script);
+    }
+
+    [Fact]
     public void SetPassword_page_exposes_account_and_server_side_logout()
     {
         var page = ResourceReader.ReadEmbeddedText(
