@@ -283,6 +283,21 @@ public class SecurityScoreComputeTests
         Assert.Equal(0, factor.Earned);
     }
 
+    // A setting the channel refuses to send with earns nothing either.
+    [Theory]
+    [InlineData("abc", "-1001234567890")]
+    [InlineData("123456789:AAH-fake_token-for-tests", "my channel")]
+    public async Task A_Telegram_setting_in_the_wrong_shape_does_not_count(string token, string chat)
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.TelegramBotToken = token;
+        cfg.TelegramChatId = chat;
+
+        var factor = Assert.Single((await svc.ComputeAsync()).Factors, f => f.Id == "webhook");
+
+        Assert.Equal(0, factor.Earned);
+    }
+
     [Theory]
     [InlineData(95, "A")]
     [InlineData(90, "A")]

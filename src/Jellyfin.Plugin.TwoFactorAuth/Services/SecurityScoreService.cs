@@ -291,12 +291,12 @@ public class SecurityScoreService : IDisposable
         // add a webhook they didn't need.
         // [#259] Email counts once alerts really go out: an address to send to
         // and the SMTP settings to send with. Telegram counts with a bot token
-        // and a chat.
+        // and a chat in the shape the channel sends with.
         bool notificationsConfigured =
             !string.IsNullOrWhiteSpace(cfg.WebhookUrl)
             || (!string.IsNullOrWhiteSpace(cfg.NtfyUrl) && !string.IsNullOrWhiteSpace(cfg.NtfyTopic))
             || (!string.IsNullOrWhiteSpace(cfg.GotifyUrl) && !string.IsNullOrWhiteSpace(cfg.GotifyAppToken))
-            || NotificationService.TelegramConfigured(cfg)
+            || NotificationService.TelegramReady(cfg)
             || (NotificationService.AlertEmailTargets(cfg).Length > 0 && EmailOtpService.IsSmtpConfigured(cfg));
         factors.Add(new ScoreFactor
         {

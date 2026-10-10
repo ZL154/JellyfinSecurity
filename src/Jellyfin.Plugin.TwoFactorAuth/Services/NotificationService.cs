@@ -100,9 +100,9 @@ public class NotificationService
     }
 
     // [#259] Email alerts reuse the SMTP settings of the email sign-in code.
-    // Alerts sent in the background go one at a time, so a burst of events
-    // does not open a connection per event (providers such as Gmail refuse
-    // that). The admin test button does not wait behind them.
+    // Alerts sent in the background go one session at a time, so a burst of
+    // events does not open many connections at once (providers such as Gmail
+    // refuse that). The admin test button does not wait behind them.
     private static readonly SemaphoreSlim _emailGate = new(1, 1);
 
     private readonly Func<IReadOnlyList<string>, string, string, Task<IReadOnlyList<(string Address, Exception Error)>>>? _sendAlertEmails;
@@ -272,8 +272,8 @@ public class NotificationService
     /// addresses and the configured webhook (with optional HMAC signature).
     /// `event` is the machine-readable type for webhook consumers; `payload`
     /// is an event-specific bag serialised into the webhook body.
-    /// [#259] Several callers await this inside a request, so email, which can
-    /// take up to 30 seconds per message, goes out in the background unless
+    /// [#259] Several callers await this inside a request, so email, whose SMTP
+    /// session can take up to 45 seconds, goes out in the background unless
     /// <paramref name="waitForEmail"/> asks for its result (the test button).</summary>
     private async Task<IReadOnlyList<ChannelResult>> SendToAllBackendsAsync(string title, string message, string @event, object payload, bool waitForEmail = false)
     {
@@ -446,7 +446,7 @@ public class NotificationService
             }
             else if (!IsTelegramChatId(telegramChat))
             {
-                telegramResult.Error = "The chat ID must be a number (negative for groups and channels) or @channelusername.";
+                telegramResult.Error = "The chat ID must be a number (negative for groups and channels) or a public channel's @username.";
             }
             else if (telegramAddrs is null || telegramAddrs.Length == 0)
             {
@@ -672,7 +672,7 @@ public class NotificationService
     internal const string TelegramApiBase = "https://api.telegram.org/";
 
     // Token: the bot id, a colon, then the secret. Chat: a numeric id (groups
-    // and channels are negative) or @channelusername.
+    // and channels are negative) or a public channel's @username.
     private static readonly System.Text.RegularExpressions.Regex _telegramToken =
         new(@"^\d+:[A-Za-z0-9_-]+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
@@ -682,6 +682,13 @@ public class NotificationService
     /// <summary>[#259] Both Telegram settings are filled in.</summary>
     internal static bool TelegramConfigured(PluginConfiguration config)
         => !string.IsNullOrWhiteSpace(config.TelegramBotToken) && !string.IsNullOrWhiteSpace(config.TelegramChatId);
+
+    /// <summary>[#259] Both settings filled in and in a shape the channel will
+    /// send with; the security score credits only this.</summary>
+    internal static bool TelegramReady(PluginConfiguration config)
+        => TelegramConfigured(config)
+            && IsTelegramToken(config.TelegramBotToken.Trim())
+            && IsTelegramChatId(config.TelegramChatId.Trim());
 
     internal static bool IsTelegramToken(string token) => _telegramToken.IsMatch(token);
 
@@ -739,11 +746,12 @@ public class NotificationService
         => string.IsNullOrEmpty(token) ? text : text.Replace(token, "***", StringComparison.Ordinal);
 
     /// <summary>[#259] The admin addresses that get alert emails: blank lines
+    /// (and nulls, which a posted or imported configuration can carry)
     /// dropped, each address once.</summary>
     internal static string[] AlertEmailTargets(PluginConfiguration config)
         => (config.NotifyEmailAddresses ?? Array.Empty<string>())
+            .Where(a => !string.IsNullOrWhiteSpace(a))
             .Select(a => a.Trim())
-            .Where(a => a.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
@@ -782,7 +790,15 @@ public class NotificationService
 
             foreach (var (address, error) in failed)
             {
-                _logger.LogError(error, "Failed to send the email notification to {Email}", EmailOtpService.MaskEmail(address));
+                // The server's reply often repeats the address ("550 5.1.1
+                // <bob@example.com>: ..."), so it is masked there too, and the
+                // exception object is not logged.
+                var masked = EmailOtpService.MaskEmail(address);
+                _logger.LogError(
+                    "Failed to send the email notification to {Email}: {Type}: {Message}",
+                    masked,
+                    error.GetType().Name,
+                    error.Message.Replace(address, masked, StringComparison.OrdinalIgnoreCase));
             }
 
             result.Success = failed.Count == 0;

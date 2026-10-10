@@ -34,10 +34,26 @@ public class EmailOtpService
         return HMACSHA256.HashData(_otpHmacKey, Encoding.UTF8.GetBytes(code));
     }
 
+    // [#259] Only SendAlertEmailsAsync reads the configuration through this,
+    // so its SMTP session can be tested against a local fake server.
+    private readonly Func<Configuration.PluginConfiguration?> _configAccessor;
+
     public EmailOtpService(ILogger<EmailOtpService> logger)
+        : this(logger, () => Plugin.Instance?.Configuration)
+    {
+    }
+
+    // [#259] Test seam, as in SecurityScoreService.
+    internal EmailOtpService(ILogger<EmailOtpService> logger, Func<Configuration.PluginConfiguration?> configAccessor)
     {
         _logger = logger;
+        _configAccessor = configAccessor;
     }
+
+    /// <summary>[#259] Ceiling for one alert session, all addresses included.
+    /// It keeps the admin test button, which waits for the result, under the
+    /// 60-second read timeout common on reverse proxies. Tests shorten it.</summary>
+    internal TimeSpan AlertSessionBudget { get; set; } = TimeSpan.FromSeconds(45);
 
     /// <summary>
     /// Generates an 8-digit OTP (v2.5.5: raised from 6 digits — 10^6 space was
@@ -160,12 +176,14 @@ public class EmailOtpService
     /// other notification channels get, to each admin address: one message per
     /// address, so they do not see each other, over one SMTP connection, so a
     /// server that does not answer costs one timeout instead of one per
-    /// address. Returns the addresses that failed, with the reason. Throws when
-    /// SMTP is not configured or the connection or sign-in fails.</summary>
+    /// address. Returns the addresses that failed, with the reason; if the
+    /// session runs out of time, what already went out stays delivered and the
+    /// rest are returned as failed. Throws when SMTP is not configured or the
+    /// connection or sign-in fails, in which case nothing went out.</summary>
     public async Task<IReadOnlyList<(string Address, Exception Error)>> SendAlertEmailsAsync(
         IReadOnlyList<string> toAddresses, string subject, string body)
     {
-        var config = Plugin.Instance?.Configuration ?? throw new InvalidOperationException("Plugin not initialized");
+        var config = _configAccessor() ?? throw new InvalidOperationException("Plugin not initialized");
         if (!IsSmtpConfigured(config))
         {
             throw new InvalidOperationException("SMTP host and from address must be set in plugin settings.");
@@ -173,8 +191,7 @@ public class EmailOtpService
 
         var fromName = string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName;
         var failed = new List<(string Address, Exception Error)>();
-        var budget = TimeSpan.FromSeconds(30 + (10 * toAddresses.Count));
-        await WithSmtpConnectionAsync(config, budget, async (smtp, ct) =>
+        await WithSmtpConnectionAsync(config, AlertSessionBudget, async (smtp, ct) =>
         {
             for (var i = 0; i < toAddresses.Count; i++)
             {
@@ -183,12 +200,15 @@ public class EmailOtpService
                     var msg = BuildMimeMessage(config.SmtpFromAddress, fromName, toAddresses[i], subject, body);
                     await smtp.SendAsync(msg, ct).ConfigureAwait(false);
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                catch (Exception ex)
                 {
+                    // A refused or malformed address leaves the session usable.
+                    // A dropped connection or a session out of time does not:
+                    // the rest fail for the same reason, and what already went
+                    // out stays delivered.
                     failed.Add((toAddresses[i], ex));
-                    if (!smtp.IsConnected)
+                    if (!smtp.IsConnected || ct.IsCancellationRequested)
                     {
-                        // The connection is gone: the rest fail for the same reason.
                         for (var j = i + 1; j < toAddresses.Count; j++)
                         {
                             failed.Add((toAddresses[j], ex));
