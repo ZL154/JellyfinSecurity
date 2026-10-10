@@ -4715,7 +4715,15 @@ public class TwoFactorAuthController : ControllerBase
     {
         var cfg = Plugin.Instance?.Configuration ?? new Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration();
         Response.Headers["Cache-Control"] = "no-cache, must-revalidate";
-        return Ok(new
+        return Ok(BuildPublicConfig(cfg, ComputePasswordLoginDisabledForRequest(cfg)));
+    }
+
+    /// <summary>[#247] The public-config body, kept apart from the request so
+    /// its fields can be tested. Only passwordLoginDisabled depends on the
+    /// caller (their address), so it arrives already computed.</summary>
+    internal static object BuildPublicConfig(Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration cfg, bool passwordLoginDisabled)
+    {
+        return new
         {
             defaultLanguage = cfg.DefaultLanguage,
             supportedLanguages = SupportedLanguages,
@@ -4736,7 +4744,7 @@ public class TwoFactorAuthController : ControllerBase
             // exemption can't be known before login, so an admin on a blocked
             // network uses inject.js's "sign in with a password" reveal link
             // (the server still allows them via AllowAdminPasswordLogin).
-            passwordLoginDisabled = ComputePasswordLoginDisabledForRequest(cfg),
+            passwordLoginDisabled,
             // [v2.5.11] (#71, ZEROX7) show the login-page "Forgot password?" link
             // only when recovery is enabled AND SMTP is configured.
             passwordRecoveryEnabled = cfg.EnablePasswordRecovery
@@ -4748,7 +4756,14 @@ public class TwoFactorAuthController : ControllerBase
             // [v2.5.16] (#79, ZEROX7) UI gate: place the injected login links
             // below the Quick Connect button. Opt-in, default false.
             loginLinksBelowQuickConnect = cfg.LoginLinksBelowQuickConnect,
-        });
+            // [#247] setup.html's step-up prompt already read this flag, but it
+            // was never sent, so "Send code by email" was offered (and failed)
+            // with email OTP turned off.
+            emailOtpEnabled = cfg.EmailOtpEnabled,
+            // [#247] UI gate: setup.html hides the plugin's own 2FA setup from
+            // non-admin users who sign in through a linked identity provider.
+            hideTwoFactorSetupForSsoUsers = cfg.HideTwoFactorSetupForSsoUsers,
+        };
     }
 
     /// <summary>[v2.5.11] (#69) whether the login-page password form should be
