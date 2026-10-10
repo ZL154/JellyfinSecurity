@@ -460,6 +460,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// without it, suspicious-login detection still works on ASN alone.</summary>
     public string GeoIpCountryDbPath { get; set; } = string.Empty;
 
+    /// <summary>[#258] Runs the suspicious-login detector when an ASN or
+    /// Country database is configured. On by default, which is how the
+    /// detector behaved before this setting existed. Off stops it without
+    /// clearing the two database paths, which only this detector reads.</summary>
+    public bool SuspiciousLoginEnabled { get; set; } = true;
+
     /// <summary>Optional explicit Relying Party ID for WebAuthn. If empty, the
     /// plugin derives it from the request Host. Required when behind a reverse
     /// proxy where the public hostname differs from the internal one.</summary>
