@@ -15,7 +15,8 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Tests;
 ///
 ///   - SetPassword/Logout -> 400, killing the #134 onboarding logout button.
 ///   - Setup/QrPair/Begin -> lost its SEC-H4 ownership cross-check, which is
-///     written to fail OPEN when no token is found.
+///     written to fail OPEN when no token is found. (That endpoint was
+///     removed in #254: it could never pair the browser that called it.)
 ///   - MySessions -> stopped marking the current session.
 ///
 /// These pin the resolver both pages and endpoints now agree on, so the client
@@ -89,7 +90,8 @@ public class AccessTokenResolutionTests
     {
         // X-Emby-Authorization is present on anonymous calls too, carrying
         // Client/Device/DeviceId/Version but no Token. Returning DeviceId here
-        // would hand QrPairBegin a bogus value to compare against.
+        // would hand a caller comparing tokens (QrPairBegin did, until #254)
+        // a bogus value.
         Assert.Null(TwoFactorAuthController.ResolveAccessToken(
             RequestWith(("X-Emby-Authorization",
                 "MediaBrowser Client=\"Jellyfin Web\", Device=\"Firefox\", DeviceId=\"dev-999\", Version=\"10.11.11\""))));

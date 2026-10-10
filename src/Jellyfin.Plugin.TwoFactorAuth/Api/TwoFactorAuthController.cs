@@ -408,6 +408,7 @@ public class TwoFactorAuthController : ControllerBase
         {
             ud.TotpVerified = false;
             ud.EncryptedTotpSecret = encryptedSecretForced;
+            TotpRotation.Clear(ud);
             ud.LastUsedTotpStep = 0;
         }).ConfigureAwait(false);
         _totpService.ResetReplayCache(challenge.UserId.ToString());
@@ -1601,12 +1602,24 @@ public class TwoFactorAuthController : ControllerBase
     // 2. POST /TwoFactorAuth/Setup/Totp [Authorize]
     // -------------------------------------------------------------------------
 
+    private const string TotpAlreadyEnabledMessage =
+        "TOTP is already enabled. Replace the authenticator with Setup/Totp/Rotate.";
+
     [HttpPost("Setup/Totp")]
     [Authorize]
     [ProducesResponseType(typeof(TotpSetupResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<TotpSetupResponse>> SetupTotp([FromBody] StepUpCodeRequest? request = null)
     {
         var userId = GetCurrentUserId();
+
+        // An active authenticator is replaced through Setup/Totp/Rotate, which
+        // keeps it working until the new one is confirmed. Enrolling over it
+        // here cleared TotpVerified at once and left the account without TOTP
+        // until Setup/Totp/Confirm. Checked before the step-up, so nobody is
+        // asked for a code for a request that is refused anyway.
+        if (TotpRotation.HasActiveTotp(await _store.GetUserDataAsync(userId).ConfigureAwait(false)))
+            return Conflict(new { message = TotpAlreadyEnabledMessage });
 
         // SECURITY [v2.5.6] (ext review self-service-takeover): a stolen
         // session must not be able to silently swap the user's TOTP secret
@@ -1627,13 +1640,25 @@ public class TwoFactorAuthController : ControllerBase
         // v2.4.1: stash the secret only. TotpEnabled flips to true on Confirm
         // (see ConfirmTotp). Otherwise a user who backs out of setup leaves
         // the account half-enrolled.
+        var refused = false;
         await _store.MutateAsync(userId, ud =>
         {
+            // The rule above again, under the store's lock: an enrolment that
+            // was confirmed since that check is not overwritten either.
+            if (TotpRotation.HasActiveTotp(ud))
+            {
+                refused = true;
+                return;
+            }
+
             ud.TotpVerified = false;
             ud.EncryptedTotpSecret = encryptedSecret;
+            TotpRotation.Clear(ud);
             // SEC-M4: reset replay floor on new secret.
             ud.LastUsedTotpStep = 0;
         }).ConfigureAwait(false);
+        if (refused)
+            return Conflict(new { message = TotpAlreadyEnabledMessage });
 
         // New secret ⇒ old replay cache entries can collide with codes the
         // authenticator is about to show. See TotpService.ResetReplayCache.
@@ -1781,6 +1806,7 @@ public class TwoFactorAuthController : ControllerBase
             ud.TotpEnabled = false;
             ud.TotpVerified = false;
             ud.EncryptedTotpSecret = null;
+            TotpRotation.Clear(ud);
             ud.RecoveryCodes.Clear();
             ud.RecoveryCodesGeneratedAt = null;
             ud.TrustedDevices.Clear();
@@ -2737,6 +2763,7 @@ public class TwoFactorAuthController : ControllerBase
                 ud.TotpEnabled = false;
                 ud.TotpVerified = false;
                 ud.EncryptedTotpSecret = null;
+                TotpRotation.Clear(ud);
                 ud.RecoveryCodes.Clear();
                 ud.RecoveryCodesGeneratedAt = null;
                 ud.TrustedDevices.Clear();
@@ -3585,6 +3612,8 @@ public class TwoFactorAuthController : ControllerBase
     ///   - Setup/QrPair/Begin lost its SEC-H4 ownership cross-check, which is
     ///     written to fail OPEN when the token is absent - so it degraded
     ///     silently from "the current device" to "any device you own".
+    ///     (That endpoint was later removed: the browser that called it was
+    ///     already signed in, so PairConfirm had no pending pairing to approve.)
     ///   - MySessions stopped flagging which row is the current session.
     ///
     /// Static and HttpRequest-shaped so the contract is testable without
@@ -4157,6 +4186,9 @@ public class TwoFactorAuthController : ControllerBase
             ud.PairedDevices.Clear();
             ud.RegisteredDeviceIds.Clear();
             ud.ForceRecoveryOnNextLogin = true;
+            // The new secret of an unfinished rotation may sit on the lost
+            // phone; it must not be confirmable after the lockout.
+            TotpRotation.Clear(ud);
         }).ConfigureAwait(false);
 
         var killed = await _sessionTerm.LogoutAllForUserAsync(userId).ConfigureAwait(false);
@@ -4287,6 +4319,7 @@ public class TwoFactorAuthController : ControllerBase
                             ud.TotpEnabled = false;
                             ud.TotpVerified = false;
                             ud.EncryptedTotpSecret = null;
+                            TotpRotation.Clear(ud);
                             ud.RecoveryCodes.Clear();
                             ud.RecoveryCodesGeneratedAt = null;
                             ud.Passkeys.Clear();
@@ -5274,7 +5307,7 @@ public class TwoFactorAuthController : ControllerBase
             return StatusCode(429, new { message = "Account locked" });
 
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
-        if (!data.TotpEnabled || string.IsNullOrEmpty(data.EncryptedTotpSecret))
+        if (!data.TotpEnabled || !data.TotpVerified || string.IsNullOrEmpty(data.EncryptedTotpSecret))
             return BadRequest(new { message = "TOTP not enabled" });
 
         // SECURITY [v2.5.5]: decrypt the stored AES-GCM ciphertext before
@@ -5306,7 +5339,8 @@ public class TwoFactorAuthController : ControllerBase
             return Unauthorized(new { message = "Recovery code is invalid" });
         }
 
-        var (newSecret, newQr, newManual) = _totpService.GenerateSecret(user.Username);
+        var issuedAt = DateTime.UtcNow;
+        var (newSecret, newQr, newManual) = _totpService.GenerateSecret(TotpRotation.EntryLabel(user.Username, issuedAt));
         // SECURITY [v2.5.5] (N-A10, CRITICAL regression fix): encrypt the new
         // base32 secret BEFORE persisting. Prior batch-2 build stored the raw
         // base32 plaintext in EncryptedTotpSecret, which (a) leaked the live
@@ -5319,19 +5353,108 @@ public class TwoFactorAuthController : ControllerBase
         // miss-encrypt. Matches the SetupTotp / ConfirmForcedTotpEnrollment
         // pattern that every other rotate-style path already uses.
         var newEncrypted = _totpService.EncryptSecret(newSecret, userId);
+        var recoveryHash = data.RecoveryCodes[rIdx].Hash;
+        var started = false;
         await _store.MutateAsync(userId, ud =>
         {
-            ud.EncryptedTotpSecret = newEncrypted;
+            // Both proofs were checked against an earlier read, so go ahead
+            // only if that recovery code is still unused (a parallel request
+            // may have spent it) and TryBegin still finds the authenticator
+            // the code was checked against. The new secret then waits next
+            // to the active one until a code from it reaches
+            // Setup/Totp/Rotate/Confirm: the account keeps TOTP throughout.
+            var recovery = rIdx < ud.RecoveryCodes.Count ? ud.RecoveryCodes[rIdx] : null;
+            if (recovery is null || recovery.Used || !string.Equals(recovery.Hash, recoveryHash, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (!TotpRotation.TryBegin(ud, data.EncryptedTotpSecret, newEncrypted, issuedAt))
+            {
+                return;
+            }
+
+            started = true;
             if (rotateMatchedStep > ud.LastUsedTotpStep)
             {
                 ud.LastUsedTotpStep = rotateMatchedStep;
             }
             // Mark the recovery code we used as consumed so the same one
             // can't be replayed.
-            if (rIdx < ud.RecoveryCodes.Count) ud.RecoveryCodes[rIdx].Used = true;
-            if (rIdx < ud.RecoveryCodes.Count) ud.RecoveryCodes[rIdx].UsedAt = DateTime.UtcNow;
-            ud.TotpVerified = false; // user must re-confirm with the new authenticator
+            recovery.Used = true;
+            recovery.UsedAt = DateTime.UtcNow;
         }).ConfigureAwait(false);
+        if (!started)
+            return Conflict(new { message = "Your two-factor settings changed while this request ran. Reload the page and start again." });
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = user.Username,
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            Result = AuditResult.ConfigChanged,
+            Method = "totp_rotation_started",
+        }).ConfigureAwait(false);
+
+        return Ok(new { qrCode = newQr, manualEntryKey = newManual, expiresAt = issuedAt + TotpRotation.PendingLifetime });
+    }
+
+    /// <summary>Finishes a rotation started by <see cref="RotateTotp"/>: a
+    /// code from the new secret makes it the active one. Until then the
+    /// previous secret keeps working, and an abandoned rotation expires.</summary>
+    [HttpPost("Setup/Totp/Rotate/Confirm")]
+    [Authorize]
+    public async Task<IActionResult> ConfirmTotpRotation([FromBody, Required] ConfirmTotpRequest req)
+    {
+        var userId = GetCurrentUserId();
+        var user = _userManager.GetUserById(userId);
+        if (user is null) return Unauthorized();
+
+        if (await _store.IsLockedOutAsync(userId).ConfigureAwait(false))
+            return StatusCode(429, new { message = "Account locked" });
+
+        // A mistyped code here should not count toward the sign-in lockout,
+        // so guesses are bounded per user instead: at this rate a pending
+        // secret's lifetime allows about fifty of them.
+        var rl = _rateLimiter.CheckAndRecord("totp_rotation_confirm:" + userId.ToString("N"), 5, TimeSpan.FromMinutes(1));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
+            return StatusCode(429, new { message = $"Too many attempts. Try again in {rl.retryAfterSeconds} seconds." });
+        }
+
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        // 409 like the race below, not 400: the Setup page tells "start over"
+        // apart from a mistyped code by the status.
+        var pending = TotpRotation.PendingSecret(data, DateTime.UtcNow);
+        if (pending is null)
+            return Conflict(new { message = "No authenticator change is waiting for a code. Start the rotation again." });
+
+        // Floor 0, as in ConfirmTotp: the persisted floor records time steps
+        // the active secret spent, and this secret has spent none.
+        var replayKey = TotpRotation.ReplayKey(userId);
+        var newSecret = _totpService.DecryptSecret(pending, userId);
+        if (!_totpService.ValidateCode(newSecret, req.Code, replayKey, persistedFloor: 0, out var acceptedStep))
+        {
+            // Not counted toward the lockout (see the rate limit above), so
+            // this log line is the only trace of wrong codes.
+            _logger.LogWarning("[2FA] Wrong code for the pending TOTP rotation of {Username}", user.Username);
+            return BadRequest(new { message = "Invalid code. Enter the current code from the new entry." });
+        }
+
+        var completed = false;
+        await _store.MutateAsync(userId, ud =>
+        {
+            completed = TotpRotation.TryComplete(ud, pending, acceptedStep, DateTime.UtcNow);
+        }).ConfigureAwait(false);
+        if (!completed)
+            return Conflict(new { message = "This authenticator change was cancelled. Start the rotation again." });
+
+        // The active secret changed: drop replay entries kept for the old
+        // one, as SetupTotp does. The persisted floor still covers them.
+        _totpService.ResetReplayCache(replayKey);
+        _totpService.ResetReplayCache(userId.ToString());
 
         var rotateIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
         await _store.AddAuditEntryAsync(new AuditEntry
@@ -5348,77 +5471,7 @@ public class TwoFactorAuthController : ControllerBase
         try { await _notificationService.NotifyTotpRotatedAsync(user.Username, rotateIp).ConfigureAwait(false); }
         catch (Exception ex) { _logger.LogDebug(ex, "[2FA] TOTP rotate notification failed"); }
 
-        return Ok(new { qrCode = newQr, manualEntryKey = newManual });
-    }
-
-    // =========================================================================
-    // v1.4 — QR-pair-from-phone (reverse of TV pairing flow)
-    // Desktop browser asks for a signed pair-token, renders as QR. Phone
-    // (already signed in) scans → existing /PairConfirm endpoint completes.
-    // =========================================================================
-
-    /// <summary>Issues a signed pair-confirm token for the CURRENT browser
-    /// (so a phone scanning its QR can mark this browser as a paired device).
-    /// Reuses the existing PairConfirm verification path.</summary>
-    [HttpGet("Setup/QrPair/Begin")]
-    [Authorize]
-    public IActionResult QrPairBegin()
-    {
-        var userId = GetCurrentUserId();
-        var deviceId = HttpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
-            ?? TwoFactorEnforcementMiddleware.ParseEmbyAuth(
-                HttpContext.Request.Headers["X-Emby-Authorization"].FirstOrDefault(), "DeviceId")
-            ?? string.Empty;
-        if (string.IsNullOrEmpty(deviceId))
-            return BadRequest(new { message = "Cannot determine current device id" });
-
-        // v1.4 SEC-H4: cross-check that the deviceId in headers matches a real
-        // device record for the calling user — without this, a signed-in user
-        // could mint a QR token for an arbitrary deviceId and trick someone
-        // into approving a device that isn't theirs.
-        var token = ResolveAccessToken(HttpContext.Request);
-        var devices = _deviceManager.GetDevices(new DeviceQuery { UserId = userId });
-        var ownsDevice = devices.Items.Any(d =>
-            !string.IsNullOrEmpty(d.DeviceId)
-            && string.Equals(d.DeviceId, deviceId, StringComparison.Ordinal)
-            && (string.IsNullOrEmpty(token) || string.Equals(d.AccessToken, token, StringComparison.Ordinal)));
-        if (!ownsDevice)
-            return Unauthorized(new { message = "Caller does not own the supplied deviceId" });
-
-        var expiry = DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds();
-        var payload = $"pair|{userId:N}|{deviceId}|{expiry}";
-        var sig = _cookieSigner.Sign(payload);
-        var combined = payload + "." + sig;
-        var b64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(combined))
-            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        // SECURITY [v2.5.5] (Finding 19): use proxy-aware scheme resolution.
-        // Behind a TLS-terminating reverse proxy, HttpContext.Request.IsHttps
-        // is always false; BypassEvaluator.ResolveScheme honours
-        // X-Forwarded-Proto from trusted proxies.
-        // [#216] The phone that scans this may be outside the network, so the
-        // link has to carry the public address when the admin declared one.
-        // Falling back to the request keeps the previous behaviour.
-        var pairBase = _externalUrls.Resolve()
-            ?? $"{BypassEvaluator.ResolveScheme(HttpContext)}://{HttpContext.Request.Host.Value}";
-        var url = $"{pairBase}/TwoFactorAuth/PairConfirm?token={Uri.EscapeDataString(b64)}";
-
-        // SECURITY [v2.5.6] (U6): generate the QR PNG server-side instead of
-        // letting the browser build a third-party URL (api.qrserver.com).
-        // The pairing URL contains a 5-minute signed token; even though the
-        // confirm step requires the receiving device to be signed-in,
-        // there's no need to leak the URL to a third-party QR service.
-        using var qrGenU6 = new QRCoder.QRCodeGenerator();
-        using var qrDataU6 = qrGenU6.CreateQrCode(url, QRCoder.QRCodeGenerator.ECCLevel.M);
-        using var qrPngU6 = new QRCoder.PngByteQRCode(qrDataU6);
-        var qrBytesU6 = qrPngU6.GetGraphic(8);
-        var qrBase64U6 = Convert.ToBase64String(qrBytesU6);
-
-        return Ok(new
-        {
-            url,
-            expiresAt = DateTimeOffset.FromUnixTimeSeconds(expiry),
-            qrPng = "data:image/png;base64," + qrBase64U6,
-        });
+        return Ok();
     }
 
     // =========================================================================

@@ -216,10 +216,15 @@
                     <button class="btn-primary" id="btnRotateTotp" data-i18n-key="tfa.setup.rotate.btn_rotate">Rotate</button>
                 </div>
                 <div class="alert error" id="rotateError"></div>
-                <div id="rotateNewQr" style="display:none;text-align:center;margin-top:10px;">
-                    <p class="muted" data-i18n-key="tfa.setup.rotate.scan_new">Scan this with your authenticator app, then re-confirm using the standard setup card above.</p>
-                    <img id="rotateNewQrImg" alt="New QR" />
-                    <code id="rotateNewKey" style="display:block;margin-top:6px;"></code>
+                <div class="alert success" id="rotateSuccess"></div>
+                <div id="rotateNewQr" style="display:none;margin-top:10px;">
+                    <p class="muted" data-i18n-key="tfa.setup.rotate.scan_then_confirm">Scan this with your authenticator app. The new entry has today's date in its name; enter a code from it below. Your current authenticator keeps working until you do.</p>
+                    <div style="text-align:center;"><div class="qr-wrap"><img id="rotateNewQrImg" alt="New QR" /></div></div>
+                    <div class="secret-key" id="rotateNewKey"></div>
+                    <input type="text" id="rotateNewCode" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" placeholder="000000" />
+                    <div class="row" style="margin-top:12px;">
+                        <button class="btn-primary" id="btnRotateConfirm" data-i18n-key="tfa.setup.rotate.btn_confirm">Confirm new authenticator</button>
+                    </div>
                 </div>
             </div>
 
@@ -345,18 +350,6 @@
                     </div>
                 </div>
                 <div id="sessionsList"></div>
-            </div>
-
-            <!-- =========== QR PAIR FROM PHONE (v1.4) =========== -->
-            <div class="card" id="cardQrPair" style="display:none;">
-                <div class="card-head">
-                    <div>
-                        <h2><span class="icon">📲</span> <span data-i18n-key="tfa.setup.qrpair.heading">Pair this browser via phone</span></h2>
-                        <div class="desc" data-i18n-key="tfa.setup.qrpair.desc">If you'd rather not type a code, scan this QR with a phone that's already signed in to approve THIS browser as a paired device.</div>
-                    </div>
-                    <button class="btn-ghost btn-sm" id="btnRefreshQrPair" data-i18n-key="tfa.setup.qrpair.btn_generate">Generate QR</button>
-                </div>
-                <div id="qrPairOut" style="text-align:center;"></div>
             </div>
 
             <!-- =========== EMERGENCY LOCKOUT (v1.4) =========== -->
@@ -919,6 +912,11 @@
                 renderTrusted(r[2]);
                 renderSessions(r[8]);
                 document.getElementById('cardDisable').style.display = totpOn ? 'block' : 'none';
+                document.getElementById('cardTotpRotate').style.display = totpOn ? 'block' : 'none';
+                // Once TOTP is off (disabled here or by an admin), a rotation
+                // left on screen could never be confirmed; clear it so it does
+                // not come back if TOTP is enrolled again on this page.
+                if (!totpOn) closeRotation();
                 loadSsoLinks();
                 loadIpAllowlist();
             });
@@ -1790,42 +1788,77 @@
         });
 
         // ============ v1.4: TOTP rotate ============
+        // The server keeps the new secret pending and the current one active
+        // until a code from the new secret reaches Setup/Totp/Rotate/Confirm,
+        // so leaving the page halfway keeps the old authenticator working.
+        function closeRotation() {
+            document.getElementById('rotateNewQr').style.display = 'none';
+            document.getElementById('rotateNewQrImg').removeAttribute('src');
+            document.getElementById('rotateNewKey').textContent = '';
+            document.getElementById('rotateNewCode').value = '';
+        }
         document.getElementById('btnRotateTotp').addEventListener('click', function() {
+            var btn = this;
+            if (btn.disabled) return; // guard against double-submit: the second request fails as a replay and counts toward the lockout
             var err = document.getElementById('rotateError'); err.classList.remove('show');
+            document.getElementById('rotateSuccess').classList.remove('show');
             var cur = document.getElementById('rotateCurCode').value.trim();
             var rec = document.getElementById('rotateRecCode').value.trim();
             if (!cur || !rec) { err.textContent = _tr('tfa.setup.rotate.err_both', 'Enter both codes.'); err.classList.add('show'); return; }
+            btn.disabled = true;
             api('POST', 'TwoFactorAuth/Setup/Totp/Rotate', { currentCode: cur, recoveryCode: rec }).then(function(r) {
+                btn.disabled = false;
                 document.getElementById('rotateNewQr').style.display = 'block';
                 document.getElementById('rotateNewQrImg').src = 'data:image/png;base64,' + r.qrCode;
                 document.getElementById('rotateNewKey').textContent = r.manualEntryKey;
                 document.getElementById('rotateCurCode').value = '';
                 document.getElementById('rotateRecCode').value = '';
-            }).catch(function(e) { err.textContent = (e.body && e.body.message) || _tr('tfa.setup.rotate.failed', 'Rotate failed.'); err.classList.add('show'); });
+                document.getElementById('rotateNewCode').value = '';
+                document.getElementById('btnRotateConfirm').disabled = false;
+                document.getElementById('rotateNewCode').focus();
+            }).catch(function(e) {
+                btn.disabled = false;
+                err.textContent = (e.body && e.body.message) || _tr('tfa.setup.rotate.failed', 'Rotate failed.');
+                err.classList.add('show');
+            });
         });
-
-        // ============ v1.4: QR-pair-from-phone ============
-        document.getElementById('btnRefreshQrPair').addEventListener('click', function() {
-            var box = document.getElementById('qrPairOut');
-            box.innerHTML = '<span class="muted">' + _tr('tfa.setup.qrpair.generating', 'Generating…') + '</span>';
-            api('GET', 'TwoFactorAuth/Setup/QrPair/Begin').then(function(r) {
-                // SECURITY [v2.5.6] (ext review #8): always use the
-                // server-rendered QR PNG (data: URL). The earlier rolling-
-                // upgrade fallback to api.qrserver.com leaked the pairing
-                // token to a third-party origin, which is an account-
-                // takeover-grade leak (anyone with the URL completes the
-                // pair). The server endpoint has emitted qrPng since v2.5.6
-                // — if it's missing we treat it as a failure rather than
-                // falling back to the third-party encoder.
-                if (!r.qrPng) {
-                    box.innerHTML = '<span class="muted">' + _tr('tfa.setup.qrpair.failed', 'Failed to generate QR.') + '</span>';
-                    return;
+        document.getElementById('btnRotateConfirm').addEventListener('click', function() {
+            var btn = this;
+            if (btn.disabled) return; // guard against double-submit: the first call already finished the rotation
+            var err = document.getElementById('rotateError'); err.classList.remove('show');
+            var code = document.getElementById('rotateNewCode').value.replace(/\s/g, '');
+            if (!/^\d{6}$/.test(code)) { err.textContent = _tr('tfa.setup.enter_code', 'Enter the 6-digit code from your app.'); err.classList.add('show'); return; }
+            btn.disabled = true;
+            api('POST', 'TwoFactorAuth/Setup/Totp/Rotate/Confirm', { code: code }).then(function() {
+                closeRotation();
+                var ok = document.getElementById('rotateSuccess');
+                ok.textContent = _tr('tfa.setup.rotate.done', 'Authenticator replaced. Only the new entry works now, so you can delete the old one from your app.');
+                ok.classList.add('show');
+                loadAll();
+            }).catch(function(e) {
+                if (e && e.status === 409) {
+                    // Expired, dropped by a disable, a reset or a lockout, or
+                    // already confirmed (in another tab, or by a request whose
+                    // answer never arrived): no code can finish it any more,
+                    // and the account may have changed, so reload its state.
+                    closeRotation();
+                    err.textContent = _tr('tfa.setup.rotate.not_pending', 'This change is no longer waiting for a code: it expired, was cancelled or was already completed. Start again if you still want to replace your authenticator.');
+                    loadAll();
+                } else if (e && e.status === 400) {
+                    // Most likely a code from the old entry, which still looks
+                    // the same in the app apart from the date.
+                    err.textContent = _tr('tfa.setup.rotate.wrong_code', 'That code did not match. Use the current code from the new entry, the one with today\'s date in its name.');
+                    btn.disabled = false;
+                } else {
+                    err.textContent = (e && e.body && e.body.message) || _tr('tfa.setup.rotate.failed', 'Rotate failed.');
+                    btn.disabled = false;
                 }
-                box.innerHTML = '<img src="' + r.qrPng + '" alt="QR" style="background:#fff;padding:8px;border-radius:8px;width:240px;height:240px;" /><br><span class="muted" style="font-size:12px;">' + _tr('tfa.setup.qrpair.open_on_phone_prefix', 'Open this on a signed-in phone — link expires at') + ' ' + new Date(r.expiresAt).toLocaleTimeString() + '</span>';
-            }).catch(function() { box.innerHTML = '<span class="muted">' + _tr('tfa.setup.qrpair.failed', 'Failed to generate QR.') + '</span>'; });
+                err.classList.add('show');
+            });
         });
-        // Show the QR-pair card only once a TOTP enrolment exists.
-        // We'll toggle it from loadAll in a wrapper below.
+        document.getElementById('rotateNewCode').addEventListener('input', function(e) {
+            e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+        });
 
         // ============ v1.4: Emergency lockout ============
         document.getElementById('btnEmergency').addEventListener('click', async function() {
@@ -1841,18 +1874,14 @@
             });
         });
 
-        // Show the QR-pair card once TOTP is enrolled (loadAll runs first).
+        // Passkeys load on every loadAll() pass, after the main batch. The
+        // rotate card is shown from loadAll itself, with the other TOTP cards.
         var origLoadAll = loadAll;
         loadAll = function() {
             // [v2.5.6] (round-5 hardening): wrap origLoadAll in try so any
             // synchronous failure in its setup doesn't prevent loadPasskeys
             // from running and replacing the placeholder "Loading…" text.
             try { origLoadAll(); } catch (e) { try { console.error('[2FA] loadAll failed', e); } catch (e2) {} }
-            api('GET', 'TwoFactorAuth/Setup/Status').then(function(s) {
-                var enabled = s && (s.totpEnabled || s.TotpEnabled);
-                document.getElementById('cardQrPair').style.display = enabled ? '' : 'none';
-                document.getElementById('cardTotpRotate').style.display = enabled ? '' : 'none';
-            }).catch(function(){});
             try { loadPasskeys(); } catch (e) {
                 try { console.error('[2FA] loadPasskeys failed', e); } catch (e2) {}
                 var box = document.getElementById('passkeyList');
