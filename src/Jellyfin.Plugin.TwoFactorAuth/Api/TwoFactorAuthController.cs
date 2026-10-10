@@ -521,8 +521,7 @@ public class TwoFactorAuthController : ControllerBase
             if (acceptedStep > ud.LastUsedTotpStep) ud.LastUsedTotpStep = acceptedStep;
             if (newTrust is not null)
             {
-                ud.TrustedDevices.Add(newTrust);
-                EnforceTrustedDeviceCap(ud);
+                UserDataUpdates.AddTrustedDevice(ud, newTrust);
             }
         }).ConfigureAwait(false);
         if (rawTokenLocal is not null) deviceToken = rawTokenLocal;
@@ -785,16 +784,30 @@ public class TwoFactorAuthController : ControllerBase
                     {
                         // Mark used IMMEDIATELY so a stolen recovery code can't be retried.
                         // We persist this even if password verification fails afterwards.
-                        userData.RecoveryCodes[codeConsumedRecoveryIndex].Used = true;
-                        userData.RecoveryCodes[codeConsumedRecoveryIndex].UsedAt = DateTime.UtcNow;
-                        // v1.4: clear the "force recovery on next login" flag set
-                        // by emergency lockout — the user has now demonstrated
-                        // possession of a recovery code, restoring their normal
-                        // 2FA methods on subsequent sign-ins.
-                        userData.ForceRecoveryOnNextLogin = false;
-                        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
-                        codeValid = true;
-                        usedMethod = "recovery";
+                        // The code matched this request's copy of the record; it is
+                        // spent on the stored record, where a sign-in running at the
+                        // same time may already have spent it, and then it does not count.
+                        var recoveryHash = userData.RecoveryCodes[codeConsumedRecoveryIndex].Hash;
+                        var recoveryUsedAt = DateTime.UtcNow;
+                        var recoveryConsumed = false;
+                        await _store.MutateAsync(user.Id, ud =>
+                        {
+                            recoveryConsumed = UserDataUpdates.TryConsumeRecoveryCode(ud, recoveryHash, recoveryUsedAt);
+                            // v1.4: clear the "force recovery on next login" flag set
+                            // by emergency lockout: the user has now demonstrated
+                            // possession of a recovery code, restoring their normal
+                            // 2FA methods on subsequent sign-ins.
+                            if (recoveryConsumed) ud.ForceRecoveryOnNextLogin = false;
+                        }).ConfigureAwait(false);
+                        if (recoveryConsumed)
+                        {
+                            codeValid = true;
+                            usedMethod = "recovery";
+                        }
+                        else
+                        {
+                            codeConsumedRecoveryIndex = -1;
+                        }
                     }
                 }
 
@@ -822,7 +835,7 @@ public class TwoFactorAuthController : ControllerBase
                             if (!string.Equals(upgraded, enc, StringComparison.Ordinal))
                             {
                                 userData.EncryptedTotpSecret = upgraded;
-                                await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+                                await _store.MutateAsync(user.Id, ud => UserDataUpdates.ApplySecretUpgrade(ud, enc, upgraded)).ConfigureAwait(false);
                             }
                         }
                         secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret!, user.Id);
@@ -844,7 +857,7 @@ public class TwoFactorAuthController : ControllerBase
                         // verification below fails, the replay floor advance
                         // is correct (the code was valid, an attacker who
                         // intercepted it cannot replay anyway).
-                        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+                        await _store.MutateAsync(user.Id, ud => UserDataUpdates.RaiseReplayFloor(ud, acceptedStep)).ConfigureAwait(false);
                     }
                 }
 
@@ -1029,15 +1042,10 @@ public class TwoFactorAuthController : ControllerBase
             {
                 var (rawDeviceToken, trustRecord) =
                     _deviceTokenService.CreateDeviceToken(deviceId, deviceName);
-                // Reload userData since we may have saved earlier (recovery code used) before SessionStarted ran
-                userData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
-                userData.TrustedDevices.Add(trustRecord);
-                // SEC-L1: cap trusted-device list. Authenticated users would
-                // otherwise grow this list unbounded by repeatedly opting
-                // "Trust this device". Cap at 30 (~6× typical browser count)
-                // and FIFO-evict the oldest by LastUsedAt when over.
-                EnforceTrustedDeviceCap(userData);
-                await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+                // Added to the stored record, cap included, rather than to a
+                // copy: saving a copy would undo whatever another request
+                // changed since it was read.
+                await _store.MutateAsync(user.Id, ud => UserDataUpdates.AddTrustedDevice(ud, trustRecord)).ConfigureAwait(false);
 
                 IssueTrustCookie(user.Id, trustRecord, deviceId);
                 Response.Headers.Append("X-TwoFactor-Device-Token", rawDeviceToken);
@@ -1333,12 +1341,25 @@ public class TwoFactorAuthController : ControllerBase
         }
         else if (string.Equals(request.Method, "recovery", StringComparison.OrdinalIgnoreCase))
         {
+            // The code is spent on the stored record, under the store's lock,
+            // and only that decides. U5 already kept two concurrent /Verify
+            // calls from marking it twice on disk, but the one that lost still
+            // signed in; now it fails like any spent code.
             consumedRecoveryIdx = FindRecoveryCodeIndex(userData, request.Code);
-            valid = consumedRecoveryIdx >= 0;
-            if (valid)
+            valid = false;
+            if (consumedRecoveryIdx >= 0)
             {
-                userData.RecoveryCodes[consumedRecoveryIdx].Used = true;
-                userData.RecoveryCodes[consumedRecoveryIdx].UsedAt = DateTime.UtcNow;
+                var recoveryHash = userData.RecoveryCodes[consumedRecoveryIdx].Hash;
+                var recoveryUsedAt = DateTime.UtcNow;
+                var recoveryConsumed = false;
+                await _store.MutateAsync(challenge.UserId, ud =>
+                {
+                    recoveryConsumed = UserDataUpdates.TryConsumeRecoveryCode(ud, recoveryHash, recoveryUsedAt);
+                    // Using a recovery code ends the recovery-only mode that an
+                    // emergency lockout sets (v1.4).
+                    if (recoveryConsumed) ud.ForceRecoveryOnNextLogin = false;
+                }).ConfigureAwait(false);
+                valid = recoveryConsumed;
             }
         }
         else
@@ -1362,7 +1383,7 @@ public class TwoFactorAuthController : ControllerBase
                     if (!string.Equals(upgraded, enc, StringComparison.Ordinal))
                     {
                         userData.EncryptedTotpSecret = upgraded;
-                        await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+                        await _store.MutateAsync(challenge.UserId, ud => UserDataUpdates.ApplySecretUpgrade(ud, enc, upgraded)).ConfigureAwait(false);
                     }
                 }
                 secret = _totpService.DecryptSecret(userData.EncryptedTotpSecret!, challenge.UserId);
@@ -1377,54 +1398,17 @@ public class TwoFactorAuthController : ControllerBase
                 userData.LastUsedTotpStep = acceptedTotpStep;
                 // Persist immediately so a parallel concurrent verify with
                 // the same code at the same step is rejected by the floor.
-                await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+                await _store.MutateAsync(challenge.UserId, ud => UserDataUpdates.RaiseReplayFloor(ud, acceptedTotpStep)).ConfigureAwait(false);
             }
         }
 
-        // Clear emergency-recovery lock on successful recovery / email use.
+        // An emailed code also ends the recovery-only mode that an emergency
+        // lockout sets; the recovery branch above already ended it when it
+        // spent the code. Applied to the stored record, like the recovery code.
         if (valid && lockedToRecovery
-            && (string.Equals(request.Method, "email", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(request.Method, "recovery", StringComparison.OrdinalIgnoreCase)))
+            && string.Equals(request.Method, "email", StringComparison.OrdinalIgnoreCase))
         {
-            userData.ForceRecoveryOnNextLogin = false;
-        }
-        // SECURITY [v2.5.6] (U5): persist via MutateAsync diff-apply so two
-        // concurrent /Verify requests using the same unused recovery code
-        // can't both mark it Used on separate clones before either persists.
-        // Match by Hash and only flip entries that the canonical store
-        // still sees as unused — the loser-thread sees Used=true already
-        // and the recovery code is consumed exactly once on disk.
-        if (valid && consumedRecoveryIdx >= 0)
-        {
-            await _store.MutateAsync(challenge.UserId, ud =>
-            {
-                foreach (var cloneCode in userData.RecoveryCodes)
-                {
-                    if (!cloneCode.Used) continue;
-                    if (string.IsNullOrEmpty(cloneCode.Hash)) continue;
-                    var match = ud.RecoveryCodes.FirstOrDefault(c =>
-                        string.Equals(c.Hash, cloneCode.Hash, StringComparison.Ordinal) && !c.Used);
-                    if (match is not null)
-                    {
-                        match.Used = true;
-                        match.UsedAt = cloneCode.UsedAt ?? DateTime.UtcNow;
-                    }
-                }
-                if (!userData.ForceRecoveryOnNextLogin)
-                {
-                    ud.ForceRecoveryOnNextLogin = false;
-                }
-            }).ConfigureAwait(false);
-        }
-        else if (valid && lockedToRecovery)
-        {
-            await _store.MutateAsync(challenge.UserId, ud =>
-            {
-                if (!userData.ForceRecoveryOnNextLogin)
-                {
-                    ud.ForceRecoveryOnNextLogin = false;
-                }
-            }).ConfigureAwait(false);
+            await _store.MutateAsync(challenge.UserId, ud => ud.ForceRecoveryOnNextLogin = false).ConfigureAwait(false);
         }
 
         if (!valid)
@@ -1501,11 +1485,8 @@ public class TwoFactorAuthController : ControllerBase
                 challenge.DeviceId,
                 challenge.DeviceName ?? challenge.DeviceId);
 
-            userData = await _store.GetUserDataAsync(challenge.UserId).ConfigureAwait(false);
-            userData.TrustedDevices.Add(trustedDevice);
-            // SEC-L1: cap trusted-device list (FIFO-evict oldest by LastUsedAt).
-            EnforceTrustedDeviceCap(userData);
-            await _store.SaveUserDataAsync(userData).ConfigureAwait(false);
+            // Added to the stored record, cap included, as in Authenticate.
+            await _store.MutateAsync(challenge.UserId, ud => UserDataUpdates.AddTrustedDevice(ud, trustedDevice)).ConfigureAwait(false);
 
             deviceToken = rawToken;
         }
@@ -2157,21 +2138,6 @@ public class TwoFactorAuthController : ControllerBase
             if (c < 0x20 || c > 0x7E) return false;
         }
         return true;
-    }
-
-    /// <summary>SEC-L1: hard cap on TrustedDevices count per user. Users would
-    /// otherwise grow the list unbounded by ticking "Trust this device" on
-    /// every browser. 30 is generous (typical user has 3-5 active browsers
-    /// across phone/laptop/desktop); LRU-evict the oldest by LastUsedAt when
-    /// the cap is exceeded so the just-added record is preserved.</summary>
-    private const int MaxTrustedDevicesPerUser = 30;
-
-    private static void EnforceTrustedDeviceCap(UserTwoFactorData userData)
-    {
-        if (userData.TrustedDevices.Count <= MaxTrustedDevicesPerUser) return;
-        userData.TrustedDevices.Sort((a, b) => a.LastUsedAt.CompareTo(b.LastUsedAt));
-        var toRemove = userData.TrustedDevices.Count - MaxTrustedDevicesPerUser;
-        userData.TrustedDevices.RemoveRange(0, toRemove);
     }
 
     // -------------------------------------------------------------------------
@@ -3246,11 +3212,11 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<IActionResult> RevokePairedDevice([FromRoute] string id)
     {
         var userId = GetCurrentUserId();
-        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
-        var target = data.PairedDevices.FirstOrDefault(p => p.Id == id);
+        // Removed from the stored record under the store's lock: saving a copy
+        // would undo whatever another request changed since it was read.
+        Models.PairedDevice? target = null;
+        await _store.MutateAsync(userId, ud => target = UserDataUpdates.RemovePairedDevice(ud, id)).ConfigureAwait(false);
         if (target is null) return NotFound();
-        data.PairedDevices.Remove(target);
-        await _store.SaveUserDataAsync(data).ConfigureAwait(false);
 
         // Wipe any in-memory bypass flag for this device so the revoke takes
         // effect instantly instead of honoring a ~2-minute pre-verify window.
