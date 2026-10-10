@@ -128,27 +128,29 @@ public class SmtpAlertTests
     }
 
     [Fact]
-    public async Task A_failed_address_is_masked_in_the_log_even_inside_the_server_reply()
+    public async Task A_failed_address_stays_out_of_the_log_even_inside_the_server_reply()
     {
         var cfg = new PluginConfiguration
         {
-            NotifyEmailAddresses = new[] { "bob@example.test" },
+            NotifyEmailAddresses = new[] { "alice@example.test", "bob@example.test" },
             SmtpHost = "smtp.example.test",
             SmtpFromAddress = "jellyfin@example.test",
         };
         var log = new CapturingLogger();
         var svc = new NotificationService(
             log,
-            (to, subject, body) => Task.FromResult<IReadOnlyList<(string Address, Exception Error)>>(new[]
+            (to, subject, body) => Task.FromResult<IReadOnlyList<(string Address, Exception Error)>>(new (string Address, Exception Error)[]
             {
-                ("bob@example.test", (Exception)new InvalidOperationException("5.1.1 <bob@example.test>: Recipient address rejected")),
+                ("bob@example.test", new InvalidOperationException("5.1.1 <bob@example.test>: Recipient address rejected")),
             }),
             () => cfg);
 
         await svc.SendTestAsync().WaitAsync(Bound);
 
-        Assert.DoesNotContain(log.Lines, l => l.Contains("bob@example.test", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(log.Lines, l => l.Contains("b***@example.test", StringComparison.Ordinal));
+        Assert.DoesNotContain(log.Lines, l => l.Contains("bob@", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(log.Lines, l => l.Contains("b***", StringComparison.Ordinal));
+        Assert.Contains(log.Lines, l => l.Contains("alert address 2 of 2", StringComparison.Ordinal)
+            && l.Contains("5.1.1 <<alert address>>: Recipient address rejected", StringComparison.Ordinal));
     }
 
     private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger<NotificationService>
@@ -295,6 +297,8 @@ public class SmtpAlertTests
                                 await writer.WriteLineAsync("354 End data with <CR><LF>.<CR><LF>").ConfigureAwait(false);
                                 while ((line = await reader.ReadLineAsync(_stop.Token).ConfigureAwait(false)) is not null && line != ".")
                                 {
+                                    // The message itself is not checked: read
+                                    // past it to the lone "." that ends it.
                                 }
 
                                 accepted++;

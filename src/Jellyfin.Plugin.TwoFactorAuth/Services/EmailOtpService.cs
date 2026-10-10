@@ -367,7 +367,7 @@ public class EmailOtpService
     /// PII string. "alice@example.com" -> "a***@example.com". Domain is
     /// preserved because it's typically the IdP host (gmail/outlook/...) and
     /// useful for debugging delivery issues.</summary>
-    internal static string MaskEmail(string? email)
+    private static string MaskEmail(string? email)
     {
         if (string.IsNullOrEmpty(email)) return "(empty)";
         var at = email.IndexOf('@');

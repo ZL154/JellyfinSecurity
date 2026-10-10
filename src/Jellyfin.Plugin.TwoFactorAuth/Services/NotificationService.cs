@@ -790,15 +790,16 @@ public class NotificationService
 
             foreach (var (address, error) in failed)
             {
-                // The server's reply often repeats the address ("550 5.1.1
-                // <bob@example.com>: ..."), so it is masked there too, and the
-                // exception object is not logged.
-                var masked = EmailOtpService.MaskEmail(address);
+                // No address in the log, not even masked: the failed one is
+                // named by its place in the alert list. The server's reply
+                // often repeats it ("550 5.1.1 <bob@example.com>: ..."), so it
+                // is replaced there too, and the exception object is not logged.
                 _logger.LogError(
-                    "Failed to send the email notification to {Email}: {Type}: {Message}",
-                    masked,
+                    "Failed to send the email notification to alert address {Position} of {Count}: {Type}: {Message}",
+                    Array.IndexOf(targets, address) + 1,
+                    targets.Length,
                     error.GetType().Name,
-                    error.Message.Replace(address, masked, StringComparison.OrdinalIgnoreCase));
+                    error.Message.Replace(address, "<alert address>", StringComparison.OrdinalIgnoreCase));
             }
 
             result.Success = failed.Count == 0;
