@@ -412,12 +412,17 @@
                             const pct = f.possible > 0 ? Math.round(100 * f.earned / f.possible) : 0;
                             const label = _tr(f.labelKey, f.label);
                             const action = f.nextAction ? _trWithData(f.nextActionKey, f.nextAction, f.nextActionData) : null;
+                            // [#258] A factor left out of the total ("na") says
+                            // why, where "0 / 0" and an empty bar would be.
+                            const notCounted = f.status === 'na';
                             return `<div class="tfa-factor ${f.status}">
                                 <div class="tfa-factor-head">
                                     <div class="tfa-factor-label">${escapeHtml(label)}</div>
-                                    <div class="tfa-factor-pts">${f.earned} / ${f.possible}</div>
+                                    ${notCounted ? '' : `<div class="tfa-factor-pts">${f.earned} / ${f.possible}</div>`}
                                 </div>
-                                <div class="tfa-factor-bar"><div class="tfa-factor-bar-fill" style="width:${pct}%"></div></div>
+                                ${notCounted
+                                    ? `<div class="tfa-factor-note">${escapeHtml(_tr(f.noteKey, f.note || ''))}</div>`
+                                    : `<div class="tfa-factor-bar"><div class="tfa-factor-bar-fill" style="width:${pct}%"></div></div>`}
                                 ${action ? `<div class="tfa-factor-action">&rarr; ${escapeHtml(action)}</div>` : ''}
                             </div>`;
                         }).join('');
@@ -1289,6 +1294,12 @@
                         page.querySelector('#cfgAllowPrivateNotifTargets').checked = !!c.AllowPrivateNotificationTargets;
                         page.querySelector('#cfgGeoAsn').value = c.GeoIpAsnDbPath || '';
                         page.querySelector('#cfgGeoCountry').value = c.GeoIpCountryDbPath || '';
+                        // [#258] Defensive lookups, as for #cfgPairSecondScreen
+                        // below: a cached older admin.html has neither box.
+                        var suspiciousEl = page.querySelector('#cfgSuspiciousEnabled');
+                        if (suspiciousEl) suspiciousEl.checked = c.SuspiciousLoginEnabled !== false;
+                        var geoExternalEl = page.querySelector('#cfgGeoExternal');
+                        if (geoExternalEl) geoExternalEl.checked = c.GeoProtectionHandledExternally === true;
                         page.querySelector('#cfgPublicBaseUrl').value = c.PublicBaseUrl || '';
                         page.querySelector('#cfgRpId').value = c.WebAuthnRpId || '';
                         page.querySelector('#cfgRpOrigins').value = (c.WebAuthnOrigins || []).join('\n');
@@ -1475,6 +1486,14 @@
                         c.AllowPrivateNotificationTargets = page.querySelector('#cfgAllowPrivateNotifTargets').checked;
                         c.GeoIpAsnDbPath = page.querySelector('#cfgGeoAsn').value.trim();
                         c.GeoIpCountryDbPath = page.querySelector('#cfgGeoCountry').value.trim();
+                        var suspiciousSaveEl = page.querySelector('#cfgSuspiciousEnabled');
+                        c.SuspiciousLoginEnabled = suspiciousSaveEl
+                            ? suspiciousSaveEl.checked
+                            : (c.SuspiciousLoginEnabled !== false);
+                        var geoExternalSaveEl = page.querySelector('#cfgGeoExternal');
+                        c.GeoProtectionHandledExternally = geoExternalSaveEl
+                            ? geoExternalSaveEl.checked
+                            : (c.GeoProtectionHandledExternally === true);
                         c.PublicBaseUrl = page.querySelector('#cfgPublicBaseUrl').value.trim();
                         c.WebAuthnRpId = page.querySelector('#cfgRpId').value.trim();
                         c.WebAuthnOrigins = page.querySelector('#cfgRpOrigins').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);

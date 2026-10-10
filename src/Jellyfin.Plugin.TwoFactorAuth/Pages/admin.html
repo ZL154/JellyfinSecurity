@@ -126,6 +126,10 @@
             #TwoFactorAuth .tfa-factor.partial .tfa-factor-bar-fill { background: #f0ad4e; }
             #TwoFactorAuth .tfa-factor.fail .tfa-factor-bar-fill { background: #d9534f; }
             #TwoFactorAuth .tfa-factor-action { font-size: 11px; color: #aaa; margin-top: 6px; }
+            /* [#258] A factor left out of the total keeps the grey edge and
+               shows why where its points and bar would be. */
+            #TwoFactorAuth .tfa-factor.na .tfa-factor-label { color: #999; }
+            #TwoFactorAuth .tfa-factor-note { font-size: 11px; color: #888; }
 
             #TwoFactorAuth .tfa-chart-card { background: rgba(255,255,255,0.03); padding: 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 16px; }
             #TwoFactorAuth .tfa-chart-card h3 { margin: 0 0 10px; font-size: 14px; color: #ddd; }
@@ -859,6 +863,10 @@
                         <div class="tfa-section">
                             <h2 data-i18n-key="tfa.admin.settings.suspicious_heading">Suspicious-login detection (v1.4)</h2>
                             <div class="tfa-note" data-i18n-key="tfa.admin.settings.suspicious_note">Resolve sign-in IPs to ASN + country via MaxMind GeoLite2 .mmdb files. Sign in once with a free MaxMind account, download GeoLite2-ASN and GeoLite2-Country, place the .mmdb files inside Jellyfin's config directory, and paste the absolute paths below. Without these the plugin still works — just no first-seen alerts.</div>
+                            <!-- [#258] Off stops the detector and keeps the paths below. -->
+                            <div class="tfa-row">
+                                <label><input type="checkbox" id="cfgSuspiciousEnabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_suspicious_enabled">Enable</span></label>
+                            </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_geo_asn">GeoLite2-ASN.mmdb path</label>
                                 <input type="text" id="cfgGeoAsn" class="tfa-input" style="width:400px;" placeholder="/config/geoip/GeoLite2-ASN.mmdb" />
@@ -906,6 +914,11 @@
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_geo_city">GeoLite2-City.mmdb path (optional)</label>
                                 <input type="text" id="cfgGeoCity" class="tfa-input" style="width:400px;" placeholder="/config/geoip/GeoLite2-City.mmdb" />
+                            </div>
+                            <!-- [#258] For servers whose geographic checks run outside the plugin. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgGeoExternal" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_geo_external">Geographic checks are done outside this plugin (a WAF, CrowdSec, a firewall)</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.geo_external_help">Off by default. When on and this plugin does not run impossible-travel detection, the security score leaves that factor out of the total instead of counting it as failed. The plugin cannot see that protection, so it gives no points for it, and this setting does not turn any detector on or off.</div>
                             </div>
                         </div>
 
