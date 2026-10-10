@@ -341,7 +341,7 @@
   "tfa.admin.settings.lbl_gotify_token": "Gotifyアプリトークン",
   "tfa.admin.settings.lbl_telegram_token": "Telegram ボットトークン",
   "tfa.admin.settings.lbl_telegram_chat": "Telegram チャット ID",
-  "tfa.admin.settings.telegram_note": "@BotFather でボットを作成し、そのトークンを貼り付けてください。チャット ID は自分のユーザー ID、グループまたはチャンネルの ID(負の値)、または @チャンネル名 です。ボットがそこに投稿できる必要があるため、ボットとチャットを開始するか、グループまたはチャンネルに追加してください。トークンは api.telegram.org にのみ送信され、サーバーログには記録されません。",
+  "tfa.admin.settings.telegram_note": "@BotFather でボットを作成し、そのトークンを貼り付けてください。チャット ID は自分のユーザー ID、グループまたはチャンネルの ID(負の値)、または公開チャンネルの @username です。ボットがそこに投稿できる必要があるため、ボットとチャットを開始するか、グループまたはチャンネルに追加してください。トークンは api.telegram.org にのみ送信され、サーバーログには記録されません。",
   "tfa.admin.settings.lbl_alert_emails": "セキュリティアラート用の管理者メールアドレス(1行に1つ)",
   "tfa.admin.settings.alert_emails_note": "各アドレスには、上の SMTP 設定を使ってすべてのアラートが個別に送信されます(SMTPホストと差出人アドレスの設定が必要です)。",
   "tfa.admin.settings.lbl_webhook_url": "Webhook URL(すべてのイベントをJSONでPOST)",

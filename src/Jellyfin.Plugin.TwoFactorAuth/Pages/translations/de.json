@@ -341,7 +341,7 @@
   "tfa.admin.settings.lbl_gotify_token": "Gotify-App-Token",
   "tfa.admin.settings.lbl_telegram_token": "Telegram-Bot-Token",
   "tfa.admin.settings.lbl_telegram_chat": "Telegram-Chat-ID",
-  "tfa.admin.settings.telegram_note": "Erstellen Sie mit @BotFather einen Bot und fügen Sie dessen Token ein. Die Chat-ID ist Ihre Benutzer-ID, die ID einer Gruppe oder eines Kanals (negativ) oder @kanalname, und der Bot muss dort posten dürfen: Starten Sie einen Chat mit ihm oder fügen Sie ihn der Gruppe oder dem Kanal hinzu. Das Token wird nur an api.telegram.org gesendet und erscheint nicht im Serverprotokoll.",
+  "tfa.admin.settings.telegram_note": "Erstellen Sie mit @BotFather einen Bot und fügen Sie dessen Token ein. Die Chat-ID ist Ihre Benutzer-ID, die ID einer Gruppe oder eines Kanals (negativ) oder der öffentliche @username eines Kanals, und der Bot muss dort posten dürfen: Starten Sie einen Chat mit ihm oder fügen Sie ihn der Gruppe oder dem Kanal hinzu. Das Token wird nur an api.telegram.org gesendet und erscheint nicht im Serverprotokoll.",
   "tfa.admin.settings.lbl_alert_emails": "Admin-E-Mail-Adressen für Sicherheitsbenachrichtigungen (eine pro Zeile)",
   "tfa.admin.settings.alert_emails_note": "Jede Adresse erhält ihre eigene Kopie jeder Benachrichtigung, versendet über die SMTP-Einstellungen oben (SMTP-Host und Absenderadresse müssen gesetzt sein).",
   "tfa.admin.settings.lbl_webhook_url": "Webhook-URL (POSTet jedes Ereignis als JSON)",

@@ -341,7 +341,7 @@
   "tfa.admin.settings.lbl_gotify_token": "Token do aplicativo Gotify",
   "tfa.admin.settings.lbl_telegram_token": "Token do bot do Telegram",
   "tfa.admin.settings.lbl_telegram_chat": "ID do chat do Telegram",
-  "tfa.admin.settings.telegram_note": "Crie um bot com o @BotFather e cole o token dele. O ID do chat é o seu ID de usuário, o ID de um grupo ou canal (negativo) ou @nomedocanal, e o bot precisa conseguir postar ali: inicie uma conversa com ele ou adicione-o ao grupo ou canal. O token só é enviado para api.telegram.org e fica fora do log do servidor.",
+  "tfa.admin.settings.telegram_note": "Crie um bot com o @BotFather e cole o token dele. O ID do chat é o seu ID de usuário, o ID de um grupo ou canal (negativo) ou o @username público de um canal, e o bot precisa conseguir postar ali: inicie uma conversa com ele ou adicione-o ao grupo ou canal. O token só é enviado para api.telegram.org e fica fora do log do servidor.",
   "tfa.admin.settings.lbl_alert_emails": "Endereços de e-mail dos administradores para alertas de segurança (um por linha)",
   "tfa.admin.settings.alert_emails_note": "Cada endereço recebe a própria cópia de cada alerta, enviada com as configurações de SMTP acima (Host SMTP e Endereço de origem precisam estar preenchidos).",
   "tfa.admin.settings.lbl_webhook_url": "URL do Webhook (POST de cada evento como JSON)",

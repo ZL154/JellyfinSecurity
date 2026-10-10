@@ -344,7 +344,7 @@
   "tfa.admin.settings.lbl_gotify_token": "Gotify App Token",
   "tfa.admin.settings.lbl_telegram_token": "Telegram bot token",
   "tfa.admin.settings.lbl_telegram_chat": "Telegram chat ID",
-  "tfa.admin.settings.telegram_note": "Create a bot with @BotFather and paste its token. The chat ID is your user ID, a group or channel ID (negative), or @channelusername, and the bot must be able to post there: start a chat with it, or add it to the group or channel. The token is sent only to api.telegram.org and is kept out of the server log.",
+  "tfa.admin.settings.telegram_note": "Create a bot with @BotFather and paste its token. The chat ID is your user ID, a group or channel ID (negative), or a public channel's @username, and the bot must be able to post there: start a chat with it, or add it to the group or channel. The token is sent only to api.telegram.org and is kept out of the server log.",
   "tfa.admin.settings.lbl_alert_emails": "Admin email addresses for security alerts (one per line)",
   "tfa.admin.settings.alert_emails_note": "Each address gets its own copy of every alert, sent with the SMTP settings above (SMTP Host and From Address must be set).",
   "tfa.admin.settings.lbl_webhook_url": "Webhook URL (POST every event as JSON)",

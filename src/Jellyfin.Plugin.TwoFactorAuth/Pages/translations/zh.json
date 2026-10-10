@@ -341,7 +341,7 @@
   "tfa.admin.settings.lbl_gotify_token": "Gotify 应用令牌",
   "tfa.admin.settings.lbl_telegram_token": "Telegram 机器人令牌",
   "tfa.admin.settings.lbl_telegram_chat": "Telegram 聊天 ID",
-  "tfa.admin.settings.telegram_note": "使用 @BotFather 创建机器人并粘贴其令牌。聊天 ID 可以是您的用户 ID、群组或频道 ID（负数）或 @频道用户名，并且机器人必须能在其中发消息：先与它开始对话，或将它加入群组或频道。令牌只会发送到 api.telegram.org，不会写入服务器日志。",
+  "tfa.admin.settings.telegram_note": "使用 @BotFather 创建机器人并粘贴其令牌。聊天 ID 可以是您的用户 ID、群组或频道 ID（负数）或公开频道的 @username，并且机器人必须能在其中发消息：先与它开始对话，或将它加入群组或频道。令牌只会发送到 api.telegram.org，不会写入服务器日志。",
   "tfa.admin.settings.lbl_alert_emails": "用于安全警报的管理员邮箱地址(每行一个)",
   "tfa.admin.settings.alert_emails_note": "每个地址都会通过上方的 SMTP 设置单独收到每条警报的副本（必须设置 SMTP 主机和发件地址）。",
   "tfa.admin.settings.lbl_webhook_url": "Webhook URL(以 JSON 形式 POST 每个事件)",
