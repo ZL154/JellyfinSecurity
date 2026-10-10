@@ -325,7 +325,6 @@
   "tfa.admin.settings.lbl_smtp_test_to": "テストメールの送信先",
   "tfa.admin.settings.btn_send_test": "テスト送信",
   "tfa.admin.settings.smtp_need_email": "メールアドレスを入力してください。",
-  "tfa.admin.settings.smtp_sending": "送信中...",
   "tfa.admin.settings.smtp_send_failed": "送信に失敗しました",
   "tfa.admin.settings.authenticator_heading": "認証アプリ",
   "tfa.admin.settings.lbl_issuer": "ユーザーのアプリに表示される発行者名",

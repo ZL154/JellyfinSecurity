@@ -819,6 +819,10 @@ SMTP Port: 587 (STARTTLS) or 465 (implicit TLS)
 Use SSL/TLS: ✓
 ```
 
+### Testing the settings
+
+**Send Test**, under the SMTP fields, saves those fields and then sends the test email with them, so it checks what is on the screen, not the last saved settings. **Send test notification** under **Push Notifications** works the same way for its own fields. When **Step-up authentication level** is "All config changes" or "Everything", both ask for your code before saving, as Save Settings does.
+
 ### Per-user email addresses
 
 Email OTP needs the user's email address. In **Admin → Users**, edit each user's email field. The plugin doesn't auto-pull from Jellyfin user metadata (Jellyfin's `User` entity exposes email inconsistently across versions).

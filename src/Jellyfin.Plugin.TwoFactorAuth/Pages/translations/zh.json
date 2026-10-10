@@ -325,7 +325,6 @@
   "tfa.admin.settings.lbl_smtp_test_to": "测试邮件发送至",
   "tfa.admin.settings.btn_send_test": "发送测试",
   "tfa.admin.settings.smtp_need_email": "请输入电子邮件地址。",
-  "tfa.admin.settings.smtp_sending": "正在发送...",
   "tfa.admin.settings.smtp_send_failed": "发送失败",
   "tfa.admin.settings.authenticator_heading": "认证器应用",
   "tfa.admin.settings.lbl_issuer": "在用户应用中显示的发行者名称",

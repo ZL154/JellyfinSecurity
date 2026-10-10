@@ -44,10 +44,51 @@ public class AdminPageContractTests
         Assert.Contains("if (telegramTokenSaveEl) c.TelegramBotToken = telegramTokenSaveEl.value.trim();", script);
         Assert.Contains("&& !(telegramToken && telegramChat) && alertEmails.length === 0) {", script);
         Assert.Contains("c.NotifyEmailAddresses = alertEmails;", script);
-        // The test button also saves the SMTP settings the alert emails use, so
-        // this line appears there as well as in the main Save Settings.
+        // The SMTP boxes are read in one place, which Save Settings and both
+        // test buttons call, so the three cannot drift apart.
         var smtpFromSave = "c.SmtpFromAddress = page.querySelector('#cfgSmtpFrom').value.trim();";
-        Assert.Equal(2, script!.Split(smtpFromSave).Length - 1);
+        Assert.Equal(1, script!.Split(smtpFromSave).Length - 1);
+        Assert.Equal(3, script.Split("applySmtpFields(c);").Length - 1);
+    }
+
+    [Fact]
+    public void Both_test_buttons_save_what_is_on_screen_through_the_step_up_prompt()
+    {
+        var script = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.admin-script.js");
+
+        Assert.NotNull(script);
+        // #259: the server sends the SMTP test with the saved settings, and the
+        // button sent it without saving, so a test run before Save Settings
+        // used the last-saved values (or none) and only said to check the
+        // server log. Both test buttons now save the boxes first, and through
+        // stepUpFetch like Save Settings: ApiClient.updatePluginConfiguration
+        // turns the step-up filter's 403 into a plain failure, with no prompt.
+        var smtpTest = ClickHandler(script!, "#btnTestSmtp");
+        var notifyTest = ClickHandler(script, "#btnTestWebhook");
+        foreach (var handler in new[] { smtpTest, notifyTest })
+        {
+            Assert.Contains("applySmtpFields(c);", handler);
+            Assert.Contains("return savePluginConfig(c);", handler);
+            Assert.Contains("if (!r.ok) return Promise.reject(r);", handler);
+            Assert.DoesNotContain("updatePluginConfiguration", handler);
+        }
+
+        Assert.True(smtpTest.IndexOf("savePluginConfig(c)", StringComparison.Ordinal)
+            < smtpTest.IndexOf("'TwoFactorAuth/TestSmtp'", StringComparison.Ordinal));
+        Assert.Contains("_tr('tfa.admin.settings.saving_sending', 'Saving + sending…')", smtpTest);
+        Assert.Contains("return savePluginConfig(c).then(function(r) {", ClickHandler(script, "#btnSaveSettings"));
+        Assert.Contains("return stepUpFetch('Plugins/' + pluginId + '/Configuration', {", script);
+    }
+
+    // A button's click handler, from its addEventListener to the next one.
+    private static string ClickHandler(string script, string id)
+    {
+        var head = "page.querySelector('" + id + "').addEventListener('click', function() {";
+        var start = script.IndexOf(head, StringComparison.Ordinal);
+        Assert.True(start >= 0, id + " has no click handler");
+        var end = script.IndexOf(".addEventListener(", start + head.Length, StringComparison.Ordinal);
+        return end < 0 ? script[start..] : script[start..end];
     }
 
     [Fact]

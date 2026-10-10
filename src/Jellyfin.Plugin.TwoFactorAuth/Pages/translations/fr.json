@@ -325,7 +325,6 @@
   "tfa.admin.settings.lbl_smtp_test_to": "Envoyer un e-mail de test à",
   "tfa.admin.settings.btn_send_test": "Envoyer un test",
   "tfa.admin.settings.smtp_need_email": "Saisissez une adresse e-mail.",
-  "tfa.admin.settings.smtp_sending": "Envoi…",
   "tfa.admin.settings.smtp_send_failed": "Échec de l'envoi",
   "tfa.admin.settings.authenticator_heading": "Application d'authentification",
   "tfa.admin.settings.lbl_issuer": "Nom de l'émetteur affiché dans les applications des utilisateurs",
