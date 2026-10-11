@@ -243,6 +243,34 @@ public class AdminPageContractTests
     }
 
     [Fact]
+    public void User_email_box_saves_on_change_through_the_step_up_prompt()
+    {
+        var script = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.admin-script.js");
+
+        Assert.NotNull(script);
+        // #263: the Users tab saved each email box on blur through
+        // ApiClient.updatePluginConfiguration, which turned the step-up
+        // filter's 403 into an unhandled rejection. With step-up covering
+        // config changes the edit was dropped and nothing showed on screen.
+        var start = script!.IndexOf("body.querySelectorAll('.tfa-email').forEach(", StringComparison.Ordinal);
+        Assert.True(start >= 0, "the Users tab has no email box handler");
+        var end = script.IndexOf("\n                }\n", start, StringComparison.Ordinal);
+        Assert.True(end > start);
+        var handler = script[start..end];
+
+        Assert.Contains("input.addEventListener('change', function() {", handler);
+        Assert.DoesNotContain("'blur'", handler);
+        Assert.DoesNotContain("updatePluginConfiguration", handler);
+        Assert.Contains("stepUpFetch('Plugins/' + pluginId + '/Configuration', {", handler);
+        Assert.Contains("if (!r.ok) return Promise.reject(r);", handler);
+        Assert.Contains("input.defaultValue = input.value;", handler);
+        Assert.Contains("input.value = saved;", handler);
+        Assert.Contains("failureMessage(err).then(function(why) {", handler);
+        Assert.Contains("_tr('tfa.admin.common.save_failed', 'Save failed') + (why ? ': ' + why : '')", handler);
+    }
+
+    [Fact]
     public void Admin_helpers_and_the_provider_form_go_through_the_step_up_prompt()
     {
         var script = ResourceReader.ReadEmbeddedText(
