@@ -282,6 +282,33 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             var matched = _appPasswordService.FindMatch(password, earlyData.AppPasswords);
             if (matched is not null)
             {
+                // [#244] App passwords are for apps that cannot show the 2FA
+                // challenge. The web interface can, so an app password typed
+                // there is refused before it pre-verifies anything; the browser
+                // signs in with the account password and the challenge.
+                var apClient = AppPasswordClientPolicy.ResolveClientName(
+                    GetHeader("Authorization"),
+                    GetHeader("X-Emby-Authorization"),
+                    GetHeader("X-Emby-Client"));
+                if (AppPasswordClientPolicy.IsRefused(apClient))
+                {
+                    _logger.LogWarning("[2FA] App password '{Label}' refused for {User}: the {Client} client signs in with the account password and 2FA",
+                        matched.Label, username, apClient);
+                    await _store.AddAuditEntryAsync(new AuditEntry
+                    {
+                        Timestamp = DateTime.UtcNow,
+                        UserId = earlyUser.Id,
+                        Username = username,
+                        RemoteIp = GetRemoteIp() ?? string.Empty,
+                        DeviceId = GetDeviceHeader("X-Emby-Device-Id", "DeviceId") ?? string.Empty,
+                        DeviceName = GetDeviceHeader("X-Emby-Device-Name", "Device") ?? string.Empty,
+                        Result = AuditResult.Failed,
+                        Method = "app_password_web:" + TwoFactorEnforcementMiddleware.SanitizeLabel(matched.Label),
+                    }).ConfigureAwait(false);
+                    _ipBans.RecordFailure(authIp ?? string.Empty);
+                    throw new AuthenticationException("Invalid credentials");
+                }
+
                 var apDeviceId = GetDeviceHeader("X-Emby-Device-Id", "DeviceId") ?? string.Empty;
                 var apDeviceName = GetHeader("X-Emby-Device-Name") ?? "Unknown";
                 var apRemoteIp = GetRemoteIp() ?? string.Empty;
