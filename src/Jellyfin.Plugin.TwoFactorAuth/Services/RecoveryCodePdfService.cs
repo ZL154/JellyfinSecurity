@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 ///
 /// [#203] Nothing native happens until the first Render. QuestPDF's Settings
 /// type runs SkNativeDependencyCompatibilityChecker from its own static
-/// constructor, and FontManager.RegisterFont goes straight into Skia, so the
+/// constructor, and FontManager.RegisterFontFromStream goes straight into Skia, so the
 /// static constructor that used to live here loaded a 7 MB Skia build (and,
 /// until v2.6.1, libsodium as well) on the first request to any plugin
 /// endpoint, for a feature most requests never touch. It also depended on
@@ -74,7 +74,7 @@ public class RecoveryCodePdfService
         var asm = typeof(RecoveryCodePdfService).Assembly;
         using var stream = asm.GetManifestResourceStream(resourceName);
         if (stream is null) return;
-        QuestPDF.Drawing.FontManager.RegisterFont(stream);
+        QuestPDF.Drawing.FontManager.RegisterFontFromStream(stream);
     }
 
     public byte[] Render(string username, IReadOnlyList<string> codes, string serverName)
