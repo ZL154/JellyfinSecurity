@@ -13,6 +13,15 @@ public class UserTwoFactorData
 
     public string? EncryptedTotpSecret { get; set; }
 
+    /// <summary>A rotated TOTP secret waiting for its first code, encrypted
+    /// like <see cref="EncryptedTotpSecret"/>. The active secret keeps working
+    /// until this one is confirmed. See <c>TotpRotation</c>.</summary>
+    public string? PendingEncryptedTotpSecret { get; set; }
+
+    /// <summary>When <see cref="PendingEncryptedTotpSecret"/> was issued. It
+    /// stops being accepted after <c>TotpRotation.PendingLifetime</c>.</summary>
+    public DateTime? PendingTotpSecretIssuedAt { get; set; }
+
     public bool EmailOtpPreferred { get; set; }
 
     public List<TrustedDevice> TrustedDevices { get; set; } = new();
