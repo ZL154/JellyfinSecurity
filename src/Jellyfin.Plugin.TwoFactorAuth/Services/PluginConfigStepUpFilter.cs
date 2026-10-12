@@ -90,9 +90,14 @@ public class PluginConfigStepUpFilter : IAsyncActionFilter
     }
 
     private static bool ShouldGate(HttpContext ctx)
+        => HttpMethods.IsPost(ctx.Request.Method) && IsThisPluginsConfigurationPath(ctx.Request.Path.Value);
+
+    /// <summary>Whether <paramref name="path"/> routes to Jellyfin's
+    /// /Plugins/{id}/Configuration for this plugin. [#268] Shared with
+    /// <see cref="PluginConfigSecretsFilter"/>, which hides the secrets on the
+    /// GET this filter leaves alone.</summary>
+    internal static bool IsThisPluginsConfigurationPath(string? path)
     {
-        if (!HttpMethods.IsPost(ctx.Request.Method)) return false;
-        var path = ctx.Request.Path.Value;
         if (string.IsNullOrEmpty(path)) return false;
 
         // SECURITY [v2.5.9] (audit top-tier #2): do NOT string-match the
@@ -124,12 +129,14 @@ public class PluginConfigStepUpFilter : IAsyncActionFilter
 /// including Jellyfin core's PluginsController. Plugin-owned controllers
 /// also pay this filter but short-circuit on path mismatch — no
 /// observable cost. [#213] <see cref="PluginDisableHandBackFilter"/> is
-/// registered the same way, for the same reason.</summary>
+/// registered the same way, for the same reason, and so is [#268]
+/// <see cref="PluginConfigSecretsFilter"/>.</summary>
 public class PluginMvcOptionsSetup : IConfigureOptions<Microsoft.AspNetCore.Mvc.MvcOptions>
 {
     public void Configure(Microsoft.AspNetCore.Mvc.MvcOptions options)
     {
         options.Filters.Add<PluginConfigStepUpFilter>();
         options.Filters.Add<PluginDisableHandBackFilter>();
+        options.Filters.Add<PluginConfigSecretsFilter>();
     }
 }
