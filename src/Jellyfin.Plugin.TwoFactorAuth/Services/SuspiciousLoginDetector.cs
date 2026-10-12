@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Microsoft.Extensions.Logging;
 
@@ -22,17 +23,30 @@ public class SuspiciousLoginDetector
     private readonly GeoIpService _geo;
     private readonly NotificationService _notifications;
     private readonly ILogger<SuspiciousLoginDetector> _logger;
+    private readonly Func<PluginConfiguration> _configAccessor;
 
     public SuspiciousLoginDetector(
         UserTwoFactorStore store,
         GeoIpService geo,
         NotificationService notifications,
         ILogger<SuspiciousLoginDetector> logger)
+        : this(store, geo, notifications, logger, () => Plugin.Instance?.Configuration ?? new PluginConfiguration())
+    {
+    }
+
+    // [#258] Test seam, as in SecurityScoreService.
+    internal SuspiciousLoginDetector(
+        UserTwoFactorStore store,
+        GeoIpService geo,
+        NotificationService notifications,
+        ILogger<SuspiciousLoginDetector> logger,
+        Func<PluginConfiguration> configAccessor)
     {
         _store = store;
         _geo = geo;
         _notifications = notifications;
         _logger = logger;
+        _configAccessor = configAccessor;
     }
 
     /// <summary>Record this sign-in's context. If first-seen, fire-and-forget
@@ -40,6 +54,9 @@ public class SuspiciousLoginDetector
     public async Task<bool> ObserveAsync(Guid userId, string username, string? ip)
     {
         if (userId == Guid.Empty) return false;
+        // [#258] Checked before the databases, so a server that turned the
+        // detector off does not load them on its behalf.
+        if (!_configAccessor().SuspiciousLoginEnabled) return false;
         if (!_geo.AsnAvailable && !_geo.CountryAvailable) return false;
 
         var lookup = _geo.Resolve(ip);

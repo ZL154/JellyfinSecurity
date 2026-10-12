@@ -208,16 +208,25 @@ public class SecurityScoreService : IDisposable
         // database that the detector actually needs. Require BOTH the toggle
         // AND a non-empty city-DB path so the factor reflects real coverage.
         var travelEnabled = cfg.ImpossibleTravelEnabled && !string.IsNullOrWhiteSpace(cfg.GeoIpCityDbPath);
+        // [#258] A server whose geographic checks run outside the plugin (a
+        // WAF, CrowdSec, a firewall) can leave this factor out of the total
+        // instead of failing it. The plugin cannot see that protection, so the
+        // factor is not counted rather than credited, and a detector that is
+        // enabled with a city DB path keeps its 7 points. Like travelEnabled,
+        // this reads the settings; it does not check that the database loads.
+        var travelNotCounted = !travelEnabled && cfg.GeoProtectionHandledExternally;
         factors.Add(new ScoreFactor
         {
             Id = "travel",
             Label = "Impossible-travel detection",
             LabelKey = "tfa.factor.travel.label",
             Earned = travelEnabled ? 7 : 0,
-            Possible = 7,
-            Status = travelEnabled ? "ok" : "fail",
-            NextAction = travelEnabled ? null : "Enable impossible-travel detection AND configure the GeoIP city DB path.",
-            NextActionKey = travelEnabled ? null : "tfa.factor.travel.action"
+            Possible = travelNotCounted ? 0 : 7,
+            Status = travelEnabled ? "ok" : (travelNotCounted ? "na" : "fail"),
+            NextAction = travelEnabled || travelNotCounted ? null : "Enable impossible-travel detection AND configure the GeoIP city DB path.",
+            NextActionKey = travelEnabled || travelNotCounted ? null : "tfa.factor.travel.action",
+            Note = travelNotCounted ? "Not counted: geographic checks are done outside this plugin." : null,
+            NoteKey = travelNotCounted ? "tfa.factor.travel.not_counted" : null,
         });
 
         // 7. HIBP (5 / 0)

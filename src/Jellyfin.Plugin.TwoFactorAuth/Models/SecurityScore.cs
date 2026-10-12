@@ -10,11 +10,20 @@ public class ScoreFactor
     public int Earned { get; set; }
     public int Possible { get; set; }
 
-    /// <summary>"ok" / "partial" / "fail" — drives the bar colour in the UI.</summary>
+    /// <summary>"ok" / "partial" / "fail": drives the bar colour in the UI.
+    /// [#258] "na" marks a factor left out of the total (Possible is 0), with
+    /// the reason in <see cref="Note"/>.</summary>
     public string Status { get; set; } = "fail";
 
+    /// <summary>[#258] Why a factor is not counted, shown in place of its
+    /// points. Null for counted factors.</summary>
+    public string? Note { get; set; }
+
+    /// <summary>[#258] i18n key for <see cref="Note"/>.</summary>
+    public string? NoteKey { get; set; }
+
     /// <summary>One-line user-facing hint shown when the factor is short of full credit.
-    /// Null when fully earned. Drives the "+N pts available" nudge list.</summary>
+    /// Null when fully earned or not counted ("na"). Drives the "+N pts available" nudge list.</summary>
     public string? NextAction { get; set; }
 
     /// <summary>v2.5.0: i18n key for <see cref="Label"/> so the admin UI can localize it.
@@ -22,7 +31,7 @@ public class ScoreFactor
     /// fallback when the bundle lacks the key.</summary>
     public string? LabelKey { get; set; }
 
-    /// <summary>v2.5.0: i18n key for <see cref="NextAction"/>. Null when fully earned.</summary>
+    /// <summary>v2.5.0: i18n key for <see cref="NextAction"/>. Null when fully earned or not counted.</summary>
     public string? NextActionKey { get; set; }
 
     /// <summary>v2.5.0: interpolation data for <see cref="NextActionKey"/>. The frontend
