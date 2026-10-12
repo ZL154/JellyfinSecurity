@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -98,9 +99,37 @@ public class NotificationService
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
     }
 
+    // [#259] Email alerts reuse the SMTP settings of the email sign-in code.
+    // Alerts sent in the background go one session at a time, so a burst of
+    // events does not open many connections at once (providers such as Gmail
+    // refuse that). The admin test button does not wait behind them.
+    private static readonly SemaphoreSlim _emailGate = new(1, 1);
+
+    private readonly Func<IReadOnlyList<string>, string, string, Task<IReadOnlyList<(string Address, Exception Error)>>>? _sendAlertEmails;
+    private readonly Func<PluginConfiguration?> _configAccessor;
+
+    // Without an EmailOtpService (tests that do not exercise email) the email
+    // channel reports that it cannot send. DI uses the constructor below.
     public NotificationService(ILogger<NotificationService> logger)
+        : this(logger, null, () => Plugin.Instance?.Configuration)
+    {
+    }
+
+    public NotificationService(ILogger<NotificationService> logger, EmailOtpService email)
+        : this(logger, email.SendAlertEmailsAsync, () => Plugin.Instance?.Configuration)
+    {
+    }
+
+    // [#259] Test seam, as in SecurityScoreService: tests hand in the
+    // configuration and record the alert emails instead of sending them.
+    internal NotificationService(
+        ILogger<NotificationService> logger,
+        Func<IReadOnlyList<string>, string, string, Task<IReadOnlyList<(string Address, Exception Error)>>>? sendAlertEmails,
+        Func<PluginConfiguration?> configAccessor)
     {
         _logger = logger;
+        _sendAlertEmails = sendAlertEmails;
+        _configAccessor = configAccessor;
     }
 
     public async Task NotifyLoginAttemptAsync(string username, string remoteIp, string deviceName, bool requiresTwoFactor)
@@ -236,16 +265,20 @@ public class NotificationService
             "Jellyfin Security test notification",
             "This is a test notification from the Jellyfin Security plugin. If you can read this, the channel is configured correctly.",
             "test",
-            new { test = true });
+            new { test = true },
+            waitForEmail: true);
 
-    /// <summary>Centralised dispatch — sends to ntfy, Gotify, the configured
-    /// webhook (with optional HMAC signature), and logs a stub for email.
+    /// <summary>Centralised dispatch: sends to ntfy, Gotify, the admin email
+    /// addresses and the configured webhook (with optional HMAC signature).
     /// `event` is the machine-readable type for webhook consumers; `payload`
-    /// is an event-specific bag serialised into the webhook body.</summary>
-    private async Task<IReadOnlyList<ChannelResult>> SendToAllBackendsAsync(string title, string message, string @event, object payload)
+    /// is an event-specific bag serialised into the webhook body.
+    /// [#259] Several callers await this inside a request, so email, whose SMTP
+    /// session can take up to 45 seconds, goes out in the background unless
+    /// <paramref name="waitForEmail"/> asks for its result (the test button).</summary>
+    private async Task<IReadOnlyList<ChannelResult>> SendToAllBackendsAsync(string title, string message, string @event, object payload, bool waitForEmail = false)
     {
         var results = new List<ChannelResult>();
-        var config = Plugin.Instance?.Configuration;
+        var config = _configAccessor();
         if (config is null)
         {
             return results;
@@ -393,9 +426,99 @@ public class NotificationService
             }
         }
 
-        if (config.NotifyEmailAddresses.Length > 0)
+        // [#259] Telegram Bot API. The token travels in the URL path (the API
+        // has no header form), so it is checked for shape before it goes into
+        // the URL, the SSRF guard sees the host alone, and the token is
+        // scrubbed from anything logged or shown, as for Gotify above.
+        var telegramResult = new ChannelResult { Channel = "telegram" };
+        results.Add(telegramResult);
+        if (TelegramConfigured(config))
         {
-            _logger.LogInformation("Email notification for '{Title}': {Message}", title, message);
+            telegramResult.Configured = true;
+            var telegramToken = config.TelegramBotToken.Trim();
+            var telegramChat = config.TelegramChatId.Trim();
+            var telegramAddrs = IsTelegramToken(telegramToken) && IsTelegramChatId(telegramChat)
+                ? GetSafeWebhookAddresses(TelegramApiBase)
+                : null;
+            if (!IsTelegramToken(telegramToken))
+            {
+                telegramResult.Error = "The bot token does not look like a Telegram token (digits, a colon, then letters, digits, - and _).";
+            }
+            else if (!IsTelegramChatId(telegramChat))
+            {
+                telegramResult.Error = "The chat ID must be a number (negative for groups and channels) or a public channel's @username.";
+            }
+            else if (telegramAddrs is null || telegramAddrs.Length == 0)
+            {
+                telegramResult.Error = "api.telegram.org was refused by the SSRF guard (see server log).";
+            }
+            else
+            {
+                try
+                {
+                    using var req = new HttpRequestMessage(HttpMethod.Post, TelegramSendMessageUrl(telegramToken))
+                    {
+                        Content = JsonContent.Create(new
+                        {
+                            chat_id = telegramChat,
+                            text = BuildTelegramText(title, message, @event),
+                            disable_web_page_preview = true,
+                        }),
+                    };
+                    _pinnedAllowedAddresses.Value = telegramAddrs;
+                    try
+                    {
+                        using var response = await _webhookHttpClient.SendAsync(req).ConfigureAwait(false);
+                        telegramResult.Success = response.IsSuccessStatusCode;
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            var raw = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                            telegramResult.Error = DescribeTelegramFailure((int)response.StatusCode, raw, telegramToken);
+                            _logger.LogError("Failed to send Telegram notification: {Error}", telegramResult.Error);
+                        }
+                    }
+                    finally
+                    {
+                        _pinnedAllowedAddresses.Value = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    telegramResult.Error = ex.GetType().Name;
+                    _logger.LogError("Failed to send Telegram notification: {Type}: {Msg}",
+                        ex.GetType().Name, ScrubToken(ex.Message, telegramToken));
+                }
+            }
+        }
+
+        // [#259] This used to log a line and send nothing. The alert now goes to
+        // each admin address over the SMTP settings of the email sign-in code.
+        var emailResult = new ChannelResult { Channel = "email" };
+        results.Add(emailResult);
+        var emailTargets = AlertEmailTargets(config);
+        if (emailTargets.Length > 0)
+        {
+            emailResult.Configured = true;
+            if (!EmailOtpService.IsSmtpConfigured(config))
+            {
+                emailResult.Error = "SMTP is not configured: set the SMTP host and from address.";
+            }
+            else if (_sendAlertEmails is null)
+            {
+                emailResult.Error = "Email sending is not available.";
+            }
+            else
+            {
+                var body = BuildAlertEmailBody(message, @event, DateTime.UtcNow);
+                if (waitForEmail)
+                {
+                    await DeliverAlertEmailsAsync(emailTargets, title, body, emailResult, queue: false).ConfigureAwait(false);
+                }
+                else
+                {
+                    _ = Task.Run(() => DeliverAlertEmailsAsync(emailTargets, title, body, emailResult, queue: true));
+                }
+            }
         }
 
         // v1.4 webhook — single endpoint, JSON body, optional HMAC signature.
@@ -542,6 +665,163 @@ public class NotificationService
         }
 
         return results;
+    }
+
+    /// <summary>[#259] The Telegram Bot API host. The SSRF guard checks this
+    /// URL, which carries no token.</summary>
+    internal const string TelegramApiBase = "https://api.telegram.org/";
+
+    // Token: the bot id, a colon, then the secret. Chat: a numeric id (groups
+    // and channels are negative) or a public channel's @username.
+    private static readonly System.Text.RegularExpressions.Regex _telegramToken =
+        new(@"^\d+:[A-Za-z0-9_-]+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static readonly System.Text.RegularExpressions.Regex _telegramChat =
+        new(@"^(-?\d+|@[A-Za-z][A-Za-z0-9_]{3,})$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>[#259] Both Telegram settings are filled in.</summary>
+    internal static bool TelegramConfigured(PluginConfiguration config)
+        => !string.IsNullOrWhiteSpace(config.TelegramBotToken) && !string.IsNullOrWhiteSpace(config.TelegramChatId);
+
+    /// <summary>[#259] Both settings filled in and in a shape the channel will
+    /// send with; the security score credits only this.</summary>
+    internal static bool TelegramReady(PluginConfiguration config)
+        => TelegramConfigured(config)
+            && IsTelegramToken(config.TelegramBotToken.Trim())
+            && IsTelegramChatId(config.TelegramChatId.Trim());
+
+    internal static bool IsTelegramToken(string token) => _telegramToken.IsMatch(token);
+
+    internal static bool IsTelegramChatId(string chatId) => _telegramChat.IsMatch(chatId);
+
+    /// <summary>[#259] Only called with a token that passed
+    /// <see cref="IsTelegramToken"/>, so nothing in it can change the path.</summary>
+    internal static string TelegramSendMessageUrl(string token)
+        => TelegramApiBase + "bot" + token + "/sendMessage";
+
+    /// <summary>[#259] Plain text, so nothing needs escaping, cut to the
+    /// 4096 characters Telegram accepts.</summary>
+    internal static string BuildTelegramText(string title, string message, string @event)
+    {
+        var text = title + "\n\n" + message + "\n\nEvent: " + @event;
+        return text.Length <= 4096 ? text : string.Concat(text.AsSpan(0, 4093), "...");
+    }
+
+    /// <summary>[#259] Unlike ntfy and Gotify, Telegram's error body is worth
+    /// showing: its description ("Bad Request: chat not found") says what to
+    /// fix. It is shortened, and the token is scrubbed in case it shows up.</summary>
+    internal static string DescribeTelegramFailure(int status, string? body, string token)
+    {
+        string? description = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(body ?? string.Empty);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("description", out var d)
+                && d.ValueKind == JsonValueKind.String)
+            {
+                description = d.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+            // Not Telegram's JSON (a proxy page, say): the status alone.
+        }
+
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return $"Telegram refused the message (HTTP {status}).";
+        }
+
+        var clean = ScrubToken(description, token);
+        if (clean.Length > 200)
+        {
+            clean = clean[..200];
+        }
+
+        return $"Telegram refused the message (HTTP {status}): {clean}";
+    }
+
+    internal static string ScrubToken(string text, string token)
+        => string.IsNullOrEmpty(token) ? text : text.Replace(token, "***", StringComparison.Ordinal);
+
+    /// <summary>[#259] The admin addresses that get alert emails: blank lines
+    /// (and nulls, which a posted or imported configuration can carry)
+    /// dropped, each address once.</summary>
+    internal static string[] AlertEmailTargets(PluginConfiguration config)
+        => (config.NotifyEmailAddresses ?? Array.Empty<string>())
+            .Where(a => !string.IsNullOrWhiteSpace(a))
+            .Select(a => a.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    /// <summary>[#259] Plain text, like the other emails this plugin sends. The
+    /// title goes in the subject.</summary>
+    internal static string BuildAlertEmailBody(string message, string @event, DateTime utcNow)
+        => message
+            + "\n\nEvent: " + @event
+            + "\nTime: " + utcNow.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC"
+            + "\n\nSent by the Jellyfin Security plugin to the alert addresses in its notification settings.";
+
+    /// <summary>[#259] Sends the alert to every address in one SMTP session and
+    /// records the outcome. <paramref name="queue"/> makes background alerts
+    /// wait their turn; the test button passes false.</summary>
+    private async Task DeliverAlertEmailsAsync(string[] targets, string subject, string body, ChannelResult result, bool queue)
+    {
+        if (queue)
+        {
+            await _emailGate.WaitAsync().ConfigureAwait(false);
+        }
+
+        try
+        {
+            IReadOnlyList<(string Address, Exception Error)> failed;
+            try
+            {
+                failed = await _sendAlertEmails!(targets, subject, body).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // No connection or no sign-in: nothing went out.
+                _logger.LogError(ex, "Failed to send the email notification '{Title}' to {Count} address(es)", subject, targets.Length);
+                result.Error = $"SMTP send failed ({ex.GetType().Name}).";
+                return;
+            }
+
+            foreach (var (address, error) in failed)
+            {
+                // No address in the log, not even masked: the failed one is
+                // named by its place in the alert list. The server's reply
+                // often repeats it ("550 5.1.1 <bob@example.com>: ..."), so it
+                // is replaced there too, and the exception object is not logged.
+                _logger.LogError(
+                    "Failed to send the email notification to alert address {Position} of {Count}: {Type}: {Message}",
+                    Array.IndexOf(targets, address) + 1,
+                    targets.Length,
+                    error.GetType().Name,
+                    error.Message.Replace(address, "<alert address>", StringComparison.OrdinalIgnoreCase));
+            }
+
+            result.Success = failed.Count == 0;
+            if (failed.Count == 0)
+            {
+                _logger.LogInformation("Email notification '{Title}' sent to {Count} address(es)", subject, targets.Length);
+            }
+            else
+            {
+                var reason = failed[0].Error.GetType().Name;
+                result.Error = failed.Count == targets.Length
+                    ? $"SMTP send failed ({reason})."
+                    : $"SMTP send failed for {failed.Count} of {targets.Length} addresses ({reason}).";
+            }
+        }
+        finally
+        {
+            if (queue)
+            {
+                _emailGate.Release();
+            }
+        }
     }
 
     /// <summary>[v2.5.21] (#143): describe an HTTP failure to the admin without

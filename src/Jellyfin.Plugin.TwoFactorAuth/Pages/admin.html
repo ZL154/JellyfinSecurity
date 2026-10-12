@@ -844,9 +844,20 @@
                                 <label data-i18n-key="tfa.admin.settings.lbl_gotify_token">Gotify App Token</label>
                                 <input type="text" id="cfgGotifyToken" class="tfa-input" style="width:200px;" />
                             </div>
+                            <!-- [#259] Telegram Bot API: a bot token and the chat that gets the alerts. -->
+                            <div class="tfa-row">
+                                <label data-i18n-key="tfa.admin.settings.lbl_telegram_token">Telegram bot token</label>
+                                <input type="password" id="cfgTelegramToken" class="tfa-input" style="width:300px;" placeholder="123456789:AA..." autocomplete="new-password" />
+                            </div>
+                            <div class="tfa-row">
+                                <label data-i18n-key="tfa.admin.settings.lbl_telegram_chat">Telegram chat ID</label>
+                                <input type="text" id="cfgTelegramChat" class="tfa-input" style="width:200px;" placeholder="-1001234567890" autocomplete="off" />
+                            </div>
+                            <div class="tfa-note" data-i18n-key="tfa.admin.settings.telegram_note">Create a bot with @BotFather and paste its token. The chat ID is your user ID, a group or channel ID (negative), or a public channel's @username, and the bot must be able to post there: start a chat with it, or add it to the group or channel. The token is sent only to api.telegram.org and is kept out of the server log.</div>
                             <div style="margin-top:12px;">
                                 <label style="font-size:13px;color:#888;" data-i18n-key="tfa.admin.settings.lbl_alert_emails">Admin email addresses for security alerts (one per line)</label>
                                 <textarea id="cfgEmails" class="tfa-input"></textarea>
+                                <div class="tfa-note" data-i18n-key="tfa.admin.settings.alert_emails_note">Each address gets its own copy of every alert, sent with the SMTP settings above (SMTP Host and From Address must be set).</div>
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_webhook_url">Webhook URL (POST every event as JSON)</label>

@@ -73,6 +73,29 @@ public class ConfigExportService
             redactedCfg.NtfyTopic = string.Empty;
             redacted.Add("NtfyTopic");
         }
+        // [#259] The ntfy access token and password (#143) and the Telegram
+        // bot token are credentials too. The Telegram chat ID can be the
+        // admin's own Telegram user id, PII like the alert addresses below.
+        if (!string.IsNullOrEmpty(redactedCfg.NtfyToken))
+        {
+            redactedCfg.NtfyToken = string.Empty;
+            redacted.Add("NtfyToken");
+        }
+        if (!string.IsNullOrEmpty(redactedCfg.NtfyPassword))
+        {
+            redactedCfg.NtfyPassword = string.Empty;
+            redacted.Add("NtfyPassword");
+        }
+        if (!string.IsNullOrEmpty(redactedCfg.TelegramBotToken))
+        {
+            redactedCfg.TelegramBotToken = string.Empty;
+            redacted.Add("TelegramBotToken");
+        }
+        if (!string.IsNullOrEmpty(redactedCfg.TelegramChatId))
+        {
+            redactedCfg.TelegramChatId = string.Empty;
+            redacted.Add("TelegramChatId");
+        }
         for (int i = 0; i < redactedCfg.OidcProviders.Count; i++)
         {
             if (!string.IsNullOrEmpty(redactedCfg.OidcProviders[i].ClientSecret))

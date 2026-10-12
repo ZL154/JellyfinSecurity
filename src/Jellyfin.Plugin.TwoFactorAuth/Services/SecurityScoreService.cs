@@ -298,10 +298,15 @@ public class SecurityScoreService : IDisposable
         // and ntfy or Gotify satisfies that exactly as well — but an admin with
         // a fully working ntfy setup was permanently docked 5 points and told to
         // add a webhook they didn't need.
+        // [#259] Email counts once alerts really go out: an address to send to
+        // and the SMTP settings to send with. Telegram counts with a bot token
+        // and a chat in the shape the channel sends with.
         bool notificationsConfigured =
             !string.IsNullOrWhiteSpace(cfg.WebhookUrl)
             || (!string.IsNullOrWhiteSpace(cfg.NtfyUrl) && !string.IsNullOrWhiteSpace(cfg.NtfyTopic))
-            || (!string.IsNullOrWhiteSpace(cfg.GotifyUrl) && !string.IsNullOrWhiteSpace(cfg.GotifyAppToken));
+            || (!string.IsNullOrWhiteSpace(cfg.GotifyUrl) && !string.IsNullOrWhiteSpace(cfg.GotifyAppToken))
+            || NotificationService.TelegramReady(cfg)
+            || (NotificationService.AlertEmailTargets(cfg).Length > 0 && EmailOtpService.IsSmtpConfigured(cfg));
         factors.Add(new ScoreFactor
         {
             Id = "webhook",
@@ -310,7 +315,7 @@ public class SecurityScoreService : IDisposable
             Earned = notificationsConfigured ? 5 : 0,
             Possible = 5,
             Status = notificationsConfigured ? "ok" : "partial",
-            NextAction = notificationsConfigured ? null : "Configure a notification channel (ntfy, Gotify or a webhook) so security events (bans, lockouts, 2FA changes) reach you.",
+            NextAction = notificationsConfigured ? null : "Configure a notification channel (ntfy, Gotify, Telegram, a webhook or email) so security events (bans, lockouts, 2FA changes) reach you.",
             NextActionKey = notificationsConfigured ? null : "tfa.factor.webhook.action"
         });
 

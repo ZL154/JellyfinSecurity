@@ -1182,6 +1182,30 @@
                     a.click();
                     document.body.removeChild(a);
                 });
+                // [#259] The SMTP boxes, read in one place: Save Settings and both
+                // test buttons write them, so a test sends with what the admin
+                // typed rather than the last-saved values.
+                function applySmtpFields(c) {
+                    c.SmtpHost = page.querySelector('#cfgSmtpHost').value.trim();
+                    c.SmtpPort = parseInt(page.querySelector('#cfgSmtpPort').value) || 587;
+                    c.SmtpUseSsl = page.querySelector('#cfgSmtpSsl').checked;
+                    c.SmtpUsername = page.querySelector('#cfgSmtpUser').value;
+                    c.SmtpPassword = page.querySelector('#cfgSmtpPass').value;
+                    c.SmtpFromAddress = page.querySelector('#cfgSmtpFrom').value.trim();
+                    c.SmtpFromName = page.querySelector('#cfgSmtpFromName').value.trim();
+                }
+                // [#259] Writes the plugin configuration the way Save Settings has
+                // since #57: through stepUpFetch, so a server whose step-up level
+                // covers config changes asks for a code. Jellyfin's own
+                // ApiClient.updatePluginConfiguration does not know the 403 +
+                // stepUpRequired answer and just fails. Resolves with the
+                // response, cancelled prompt included; callers check r.ok.
+                function savePluginConfig(c) {
+                    return stepUpFetch('Plugins/' + pluginId + '/Configuration', {
+                        method: 'POST',
+                        body: JSON.stringify(c),
+                    });
+                }
                 // v1.4: notification test — auto-save the form first because users
                 // get confused when the test button uses last-saved settings
                 // instead of what they just typed in.
@@ -1197,9 +1221,19 @@
                     var gotifyUrl = page.querySelector('#cfgGotifyUrl').value.trim();
                     var gotifyToken = page.querySelector('#cfgGotifyToken').value.trim();
                     var webhookUrl = page.querySelector('#cfgWebhookUrl').value.trim();
-                    if (!(ntfyUrl && ntfyTopic) && !(gotifyUrl && gotifyToken) && !webhookUrl) {
+                    // [#259] Telegram and the alert emails are channels too. The
+                    // Telegram boxes are looked up defensively: a cached older
+                    // admin.html does not have them.
+                    var telegramTokenEl = page.querySelector('#cfgTelegramToken');
+                    var telegramChatEl = page.querySelector('#cfgTelegramChat');
+                    var telegramToken = telegramTokenEl ? telegramTokenEl.value.trim() : '';
+                    var telegramChat = telegramChatEl ? telegramChatEl.value.trim() : '';
+                    var alertEmails = page.querySelector('#cfgEmails').value
+                        .split('\n').map(function(s){return s.trim();}).filter(Boolean);
+                    if (!(ntfyUrl && ntfyTopic) && !(gotifyUrl && gotifyToken) && !webhookUrl
+                        && !(telegramToken && telegramChat) && alertEmails.length === 0) {
                         out.style.color = '#f44336';
-                        out.textContent = '✗ ' + _tr('tfa.admin.settings.notify_need_channel', 'Configure ntfy, Gotify or a webhook first.');
+                        out.textContent = '✗ ' + _tr('tfa.admin.settings.notify_need_channel', 'Configure ntfy, Gotify, Telegram, an alert email or a webhook first.');
                         return;
                     }
                     out.style.color = '#888'; out.textContent = _tr('tfa.admin.settings.saving_sending', 'Saving + sending…');
@@ -1213,13 +1247,22 @@
                         c.NtfyPassword = page.querySelector('#cfgNtfyPassword').value;
                         c.GotifyUrl = gotifyUrl;
                         c.GotifyAppToken = gotifyToken;
+                        if (telegramTokenEl) c.TelegramBotToken = telegramToken;
+                        if (telegramChatEl) c.TelegramChatId = telegramChat;
+                        c.NotifyEmailAddresses = alertEmails;
+                        // [#259] The alert emails go out over the SMTP settings,
+                        // so the test uses the ones on screen too.
+                        applySmtpFields(c);
                         c.WebhookUrl = webhookUrl;
                         c.WebhookSecret = page.querySelector('#cfgWebhookSecret').value.trim();
                         c.WebhookHeaders = page.querySelector('#cfgWebhookHeaders').value
                             .split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.AllowPrivateNotificationTargets = page.querySelector('#cfgAllowPrivateNotifTargets').checked;
-                        return ApiClient.updatePluginConfiguration(pluginId, c);
-                    }).then(function() {
+                        return savePluginConfig(c);
+                    }).then(function(r) {
+                        // A refused save (cancelled step-up or any other status)
+                        // ends the test here: it would run on the old settings.
+                        if (!r.ok) return Promise.reject(r);
                         return apiPost('TwoFactorAuth/Admin/WebhookTest');
                     }).then(function(r) {
                         // Partial success is a real outcome now (e.g. webhook
@@ -1314,6 +1357,12 @@
                         page.querySelector('#cfgNtfyPassword').value = c.NtfyPassword || '';
                         page.querySelector('#cfgGotifyUrl').value = c.GotifyUrl || '';
                         page.querySelector('#cfgGotifyToken').value = c.GotifyAppToken || '';
+                        // [#259] Defensive lookups, as for #cfgPairSecondScreen
+                        // below: a cached older admin.html has no Telegram boxes.
+                        var telegramTokenLoadEl = page.querySelector('#cfgTelegramToken');
+                        if (telegramTokenLoadEl) telegramTokenLoadEl.value = c.TelegramBotToken || '';
+                        var telegramChatLoadEl = page.querySelector('#cfgTelegramChat');
+                        if (telegramChatLoadEl) telegramChatLoadEl.value = c.TelegramChatId || '';
                         page.querySelector('#cfgEmails').value = (c.NotifyEmailAddresses || []).join('\n');
                         page.querySelector('#cfgIssuer').value = c.TotpIssuerName || 'Jellyfin';
                         // v1.4 fields
@@ -1429,8 +1478,18 @@
                     var to = page.querySelector('#cfgSmtpTestTo').value.trim();
                     var out = page.querySelector('#smtpTestResult');
                     if (!to) { out.style.color = '#f44336'; out.textContent = _tr('tfa.admin.settings.smtp_need_email', 'Enter an email address.'); return; }
-                    out.style.color = '#888'; out.textContent = _tr('tfa.admin.settings.smtp_sending', 'Sending...');
-                    apiPost('TwoFactorAuth/TestSmtp', { toAddress: to }).then(function(r) {
+                    out.style.color = '#888'; out.textContent = _tr('tfa.admin.settings.saving_sending', 'Saving + sending…');
+                    // [#259] The server sends the test with the saved settings, so
+                    // save the SMTP boxes first, as the notification test does.
+                    // Before, a test run ahead of Save Settings used the last-saved
+                    // values (or none) and only said to check the server log.
+                    ApiClient.getPluginConfiguration(pluginId).then(function(c) {
+                        applySmtpFields(c);
+                        return savePluginConfig(c);
+                    }).then(function(r) {
+                        if (!r.ok) return Promise.reject(r);
+                        return apiPost('TwoFactorAuth/TestSmtp', { toAddress: to });
+                    }).then(function(r) {
                         out.style.color = '#4caf50'; out.textContent = '✓ ' + (r.message || _tr('tfa.admin.common.sent', 'Sent'));
                     }).catch(function(r) {
                         out.style.color = '#f44336';
@@ -1492,13 +1551,7 @@
                             c.OnboardingPasswordRequireSymbol = (page.querySelector('#cfgOnboardingPwSymbol') || {}).checked === true;
                         }
                         c.AuditLogMaxEntries = parseInt(page.querySelector('#cfgAuditMax').value) || 1000;
-                        c.SmtpHost = page.querySelector('#cfgSmtpHost').value.trim();
-                        c.SmtpPort = parseInt(page.querySelector('#cfgSmtpPort').value) || 587;
-                        c.SmtpUseSsl = page.querySelector('#cfgSmtpSsl').checked;
-                        c.SmtpUsername = page.querySelector('#cfgSmtpUser').value;
-                        c.SmtpPassword = page.querySelector('#cfgSmtpPass').value;
-                        c.SmtpFromAddress = page.querySelector('#cfgSmtpFrom').value.trim();
-                        c.SmtpFromName = page.querySelector('#cfgSmtpFromName').value.trim();
+                        applySmtpFields(c);
                         c.NtfyUrl = page.querySelector('#cfgNtfyUrl').value.trim();
                         c.NtfyTopic = page.querySelector('#cfgNtfyTopic').value.trim();
                         // [v2.5.21] (#143) ntfy auth. Password is NOT trimmed —
@@ -1508,6 +1561,10 @@
                         c.NtfyPassword = page.querySelector('#cfgNtfyPassword').value;
                         c.GotifyUrl = page.querySelector('#cfgGotifyUrl').value.trim();
                         c.GotifyAppToken = page.querySelector('#cfgGotifyToken').value.trim();
+                        var telegramTokenSaveEl = page.querySelector('#cfgTelegramToken');
+                        if (telegramTokenSaveEl) c.TelegramBotToken = telegramTokenSaveEl.value.trim();
+                        var telegramChatSaveEl = page.querySelector('#cfgTelegramChat');
+                        if (telegramChatSaveEl) c.TelegramChatId = telegramChatSaveEl.value.trim();
                         c.NotifyEmailAddresses = page.querySelector('#cfgEmails').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.TotpIssuerName = page.querySelector('#cfgIssuer').value.trim() || 'Jellyfin';
                         // v1.4 fields
@@ -1584,10 +1641,7 @@
                         // no UI prompt to verify. stepUpFetch hits the same URL
                         // Jellyfin's ApiClient would; the filter installed on
                         // that route fires identically.
-                        return stepUpFetch('Plugins/' + pluginId + '/Configuration', {
-                            method: 'POST',
-                            body: JSON.stringify(c),
-                        }).then(function(r) {
+                        return savePluginConfig(c).then(function(r) {
                             if (!r.ok) {
                                 var s = page.querySelector('#saveStatus');
                                 s.style.color = '#f44336';

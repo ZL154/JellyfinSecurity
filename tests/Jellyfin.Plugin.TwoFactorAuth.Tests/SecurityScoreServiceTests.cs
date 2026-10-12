@@ -247,6 +247,76 @@ public class SecurityScoreComputeTests
         Assert.True(scoreOn > scoreOff, $"expected {scoreOn} > {scoreOff}");
     }
 
+    // [#259] Alert emails go out now, so they count as a notification channel
+    // once there is an address and SMTP to send with.
+    [Fact]
+    public async Task Alert_emails_with_SMTP_count_as_a_notification_channel()
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.NotifyEmailAddresses = new[] { "admin@example.com" };
+        cfg.SmtpHost = "smtp.example.com";
+        cfg.SmtpFromAddress = "jellyfin@example.com";
+
+        var factor = Assert.Single((await svc.ComputeAsync()).Factors, f => f.Id == "webhook");
+
+        Assert.Equal(5, factor.Earned);
+        Assert.Null(factor.NextAction);
+    }
+
+    [Theory]
+    [InlineData("", "jellyfin@example.com")]
+    [InlineData("smtp.example.com", "")]
+    public async Task Alert_addresses_without_SMTP_do_not_count(string host, string from)
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.NotifyEmailAddresses = new[] { "admin@example.com" };
+        cfg.SmtpHost = host;
+        cfg.SmtpFromAddress = from;
+
+        var factor = Assert.Single((await svc.ComputeAsync()).Factors, f => f.Id == "webhook");
+
+        Assert.Equal(0, factor.Earned);
+        Assert.Equal("tfa.factor.webhook.action", factor.NextActionKey);
+    }
+
+    [Fact]
+    public async Task Telegram_with_a_chat_counts_as_a_notification_channel()
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.TelegramBotToken = "123456789:AAH-fake_token-for-tests";
+        cfg.TelegramChatId = "-1001234567890";
+
+        var factor = Assert.Single((await svc.ComputeAsync()).Factors, f => f.Id == "webhook");
+
+        Assert.Equal(5, factor.Earned);
+    }
+
+    [Fact]
+    public async Task A_Telegram_token_without_a_chat_does_not_count()
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.TelegramBotToken = "123456789:AAH-fake_token-for-tests";
+
+        var factor = Assert.Single((await svc.ComputeAsync()).Factors, f => f.Id == "webhook");
+
+        Assert.Equal(0, factor.Earned);
+    }
+
+    // A setting the channel refuses to send with earns nothing either.
+    [Theory]
+    [InlineData("abc", "-1001234567890")]
+    [InlineData("123456789:AAH-fake_token-for-tests", "my channel")]
+    public async Task A_Telegram_setting_in_the_wrong_shape_does_not_count(string token, string chat)
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.TelegramBotToken = token;
+        cfg.TelegramChatId = chat;
+
+        var factor = Assert.Single((await svc.ComputeAsync()).Factors, f => f.Id == "webhook");
+
+        Assert.Equal(0, factor.Earned);
+    }
+
     [Theory]
     [InlineData(95, "A")]
     [InlineData(90, "A")]

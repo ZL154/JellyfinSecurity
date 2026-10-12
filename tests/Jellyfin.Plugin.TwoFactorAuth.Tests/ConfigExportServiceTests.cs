@@ -95,6 +95,31 @@ public class ConfigExportRedactionTests
         Assert.Equal(1, env.FormatVersion);
     }
 
+    // [#259] The unencrypted export is meant to be shared, so the ntfy and
+    // Telegram credentials stay out of it, and so does the Telegram chat.
+    [Fact]
+    public async Task ConfigOnlyExport_StripsTheNtfyAndTelegramCredentials()
+    {
+        var svc = ConfigExportTestHarness.Build(out var cfg);
+        cfg.NtfyToken = "tk_ntfy-secret";
+        cfg.NtfyPassword = "ntfy-password";
+        cfg.TelegramBotToken = "123456789:AAH-fake_token-for-tests";
+        cfg.TelegramChatId = "123456789";
+
+        var payload = (ConfigExportPayload)(await svc.BuildConfigOnlyExportAsync()).Payload;
+
+        Assert.Equal(string.Empty, payload.Configuration.NtfyToken);
+        Assert.Equal(string.Empty, payload.Configuration.NtfyPassword);
+        Assert.Equal(string.Empty, payload.Configuration.TelegramBotToken);
+        Assert.Equal(string.Empty, payload.Configuration.TelegramChatId);
+        Assert.Contains("NtfyToken", payload.RedactedFields);
+        Assert.Contains("NtfyPassword", payload.RedactedFields);
+        Assert.Contains("TelegramBotToken", payload.RedactedFields);
+        Assert.Contains("TelegramChatId", payload.RedactedFields);
+        // The live configuration keeps them.
+        Assert.Equal("123456789:AAH-fake_token-for-tests", cfg.TelegramBotToken);
+    }
+
     [Fact]
     public async Task ConfigOnlyExport_PreservesNonSecretFields()
     {
