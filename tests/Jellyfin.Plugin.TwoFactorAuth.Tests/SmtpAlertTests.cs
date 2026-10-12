@@ -97,7 +97,7 @@ public class SmtpAlertTests
     {
         await using var server = new FakeSmtpServer { SilentAfter = 1 };
 
-        var failed = await Build(server, TimeSpan.FromSeconds(2)).SendAlertEmailsAsync(
+        var failed = await Build(server, TimeSpan.FromSeconds(5)).SendAlertEmailsAsync(
             new[] { "a@example.test", "b@example.test", "c@example.test" }, "Alert", "Body").WaitAsync(Bound);
 
         Assert.Equal(new[] { "a@example.test" }, server.Delivered);

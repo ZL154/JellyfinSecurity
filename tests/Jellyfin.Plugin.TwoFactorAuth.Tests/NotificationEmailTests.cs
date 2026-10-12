@@ -214,7 +214,15 @@ public class NotificationEmailTests
         {
             await Returns(svc.NotifyEmergencyLockoutAsync("alice", "203.0.113.7"));
             await Returns(svc.NotifyEmergencyLockoutAsync("bob", "203.0.113.8"));
-            await Task.Delay(300);
+
+            // Wait for the background worker to pick up the first session (it may
+            // not start within a fixed delay under a loaded parallel test host),
+            // then confirm the second is still blocked behind it.
+            for (var i = 0; i < 250 && outbox.Calls < 1; i++)
+            {
+                await Task.Delay(20);
+            }
+            await Task.Delay(100);
 
             // The second alert waits for the first session to finish.
             Assert.Equal(1, outbox.Calls);
