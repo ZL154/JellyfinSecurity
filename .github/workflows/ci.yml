@@ -103,6 +103,9 @@ jobs:
       - name: Test OIDC bridge JavaScript
         run: node --test tests/oidc-bridge.test.mjs
 
+      - name: Test account page JavaScript
+        run: node --test tests/sso-account-page.test.mjs
+
       - name: Test with coverage
         run: |
           dotnet test JellyfinSecurity.sln \

@@ -192,6 +192,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// for OIDC-only mode where only IdP provider buttons remain.</summary>
     public bool HideBuiltInPasskeyButton { get; set; }
 
+    /// <summary>[#247] OIDC-only mode for the account page: setup.html hides
+    /// the plugin's own two-factor setup (authenticator app, passkeys, email
+    /// code, "I lost my phone", linked sign-in methods) from users who have a
+    /// linked identity provider and are not administrators, since their
+    /// provider handles sign-in and its second factor. A factor the user
+    /// already has stays visible so it can still be removed. Purely a UI gate,
+    /// like the #48 flags above: the endpoints behind those cards still work.</summary>
+    public bool HideTwoFactorSetupForSsoUsers { get; set; }
+
     /// <summary>v2.4: granular 2FA enforcement scope. Optional (per-user
     /// opt-in), Admins (only admins must have 2FA), or All (everyone).</summary>
     public EnforcementScope EnforcementScope { get; set; } = EnforcementScope.Optional;
