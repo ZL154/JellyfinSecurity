@@ -1119,10 +1119,25 @@
     var _tfaPublicCfgPromise = null;
     function fetchTfaPublicConfig() {
         if (_tfaPublicCfgPromise) return _tfaPublicCfgPromise;
-        _tfaPublicCfgPromise = fetch(serverUrl('TwoFactorAuth/public-config'), { credentials: 'omit' })
-            .then(function (r) { return r.ok ? r.json() : {}; })
+        // [#251] Sent with the page's cookies, like the plugin's other
+        // requests. Without them, an access layer in front of Jellyfin
+        // (forward auth, Cloudflare Access) answered with its own sign-in page
+        // and the login page silently dropped to the default layout: password
+        // form and built-in buttons back, links back under Sign In. The
+        // fallback stays, but now says why in the console.
+        _tfaPublicCfgPromise = fetch(serverUrl('TwoFactorAuth/public-config'))
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json().catch(function () {
+                    throw new Error('not JSON' + (r.redirected ? ', redirected to ' + r.url : ''));
+                });
+            })
             .then(function (j) { _tfaPublicCfg = j || {}; return _tfaPublicCfg; })
-            .catch(function () { _tfaPublicCfg = {}; return _tfaPublicCfg; });
+            .catch(function (e) {
+                console.warn('[2FA] Could not read TwoFactorAuth/public-config (' + ((e && e.message) || e) + '); the login page uses its default layout.');
+                _tfaPublicCfg = {};
+                return _tfaPublicCfg;
+            });
         return _tfaPublicCfgPromise;
     }
 
@@ -1204,8 +1219,10 @@
             var m = panel.querySelector('#__tfa_forgot_msg');
             if (!idv) { m.textContent = T('tfa.login.forgot_enter_id', 'Enter your username or email first.'); return; }
             m.textContent = T('tfa.login.sending', 'Sending…');
+            // [#251] With the page's cookies too, or an access layer in front
+            // keeps the request from reaching Jellyfin.
             fetch(serverUrl('TwoFactorAuth/PasswordReset/Request'), {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'omit',
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ Identifier: idv })
             }).then(function (r) { return r.json().catch(function () { return {}; }); })
               .then(function (j) { m.textContent = (j && j.message) || T('tfa.login.reset_sent', 'If an account exists, a reset link has been sent.'); })
