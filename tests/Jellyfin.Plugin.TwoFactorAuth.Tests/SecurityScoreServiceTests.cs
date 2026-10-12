@@ -212,6 +212,25 @@ public class SecurityScoreComputeTests
     }
 
     [Fact]
+    public async Task PasswordLoginFactor_CountsLettingAppPasswordsThroughAsAnOpenHatch()
+    {
+        // [#248] An app password keeps a sign-in that skips the identity
+        // provider, which is why that setting is off by default.
+        var svc = Build(out _, out var cfg);
+        cfg.DisablePasswordLogin = true;
+        cfg.AllowAdminPasswordLogin = false;
+        cfg.AllowPasswordLoginOnLan = false;
+        cfg.AllowAppPasswordsWhenPasswordLoginDisabled = true;
+        var score = await svc.ComputeAsync();
+
+        var f = Assert.Single(score.Factors, x => x.Id == "password-login-disabled");
+        Assert.Equal(7, f.Earned);
+        Assert.Equal("partial", f.Status);
+        Assert.NotNull(f.NextAction);
+        Assert.Contains("app passwords", f.NextAction!, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PasswordLoginFactor_RaisesTheScoreRatherThanLoweringIt()
     {
         // The whole point of #160: turning the switch on must move the grade UP.

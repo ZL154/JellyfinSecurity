@@ -92,6 +92,11 @@ public class UserTwoFactorStatus
     /// Setup page to render the toggle's initial state and decide whether
     /// to prompt for the current code on factor changes.</summary>
     public bool RequireStepUpForChanges { get; set; }
+
+    /// <summary>[#248] Whether this account may create app passwords: it has a
+    /// factor the self-service step-up can verify (TOTP, a passkey or a linked
+    /// identity provider). Only GET MyStatus fills it.</summary>
+    public bool CanCreateAppPasswords { get; set; }
 }
 
 public class TrustedDeviceWithUser

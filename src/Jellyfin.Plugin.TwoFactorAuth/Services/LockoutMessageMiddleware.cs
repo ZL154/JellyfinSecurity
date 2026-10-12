@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
+using Jellyfin.Plugin.TwoFactorAuth.Models;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -37,6 +38,8 @@ public class LockoutMessageMiddleware
     private readonly UserTwoFactorStore _store;
     private readonly IUserManager _userManager;
     private readonly OidcLoginTokenStore _bridgeTokens;
+    private readonly AppPasswordService _appPasswords;
+    private readonly RateLimiter _rateLimiter;
     private readonly ILogger<LockoutMessageMiddleware> _logger;
 
     public LockoutMessageMiddleware(
@@ -44,12 +47,16 @@ public class LockoutMessageMiddleware
         UserTwoFactorStore store,
         IUserManager userManager,
         OidcLoginTokenStore bridgeTokens,
+        AppPasswordService appPasswords,
+        RateLimiter rateLimiter,
         ILogger<LockoutMessageMiddleware> logger)
     {
         _next = next;
         _store = store;
         _userManager = userManager;
         _bridgeTokens = bridgeTokens;
+        _appPasswords = appPasswords;
+        _rateLimiter = rateLimiter;
         _logger = logger;
     }
 
@@ -119,10 +126,12 @@ public class LockoutMessageMiddleware
         //         could opt out of this server-wide policy simply by choosing a
         //         password that starts with that string.
         //     (b) the configured escape hatches (admin / LAN / exempt CIDRs).
+        //     (c) [#248] an app password, when the admin allowed it.
         //     The plugin's own /TwoFactorAuth/Login page is unaffected either way.
         if (config.DisablePasswordLogin
             && !_bridgeTokens.IsKnownBridgeToken(password)
-            && !IsPasswordLoginExempt(context, config, user))
+            && !IsPasswordLoginExempt(context, config, user)
+            && !await AppPasswordPassesGateAsync(context, config, user, username, password).ConfigureAwait(false))
         {
             _logger.LogWarning("[2FA] Password sign-in refused (DisablePasswordLogin) for '{User}'.", username ?? "(unknown)");
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
@@ -261,6 +270,51 @@ public class LockoutMessageMiddleware
             return true;
         }
     }
+
+    /// <summary>[#248] With AllowAppPasswordsWhenPasswordLoginDisabled on, one of
+    /// the account's app passwords still gets past the gate; the account
+    /// password does not. The provider checks it again and does the sign-in, so
+    /// this only decides whether the gate steps aside. The PBKDF2 work is
+    /// rate-limited per address first, like the provider's own app password
+    /// check. Fails CLOSED, unlike the escape hatches above: on any error the
+    /// gate refuses, as it did before this setting existed.</summary>
+    private async Task<bool> AppPasswordPassesGateAsync(HttpContext context, PluginConfiguration config, Jellyfin.Database.Implementations.Entities.User? user, string? username, string? password)
+    {
+        if (!config.AllowAppPasswordsWhenPasswordLoginDisabled || user is null || string.IsNullOrEmpty(password))
+        {
+            return false;
+        }
+
+        try
+        {
+            var ip = BypassEvaluator.ResolveClientIp(context) ?? "unknown";
+            if (!_rateLimiter.CheckAndRecord("ap_gate:" + ip, 10, TimeSpan.FromMinutes(1)).allowed)
+            {
+                return false;
+            }
+
+            var data = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
+            if (!AppPasswordMayPass(config, data, password, _appPasswords))
+            {
+                return false;
+            }
+
+            _logger.LogInformation("[2FA] App password let through for '{User}' while password sign-in is disabled (AllowAppPasswordsWhenPasswordLoginDisabled).", username ?? "(unknown)");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[2FA] App password check at the password sign-in gate failed; refusing");
+            return false;
+        }
+    }
+
+    /// <summary>[#248] The decision inside <see cref="AppPasswordPassesGateAsync"/>,
+    /// without the rate limit and the store lookup.</summary>
+    internal static bool AppPasswordMayPass(PluginConfiguration config, UserTwoFactorData data, string? password, AppPasswordService appPasswords)
+        => config.AllowAppPasswordsWhenPasswordLoginDisabled
+           && !string.IsNullOrEmpty(password)
+           && appPasswords.FindMatch(password, data.AppPasswords) is not null;
 
     /// <summary>Jellyfin's obsolete by-id password endpoint:
     /// POST /Users/{userId}/Authenticate?pw=... . Tolerates a configured Jellyfin
