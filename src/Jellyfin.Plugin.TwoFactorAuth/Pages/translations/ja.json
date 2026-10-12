@@ -640,6 +640,7 @@
   "tfa.login.oidc_signed_as": "{name} としてサインインしました — Jellyfin を開いています…",
   "tfa.login.oidc_failed": "サインインに失敗しました: {msg}。ボタンをタップして再試行してください。",
   "tfa.login.oidc_expired": "このサインインコードは期限切れか、ブロックされました。これを閉じて、もう一度「プロバイダーでサインイン」をタップしてやり直してください。引き続き失敗する場合は、リバースプロキシ（例: Cloudflare）がリクエストをブロックしている可能性があります。",
+  "tfa.login.oidc_refused": "Jellyfin がここからのこのアカウントのサインインを拒否しました。管理者は「ダッシュボード > ユーザー」で、リモート接続、アカウントの無効化、許可された時間帯、許可されたデバイス、セッション数の上限を確認できます。Jellyfin の前にあるリバースプロキシがリクエストを拒否している可能性もあります。",
   "tfa.admin.sso.lbl_additional_cidrs": "追加で許可する CIDR",
   "tfa.admin.sso.lbl_additional_cidrs_pill": "詳細",
   "tfa.admin.sso.ph_additional_cidrs": "例: 169.254.1.2/32, 10.10.10.0/24",

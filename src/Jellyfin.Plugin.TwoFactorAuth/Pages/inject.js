@@ -1586,7 +1586,21 @@
             headers: { 'Content-Type': 'application/json', 'X-Emby-Authorization': auth, 'Authorization': auth },
             body: JSON.stringify({ Username: user, Pw: token })
         })
-            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (r) {
+                if (r.ok) return r.json();
+                // [#64] Keep the server's reason when it gives one. The plugin
+                // refuses with a JSON message (a blocked address, a network
+                // outside the allowlist); Jellyfin's own refusal has none.
+                return r.text().then(function (text) {
+                    var err = new Error('HTTP ' + r.status);
+                    try {
+                        var body = JSON.parse(text);
+                        var reason = body && (body.message || body.Message);
+                        if (typeof reason === 'string' && reason.trim()) err.serverMessage = reason.trim();
+                    } catch (e) { /* not JSON */ }
+                    throw err;
+                }, function () { throw new Error('HTTP ' + r.status); });
+            })
             .then(function (res) {
                 var address = window.location.origin + jellyfinBasePath();
                 try {
@@ -1632,12 +1646,24 @@
             })
             .catch(function (e) {
                 var msg = (e && e.message ? e.message : 'error');
-                // [v2.5.16] (#64) The bridge token is single-use + short-lived. A
-                // 401/403 here means it was already consumed, has expired, or a
-                // reverse proxy (e.g. Cloudflare) blocked the call — retrying the
-                // SAME token can never succeed, so don't tell the user to "retry".
-                // Steer them to restart, which mints a fresh token via startInAppOidc.
-                if (/HTTP 40[13]/.test(msg)) {
+                // [v2.5.16] (#64) The bridge token is single-use and short-lived,
+                // so a 401 here means it was already consumed or has expired.
+                // Retrying the SAME token can never succeed, so don't tell the
+                // user to "retry": steer them to restart, which mints a fresh
+                // token via startInAppOidc.
+                //
+                // [#64] A 403 is a refusal, and restarting cannot fix it. The
+                // plugin's own refusals carry their reason (serverMessage).
+                // Jellyfin's do not: it answers 403 after accepting the token
+                // when the account may not sign in from here (remote connections
+                // off, a disabled account, outside its allowed hours, a device it
+                // may not use, its session limit). Calling that an expired code
+                // kept #64 looking at Cloudflare while remote access was off.
+                if (/HTTP 403/.test(msg)) {
+                    oidcModalStatus(e && e.serverMessage
+                        ? e.serverMessage
+                        : T('tfa.login.oidc_refused', 'Jellyfin refused this account here. An administrator can check it under Dashboard > Users: remote connections, a disabled account, allowed hours, allowed devices or the session limit. A reverse proxy in front of Jellyfin can also refuse the request.'));
+                } else if (/HTTP 401/.test(msg)) {
                     oidcModalStatus(T('tfa.login.oidc_expired', 'That sign-in code expired or was blocked. Close this and tap “Sign in with your provider” again to restart. If it keeps failing, a reverse proxy (e.g. Cloudflare) may be blocking the request.'));
                 } else {
                     oidcModalStatus(Tf('tfa.login.oidc_failed', 'Sign-in failed: {msg}. Tap the button to retry.', { msg: msg }));

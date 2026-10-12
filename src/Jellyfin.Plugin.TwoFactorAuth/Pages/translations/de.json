@@ -640,6 +640,7 @@
   "tfa.login.oidc_signed_as": "Angemeldet als {name} — Jellyfin wird geöffnet…",
   "tfa.login.oidc_failed": "Anmeldung fehlgeschlagen: {msg}. Tippen Sie auf die Schaltfläche, um es erneut zu versuchen.",
   "tfa.login.oidc_expired": "Dieser Anmeldecode ist abgelaufen oder wurde blockiert. Schließe dies und tippe erneut auf „Mit deinem Anbieter anmelden“, um neu zu starten. Falls es weiterhin fehlschlägt, blockiert möglicherweise ein Reverse-Proxy (z. B. Cloudflare) die Anfrage.",
+  "tfa.login.oidc_refused": "Jellyfin hat dieses Konto hier abgelehnt. Ein Administrator kann es unter Übersicht > Benutzer prüfen: externe Verbindungen, ein deaktiviertes Konto, erlaubte Zeiten, erlaubte Geräte oder das Sitzungslimit. Auch ein Reverse-Proxy vor Jellyfin kann die Anfrage ablehnen.",
   "tfa.admin.sso.lbl_additional_cidrs": "Zusätzlich erlaubte CIDRs",
   "tfa.admin.sso.lbl_additional_cidrs_pill": "Erweitert",
   "tfa.admin.sso.ph_additional_cidrs": "z. B. 169.254.1.2/32, 10.10.10.0/24",

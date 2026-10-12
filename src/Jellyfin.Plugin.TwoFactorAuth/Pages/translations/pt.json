@@ -640,6 +640,7 @@
   "tfa.login.oidc_signed_as": "Conectado como {name} — abrindo o Jellyfin…",
   "tfa.login.oidc_failed": "Falha no login: {msg}. Toque no botão para tentar novamente.",
   "tfa.login.oidc_expired": "Esse código de login expirou ou foi bloqueado. Feche isto e toque novamente em “Entrar com seu provedor” para recomeçar. Se continuar falhando, um proxy reverso (ex.: Cloudflare) pode estar bloqueando a solicitação.",
+  "tfa.login.oidc_refused": "O Jellyfin recusou esta conta aqui. Um administrador pode verificá-la em Painel > Usuários: conexões remotas, conta desativada, horários permitidos, dispositivos permitidos ou limite de sessões. Um proxy reverso na frente do Jellyfin também pode recusar a solicitação.",
   "tfa.admin.sso.lbl_additional_cidrs": "CIDRs adicionais permitidos",
   "tfa.admin.sso.lbl_additional_cidrs_pill": "Avançado",
   "tfa.admin.sso.ph_additional_cidrs": "ex.: 169.254.1.2/32, 10.10.10.0/24",

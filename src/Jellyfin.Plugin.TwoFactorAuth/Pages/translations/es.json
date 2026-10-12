@@ -640,6 +640,7 @@
   "tfa.login.oidc_signed_as": "Sesión iniciada como {name} — abriendo Jellyfin…",
   "tfa.login.oidc_failed": "Error al iniciar sesión: {msg}. Toca el botón para reintentar.",
   "tfa.login.oidc_expired": "Ese código de inicio de sesión caducó o fue bloqueado. Cierra esto y vuelve a tocar «Iniciar sesión con tu proveedor» para reiniciar. Si sigue fallando, puede que un proxy inverso (p. ej. Cloudflare) esté bloqueando la solicitud.",
+  "tfa.login.oidc_refused": "Jellyfin rechazó esta cuenta aquí. Un administrador puede revisarla en Panel de control > Usuarios: conexiones remotas, una cuenta deshabilitada, horarios permitidos, dispositivos permitidos o el límite de sesiones. Un proxy inverso delante de Jellyfin también puede rechazar la solicitud.",
   "tfa.admin.sso.lbl_additional_cidrs": "CIDR adicionales permitidos",
   "tfa.admin.sso.lbl_additional_cidrs_pill": "Avanzado",
   "tfa.admin.sso.ph_additional_cidrs": "p. ej. 169.254.1.2/32, 10.10.10.0/24",
