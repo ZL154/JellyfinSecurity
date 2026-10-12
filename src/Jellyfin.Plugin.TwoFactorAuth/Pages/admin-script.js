@@ -931,15 +931,36 @@
                             });
                         });
                     });
+                    // [#263] Save on change, through stepUpFetch like Save
+                    // Settings (#57). This used to save on every blur through
+                    // ApiClient.updatePluginConfiguration, which turned the
+                    // step-up filter's 403 into an unhandled rejection: with
+                    // step-up covering config changes, the edit was dropped with
+                    // nothing on screen. On change, tabbing through the column
+                    // neither rewrites the configuration nor opens the code
+                    // prompt. A refused save shows the server's reason and puts
+                    // the saved address back.
                     body.querySelectorAll('.tfa-email').forEach(function(input) {
-                        input.addEventListener('blur', function() {
+                        input.addEventListener('change', function() {
+                            var uid = input.dataset.uid;
+                            var saved = input.defaultValue;
                             ApiClient.getPluginConfiguration(pluginId).then(function(cfg) {
-                                cfg.UserEmails = cfg.UserEmails || [];
-                                var uid = input.dataset.uid;
-                                cfg.UserEmails = cfg.UserEmails.filter(function(e) { return ((e.UserId || e.userId || '').toLowerCase() !== uid.toLowerCase()); });
+                                cfg.UserEmails = (cfg.UserEmails || []).filter(function(e) { return ((e.UserId || e.userId || '').toLowerCase() !== uid.toLowerCase()); });
                                 var v = input.value.trim();
                                 if (v) cfg.UserEmails.push({ UserId: uid, Email: v });
-                                return ApiClient.updatePluginConfiguration(pluginId, cfg);
+                                return stepUpFetch('Plugins/' + pluginId + '/Configuration', {
+                                    method: 'POST',
+                                    body: JSON.stringify(cfg),
+                                });
+                            }).then(function(r) {
+                                if (!r.ok) return Promise.reject(r);
+                                input.value = input.value.trim();
+                                input.defaultValue = input.value;
+                            }).catch(function(err) {
+                                input.value = saved;
+                                failureMessage(err).then(function(why) {
+                                    alert(_tr('tfa.admin.common.save_failed', 'Save failed') + (why ? ': ' + why : ''));
+                                });
                             });
                         });
                     });
