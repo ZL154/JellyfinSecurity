@@ -71,6 +71,40 @@ public class AuthenticationEventHandlerTests
         Assert.Matches(@"^_bypassEvaluator\.Evaluate\(\s*info\.RemoteEndPoint,\s*forwardedFor,", decision);
     }
 
+    [Fact]
+    public void The_bypass_decision_gets_the_trusted_device_token()
+    {
+        // #273: the device token went in as null, so a trusted device could
+        // never match here. The handler blocked the new access token while the
+        // response middleware, which does read X-TwoFactor-Token, let the
+        // sign-in through, and the client got a 200 whose token every later
+        // request was refused with.
+        var decision = CallBlock(SourceFile(HandlerPath), "_bypassEvaluator.Evaluate(");
+
+        Assert.Matches(
+            @"^_bypassEvaluator\.Evaluate\(\s*info\.RemoteEndPoint,\s*forwardedFor,\s*twoFactorToken,\s*info\.DeviceId,",
+            decision);
+    }
+
+    [Fact]
+    public void The_trusted_device_token_is_read_before_the_request_ends()
+    {
+        // HandleSessionAsync runs on Task.Run and can outlive the request, and
+        // with it HttpContext; the X-Forwarded-For snapshot exists for the same
+        // reason. Read there, the header would reach the evaluator as null, and
+        // so would a snapshot the hand-off does not pass on.
+        var handler = SourceFile(HandlerPath);
+        var start = handler.IndexOf("private void OnSessionStarted(", StringComparison.Ordinal);
+        Assert.True(start >= 0, "OnSessionStarted should still be in the handler");
+        var handOff = handler.IndexOf("Task.Run(", start, StringComparison.Ordinal);
+        Assert.True(handOff > start, "OnSessionStarted should still hand the work to Task.Run");
+        var end = handler.IndexOf("private async Task HandleSessionAsync(", handOff, StringComparison.Ordinal);
+        Assert.True(end > handOff, "HandleSessionAsync should still follow OnSessionStarted");
+
+        Assert.Contains("Headers[\"X-TwoFactor-Token\"]", handler[start..handOff], StringComparison.Ordinal);
+        Assert.Contains("HandleSessionAsync(info, forwardedFor, twoFactorToken)", handler[handOff..end], StringComparison.Ordinal);
+    }
+
     private const string HandlerPath = "src/Jellyfin.Plugin.TwoFactorAuth/Services/AuthenticationEventHandler.cs";
 
     private static string CallBlock(string source, string call)
