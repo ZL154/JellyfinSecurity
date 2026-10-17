@@ -90,6 +90,9 @@ public class AuthenticationEventHandler : IHostedService
         // was treated as a LAN client regardless of the real upstream
         // client IP, silently skipping 2FA for users behind a proxy.
         string? forwardedFor = null;
+        string? twoFactorToken = null;
+        string? requestToken = null;
+        string? requestDeviceId = null;
         var httpContext = _httpContextAccessor.HttpContext;
         if (httpContext is not null)
         {
@@ -98,13 +101,41 @@ public class AuthenticationEventHandler : IHostedService
             {
                 forwardedFor = xff;
             }
+
+            // [#273] The trusted-device token, for the same reason. The
+            // response middleware reads this header and lets a trusted sign-in
+            // through; deciding without it, this handler could never match the
+            // device and blocked the access token that very response hands
+            // out. Read the same way the middleware reads it.
+            twoFactorToken = httpContext.Request.Headers["X-TwoFactor-Token"].FirstOrDefault();
+
+            // The access token this request runs on, and the DeviceId it
+            // claims, also read now. Jellyfin's device record keeps the
+            // DeviceId a token was created with, and some native clients send
+            // another one later, so the DeviceId lookup below can miss the
+            // token in use. A sign-in request carries no token (or an old one):
+            // its new token is only in the device record, so it keeps that
+            // lookup. The token is read the way RequestBlockerMiddleware reads
+            // it, so what this handler blocks is what the blocker refuses, and
+            // the DeviceId the way Jellyfin reads it, so the handler can tell
+            // whether this request is the session's own (see
+            // SelectSessionAccessToken).
+            if (!TwoFactorEnforcementMiddleware.IsAuthPath(httpContext.Request.Path.Value ?? string.Empty))
+            {
+                requestToken = RequestBlockerMiddleware.GetAccessToken(httpContext);
+                requestDeviceId = TwoFactorAuthProvider.ResolveDeviceHeaderValue(
+                    httpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault(),
+                    httpContext.Request.Headers["X-Emby-Authorization"].FirstOrDefault(),
+                    httpContext.Request.Headers["Authorization"].FirstOrDefault(),
+                    "DeviceId");
+            }
         }
 
         _ = Task.Run(async () =>
         {
             try
             {
-                await HandleSessionAsync(info, forwardedFor).ConfigureAwait(false);
+                await HandleSessionAsync(info, forwardedFor, twoFactorToken, requestToken, requestDeviceId).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -113,7 +144,12 @@ public class AuthenticationEventHandler : IHostedService
         });
     }
 
-    private async Task HandleSessionAsync(SessionInfo info, string? forwardedFor)
+    private async Task HandleSessionAsync(
+        SessionInfo info,
+        string? forwardedFor,
+        string? twoFactorToken,
+        string? requestToken,
+        string? requestDeviceId)
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null || !config.Enabled)
@@ -150,7 +186,9 @@ public class AuthenticationEventHandler : IHostedService
         try
         {
             var devices = _deviceManager.GetDevices(new DeviceQuery { UserId = info.UserId });
-            approvedToken = SelectMostRecentAccessToken(
+            approvedToken = SelectSessionAccessToken(
+                requestToken,
+                requestDeviceId,
                 info.DeviceId,
                 devices.Items.Select(d => (d.DeviceId, d.AccessToken, d.DateLastActivity)));
         }
@@ -390,13 +428,15 @@ public class AuthenticationEventHandler : IHostedService
         var activeRegisteredIds = maxAgeDays > 0
             ? FilterActiveRegisteredDeviceIds(userData.RegisteredDeviceIds, userData.RegisteredDeviceEntries, maxAgeDays)
             : userData.RegisteredDeviceIds;
-        // forwardedFor was captured synchronously in OnSessionStarted (see
-        // there) so BypassEvaluator can walk X-Forwarded-For right-to-left
-        // and resolve the real client IP behind a trusted reverse proxy.
+        // forwardedFor and twoFactorToken were captured synchronously in
+        // OnSessionStarted (see there). The first lets BypassEvaluator walk
+        // X-Forwarded-For right-to-left and resolve the real client IP behind
+        // a trusted reverse proxy; the second lets it match a trusted device,
+        // as TwoFactorAuthProvider and the response middleware already do.
         var bypass = _bypassEvaluator.Evaluate(
             info.RemoteEndPoint,
             forwardedFor,
-            null,
+            twoFactorToken,
             info.DeviceId,
             null,
             userData.TrustedDevices,
@@ -488,6 +528,11 @@ public class AuthenticationEventHandler : IHostedService
             _logger.LogDebug("[2FA] {Name} SessionStarted on previously-verified token — reconnect, session allowed",
                 info.UserName);
             _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
+            // Renew the mark, so its 30 days run from the last use and not from
+            // the sign-in. Left alone, a TV in daily use met the challenge again
+            // (blocked, then logged out) a month after signing in; the TTL is
+            // there for long-abandoned sessions.
+            _challengeStore.MarkTokenVerified(approvedToken);
             await _store.AddAuditEntryAsync(new AuditEntry
             {
                 Timestamp = DateTime.UtcNow,
@@ -631,6 +676,48 @@ public class AuthenticationEventHandler : IHostedService
             }
         }
         return result;
+    }
+
+    /// <summary>
+    /// The access token a session runs on. When the session is the request's
+    /// own (the request claims the session's DeviceId), the token it carries
+    /// names the session's token outright, which is the only way to find it
+    /// once the client sends a DeviceId other than the one Jellyfin recorded
+    /// for the token. Otherwise the newest record for the session's DeviceId
+    /// is used: a sign-in carries no token, and a session opened on behalf of
+    /// another device (Quick Connect opens the TV's inside the phone's
+    /// Authorize request) is not the requester's. A request token the user's
+    /// device records do not hold (an API key, for one) is not this handler's
+    /// to approve, verify or block.
+    /// </summary>
+    internal static string? SelectSessionAccessToken(
+        string? requestToken,
+        string? requestDeviceId,
+        string? sessionDeviceId,
+        IEnumerable<(string DeviceId, string AccessToken, DateTime DateLastActivity)> candidates)
+    {
+        var records = candidates.ToList();
+        if (!string.IsNullOrEmpty(requestToken)
+            && NamesSession(requestDeviceId, sessionDeviceId)
+            && records.Any(r => string.Equals(r.AccessToken, requestToken, StringComparison.Ordinal)))
+        {
+            return requestToken;
+        }
+
+        return SelectMostRecentAccessToken(sessionDeviceId, records);
+    }
+
+    // The session holds the DeviceId as Jellyfin decoded it from the header;
+    // the raw header value may still be percent-encoded.
+    private static bool NamesSession(string? requestDeviceId, string? sessionDeviceId)
+    {
+        if (string.IsNullOrWhiteSpace(requestDeviceId) || string.IsNullOrWhiteSpace(sessionDeviceId))
+        {
+            return false;
+        }
+
+        return string.Equals(requestDeviceId, sessionDeviceId, StringComparison.Ordinal)
+            || string.Equals(Uri.UnescapeDataString(requestDeviceId), sessionDeviceId, StringComparison.Ordinal);
     }
 
     /// <summary>
