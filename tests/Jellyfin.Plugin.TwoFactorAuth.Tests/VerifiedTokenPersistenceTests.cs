@@ -44,15 +44,16 @@ public class VerifiedTokenPersistenceTests
     [Fact]
     public void Disposing_writes_the_marks_that_have_not_reached_the_disk()
     {
-        // Jellyfin disposes this singleton when it shuts down. With a long
-        // window nothing else would write the second mark before the restart.
+        // Jellyfin disposes this singleton when it shuts down; here the end of
+        // the using block does. With a long window nothing else would write
+        // the second mark before the restart.
         var paths = TestApplicationPaths.Create();
-        var store = New(paths, TimeSpan.FromMinutes(10));
-
-        store.MarkVerified("first-token");
-        Assert.True(Eventually(() => VerifiedAfterRestart(paths, "first-token")));
-        store.MarkVerified("second-token");
-        store.Dispose();
+        using (var store = New(paths, TimeSpan.FromMinutes(10)))
+        {
+            store.MarkVerified("first-token");
+            Assert.True(Eventually(() => VerifiedAfterRestart(paths, "first-token")));
+            store.MarkVerified("second-token");
+        }
 
         Assert.True(VerifiedAfterRestart(paths, "first-token"));
         Assert.True(VerifiedAfterRestart(paths, "second-token"));
