@@ -47,7 +47,7 @@
 
   <ItemGroup>
     <PackageReference Include="Otp.NET" Version="1.4.1" />
-    <PackageReference Include="QRCoder" Version="1.8.0" />
+    <PackageReference Include="QRCoder" Version="1.8.1" />
     <!-- Issue #29: MailKit replaces System.Net.Mail.SmtpClient for SMTP. The
          BCL client only supports STARTTLS (port 587) — it silently fails on
          port 465 (Implicit TLS / SMTPS) because EnableSsl=true sends EHLO in
