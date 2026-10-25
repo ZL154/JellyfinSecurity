@@ -165,6 +165,18 @@ public class SsoLink
     /// Jellyfin avatar for this link. Lets the sign-in path skip re-downloading
     /// an unchanged avatar on every login. Null = never synced.</summary>
     public string? SyncedPictureUrl { get; set; }
+
+    /// <summary>[#286]: the HTTP ETag of the image last synced from
+    /// <see cref="SyncedPictureUrl"/>. A repeat sign-in revalidates with
+    /// If-None-Match, so an IdP that serves an updated picture at the same URL
+    /// (e.g. Pocket ID) answers 304 when nothing changed and 200 when it did.
+    /// Null = no validator stored.</summary>
+    public string? SyncedPictureETag { get; set; }
+
+    /// <summary>[#286]: SHA-256 (hex) of the image bytes last written to the
+    /// Jellyfin avatar. Backstop for IdPs that send no ETag: a same-URL image
+    /// is only re-saved when its content hash actually differs.</summary>
+    public string? SyncedPictureHash { get; set; }
 }
 
 /// <summary>Cached geo for impossible-travel detection. Lat/lon may be 0 if
