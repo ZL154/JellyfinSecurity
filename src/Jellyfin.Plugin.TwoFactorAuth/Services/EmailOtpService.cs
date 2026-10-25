@@ -105,17 +105,19 @@ public class EmailOtpService
     private readonly ConcurrentDictionary<Guid, EmailOtpEntry> _stepUpCodes = new();
 
     /// <summary>[v2.5.6] (round-5d): generate + send an email step-up code
-    /// to the user's configured email. Returns true on successful send,
-    /// false if SMTP isn't configured / send failed / rate-limited.</summary>
-    public async Task<bool> SendStepUpCodeAsync(Guid userId, string username, string email)
+    /// to the user's configured email. Returns (sent, code): sent is true on a
+    /// successful email send; code is the plaintext (empty when rate-limited) so
+    /// the caller can also deliver it over another channel such as Telegram
+    /// ([#285]). The caller must not surface the code to anyone but the owner.</summary>
+    public async Task<(bool Sent, string Code)> SendStepUpCodeAsync(Guid userId, string username, string email)
     {
         CleanupExpired();
         if (!CheckRateLimit(userId))
         {
             _logger.LogWarning("Email step-up rate limit exceeded for {Username}", username);
-            return false;
+            return (false, string.Empty);
         }
-        if (string.IsNullOrEmpty(email)) return false;
+
         var code = RandomNumberGenerator.GetInt32(10_000_000, 100_000_000).ToString("D8", CultureInfo.InvariantCulture);
         var ttlSeconds = Plugin.Instance?.Configuration.EmailOtpTtlSeconds ?? 300;
         var now = DateTime.UtcNow;
@@ -128,7 +130,12 @@ public class EmailOtpService
             IsUsed = false,
         };
         RecordSend(userId, now);
-        return await TrySendEmailAsync(email, username, code, ttlSeconds).ConfigureAwait(false);
+
+        // The code is stored above, so even with no email address (Telegram-only
+        // user) it can still be delivered by the caller and validated later.
+        var sent = !string.IsNullOrEmpty(email)
+            && await TrySendEmailAsync(email, username, code, ttlSeconds).ConfigureAwait(false);
+        return (sent, code);
     }
 
     /// <summary>[v2.5.6] (round-5d): validate + consume the user's step-up
@@ -143,6 +150,65 @@ public class EmailOtpService
         if (!CryptographicOperations.FixedTimeEquals(entry.CodeHash, submitted)) return false;
         // Atomic single-use removal — same pattern as ValidateCode (N-A1).
         return _stepUpCodes.TryRemove(userId, out _);
+    }
+
+    // [#285] Pending Telegram chat links: a code BOUND to the candidate chat it
+    // was sent to, so confirming proves control of THAT chat (a user can't get a
+    // code delivered to chat A then confirm chat B). Keyed by userId, single
+    // entry per user, 5-minute TTL; only the HMAC of the code is kept, like
+    // every other OTP here. The controller delivers it through
+    // NotificationService — this service must not depend on that one.
+    private sealed class TelegramLinkPending
+    {
+        public byte[] CodeHash { get; init; } = Array.Empty<byte>();
+
+        public string ChatId { get; init; } = string.Empty;
+
+        public DateTime ExpiresAt { get; init; }
+    }
+
+    private readonly ConcurrentDictionary<Guid, TelegramLinkPending> _telegramLinkCodes = new();
+
+    /// <summary>[#285] Issue a 6-digit code to confirm a Telegram chat link,
+    /// bound to <paramref name="chatId"/>. The caller delivers it to that chat;
+    /// a user who reads it back controls the chat. Shares the OTP rate limit so
+    /// it can't be used to spam a chat. Returns the plaintext (empty when
+    /// rate-limited).</summary>
+    public string GenerateTelegramLinkCode(Guid userId, string chatId)
+    {
+        CleanupExpired();
+        if (!CheckRateLimit(userId))
+        {
+            _logger.LogWarning("[2FA] Telegram link-code rate limit exceeded for {UserId}", userId);
+            return string.Empty;
+        }
+
+        var code = RandomNumberGenerator.GetInt32(100_000, 1_000_000).ToString("D6", CultureInfo.InvariantCulture);
+        _telegramLinkCodes[userId] = new TelegramLinkPending
+        {
+            CodeHash = HashOtp(code),
+            ChatId = chatId,
+            ExpiresAt = DateTime.UtcNow.AddSeconds(300),
+        };
+        RecordSend(userId, DateTime.UtcNow);
+        return code;
+    }
+
+    /// <summary>[#285] Validate + consume a Telegram link code. Constant-time,
+    /// single-use. Returns the bound chat ID on success (so the caller stores
+    /// exactly the chat the code was sent to), or null on any mismatch/expiry.</summary>
+    public string? ConfirmTelegramLinkCode(Guid userId, string code)
+    {
+        if (!_telegramLinkCodes.TryGetValue(userId, out var entry)) return null;
+        if (DateTime.UtcNow > entry.ExpiresAt)
+        {
+            _telegramLinkCodes.TryRemove(userId, out _);
+            return null;
+        }
+
+        var submitted = HashOtp(code ?? string.Empty);
+        if (!CryptographicOperations.FixedTimeEquals(entry.CodeHash, submitted)) return null;
+        return _telegramLinkCodes.TryRemove(userId, out var confirmed) ? confirmed.ChatId : null;
     }
 
     /// <summary>
@@ -472,6 +538,15 @@ public class EmailOtpService
             if (kvp.Value.ExpiresAt < now || kvp.Value.IsUsed)
             {
                 _pendingCodes.TryRemove(kvp.Key, out _);
+            }
+        }
+
+        // [#285] Same sweep for pending Telegram link codes.
+        foreach (var kvp in _telegramLinkCodes)
+        {
+            if (kvp.Value.ExpiresAt < now)
+            {
+                _telegramLinkCodes.TryRemove(kvp.Key, out _);
             }
         }
 

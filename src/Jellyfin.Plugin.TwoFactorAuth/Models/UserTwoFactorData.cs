@@ -24,6 +24,13 @@ public class UserTwoFactorData
 
     public bool EmailOtpPreferred { get; set; }
 
+    /// <summary>[#285] The user's own Telegram chat ID, confirmed by a code sent
+    /// to it (see <c>TelegramLinkStore</c>). When set, login and step-up OTPs
+    /// are also delivered here, so a user is not locked out when email is down.
+    /// Numeric (negative for groups); empty = not linked. Per-user, never the
+    /// global admin alert chat, so a code reaches only its owner.</summary>
+    public string TelegramChatId { get; set; } = string.Empty;
+
     public List<TrustedDevice> TrustedDevices { get; set; } = new();
 
     public List<string> RegisteredDeviceIds { get; set; } = new();

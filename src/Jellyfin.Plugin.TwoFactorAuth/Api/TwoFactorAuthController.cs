@@ -2583,6 +2583,122 @@ public class TwoFactorAuthController : ControllerBase
         return Ok(new { email });
     }
 
+    // =========================================================================
+    // [#285] Per-user Telegram as an OTP delivery channel. A user links their
+    // OWN chat (never the global admin alert chat), confirmed by a code sent to
+    // it, so a login/step-up code reaches only the account owner — a fallback
+    // for when email is down.
+    // =========================================================================
+
+    /// <summary>[#285] Deliver an OTP to the user's linked Telegram chat, if any.
+    /// No-op when unlinked, when Telegram isn't configured, or on any send error
+    /// — it is purely additive to email and must never fail the caller.</summary>
+    private async Task<bool> DeliverOtpViaTelegramAsync(Guid userId, string code, string purpose)
+    {
+        if (string.IsNullOrEmpty(code)) return false;
+        try
+        {
+            var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(data.TelegramChatId)) return false;
+            var ttlSeconds = Plugin.Instance?.Configuration.EmailOtpTtlSeconds ?? 300;
+            var text = $"Your {purpose} code is: {code}\n\nIt expires in about {Math.Max(1, ttlSeconds / 60)} minute(s). If you didn't just try to sign in, ignore this message.";
+            var (ok, _) = await _notificationService.SendTelegramDirectAsync(data.TelegramChatId, text).ConfigureAwait(false);
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[2FA] Telegram OTP delivery failed for {UserId}", userId);
+            return false;
+        }
+    }
+
+    [HttpGet("Telegram")]
+    [Authorize]
+    public async Task<IActionResult> GetMyTelegram()
+    {
+        var userId = GetCurrentUserId();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var linked = !string.IsNullOrEmpty(data.TelegramChatId);
+        return Ok(new
+        {
+            linked,
+            chatIdMasked = linked ? MaskChatId(data.TelegramChatId) : string.Empty,
+            // The user can only link a chat once the admin has configured the bot.
+            botConfigured = !string.IsNullOrWhiteSpace(Plugin.Instance?.Configuration.TelegramBotToken),
+        });
+    }
+
+    [HttpPost("Telegram/Link")]
+    [Authorize]
+    public async Task<IActionResult> LinkTelegram([FromBody, Required] LinkTelegramRequest req)
+    {
+        var userId = GetCurrentUserId();
+        var chatId = req.ChatId?.Trim() ?? string.Empty;
+        if (string.IsNullOrEmpty(chatId))
+        {
+            return BadRequest(new { message = "Enter your Telegram chat ID." });
+        }
+
+        if (string.IsNullOrWhiteSpace(Plugin.Instance?.Configuration.TelegramBotToken))
+        {
+            return BadRequest(new { message = "Telegram is not configured on this server. Ask your administrator to set a bot token." });
+        }
+
+        // Issue a code BOUND to this chat, then send it there. Reading it back
+        // (next call) proves the user controls this chat.
+        var code = _emailOtpService.GenerateTelegramLinkCode(userId, chatId);
+        if (string.IsNullOrEmpty(code))
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { message = "Too many attempts. Try again in a few minutes." });
+        }
+
+        var username = _userManager.GetUserById(userId)?.Username ?? string.Empty;
+        var (ok, error) = await _notificationService.SendTelegramDirectAsync(
+            chatId,
+            $"Jellyfin Security: your confirmation code is {code}\n\nEnter it on the Telegram link screen to receive your sign-in codes here. It expires in 5 minutes. If you didn't request this, ignore it.").ConfigureAwait(false);
+
+        if (!ok)
+        {
+            _logger.LogInformation("[2FA] Telegram link send failed for {User}: {Error}", username, error);
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = error ?? "Could not send the confirmation message. Check the chat ID." });
+        }
+
+        return Ok(new { sent = true });
+    }
+
+    [HttpPost("Telegram/Confirm")]
+    [Authorize]
+    public async Task<IActionResult> ConfirmTelegram([FromBody, Required] ConfirmTelegramRequest req)
+    {
+        var userId = GetCurrentUserId();
+        var code = req.Code?.Trim() ?? string.Empty;
+        var chatId = _emailOtpService.ConfirmTelegramLinkCode(userId, code);
+        if (chatId is null)
+        {
+            return Unauthorized(new { message = "That code is wrong or has expired. Start again." });
+        }
+
+        await _store.MutateAsync(userId, ud => ud.TelegramChatId = chatId).ConfigureAwait(false);
+        _logger.LogInformation("[2FA] Telegram chat linked for user {UserId}", userId);
+        return Ok(new { linked = true, chatIdMasked = MaskChatId(chatId) });
+    }
+
+    [HttpDelete("Telegram")]
+    [Authorize]
+    public async Task<IActionResult> UnlinkTelegram()
+    {
+        var userId = GetCurrentUserId();
+        await _store.MutateAsync(userId, ud => ud.TelegramChatId = string.Empty).ConfigureAwait(false);
+        return Ok(new { linked = false });
+    }
+
+    private static string MaskChatId(string chatId)
+    {
+        if (string.IsNullOrEmpty(chatId)) return string.Empty;
+        if (chatId.Length <= 4) return new string('•', chatId.Length);
+        return new string('•', chatId.Length - 4) + chatId[^4..];
+    }
+
     /// <summary>[v2.5.6] (round-5 fix D): per-user toggle for the
     /// hardened-security step-up gate. Only meaningful when the admin's
     /// SelfServiceStepUpMode is UserChoice — Forced overrides this on
@@ -3025,11 +3141,18 @@ public class TwoFactorAuthController : ControllerBase
         // Per-user email address from plugin config (admin sets these)
         var email = Plugin.Instance?.Configuration.GetUserEmail(challenge.UserId.ToString("N"));
 
-        var (_, sent) = await _emailOtpService.GenerateAndSendCodeAsync(
+        var (otpCode, sent) = await _emailOtpService.GenerateAndSendCodeAsync(
             challenge.UserId,
             challenge.Username,
             email,
             request.ChallengeToken).ConfigureAwait(false);
+
+        // [#285] Deliver the SAME code to the user's own linked Telegram chat,
+        // so a dead mail server (the issue's exact case) doesn't lock them out.
+        // A user with Telegram but no email now still receives a code. The
+        // generic response below is unchanged — no oracle about which channels
+        // a user has.
+        await DeliverOtpViaTelegramAsync(challenge.UserId, otpCode, "sign-in").ConfigureAwait(false);
 
         // SEC v2.4 H1: generic response regardless of whether email was
         // configured or SMTP send failed. Previously the message text told
@@ -4149,13 +4272,17 @@ public class TwoFactorAuthController : ControllerBase
         if (cfg is null || !cfg.EmailOtpEnabled)
             return BadRequest(new { message = "Email OTP is disabled on this server." });
         var email = cfg.GetUserEmail(userId.ToString("N"));
-        if (string.IsNullOrEmpty(email))
-            return BadRequest(new { message = "No email configured for your account." });
+        // [#285] A Telegram-linked user can get the step-up code without email.
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var hasTelegram = !string.IsNullOrEmpty(data.TelegramChatId);
+        if (string.IsNullOrEmpty(email) && !hasTelegram)
+            return BadRequest(new { message = "No email or linked Telegram configured for your account." });
         var jellyfinUser = _userManager.GetUserById(userId);
         var username = jellyfinUser?.Username ?? userId.ToString();
-        var sent = await _emailOtpService.SendStepUpCodeAsync(userId, username, email).ConfigureAwait(false);
-        if (!sent)
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Failed to send email. Check SMTP configuration." });
+        var (emailSent, code) = await _emailOtpService.SendStepUpCodeAsync(userId, username, email ?? string.Empty).ConfigureAwait(false);
+        var telegramSent = await DeliverOtpViaTelegramAsync(userId, code, "verification").ConfigureAwait(false);
+        if (!emailSent && !telegramSent)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Failed to send the code. Check SMTP configuration or your linked Telegram chat." });
         return Ok(new { sent = true });
     }
 
