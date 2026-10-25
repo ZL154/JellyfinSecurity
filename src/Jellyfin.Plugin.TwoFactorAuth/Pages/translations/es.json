@@ -889,5 +889,19 @@
   "tfa.setpassword.error_network": "Error de red. Inténtalo de nuevo.",
   "tfa.setpassword.error_logout": "No se pudo cerrar la sesión. Inténtalo de nuevo.",
   "tfa.factor.password_login_disabled.label": "Inicio de sesión con contraseña desactivado (solo SSO)",
-  "tfa.factor.password_login_disabled.action": "El inicio de sesión con contraseña está desactivado, pero sigue permitido para {hatches}. Cierre esas exenciones para obtener la puntuación completa."
+  "tfa.factor.password_login_disabled.action": "El inicio de sesión con contraseña está desactivado, pero sigue permitido para {hatches}. Cierre esas exenciones para obtener la puntuación completa.",
+  "tfa.setup.telegram.heading": "Códigos de Telegram",
+  "tfa.setup.telegram.desc": "Opcional. Recibe tus códigos de inicio de sesión de un solo uso en Telegram, útil si el correo deja de funcionar. Escribe al bot de tu servidor y luego pega el ID de chat que indique (por ejemplo, de @userinfobot).",
+  "tfa.setup.telegram.placeholder": "p. ej. 123456789",
+  "tfa.setup.telegram.code_placeholder": "Código de 6 dígitos",
+  "tfa.setup.telegram.btn_send": "Enviar código",
+  "tfa.setup.telegram.btn_confirm": "Confirmar",
+  "tfa.setup.telegram.btn_unlink": "Desvincular",
+  "tfa.setup.telegram.linked": "Chat vinculado:",
+  "tfa.setup.telegram.need_id": "Primero introduce tu ID de chat de Telegram.",
+  "tfa.setup.telegram.code_sent": "Código enviado a ese chat. Introdúcelo abajo para terminar.",
+  "tfa.setup.telegram.send_failed": "No se pudo enviar el código: comprueba el ID de chat.",
+  "tfa.setup.telegram.linked_ok": "Telegram vinculado. Los códigos de inicio de sesión también se enviarán aquí.",
+  "tfa.setup.telegram.bad_code": "Ese código es incorrecto o ha caducado. Empieza de nuevo.",
+  "tfa.setup.telegram.unlinked": "Telegram desvinculado."
 }

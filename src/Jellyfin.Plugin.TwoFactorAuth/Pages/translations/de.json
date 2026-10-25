@@ -889,5 +889,19 @@
   "tfa.setpassword.error_network": "Netzwerkfehler. Bitte versuchen Sie es erneut.",
   "tfa.setpassword.error_logout": "Abmeldung fehlgeschlagen. Bitte versuchen Sie es erneut.",
   "tfa.factor.password_login_disabled.label": "Passwort-Anmeldung deaktiviert (nur SSO)",
-  "tfa.factor.password_login_disabled.action": "Die Passwort-Anmeldung ist deaktiviert, aber weiterhin erlaubt für {hatches}. Schließen Sie diese Ausnahmen für die volle Punktzahl."
+  "tfa.factor.password_login_disabled.action": "Die Passwort-Anmeldung ist deaktiviert, aber weiterhin erlaubt für {hatches}. Schließen Sie diese Ausnahmen für die volle Punktzahl.",
+  "tfa.setup.telegram.heading": "Telegram-Codes",
+  "tfa.setup.telegram.desc": "Optional. Erhalte deine Einmal-Anmeldecodes über Telegram — praktisch, falls die E-Mail einmal ausfällt. Schreibe dem Bot deines Servers und füge dann die Chat-ID ein, die er meldet (z. B. von @userinfobot).",
+  "tfa.setup.telegram.placeholder": "z. B. 123456789",
+  "tfa.setup.telegram.code_placeholder": "6-stelliger Code",
+  "tfa.setup.telegram.btn_send": "Code senden",
+  "tfa.setup.telegram.btn_confirm": "Bestätigen",
+  "tfa.setup.telegram.btn_unlink": "Trennen",
+  "tfa.setup.telegram.linked": "Verknüpfter Chat:",
+  "tfa.setup.telegram.need_id": "Gib zuerst deine Telegram-Chat-ID ein.",
+  "tfa.setup.telegram.code_sent": "Code an diesen Chat gesendet. Gib ihn unten ein, um abzuschließen.",
+  "tfa.setup.telegram.send_failed": "Code konnte nicht gesendet werden — prüfe die Chat-ID.",
+  "tfa.setup.telegram.linked_ok": "Telegram verknüpft. Anmeldecodes werden auch hierher gesendet.",
+  "tfa.setup.telegram.bad_code": "Dieser Code ist falsch oder abgelaufen. Beginne erneut.",
+  "tfa.setup.telegram.unlinked": "Telegram getrennt."
 }

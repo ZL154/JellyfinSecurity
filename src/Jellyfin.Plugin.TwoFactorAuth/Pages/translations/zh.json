@@ -889,5 +889,19 @@
   "tfa.setpassword.error_network": "网络错误。请重试。",
   "tfa.setpassword.error_logout": "无法退出。请重试。",
   "tfa.factor.password_login_disabled.label": "已禁用密码登录（仅限 SSO）",
-  "tfa.factor.password_login_disabled.action": "密码登录已禁用，但仍允许 {hatches} 使用。关闭这些例外以获得满分。"
+  "tfa.factor.password_login_disabled.action": "密码登录已禁用，但仍允许 {hatches} 使用。关闭这些例外以获得满分。",
+  "tfa.setup.telegram.heading": "Telegram 验证码",
+  "tfa.setup.telegram.desc": "可选。通过 Telegram 接收一次性登录验证码——在邮件不可用时很有用。给你服务器的机器人发送消息，然后粘贴它显示的聊天 ID（例如来自 @userinfobot）。",
+  "tfa.setup.telegram.placeholder": "例如 123456789",
+  "tfa.setup.telegram.code_placeholder": "6 位验证码",
+  "tfa.setup.telegram.btn_send": "发送验证码",
+  "tfa.setup.telegram.btn_confirm": "确认",
+  "tfa.setup.telegram.btn_unlink": "解除绑定",
+  "tfa.setup.telegram.linked": "已绑定的聊天：",
+  "tfa.setup.telegram.need_id": "请先输入你的 Telegram 聊天 ID。",
+  "tfa.setup.telegram.code_sent": "验证码已发送到该聊天。请在下方输入以完成。",
+  "tfa.setup.telegram.send_failed": "无法发送验证码——请检查聊天 ID。",
+  "tfa.setup.telegram.linked_ok": "已绑定 Telegram。登录验证码也会发送到这里。",
+  "tfa.setup.telegram.bad_code": "验证码错误或已过期。请重新开始。",
+  "tfa.setup.telegram.unlinked": "已解除 Telegram 绑定。"
 }
