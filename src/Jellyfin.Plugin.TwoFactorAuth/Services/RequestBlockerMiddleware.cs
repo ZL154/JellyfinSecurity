@@ -166,7 +166,7 @@ public class RequestBlockerMiddleware
         return pluginRoute > 0 ? normalized[pluginRoute..] : normalized;
     }
 
-    private static string? GetAccessToken(HttpContext ctx)
+    internal static string? GetAccessToken(HttpContext ctx)
     {
         var token = ctx.Request.Headers["X-Emby-Token"].FirstOrDefault();
         if (!string.IsNullOrEmpty(token)) return token;
