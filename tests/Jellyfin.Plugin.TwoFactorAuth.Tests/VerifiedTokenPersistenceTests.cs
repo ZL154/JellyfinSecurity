@@ -70,8 +70,13 @@ public class VerifiedTokenPersistenceTests
 
     private static bool Eventually(Func<bool> condition)
     {
+        // The write runs on a thread-pool thread (Task.Run in ScheduleWrite);
+        // the poll returns the instant the file is there, so this returns in
+        // well under a second on a quiet machine. The budget only has to cover
+        // the worst case where a saturated pool (the whole suite running in
+        // parallel) delays that write task by seconds, so it is generous.
         var clock = Stopwatch.StartNew();
-        while (clock.Elapsed < TimeSpan.FromSeconds(5))
+        while (clock.Elapsed < TimeSpan.FromSeconds(30))
         {
             if (condition())
             {
