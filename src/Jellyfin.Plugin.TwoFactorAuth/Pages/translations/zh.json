@@ -903,5 +903,11 @@
   "tfa.setup.telegram.send_failed": "无法发送验证码——请检查聊天 ID。",
   "tfa.setup.telegram.linked_ok": "已绑定 Telegram。登录验证码也会发送到这里。",
   "tfa.setup.telegram.bad_code": "验证码错误或已过期。请重新开始。",
-  "tfa.setup.telegram.unlinked": "已解除 Telegram 绑定。"
+  "tfa.setup.telegram.unlinked": "已解除 Telegram 绑定。",
+  "tfa.setup.ap.onetime_desc": "适用于无法显示 2FA 提示且没有 Quick Connect 的电视或 Fire TV：生成一个 30 分钟后过期的一次性代码。它会显示在这里，并同时发送到你的邮箱/已绑定的 Telegram，方便你在设备旁查看。",
+  "tfa.setup.ap.btn_onetime": "生成一次性设备代码",
+  "tfa.setup.ap.onetime_banner": "一次性代码——仅可使用一次，30 分钟后过期。在设备上用作密码。",
+  "tfa.setup.ap.onetime_via_email": "已通过邮件发送",
+  "tfa.setup.ap.onetime_via_telegram": "已发送到 Telegram",
+  "tfa.setup.ap.onetime_also": "另外"
 }

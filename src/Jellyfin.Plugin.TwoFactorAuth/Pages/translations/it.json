@@ -903,5 +903,11 @@
   "tfa.setup.telegram.send_failed": "Impossibile inviare il codice — controlla l'ID chat.",
   "tfa.setup.telegram.linked_ok": "Telegram collegato. I codici di accesso verranno inviati anche qui.",
   "tfa.setup.telegram.bad_code": "Il codice è errato o scaduto. Ricomincia.",
-  "tfa.setup.telegram.unlinked": "Telegram scollegato."
+  "tfa.setup.telegram.unlinked": "Telegram scollegato.",
+  "tfa.setup.ap.onetime_desc": "Per una TV o un Fire TV che non può mostrare la richiesta 2FA e non ha Quick Connect: genera un codice monouso che scade tra 30 minuti. Viene mostrato qui e inviato anche alla tua email / al Telegram collegato così puoi leggerlo accanto al dispositivo.",
+  "tfa.setup.ap.btn_onetime": "Genera un codice dispositivo monouso",
+  "tfa.setup.ap.onetime_banner": "Codice monouso — un solo utilizzo, scade tra 30 minuti. Usalo come password sul tuo dispositivo.",
+  "tfa.setup.ap.onetime_via_email": "inviato via email",
+  "tfa.setup.ap.onetime_via_telegram": "inviato su Telegram",
+  "tfa.setup.ap.onetime_also": "Inoltre"
 }

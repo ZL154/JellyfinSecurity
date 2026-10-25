@@ -78,10 +78,16 @@ public class AppPasswordService
     {
         AppPassword? matched = null;
         var probedAny = false;
+        var now = DateTime.UtcNow;
         foreach (var ap in entries)
         {
             probedAny = true;
-            if (Verify(plaintext, ap.PasswordHash) && matched is null)
+            // Always Verify (PBKDF2) so an expired entry costs the same as a
+            // live one and can't be told apart by timing. [#270] An expired
+            // one-time code is simply never returned as a match.
+            var ok = Verify(plaintext, ap.PasswordHash);
+            var live = ap.ExpiresAt is null || ap.ExpiresAt.Value > now;
+            if (ok && live && matched is null)
             {
                 matched = ap;
                 // don't break — keep iterating to keep timing flat

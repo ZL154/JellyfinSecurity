@@ -311,6 +311,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// identity provider stops letting that person in, until it is revoked.</summary>
     public bool AllowAppPasswordsWhenPasswordLoginDisabled { get; set; }
 
+    /// <summary>[#244] Extra client names that may NOT sign in with an app
+    /// password, on top of the always-refused "Jellyfin Web". An admin who
+    /// wants a stricter posture can list first-party apps that CAN show the 2FA
+    /// challenge (e.g. "Jellyfin for Android", "Jellyfin for iOS") so an app
+    /// password is useful only for genuinely limited third-party clients.
+    /// Matched case-insensitively against the session's reported client name.
+    /// Empty by default — behaviour is unchanged (web-only refusal). Do NOT add
+    /// clients that cannot show the challenge (TV apps, Swiftfin, Seerr) or
+    /// those users lose their only way in.</summary>
+    public string[] AppPasswordRefusedClients { get; set; } = Array.Empty<string>();
+
     /// <summary>[v2.5.11] (issue #71, ZEROX7): enable self-service password
     /// recovery by email. Requires SMTP configured. When on, the login page
     /// shows a "Forgot password?" link that emails a one-time, expiring reset

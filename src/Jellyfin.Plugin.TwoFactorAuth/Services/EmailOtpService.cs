@@ -344,6 +344,39 @@ public class EmailOtpService
         }
     }
 
+    /// <summary>[#270] Email a one-time device sign-in code (a single-use,
+    /// expiring app password) for a limited client that can't show the 2FA
+    /// challenge. Returns true only when the mail was accepted. No-ops without
+    /// SMTP or an address; never throws.</summary>
+    public async Task<bool> SendDeviceCodeEmailAsync(string email, string username, string code, int ttlMinutes)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || string.IsNullOrEmpty(email) || !IsSmtpConfigured(config))
+        {
+            return false;
+        }
+
+        var serverName = string.IsNullOrWhiteSpace(config.SmtpFromName) ? "Jellyfin" : config.SmtpFromName;
+        try
+        {
+            var msg = BuildMimeMessage(
+                config.SmtpFromAddress,
+                string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName,
+                email,
+                $"Your one-time sign-in code for {serverName}",
+                $"Hi {username},\n\nHere is a one-time sign-in code for a device that can't show the two-factor prompt (a TV app, Fire TV, etc.):\n\n    {code}\n\nType it as the PASSWORD in that app. It works once and expires in about {ttlMinutes} minutes. If you didn't request it, ignore this email and the code stays unused.\n\n— {serverName} Security");
+
+            await SendMimeMessageAsync(config, msg).ConfigureAwait(false);
+            _logger.LogInformation("[2FA] One-time device code emailed to {Email} for {User}", MaskEmail(email), username);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] One-time device code email to {Email} for {User} failed", MaskEmail(email), username);
+            return false;
+        }
+    }
+
     private async Task<bool> TrySendEmailAsync(string? email, string username, string code, int ttlSeconds)
     {
         var config = Plugin.Instance?.Configuration;

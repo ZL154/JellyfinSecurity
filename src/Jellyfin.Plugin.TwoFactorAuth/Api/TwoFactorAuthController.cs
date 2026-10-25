@@ -3332,6 +3332,106 @@ public class TwoFactorAuthController : ControllerBase
         });
     }
 
+    /// <summary>[#270/#216] Mint a single-use, short-lived app password for a
+    /// limited device (Fire TV, a TV app that can't show the challenge, Quick
+    /// Connect off) and deliver it to the user's email and/or linked Telegram so
+    /// they can read it beside the device. Same step-up gate and factor
+    /// requirement as a normal app password; the credential is consumed on first
+    /// use and expires on its own.</summary>
+    [HttpPost("AppPasswords/OneTime")]
+    [Authorize]
+    public async Task<IActionResult> CreateOneTimeAppPassword([FromBody, Required] CreateAppPasswordBody req)
+    {
+        var userId = GetCurrentUserId();
+
+        var stepUp = await EnforceSelfServiceStepUpAsync(userId, req.Code, req.StepUpToken).ConfigureAwait(false);
+        if (stepUp is not null) return stepUp;
+
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (!SelfServiceFactors.HasAny(data, Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration()))
+        {
+            return BadRequest(new { message = "Set up two-factor authentication or link a sign-in provider before creating device codes." });
+        }
+
+        const int ttlMinutes = 30;
+        var label = (req.Label ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(label)) label = "One-time device code";
+        if (label.Length > 80) label = label.Substring(0, 80);
+
+        var (plaintext, hash) = _appPasswords.Generate();
+        var entry = new AppPassword
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Label = label,
+            PasswordHash = hash,
+            CreatedAt = DateTime.UtcNow,
+            OneTime = true,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(ttlMinutes),
+        };
+
+        // Sweep spent/expired one-time codes before enforcing the cap, so a user
+        // who generates several over time isn't blocked by dead entries.
+        var added = false;
+        await _store.MutateAsync(userId, ud =>
+        {
+            ud.AppPasswords.RemoveAll(a => a.ExpiresAt is not null && a.ExpiresAt.Value <= DateTime.UtcNow);
+            if (ud.AppPasswords.Count < 20)
+            {
+                ud.AppPasswords.Add(entry);
+                added = true;
+            }
+        }).ConfigureAwait(false);
+        if (!added)
+        {
+            return BadRequest(new { message = "Limit reached. Revoke an existing app password first." });
+        }
+
+        // Same provider routing as CreateAppPassword so the credential check runs
+        // on /Users/AuthenticateByName. Best-effort.
+        try
+        {
+            var ourProviderId = typeof(TwoFactorAuthProvider).FullName!;
+            var routedUser = _userManager.GetUserById(userId);
+            if (routedUser is not null
+                && !string.Equals(routedUser.AuthenticationProviderId, ourProviderId, StringComparison.Ordinal))
+            {
+                routedUser.AuthenticationProviderId = ourProviderId;
+                await _userManager.UpdateUserAsync(routedUser).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Could not reassign AuthenticationProviderId on one-time code create for {UserId}", userId);
+        }
+
+        // Deliver out-of-band so the code is readable beside the limited device.
+        var username = _userManager.GetUserById(userId)?.Username ?? string.Empty;
+        var email = Plugin.Instance?.Configuration.GetUserEmail(userId.ToString("N"));
+        var telegramSent = await DeliverOtpViaTelegramAsync(userId, plaintext, "one-time sign-in").ConfigureAwait(false);
+        var emailSent = !string.IsNullOrEmpty(email)
+            && await _emailOtpService.SendDeviceCodeEmailAsync(email!, username, plaintext, ttlMinutes).ConfigureAwait(false);
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = username,
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            Result = AuditResult.ConfigChanged,
+            Method = "one_time_device_code_created",
+        }).ConfigureAwait(false);
+
+        return Ok(new
+        {
+            id = entry.Id,
+            password = plaintext, // shown ONCE
+            expiresInMinutes = ttlMinutes,
+            emailSent,
+            telegramSent,
+            warning = "Single use, expires in 30 minutes. Enter it as the password in your TV / limited-device app.",
+        });
+    }
+
     [HttpDelete("AppPasswords/{id}")]
     [Authorize]
     public async Task<IActionResult> RevokeAppPassword([FromRoute] string id)

@@ -903,5 +903,11 @@
   "tfa.setup.telegram.send_failed": "Code konnte nicht gesendet werden — prüfe die Chat-ID.",
   "tfa.setup.telegram.linked_ok": "Telegram verknüpft. Anmeldecodes werden auch hierher gesendet.",
   "tfa.setup.telegram.bad_code": "Dieser Code ist falsch oder abgelaufen. Beginne erneut.",
-  "tfa.setup.telegram.unlinked": "Telegram getrennt."
+  "tfa.setup.telegram.unlinked": "Telegram getrennt.",
+  "tfa.setup.ap.onetime_desc": "Für einen Fernseher oder Fire TV, der die 2FA-Abfrage nicht anzeigen kann und kein Quick Connect hat: Erzeuge einen Einmal-Code, der in 30 Minuten abläuft. Er wird hier angezeigt und zusätzlich an deine E-Mail / dein verknüpftes Telegram gesendet, damit du ihn neben dem Gerät ablesen kannst.",
+  "tfa.setup.ap.btn_onetime": "Einmal-Gerätecode erzeugen",
+  "tfa.setup.ap.onetime_banner": "Einmal-Code — nur einmal nutzbar, läuft in 30 Minuten ab. Verwende ihn als Passwort auf deinem Gerät.",
+  "tfa.setup.ap.onetime_via_email": "per E-Mail gesendet",
+  "tfa.setup.ap.onetime_via_telegram": "an Telegram gesendet",
+  "tfa.setup.ap.onetime_also": "Außerdem"
 }

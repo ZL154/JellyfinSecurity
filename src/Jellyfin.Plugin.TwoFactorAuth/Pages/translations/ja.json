@@ -903,5 +903,11 @@
   "tfa.setup.telegram.send_failed": "コードを送信できませんでした。チャットIDを確認してください。",
   "tfa.setup.telegram.linked_ok": "Telegram をリンクしました。サインインコードはここにも送信されます。",
   "tfa.setup.telegram.bad_code": "コードが正しくないか期限切れです。やり直してください。",
-  "tfa.setup.telegram.unlinked": "Telegram のリンクを解除しました。"
+  "tfa.setup.telegram.unlinked": "Telegram のリンクを解除しました。",
+  "tfa.setup.ap.onetime_desc": "2FA プロンプトを表示できず Quick Connect もないテレビや Fire TV 用に、30分で期限切れになる使い捨てコードを生成します。ここに表示され、デバイスのそばで確認できるようメールやリンク済みの Telegram にも送信されます。",
+  "tfa.setup.ap.btn_onetime": "使い捨てデバイスコードを生成",
+  "tfa.setup.ap.onetime_banner": "使い捨てコード — 1回のみ、30分で期限切れ。デバイスのパスワードとして入力してください。",
+  "tfa.setup.ap.onetime_via_email": "メール送信済み",
+  "tfa.setup.ap.onetime_via_telegram": "Telegram に送信済み",
+  "tfa.setup.ap.onetime_also": "さらに"
 }
