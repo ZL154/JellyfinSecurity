@@ -396,6 +396,12 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public string SmtpFromName { get; set; } = "Jellyfin 2FA";
 
+    /// <summary>[#271] Send a one-off welcome / setup email the first time a
+    /// user registers (or changes) their MFA email address. Doubles as a
+    /// deliverability check so a mistyped address is caught at registration
+    /// rather than at a locked-out sign-in. No-ops unless SMTP is configured.</summary>
+    public bool WelcomeEmailEnabled { get; set; } = true;
+
     // Per-user email addresses for OTP delivery. List form because Jellyfin
     // serializes plugin config as XML and XmlSerializer cannot handle Dictionary.
     public List<UserEmailEntry> UserEmails { get; set; } = new();

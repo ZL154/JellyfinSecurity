@@ -861,6 +861,15 @@ public class TwoFactorAuthController : ControllerBase
                 {
                     await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
                     _ipBans.RecordFailure(clientIp);
+                    // [#272] Tell the admin's configured channels (email /
+                    // Telegram) about a failed 2FA sign-in, carrying the running
+                    // failed-attempt count so a brute-force run is visible as it
+                    // climbs toward lockout. A no-op when no channel is set up,
+                    // and dispatched fire-and-forget so a slow SMTP/Telegram hop
+                    // never delays the (already failed) sign-in response.
+                    var failData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
+                    _ = _notificationService.NotifyFailedAttemptsAsync(
+                        user.Username ?? string.Empty, clientIp, failData.FailedAttemptCount);
                     await _store.AddAuditEntryAsync(new AuditEntry
                     {
                         Timestamp = DateTime.UtcNow,
@@ -2543,10 +2552,25 @@ public class TwoFactorAuthController : ControllerBase
         var config = Plugin.Instance?.Configuration;
         if (config is null) return StatusCode(500, new { message = "Plugin not initialized." });
 
+        // [#271] Only a genuinely new address earns a welcome email, so saving
+        // the same address (or clearing it) stays silent and no one is mailed
+        // twice. Compared before the write.
+        var previousEmail = config.GetUserEmail(userId.ToString("N")) ?? string.Empty;
+        var isNewAddress = !string.IsNullOrEmpty(email)
+            && !string.Equals(email, previousEmail, StringComparison.OrdinalIgnoreCase);
+
         config.SetUserEmail(userId.ToString("N"), string.IsNullOrEmpty(email) ? null : email);
         Plugin.Instance!.SaveConfiguration();
 
-        await Task.CompletedTask;
+        if (isNewAddress && config.WelcomeEmailEnabled)
+        {
+            // Fire-and-forget: a dead mail server must not fail the save, and
+            // SendWelcomeEmailAsync already swallows its own errors.
+            var username = _userManager.GetUserById(userId)?.Username ?? string.Empty;
+            _ = _emailOtpService.SendWelcomeEmailAsync(email, username);
+        }
+
+        await Task.CompletedTask.ConfigureAwait(false);
         return Ok(new { message = "Saved." });
     }
 

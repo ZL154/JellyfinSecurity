@@ -246,6 +246,38 @@ public class EmailOtpService
         _logger.LogInformation("Password-reset email sent to {Email} for {User}", MaskEmail(email), username);
     }
 
+    /// <summary>[#271] Welcome a user when their email is first registered for
+    /// MFA: confirms the address is reachable (so a typo surfaces now, not at a
+    /// locked-out sign-in) and tells them how to finish setting up. No-ops when
+    /// SMTP is not configured or there is no address; never throws, so a dead
+    /// mail server can't fail the "save my email" request that triggered it.</summary>
+    public async Task SendWelcomeEmailAsync(string email, string username)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || string.IsNullOrEmpty(email) || !IsSmtpConfigured(config))
+        {
+            return;
+        }
+
+        var serverName = string.IsNullOrWhiteSpace(config.SmtpFromName) ? "Jellyfin" : config.SmtpFromName;
+        try
+        {
+            var msg = BuildMimeMessage(
+                config.SmtpFromAddress,
+                string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName,
+                email,
+                $"You're set up for {serverName} two-factor authentication",
+                $"Hi {username},\n\nThis email address has been registered for two-factor authentication on {serverName}.\n\nWhat this means:\n  - When you sign in, you may be asked for a one-time code. If email codes are enabled for your account, the code is sent to this address.\n  - You can also set up an authenticator app (TOTP) or a passkey from your account's Two-Factor Auth settings for a faster, offline second factor.\n\nIf you didn't expect this, or you don't recognise {serverName}, let your administrator know — no code has been sent and your account is unchanged by this message.\n\n— {serverName} Security");
+
+            await SendMimeMessageAsync(config, msg).ConfigureAwait(false);
+            _logger.LogInformation("[2FA] Welcome email sent to {Email} for {User}", MaskEmail(email), username);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Welcome email to {Email} for {User} failed", MaskEmail(email), username);
+        }
+    }
+
     private async Task<bool> TrySendEmailAsync(string? email, string username, string code, int ttlSeconds)
     {
         var config = Plugin.Instance?.Configuration;
