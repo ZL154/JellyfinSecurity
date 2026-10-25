@@ -90,6 +90,7 @@ public class AuthenticationEventHandler : IHostedService
         // was treated as a LAN client regardless of the real upstream
         // client IP, silently skipping 2FA for users behind a proxy.
         string? forwardedFor = null;
+        string? twoFactorToken = null;
         var httpContext = _httpContextAccessor.HttpContext;
         if (httpContext is not null)
         {
@@ -98,13 +99,20 @@ public class AuthenticationEventHandler : IHostedService
             {
                 forwardedFor = xff;
             }
+
+            // [#273] The trusted-device token, for the same reason. The
+            // response middleware reads this header and lets a trusted sign-in
+            // through; deciding without it, this handler could never match the
+            // device and blocked the access token that very response hands
+            // out. Read the same way the middleware reads it.
+            twoFactorToken = httpContext.Request.Headers["X-TwoFactor-Token"].FirstOrDefault();
         }
 
         _ = Task.Run(async () =>
         {
             try
             {
-                await HandleSessionAsync(info, forwardedFor).ConfigureAwait(false);
+                await HandleSessionAsync(info, forwardedFor, twoFactorToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -113,7 +121,7 @@ public class AuthenticationEventHandler : IHostedService
         });
     }
 
-    private async Task HandleSessionAsync(SessionInfo info, string? forwardedFor)
+    private async Task HandleSessionAsync(SessionInfo info, string? forwardedFor, string? twoFactorToken)
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null || !config.Enabled)
@@ -390,13 +398,15 @@ public class AuthenticationEventHandler : IHostedService
         var activeRegisteredIds = maxAgeDays > 0
             ? FilterActiveRegisteredDeviceIds(userData.RegisteredDeviceIds, userData.RegisteredDeviceEntries, maxAgeDays)
             : userData.RegisteredDeviceIds;
-        // forwardedFor was captured synchronously in OnSessionStarted (see
-        // there) so BypassEvaluator can walk X-Forwarded-For right-to-left
-        // and resolve the real client IP behind a trusted reverse proxy.
+        // forwardedFor and twoFactorToken were captured synchronously in
+        // OnSessionStarted (see there). The first lets BypassEvaluator walk
+        // X-Forwarded-For right-to-left and resolve the real client IP behind
+        // a trusted reverse proxy; the second lets it match a trusted device,
+        // as TwoFactorAuthProvider and the response middleware already do.
         var bypass = _bypassEvaluator.Evaluate(
             info.RemoteEndPoint,
             forwardedFor,
-            null,
+            twoFactorToken,
             info.DeviceId,
             null,
             userData.TrustedDevices,
