@@ -104,6 +104,14 @@ public class ConfigExportService
                 redacted.Add($"OidcProviders[{i}].ClientSecret");
             }
         }
+        // [#268] The extra webhook headers are where a receiver's credential
+        // goes (Authorization: Bearer ..., X-Api-Key: ...), and the admin page
+        // no longer reads their values back either.
+        if (redactedCfg.WebhookHeaders is { Length: > 0 })
+        {
+            redactedCfg.WebhookHeaders = System.Array.Empty<string>();
+            redacted.Add("WebhookHeaders");
+        }
 
         // SECURITY [v2.5.9] (audit medium): the config-only export is
         // UNENCRYPTED and meant to be shareable (bug reports, backups). But

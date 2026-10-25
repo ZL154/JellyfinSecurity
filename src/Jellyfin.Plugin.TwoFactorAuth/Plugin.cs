@@ -57,6 +57,23 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         base.OnUninstalling();
     }
 
+    /// <summary>
+    /// [#268] Jellyfin's POST /Plugins/{id}/Configuration lands here with what
+    /// the admin page sent, and the page only ever held
+    /// <see cref="ConfigSecrets.SavedMarker"/> for a saved secret
+    /// (<see cref="PluginConfigSecretsFilter"/>). Put the stored values back
+    /// before the save replaces them.
+    /// </summary>
+    public override void UpdateConfiguration(BasePluginConfiguration configuration)
+    {
+        if (configuration is PluginConfiguration incoming)
+        {
+            ConfigSecrets.KeepSaved(incoming, Configuration);
+        }
+
+        base.UpdateConfiguration(configuration);
+    }
+
     public override string Name => "Jellyfin Security";
 
     public override string Description => "Comprehensive Jellyfin security: TOTP & email 2FA, passkeys, OIDC/SSO sign-in (Google, GitHub, Authelia, Authentik, Keycloak, PocketID, Cloudflare Access, ...), brute-force IP banning, impossible-travel detection, per-user IP allowlist, device pairing, trusted browsers, and audit log.";

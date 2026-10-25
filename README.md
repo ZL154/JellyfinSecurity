@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <!-- Static version badge — bump on each release. Switched from img.shields.io/github/v/release because that endpoint periodically returns 'unable to select next GitHub token from pool'. -->
-  <img src="https://img.shields.io/badge/Version-v2.6.3-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-v2.6.4-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -66,22 +66,20 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.6.3
+## 🆕 What's new in v2.6.4
 
-**No more lockouts, and Jellyfin 12 sign-in is finished.** Since v2.6.0 the plugin gained a safety net so that uninstalling, disabling, or losing it never strands the accounts that used it; finished OIDC sign-in for TVs and other keyboard-less devices; wired up the GeoIP alerts; and cleared the OIDC→2FA and `libsodium` crash reports. In-place upgrade from any 2.5.x or 2.6.x, no schema migration or config reset.
+**Safer app passwords, admin alerts, and the dependency pins finally lifted.** Built almost entirely from contributor PRs: app passwords stop working in the browser and start working for SSO and passkey accounts, admins can be alerted by email or Telegram, the setup page fits SSO-only users, and the QuestPDF and IdentityModel pins are lifted after live re-verification. In-place upgrade from any 2.5.x or 2.6.x, no schema migration or config reset.
 
-**v2.6.3**
+**v2.6.4**
 
-- **🔓 Uninstalling or disabling the plugin never locks you out** *(#233, #232; camarigor)* — passkeys, app passwords and OIDC move an account onto the plugin's sign-in provider. The plugin now hands those accounts back to Jellyfin's own provider on uninstall or disable, and reclaims them on the next start, so a removed, disabled, or non-loading plugin can no longer refuse sign-in for those accounts (administrators included). This fixes the lockout root cause behind #213.
+- **🔑 App passwords, safer and more useful** *(#249/#244, #252/#248; camarigor)* — an app password no longer signs in to the Jellyfin web interface (native apps still use it as before), and accounts that sign in through SSO or a passkey, which have no TOTP, can now create one (the linked provider or passkey satisfies the step-up).
+- **📣 Admin alerts by email or Telegram** *(#261/#259, camarigor)* — suspicious sign-in and emergency-lockout events can notify admins over email or a new Telegram channel.
+- **🙈 Setup page fits SSO-only users** *(#250/#247, camarigor)* — an opt-in setting hides the plugin's own 2FA enrolment from non-admins who sign in through a provider; plus a clearer authenticator rotation flow that keeps the old one until the new is confirmed (#255/#254).
+- **🧹 Correctness + proxy fixes** — sign-in no longer saves a stale user record (#257/#256), the login page works behind an access proxy (#253/#251), the Users-tab email saves through step-up (#264/#263), and OIDC tells a refused sign-in apart from an expired code (#234/#64).
+- **📦 Dependency pins lifted** *(#262, camarigor)* — IdentityModel 8.23.0 and QuestPDF 2026.9.1, after re-verifying a live OIDC sign-in and the recovery PDF on both ABIs (the spring OIDC regression was a missing bundled assembly, not the library); Fido2 4.2.0, MailKit 4.18.1. Jellyfin runtime refs stay pinned.
+- **730+ passing tests.** Sigstore-signed and SLSA build-provenance attested.
 
-**Also since v2.6.0**
-
-- **📺 OIDC sign-in on a TV** *(#216; #218/#219/#220, camarigor)* — the sign-in prompt shows a **QR code** you scan to finish the consent on a phone, a new **Public base URL** setting makes the OIDC `redirect_uri`, pairing QRs and reset links use the right public host, and a device that completed a second-screen approval can optionally be remembered (opt-in, off by default). *(v2.6.2)*
-- **📍 GeoIP alerts actually fire** *(#215/#217, camarigor)* — the suspicious-login and impossible-travel detectors are now called on every completed sign-in, with a Diagnostics check that proves sign-ins are reaching them. *(v2.6.2)*
-- **🔑 OIDC → 2FA hand-off** *(#204/#205, Faffu)* — an OIDC user who also has plugin 2FA now reaches the TOTP prompt instead of stopping on "HTTP 401". *(v2.6.1)*
-- **💥 No more `libsodium` core dumps** *(#203/#212, camarigor)* — the recovery-code PDF path no longer drags in the wrong native library, and the correct one is repaired for the host's architecture at load. *(v2.6.1)*
-- **🔌 Clearer Seerr / Jellyseerr guidance** *(#228, #230/#231)* — those apps want an app password or Quick Connect; a plain username/password sign-in correctly gets a 2FA challenge. *(v2.6.2)*
-- **597 passing tests.** Sigstore-signed and SLSA build-provenance attested.
+> Earlier highlights (uninstall/disable account hand-back #233, TV OIDC QR #216, GeoIP alerts #215, OIDC→2FA #204, libsodium #203) are in the [Changelog](#-changelog) below.
 
 > Full version history is in the [Changelog](#-changelog) below and on [GitHub Releases](https://github.com/ZL154/JellyfinSecurity/releases).
 
@@ -1104,6 +1102,15 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.6.4
+
+- App passwords no longer authenticate the Jellyfin web interface (native clients still use them), and accounts that sign in through SSO or with a passkey can now create app passwords, with the linked provider or passkey satisfying the required step-up (#249/#244, #252/#248).
+- Added admin alert emails and a Telegram channel for suspicious-sign-in and emergency-lockout events, and an option to turn suspicious-login detection off and leave impossible travel out of the security score when geo checks run elsewhere (#261/#259, #260/#258).
+- Added an opt-in setting to hide the plugin's own 2FA setup from non-admins who sign in through a linked provider, and reworked the authenticator rotation so the old one keeps working until the new one is confirmed (#250/#247, #255/#254).
+- Stopped the sign-in paths from saving a stale copy of the user record (could drop a concurrent change), made the login page carry the page's cookies behind an access proxy, saved the admin Users-tab email reliably through step-up, and distinguished a refused OIDC app sign-in from an expired code (#257/#256, #253/#251, #264/#263, #234/#64).
+- Lifted the QuestPDF and IdentityModel pins after live re-verification: `Microsoft.IdentityModel.Tokens` / `System.IdentityModel.Tokens.Jwt` 8.23.0 and QuestPDF 2026.9.1 (the spring OIDC regression was a missing bundled `Microsoft.Bcl.Cryptography.dll`, shipped since v2.6.2, not the library); Fido2 4.2.0, MailKit 4.18.1. Jellyfin runtime references stay pinned (#262).
+- 730+ passing tests. Both ABIs built, signed, SLSA-attested, and validated live on Jellyfin 10.11 and 12 (OIDC sign-in with 8.23, recovery PDF, app-password web-refusal, SSO setup hide, admin alert email).
 
 ### 2.6.3
 
