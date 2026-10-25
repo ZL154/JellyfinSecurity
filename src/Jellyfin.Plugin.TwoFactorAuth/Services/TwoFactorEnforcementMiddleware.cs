@@ -741,7 +741,7 @@ public class TwoFactorEnforcementMiddleware
                 | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
             TimeSpan.FromMilliseconds(50));
 
-    private static bool IsAuthPath(string path)
+    internal static bool IsAuthPath(string path)
     {
         if (string.IsNullOrEmpty(path)) return false;
         // Cheap length cap: any auth path we care about is under 256 chars.
