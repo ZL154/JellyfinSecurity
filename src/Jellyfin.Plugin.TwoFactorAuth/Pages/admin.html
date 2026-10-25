@@ -405,7 +405,7 @@
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.sso.lbl_client_secret">Client secret</label>
-                                <input type="text" id="ssoClientSecret" class="tfa-input" style="width:480px;" placeholder="(leave blank when editing to keep existing)" data-i18n-placeholder="tfa.admin.sso.ph_client_secret" />
+                                <input type="password" id="ssoClientSecret" class="tfa-input" style="width:480px;" placeholder="(leave blank when editing to keep existing)" data-i18n-placeholder="tfa.admin.sso.ph_client_secret" autocomplete="new-password" />
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.sso.lbl_scopes">Scopes</label>
@@ -784,7 +784,8 @@
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_smtp_pass">SMTP Password</label>
-                                <input type="text" id="cfgSmtpPass" class="tfa-input" style="width:280px;" />
+                                <!-- [#268] A saved password comes back as "(saved)" and stays masked. -->
+                                <input type="password" id="cfgSmtpPass" class="tfa-input" style="width:280px;" autocomplete="new-password" />
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_smtp_from">From Address</label>
@@ -842,7 +843,7 @@
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_gotify_token">Gotify App Token</label>
-                                <input type="text" id="cfgGotifyToken" class="tfa-input" style="width:200px;" />
+                                <input type="password" id="cfgGotifyToken" class="tfa-input" style="width:200px;" autocomplete="new-password" />
                             </div>
                             <!-- [#259] Telegram Bot API: a bot token and the chat that gets the alerts. -->
                             <div class="tfa-row">
@@ -865,7 +866,7 @@
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.settings.lbl_webhook_secret">Webhook secret (optional — adds X-2FA-Signature HMAC)</label>
-                                <input type="text" id="cfgWebhookSecret" class="tfa-input" style="width:300px;" />
+                                <input type="password" id="cfgWebhookSecret" class="tfa-input" style="width:300px;" autocomplete="new-password" />
                             </div>
                             <div style="margin-top:12px;">
                                 <label style="font-size:13px;color:#888;" data-i18n-key="tfa.admin.settings.lbl_webhook_headers">Extra webhook headers (one per line, Name: Value)</label>

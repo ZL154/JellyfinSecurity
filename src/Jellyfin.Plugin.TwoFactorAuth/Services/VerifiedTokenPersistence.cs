@@ -40,13 +40,23 @@ public class VerifiedTokenPersistence : IDisposable
     private static readonly TimeSpan WriteDebounce = TimeSpan.FromSeconds(30);
 
     private readonly ILogger<VerifiedTokenPersistence> _logger;
+    private readonly TimeSpan _writeDebounce;
     private readonly string _path;
     private readonly ConcurrentDictionary<string, DateTime> _hashes = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private DateTime _nextWriteAt = DateTime.MinValue;
+    private int _dirty;
+    private int _writerRunning;
+    private volatile bool _disposed;
 
     public VerifiedTokenPersistence(IApplicationPaths paths, ILogger<VerifiedTokenPersistence> logger)
+        : this(paths, logger, WriteDebounce)
     {
+    }
+
+    internal VerifiedTokenPersistence(IApplicationPaths paths, ILogger<VerifiedTokenPersistence> logger, TimeSpan writeDebounce)
+    {
+        _writeDebounce = writeDebounce;
         _logger = logger;
         // [v2.5.7] (issue #52 followup): mirror IpBanService's pattern.
         // Plugin.Instance?.DataFolderPath was unreliable during DI startup
@@ -133,20 +143,77 @@ public class VerifiedTokenPersistence : IDisposable
 
     private void ScheduleWrite()
     {
-        // Debounce: at most one write per WriteDebounce window. Fire-and-forget
-        // so the hot path (MarkTokenVerified during login) isn't blocked on
-        // disk I/O. Crash before flush only loses up to WriteDebounce of
-        // verifications — those sessions reprompt once on next login, which
-        // is the same fallback the in-memory dict had before persistence.
-        var now = DateTime.UtcNow;
-        if (now < _nextWriteAt) return;
-        _nextWriteAt = now.Add(WriteDebounce);
-        _ = Task.Run(WriteAsync);
+        // At most one write per window, and off the hot path
+        // (MarkTokenVerified runs during sign-in). A change that lands inside
+        // the window is written when the window closes. Returning there
+        // instead, as this did, left it in memory until some later change came
+        // after the window, so a restart could lose it however long ago it was
+        // made.
+        Interlocked.Exchange(ref _dirty, 1);
+        if (Interlocked.CompareExchange(ref _writerRunning, 1, 0) == 0)
+        {
+            _ = Task.Run(WriterLoopAsync);
+        }
+    }
+
+    private async Task WriterLoopAsync()
+    {
+        try
+        {
+            while (!_disposed)
+            {
+                var wait = _nextWriteAt - DateTime.UtcNow;
+                if (wait > TimeSpan.Zero)
+                {
+                    await Task.Delay(wait).ConfigureAwait(false);
+                }
+
+                // The snapshot is taken after the wait, so changes made while
+                // waiting go out with this write.
+                if (_disposed || Interlocked.Exchange(ref _dirty, 0) == 0)
+                {
+                    break;
+                }
+
+                _nextWriteAt = DateTime.UtcNow.Add(_writeDebounce);
+                await WriteAsync().ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _writerRunning, 0);
+            // A change made between the last check and the reset above found
+            // this loop still running and started nothing.
+            if (!_disposed && Volatile.Read(ref _dirty) == 1)
+            {
+                ScheduleWrite();
+            }
+        }
     }
 
     private async Task WriteAsync()
     {
-        if (!await _writeLock.WaitAsync(0).ConfigureAwait(false)) return;
+        try
+        {
+            await _writeLock.WaitAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        try
+        {
+            WriteSnapshot();
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private void WriteSnapshot()
+    {
         try
         {
             var dir = Path.GetDirectoryName(_path);
@@ -154,16 +221,12 @@ public class VerifiedTokenPersistence : IDisposable
             var snapshot = _hashes.ToDictionary(kv => kv.Key, kv => kv.Value);
             var json = JsonSerializer.Serialize(snapshot);
             var tmp = _path + ".tmp";
-            await File.WriteAllTextAsync(tmp, json).ConfigureAwait(false);
+            File.WriteAllText(tmp, json);
             File.Move(tmp, _path, overwrite: true);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[2FA] Failed to persist verified-token sidecar to {Path}", _path);
-        }
-        finally
-        {
-            _writeLock.Release();
         }
     }
 
@@ -180,6 +243,25 @@ public class VerifiedTokenPersistence : IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+
+        // Jellyfin disposes this singleton when it shuts down. Write what may
+        // not be on disk yet: a change inside the current window, or one the
+        // writer loop has picked up but not written.
+        var locked = _writeLock.Wait(TimeSpan.FromSeconds(5));
+        try
+        {
+            if (Volatile.Read(ref _dirty) == 1 || Volatile.Read(ref _writerRunning) == 1)
+            {
+                WriteSnapshot();
+            }
+        }
+        finally
+        {
+            if (locked) _writeLock.Release();
+        }
+
         _writeLock.Dispose();
         GC.SuppressFinalize(this);
     }
