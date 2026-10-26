@@ -56,12 +56,12 @@
       },
       "MailKit": {
         "type": "Direct",
-        "requested": "[4.18.1, )",
-        "resolved": "4.18.1",
-        "contentHash": "EssBsnKHvIcH1QpqqsVUEWAlAHI3dkGXJpKAzSNJ8PGjClNynSo9bRkT68jVZkxhREm0Z51Dwu3127f4WfIiRg==",
+        "requested": "[4.18.2, )",
+        "resolved": "4.18.2",
+        "contentHash": "ofqddpSbdrD00NqTD0ZyVfKvrl/ZZ70VFFEQ+DuR8r8CdbY3U02/sdb0CSQBNUqJifsXfVHIwRe1ToR2MvJJkw==",
         "dependencies": {
-          "MimeKit": "4.18.1",
-          "System.Formats.Asn1": "10.0.0"
+          "MimeKit": "4.18.2",
+          "System.Formats.Asn1": "10.0.13"
         }
       },
       "MaxMind.Db": {
@@ -452,11 +452,11 @@
       },
       "MimeKit": {
         "type": "Transitive",
-        "resolved": "4.18.1",
-        "contentHash": "D8AfFVMFVJldWmhQWCziC9nWUN/zayFFBAKpyjVyCeh0tqBiI9jtUVuMrKgWw1EGnCp09msDZldbRvp2jfUehQ==",
+        "resolved": "4.18.2",
+        "contentHash": "aYnwCCq+ZgQIsnHSJd3TMeGqf/Rz/9jYEItXpOoG3E2REOCZtLishwBSDFl2wQ/W2SB5wBsvE38DgHZ0IEyz4Q==",
         "dependencies": {
           "BouncyCastle.Cryptography": "2.7.0",
-          "System.Security.Cryptography.Pkcs": "10.0.0"
+          "System.Security.Cryptography.Pkcs": "10.0.13"
         }
       },
       "NEbml": {
