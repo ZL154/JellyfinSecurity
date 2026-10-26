@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <!-- Static version badge — bump on each release. Switched from img.shields.io/github/v/release because that endpoint periodically returns 'unable to select next GitHub token from pool'. -->
-  <img src="https://img.shields.io/badge/Version-v2.6.4-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-v2.6.5-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -51,7 +51,7 @@ Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email O
 You don't have to take my word for it. Every signal below is automated and
 visible to anyone, including you:
 
-- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (597 tests covering crypto, parsers, authentication flows, translations, and middleware). Green = tests pass.
+- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (787 tests covering crypto, parsers, authentication flows, translations, and middleware). Green = tests pass.
 - **[CodeQL badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml)** — GitHub's static security scanner runs the `security-extended` + `security-and-quality` C# query packs on every push, PR, and weekly. Green = no security findings.
 - **[OpenSSF Scorecard](https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity)** — the Linux Foundation's automated security-posture rating (0–10). Scores branch protection, CodeQL, dependency updates, pinned actions, signed releases, security policy, token permissions, and more. Click the badge to see the per-check breakdown.
 - **[Test suite](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — 597 xUnit tests covering the security-critical code paths (cookie HMAC, TOTP replay protection, recovery-code PBKDF2, CIDR parser, X-Forwarded-For trust-walk, refuse-LAN-bypass-when-XFF-missing guard, device-token binding, AES-GCM v2 AAD, HIBP k-anonymity hashing, atomic challenge consumption, OIDC redirect_uri proxy-header resolution, OIDC userinfo claim merge, SMTP port 465 socket-option mapping, step-up code verification, step-up action classification, ChallengeStore step-up tokens). Runs on every PR + push.
@@ -66,20 +66,21 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.6.4
+## 🆕 What's new in v2.6.5
 
-**Safer app passwords, admin alerts, and the dependency pins finally lifted.** Built almost entirely from contributor PRs: app passwords stop working in the browser and start working for SSO and passkey accounts, admins can be alerted by email or Telegram, the setup page fits SSO-only users, and the QuestPDF and IdentityModel pins are lifted after live re-verification. In-place upgrade from any 2.5.x or 2.6.x, no schema migration or config reset.
+**Signing in on TVs and streaming boxes, and codes that reach you when email is down.** For clients that can't show the 2FA challenge, a single-use device code generated from your phone and delivered to email and Telegram; your own Telegram chat as a code channel; an OIDC avatar fix; and a failed-login alert. In-place upgrade from any 2.5.x or 2.6.x, no schema migration or config reset.
 
-**v2.6.4**
+**v2.6.5**
 
-- **🔑 App passwords, safer and more useful** *(#249/#244, #252/#248; camarigor)* — an app password no longer signs in to the Jellyfin web interface (native apps still use it as before), and accounts that sign in through SSO or a passkey, which have no TOTP, can now create one (the linked provider or passkey satisfies the step-up).
-- **📣 Admin alerts by email or Telegram** *(#261/#259, camarigor)* — suspicious sign-in and emergency-lockout events can notify admins over email or a new Telegram channel.
-- **🙈 Setup page fits SSO-only users** *(#250/#247, camarigor)* — an opt-in setting hides the plugin's own 2FA enrolment from non-admins who sign in through a provider; plus a clearer authenticator rotation flow that keeps the old one until the new is confirmed (#255/#254).
-- **🧹 Correctness + proxy fixes** — sign-in no longer saves a stale user record (#257/#256), the login page works behind an access proxy (#253/#251), the Users-tab email saves through step-up (#264/#263), and OIDC tells a refused sign-in apart from an expired code (#234/#64).
-- **📦 Dependency pins lifted** *(#262, camarigor)* — IdentityModel 8.23.0 and QuestPDF 2026.9.1, after re-verifying a live OIDC sign-in and the recovery PDF on both ABIs (the spring OIDC regression was a missing bundled assembly, not the library); Fido2 4.2.0, MailKit 4.18.1. Jellyfin runtime refs stay pinned.
-- **730+ passing tests.** Sigstore-signed and SLSA build-provenance attested.
+- **📺 One-time device codes** *(#270, p1zzm1ssile; #216, Heldenkrieger01)* — a Fire TV, a TV app that can't render the challenge, or a client with no Quick Connect can be signed in with a single-use code you generate from your phone. It's shown on the setup page and sent to your email and linked Telegram, works once, and expires in 30 minutes.
+- **💬 Sign-in codes over Telegram** *(#285, p1zzm1ssile)* — link your own Telegram chat (never a shared admin chat) and get login and step-up codes there as well as by email, so a dead mail provider doesn't lock you out.
+- **🖼️ OIDC avatars refresh at an unchanged URL** *(#286, cydy; follows #66)* — providers like Pocket ID serve an updated picture at the same URL; sync now revalidates by ETag/content hash and recovers a missing local avatar.
+- **📣 Admin alert on a failed sign-in** *(#272, p1zzm1ssile)* — a wrong code notifies your channels (email, Telegram, ntfy, webhook) with the running attempt count. Plus a one-off welcome email when an MFA email is set (#271), which also catches a mistyped address.
+- **🔑 Optionally refuse app passwords for more clients** *(#244, AmperageOverspend)* — the web interface is always refused; an admin can now also list first-party apps that can show the challenge. Default unchanged.
+- **🧹 Fixed the second-screen-pairing toggle overlapping the admin Settings rows.**
+- **787 passing tests, 911 translation keys in 8 languages.** Sigstore-signed and SLSA build-provenance attested.
 
-> Earlier highlights (uninstall/disable account hand-back #233, TV OIDC QR #216, GeoIP alerts #215, OIDC→2FA #204, libsodium #203) are in the [Changelog](#-changelog) below.
+> Earlier highlights (app passwords for SSO/passkey #248, admin alerts #259, SSO-only setup page #247, dependency pins lifted #262) are in the [Changelog](#-changelog) below.
 
 > Full version history is in the [Changelog](#-changelog) below and on [GitHub Releases](https://github.com/ZL154/JellyfinSecurity/releases).
 
@@ -1102,6 +1103,15 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.6.5
+
+- Added one-time device codes: a single-use, 30-minute credential for clients that can't show the 2FA challenge (Fire TV, TV apps, no Quick Connect), generated from the setup page and delivered to the user's email and linked Telegram as well as shown once (#270/#216).
+- Added per-user Telegram as a one-time-code channel: a user links their own chat, confirmed by a code the bot sends, and login and step-up codes are delivered there as well as by email — a fallback for when email is down (#285).
+- OIDC avatar sync now refreshes a picture that changed at an unchanged URL (revalidated by ETag, with a content-hash fallback) and recovers a missing local avatar, instead of trusting the URL (#286, follows #66).
+- Added an admin alert on a failed two-factor sign-in, over the configured channels with the running attempt count, and a one-off welcome / deliverability-check email when an account's MFA email is set (#272, #271).
+- Added an opt-in admin list of extra clients that may not sign in with an app password, on top of the always-refused web interface (#244).
+- Fixed the second-screen-pairing toggle overlapping the rows above it in the admin Settings tab.
 
 ### 2.6.4
 
