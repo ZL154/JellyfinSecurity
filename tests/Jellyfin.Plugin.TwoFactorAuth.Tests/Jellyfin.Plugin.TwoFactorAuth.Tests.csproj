@@ -24,7 +24,7 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="NSubstitute" Version="6.2.0" />
-    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="9.0.20" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="9.0.22" />
     <PackageReference Include="Otp.NET" Version="1.4.1" />
   </ItemGroup>
 
