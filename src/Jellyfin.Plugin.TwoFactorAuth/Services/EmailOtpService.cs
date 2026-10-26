@@ -336,11 +336,13 @@ public class EmailOtpService
                 $"Hi {username},\n\nThis email address has been registered for two-factor authentication on {serverName}.\n\nWhat this means:\n  - When you sign in, you may be asked for a one-time code. If email codes are enabled for your account, the code is sent to this address.\n  - You can also set up an authenticator app (TOTP) or a passkey from your account's Two-Factor Auth settings for a faster, offline second factor.\n\nIf you didn't expect this, or you don't recognise {serverName}, let your administrator know — no code has been sent and your account is unchanged by this message.\n\n— {serverName} Security");
 
             await SendMimeMessageAsync(config, msg).ConfigureAwait(false);
-            _logger.LogInformation("[2FA] Welcome email sent to {Email} for {User}", MaskEmail(email), username);
+            // Identify by username only — the address, even masked, is PII we
+            // don't need in the log to triage a send.
+            _logger.LogInformation("[2FA] Welcome email sent for {User}", username);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[2FA] Welcome email to {Email} for {User} failed", MaskEmail(email), username);
+            _logger.LogWarning(ex, "[2FA] Welcome email for {User} failed", username);
         }
     }
 
@@ -367,12 +369,12 @@ public class EmailOtpService
                 $"Hi {username},\n\nHere is a one-time sign-in code for a device that can't show the two-factor prompt (a TV app, Fire TV, etc.):\n\n    {code}\n\nType it as the PASSWORD in that app. It works once and expires in about {ttlMinutes} minutes. If you didn't request it, ignore this email and the code stays unused.\n\n— {serverName} Security");
 
             await SendMimeMessageAsync(config, msg).ConfigureAwait(false);
-            _logger.LogInformation("[2FA] One-time device code emailed to {Email} for {User}", MaskEmail(email), username);
+            _logger.LogInformation("[2FA] One-time device code emailed for {User}", username);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[2FA] One-time device code email to {Email} for {User} failed", MaskEmail(email), username);
+            _logger.LogWarning(ex, "[2FA] One-time device code email for {User} failed", username);
             return false;
         }
     }
