@@ -36,7 +36,40 @@ internal static class AppPasswordClientPolicy
         return name.Length == 0 ? null : name;
     }
 
-    /// <summary>True when an app password must not sign this client in.</summary>
+    /// <summary>True when an app password must not sign this client in: always
+    /// the web interface, plus any client the admin added to
+    /// <see cref="Configuration.PluginConfiguration.AppPasswordRefusedClients"/>
+    /// ([#244] opt-in stricter posture).</summary>
     internal static bool IsRefused(string? clientName)
-        => string.Equals(clientName?.Trim(), WebInterfaceClient, StringComparison.OrdinalIgnoreCase);
+        => IsRefused(clientName, Plugin.Instance?.Configuration?.AppPasswordRefusedClients);
+
+    /// <summary>Testable core: <paramref name="extraRefused"/> is the admin's
+    /// extra refused-client list (null in tests / when unconfigured).</summary>
+    internal static bool IsRefused(string? clientName, System.Collections.Generic.IEnumerable<string>? extraRefused)
+    {
+        var name = clientName?.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            return false;
+        }
+
+        if (string.Equals(name, WebInterfaceClient, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (extraRefused is not null)
+        {
+            foreach (var refused in extraRefused)
+            {
+                if (!string.IsNullOrWhiteSpace(refused)
+                    && string.Equals(name, refused.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 }

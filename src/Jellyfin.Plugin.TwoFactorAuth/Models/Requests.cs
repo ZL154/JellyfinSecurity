@@ -82,6 +82,18 @@ public class SetEmailRequest
     public string Email { get; set; } = string.Empty;
 }
 
+/// <summary>[#285] Candidate Telegram chat ID the user wants to link for OTP.</summary>
+public class LinkTelegramRequest
+{
+    public string ChatId { get; set; } = string.Empty;
+}
+
+/// <summary>[#285] The confirmation code the bot delivered to the candidate chat.</summary>
+public class ConfirmTelegramRequest
+{
+    public string Code { get; set; } = string.Empty;
+}
+
 public class InitiatePairingRequest
 {
     public string Username { get; set; } = string.Empty;

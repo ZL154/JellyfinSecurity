@@ -1422,18 +1422,45 @@ public class OidcService : IDisposable
     /// the last sync recorded on the SsoLink.</summary>
     private async Task ApplyProfilePictureAsync(User user, OidcProvider provider, string pictureUrl)
     {
-        // Skip if we already synced this exact URL for this provider link.
         var data = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
         var link = data.SsoLinks.FirstOrDefault(l => l.ProviderId == provider.Id);
-        if (link is not null && string.Equals(link.SyncedPictureUrl, pictureUrl, StringComparison.Ordinal))
-        {
-            return;
-        }
+
+        // [#286] A matching SyncedPictureUrl is no longer proof on its own that
+        // there is nothing to do. An IdP such as Pocket ID serves an updated
+        // image at the same per-user URL, and the local avatar can be gone (file
+        // removed, account reset) while the URL is still recorded. So we only
+        // short-circuit when we can positively show the remote image is
+        // unchanged AND the local avatar is still on disk; otherwise we fetch
+        // and decide by content.
+        var urlUnchanged = link is not null
+            && string.Equals(link.SyncedPictureUrl, pictureUrl, StringComparison.Ordinal);
+        var avatarPresent = user.ProfileImage is not null
+            && !string.IsNullOrEmpty(user.ProfileImage.Path)
+            && File.Exists(user.ProfileImage.Path);
+        var canRevalidate = urlUnchanged && avatarPresent;
 
         // SSRF guard — same egress policy as discovery/token/userinfo fetches.
         await EnsureSafeOutboundAsync(pictureUrl, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
 
-        using var resp = await _http.GetAsync(pictureUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+        using var req = new HttpRequestMessage(HttpMethod.Get, pictureUrl);
+        var conditional = false;
+        if (canRevalidate && !string.IsNullOrEmpty(link!.SyncedPictureETag))
+        {
+            // A stored validator lets the IdP answer 304 with no body — the
+            // cheapest possible "unchanged" on a repeat sign-in.
+            req.Headers.TryAddWithoutValidation("If-None-Match", link.SyncedPictureETag);
+            conditional = true;
+        }
+
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+
+        // Only trust a 304 when we actually asked for one; a server that sends
+        // it unsolicited must not stop us recovering a missing avatar.
+        if (conditional && resp.StatusCode == HttpStatusCode.NotModified)
+        {
+            return;
+        }
+
         resp.EnsureSuccessStatusCode();
 
         var mime = resp.Content.Headers.ContentType?.MediaType?.ToLowerInvariant() ?? string.Empty;
@@ -1465,6 +1492,30 @@ public class OidcService : IDisposable
             return;
         }
 
+        var newHash = Convert.ToHexString(SHA256.HashData(bytes));
+        var newEtag = resp.Headers.ETag?.Tag;
+
+        // [#286] Content backstop for IdPs that send no ETag: if the bytes match
+        // what we last wrote and the avatar is still on disk, there is nothing
+        // to re-save — just refresh the stored ETag so the next sign-in can go
+        // straight to a 304.
+        if (canRevalidate
+            && link!.SyncedPictureHash is not null
+            && string.Equals(link.SyncedPictureHash, newHash, StringComparison.Ordinal))
+        {
+            if (!string.IsNullOrEmpty(newEtag)
+                && !string.Equals(newEtag, link.SyncedPictureETag, StringComparison.Ordinal))
+            {
+                await _store.MutateAsync(user.Id, ud =>
+                {
+                    var l = ud.SsoLinks.FirstOrDefault(x => x.ProviderId == provider.Id);
+                    if (l is not null) l.SyncedPictureETag = newEtag;
+                }).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
         var userDataPath = Path.Combine(_serverConfig.ApplicationPaths.UserConfigurationDirectoryPath, user.Username);
         Directory.CreateDirectory(userDataPath);
 
@@ -1482,11 +1533,17 @@ public class OidcService : IDisposable
 
         await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
 
-        // Record the synced URL so the next sign-in skips an unchanged avatar.
+        // Record the URL and both validators so the next sign-in can short-
+        // circuit — by 304 when the IdP sent an ETag, by content hash otherwise.
         await _store.MutateAsync(user.Id, ud =>
         {
             var l = ud.SsoLinks.FirstOrDefault(x => x.ProviderId == provider.Id);
-            if (l is not null) l.SyncedPictureUrl = pictureUrl;
+            if (l is not null)
+            {
+                l.SyncedPictureUrl = pictureUrl;
+                l.SyncedPictureHash = newHash;
+                l.SyncedPictureETag = newEtag;
+            }
         }).ConfigureAwait(false);
 
         _logger.LogInformation("[2FA] OIDC synced profile picture for {User} from provider {Provider}", user.Username, provider.Id);

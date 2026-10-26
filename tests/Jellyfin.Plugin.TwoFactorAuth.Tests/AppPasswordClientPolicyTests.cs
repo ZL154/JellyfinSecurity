@@ -50,4 +50,19 @@ public class AppPasswordClientPolicyTests
     {
         Assert.Equal(refused, AppPasswordClientPolicy.IsRefused(client));
     }
+
+    // [#244] An admin can add extra clients to refuse. Web stays refused with or
+    // without a list; a listed client is refused case-insensitively; clients the
+    // admin did NOT list (and genuinely-limited apps) keep working.
+    [Theory]
+    [InlineData("Jellyfin for Android", new[] { "Jellyfin for Android" }, true)]
+    [InlineData("jellyfin for android", new[] { "Jellyfin for Android" }, true)]
+    [InlineData("Jellyfin Web", new[] { "Jellyfin for Android" }, true)]
+    [InlineData("Swiftfin", new[] { "Jellyfin for Android" }, false)]
+    [InlineData("Seerr", new[] { "Jellyfin for Android", "Jellyfin for iOS" }, false)]
+    [InlineData("Jellyfin for Android", new string[0], false)]
+    public void Admin_listed_clients_are_also_refused(string? client, string[] extraRefused, bool refused)
+    {
+        Assert.Equal(refused, AppPasswordClientPolicy.IsRefused(client, extraRefused));
+    }
 }

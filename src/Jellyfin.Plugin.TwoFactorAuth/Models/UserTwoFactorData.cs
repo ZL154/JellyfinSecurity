@@ -24,6 +24,13 @@ public class UserTwoFactorData
 
     public bool EmailOtpPreferred { get; set; }
 
+    /// <summary>[#285] The user's own Telegram chat ID, confirmed by a code sent
+    /// to it (see <c>TelegramLinkStore</c>). When set, login and step-up OTPs
+    /// are also delivered here, so a user is not locked out when email is down.
+    /// Numeric (negative for groups); empty = not linked. Per-user, never the
+    /// global admin alert chat, so a code reaches only its owner.</summary>
+    public string TelegramChatId { get; set; } = string.Empty;
+
     public List<TrustedDevice> TrustedDevices { get; set; } = new();
 
     public List<string> RegisteredDeviceIds { get; set; } = new();
@@ -165,6 +172,18 @@ public class SsoLink
     /// Jellyfin avatar for this link. Lets the sign-in path skip re-downloading
     /// an unchanged avatar on every login. Null = never synced.</summary>
     public string? SyncedPictureUrl { get; set; }
+
+    /// <summary>[#286]: the HTTP ETag of the image last synced from
+    /// <see cref="SyncedPictureUrl"/>. A repeat sign-in revalidates with
+    /// If-None-Match, so an IdP that serves an updated picture at the same URL
+    /// (e.g. Pocket ID) answers 304 when nothing changed and 200 when it did.
+    /// Null = no validator stored.</summary>
+    public string? SyncedPictureETag { get; set; }
+
+    /// <summary>[#286]: SHA-256 (hex) of the image bytes last written to the
+    /// Jellyfin avatar. Backstop for IdPs that send no ETag: a same-URL image
+    /// is only re-saved when its content hash actually differs.</summary>
+    public string? SyncedPictureHash { get; set; }
 }
 
 /// <summary>Cached geo for impossible-travel detection. Lat/lon may be 0 if
@@ -243,6 +262,17 @@ public class AppPassword
     public string LastDeviceName { get; set; } = string.Empty;
 
     public string LastDeviceId { get; set; } = string.Empty;
+
+    /// <summary>[#270/#216] A one-time credential for a limited device (Fire TV,
+    /// a TV app that can't show the challenge, Quick Connect disabled): single
+    /// use, deleted the first time it signs a session in. Default false = an
+    /// ordinary, reusable app password.</summary>
+    public bool OneTime { get; set; }
+
+    /// <summary>[#270/#216] When set, the password stops being accepted after
+    /// this instant even if never used. One-time codes get a short life; a
+    /// normal app password leaves this null (never expires).</summary>
+    public DateTime? ExpiresAt { get; set; }
 }
 
 /// <summary>A FIDO2 / WebAuthn credential. The PublicKeyCose blob is the
