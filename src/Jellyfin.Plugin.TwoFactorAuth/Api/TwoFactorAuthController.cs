@@ -861,6 +861,15 @@ public class TwoFactorAuthController : ControllerBase
                 {
                     await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
                     _ipBans.RecordFailure(clientIp);
+                    // [#272] Tell the admin's configured channels (email /
+                    // Telegram) about a failed 2FA sign-in, carrying the running
+                    // failed-attempt count so a brute-force run is visible as it
+                    // climbs toward lockout. A no-op when no channel is set up,
+                    // and dispatched fire-and-forget so a slow SMTP/Telegram hop
+                    // never delays the (already failed) sign-in response.
+                    var failData = await _store.GetUserDataAsync(user.Id).ConfigureAwait(false);
+                    _ = _notificationService.NotifyFailedAttemptsAsync(
+                        user.Username ?? string.Empty, clientIp, failData.FailedAttemptCount);
                     await _store.AddAuditEntryAsync(new AuditEntry
                     {
                         Timestamp = DateTime.UtcNow,
@@ -2543,10 +2552,25 @@ public class TwoFactorAuthController : ControllerBase
         var config = Plugin.Instance?.Configuration;
         if (config is null) return StatusCode(500, new { message = "Plugin not initialized." });
 
+        // [#271] Only a genuinely new address earns a welcome email, so saving
+        // the same address (or clearing it) stays silent and no one is mailed
+        // twice. Compared before the write.
+        var previousEmail = config.GetUserEmail(userId.ToString("N")) ?? string.Empty;
+        var isNewAddress = !string.IsNullOrEmpty(email)
+            && !string.Equals(email, previousEmail, StringComparison.OrdinalIgnoreCase);
+
         config.SetUserEmail(userId.ToString("N"), string.IsNullOrEmpty(email) ? null : email);
         Plugin.Instance!.SaveConfiguration();
 
-        await Task.CompletedTask;
+        if (isNewAddress && config.WelcomeEmailEnabled)
+        {
+            // Fire-and-forget: a dead mail server must not fail the save, and
+            // SendWelcomeEmailAsync already swallows its own errors.
+            var username = _userManager.GetUserById(userId)?.Username ?? string.Empty;
+            _ = _emailOtpService.SendWelcomeEmailAsync(email, username);
+        }
+
+        await Task.CompletedTask.ConfigureAwait(false);
         return Ok(new { message = "Saved." });
     }
 
@@ -2557,6 +2581,122 @@ public class TwoFactorAuthController : ControllerBase
         var userId = GetCurrentUserId();
         var email = Plugin.Instance?.Configuration.GetUserEmail(userId.ToString("N")) ?? string.Empty;
         return Ok(new { email });
+    }
+
+    // =========================================================================
+    // [#285] Per-user Telegram as an OTP delivery channel. A user links their
+    // OWN chat (never the global admin alert chat), confirmed by a code sent to
+    // it, so a login/step-up code reaches only the account owner — a fallback
+    // for when email is down.
+    // =========================================================================
+
+    /// <summary>[#285] Deliver an OTP to the user's linked Telegram chat, if any.
+    /// No-op when unlinked, when Telegram isn't configured, or on any send error
+    /// — it is purely additive to email and must never fail the caller.</summary>
+    private async Task<bool> DeliverOtpViaTelegramAsync(Guid userId, string code, string purpose)
+    {
+        if (string.IsNullOrEmpty(code)) return false;
+        try
+        {
+            var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(data.TelegramChatId)) return false;
+            var ttlSeconds = Plugin.Instance?.Configuration.EmailOtpTtlSeconds ?? 300;
+            var text = $"Your {purpose} code is: {code}\n\nIt expires in about {Math.Max(1, ttlSeconds / 60)} minute(s). If you didn't just try to sign in, ignore this message.";
+            var (ok, _) = await _notificationService.SendTelegramDirectAsync(data.TelegramChatId, text).ConfigureAwait(false);
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[2FA] Telegram OTP delivery failed for {UserId}", userId);
+            return false;
+        }
+    }
+
+    [HttpGet("Telegram")]
+    [Authorize]
+    public async Task<IActionResult> GetMyTelegram()
+    {
+        var userId = GetCurrentUserId();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var linked = !string.IsNullOrEmpty(data.TelegramChatId);
+        return Ok(new
+        {
+            linked,
+            chatIdMasked = linked ? MaskChatId(data.TelegramChatId) : string.Empty,
+            // The user can only link a chat once the admin has configured the bot.
+            botConfigured = !string.IsNullOrWhiteSpace(Plugin.Instance?.Configuration.TelegramBotToken),
+        });
+    }
+
+    [HttpPost("Telegram/Link")]
+    [Authorize]
+    public async Task<IActionResult> LinkTelegram([FromBody, Required] LinkTelegramRequest req)
+    {
+        var userId = GetCurrentUserId();
+        var chatId = req.ChatId?.Trim() ?? string.Empty;
+        if (string.IsNullOrEmpty(chatId))
+        {
+            return BadRequest(new { message = "Enter your Telegram chat ID." });
+        }
+
+        if (string.IsNullOrWhiteSpace(Plugin.Instance?.Configuration.TelegramBotToken))
+        {
+            return BadRequest(new { message = "Telegram is not configured on this server. Ask your administrator to set a bot token." });
+        }
+
+        // Issue a code BOUND to this chat, then send it there. Reading it back
+        // (next call) proves the user controls this chat.
+        var code = _emailOtpService.GenerateTelegramLinkCode(userId, chatId);
+        if (string.IsNullOrEmpty(code))
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { message = "Too many attempts. Try again in a few minutes." });
+        }
+
+        var username = _userManager.GetUserById(userId)?.Username ?? string.Empty;
+        var (ok, error) = await _notificationService.SendTelegramDirectAsync(
+            chatId,
+            $"Jellyfin Security: your confirmation code is {code}\n\nEnter it on the Telegram link screen to receive your sign-in codes here. It expires in 5 minutes. If you didn't request this, ignore it.").ConfigureAwait(false);
+
+        if (!ok)
+        {
+            _logger.LogInformation("[2FA] Telegram link send failed for {User}: {Error}", username, error);
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = error ?? "Could not send the confirmation message. Check the chat ID." });
+        }
+
+        return Ok(new { sent = true });
+    }
+
+    [HttpPost("Telegram/Confirm")]
+    [Authorize]
+    public async Task<IActionResult> ConfirmTelegram([FromBody, Required] ConfirmTelegramRequest req)
+    {
+        var userId = GetCurrentUserId();
+        var code = req.Code?.Trim() ?? string.Empty;
+        var chatId = _emailOtpService.ConfirmTelegramLinkCode(userId, code);
+        if (chatId is null)
+        {
+            return Unauthorized(new { message = "That code is wrong or has expired. Start again." });
+        }
+
+        await _store.MutateAsync(userId, ud => ud.TelegramChatId = chatId).ConfigureAwait(false);
+        _logger.LogInformation("[2FA] Telegram chat linked for user {UserId}", userId);
+        return Ok(new { linked = true, chatIdMasked = MaskChatId(chatId) });
+    }
+
+    [HttpDelete("Telegram")]
+    [Authorize]
+    public async Task<IActionResult> UnlinkTelegram()
+    {
+        var userId = GetCurrentUserId();
+        await _store.MutateAsync(userId, ud => ud.TelegramChatId = string.Empty).ConfigureAwait(false);
+        return Ok(new { linked = false });
+    }
+
+    private static string MaskChatId(string chatId)
+    {
+        if (string.IsNullOrEmpty(chatId)) return string.Empty;
+        if (chatId.Length <= 4) return new string('•', chatId.Length);
+        return new string('•', chatId.Length - 4) + chatId[^4..];
     }
 
     /// <summary>[v2.5.6] (round-5 fix D): per-user toggle for the
@@ -3001,11 +3141,18 @@ public class TwoFactorAuthController : ControllerBase
         // Per-user email address from plugin config (admin sets these)
         var email = Plugin.Instance?.Configuration.GetUserEmail(challenge.UserId.ToString("N"));
 
-        var (_, sent) = await _emailOtpService.GenerateAndSendCodeAsync(
+        var (otpCode, sent) = await _emailOtpService.GenerateAndSendCodeAsync(
             challenge.UserId,
             challenge.Username,
             email,
             request.ChallengeToken).ConfigureAwait(false);
+
+        // [#285] Deliver the SAME code to the user's own linked Telegram chat,
+        // so a dead mail server (the issue's exact case) doesn't lock them out.
+        // A user with Telegram but no email now still receives a code. The
+        // generic response below is unchanged — no oracle about which channels
+        // a user has.
+        await DeliverOtpViaTelegramAsync(challenge.UserId, otpCode, "sign-in").ConfigureAwait(false);
 
         // SEC v2.4 H1: generic response regardless of whether email was
         // configured or SMTP send failed. Previously the message text told
@@ -3182,6 +3329,106 @@ public class TwoFactorAuthController : ControllerBase
             label = entry.Label,
             password = plaintext, // shown ONCE
             warning = "Copy this password now. You won't see it again. Use it as the password in your native app.",
+        });
+    }
+
+    /// <summary>[#270/#216] Mint a single-use, short-lived app password for a
+    /// limited device (Fire TV, a TV app that can't show the challenge, Quick
+    /// Connect off) and deliver it to the user's email and/or linked Telegram so
+    /// they can read it beside the device. Same step-up gate and factor
+    /// requirement as a normal app password; the credential is consumed on first
+    /// use and expires on its own.</summary>
+    [HttpPost("AppPasswords/OneTime")]
+    [Authorize]
+    public async Task<IActionResult> CreateOneTimeAppPassword([FromBody, Required] CreateAppPasswordBody req)
+    {
+        var userId = GetCurrentUserId();
+
+        var stepUp = await EnforceSelfServiceStepUpAsync(userId, req.Code, req.StepUpToken).ConfigureAwait(false);
+        if (stepUp is not null) return stepUp;
+
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (!SelfServiceFactors.HasAny(data, Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration()))
+        {
+            return BadRequest(new { message = "Set up two-factor authentication or link a sign-in provider before creating device codes." });
+        }
+
+        const int ttlMinutes = 30;
+        var label = (req.Label ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(label)) label = "One-time device code";
+        if (label.Length > 80) label = label.Substring(0, 80);
+
+        var (plaintext, hash) = _appPasswords.Generate();
+        var entry = new AppPassword
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Label = label,
+            PasswordHash = hash,
+            CreatedAt = DateTime.UtcNow,
+            OneTime = true,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(ttlMinutes),
+        };
+
+        // Sweep spent/expired one-time codes before enforcing the cap, so a user
+        // who generates several over time isn't blocked by dead entries.
+        var added = false;
+        await _store.MutateAsync(userId, ud =>
+        {
+            ud.AppPasswords.RemoveAll(a => a.ExpiresAt is not null && a.ExpiresAt.Value <= DateTime.UtcNow);
+            if (ud.AppPasswords.Count < 20)
+            {
+                ud.AppPasswords.Add(entry);
+                added = true;
+            }
+        }).ConfigureAwait(false);
+        if (!added)
+        {
+            return BadRequest(new { message = "Limit reached. Revoke an existing app password first." });
+        }
+
+        // Same provider routing as CreateAppPassword so the credential check runs
+        // on /Users/AuthenticateByName. Best-effort.
+        try
+        {
+            var ourProviderId = typeof(TwoFactorAuthProvider).FullName!;
+            var routedUser = _userManager.GetUserById(userId);
+            if (routedUser is not null
+                && !string.Equals(routedUser.AuthenticationProviderId, ourProviderId, StringComparison.Ordinal))
+            {
+                routedUser.AuthenticationProviderId = ourProviderId;
+                await _userManager.UpdateUserAsync(routedUser).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Could not reassign AuthenticationProviderId on one-time code create for {UserId}", userId);
+        }
+
+        // Deliver out-of-band so the code is readable beside the limited device.
+        var username = _userManager.GetUserById(userId)?.Username ?? string.Empty;
+        var email = Plugin.Instance?.Configuration.GetUserEmail(userId.ToString("N"));
+        var telegramSent = await DeliverOtpViaTelegramAsync(userId, plaintext, "one-time sign-in").ConfigureAwait(false);
+        var emailSent = !string.IsNullOrEmpty(email)
+            && await _emailOtpService.SendDeviceCodeEmailAsync(email!, username, plaintext, ttlMinutes).ConfigureAwait(false);
+
+        await _store.AddAuditEntryAsync(new AuditEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            UserId = userId,
+            Username = username,
+            RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+            Result = AuditResult.ConfigChanged,
+            Method = "one_time_device_code_created",
+        }).ConfigureAwait(false);
+
+        return Ok(new
+        {
+            id = entry.Id,
+            password = plaintext, // shown ONCE
+            expiresInMinutes = ttlMinutes,
+            emailSent,
+            telegramSent,
+            warning = "Single use, expires in 30 minutes. Enter it as the password in your TV / limited-device app.",
         });
     }
 
@@ -4125,13 +4372,17 @@ public class TwoFactorAuthController : ControllerBase
         if (cfg is null || !cfg.EmailOtpEnabled)
             return BadRequest(new { message = "Email OTP is disabled on this server." });
         var email = cfg.GetUserEmail(userId.ToString("N"));
-        if (string.IsNullOrEmpty(email))
-            return BadRequest(new { message = "No email configured for your account." });
+        // [#285] A Telegram-linked user can get the step-up code without email.
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        var hasTelegram = !string.IsNullOrEmpty(data.TelegramChatId);
+        if (string.IsNullOrEmpty(email) && !hasTelegram)
+            return BadRequest(new { message = "No email or linked Telegram configured for your account." });
         var jellyfinUser = _userManager.GetUserById(userId);
         var username = jellyfinUser?.Username ?? userId.ToString();
-        var sent = await _emailOtpService.SendStepUpCodeAsync(userId, username, email).ConfigureAwait(false);
-        if (!sent)
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Failed to send email. Check SMTP configuration." });
+        var (emailSent, code) = await _emailOtpService.SendStepUpCodeAsync(userId, username, email ?? string.Empty).ConfigureAwait(false);
+        var telegramSent = await DeliverOtpViaTelegramAsync(userId, code, "verification").ConfigureAwait(false);
+        if (!emailSent && !telegramSent)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Failed to send the code. Check SMTP configuration or your linked Telegram chat." });
         return Ok(new { sent = true });
     }
 

@@ -321,6 +321,22 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 {
                     var ap = ud.AppPasswords.FirstOrDefault(x => x.Id == matchedId);
                     if (ap is null) { racedOut = true; return; }
+                    // [#270] An entry that expired in the window between the
+                    // match and this write must not sign anyone in.
+                    if (ap.ExpiresAt is not null && ap.ExpiresAt.Value <= DateTime.UtcNow)
+                    {
+                        racedOut = true;
+                        return;
+                    }
+
+                    // [#270] A one-time code is spent on first use: remove it so
+                    // it can never sign a second session in.
+                    if (ap.OneTime)
+                    {
+                        ud.AppPasswords.Remove(ap);
+                        return;
+                    }
+
                     ap.LastUsedAt = DateTime.UtcNow;
                     ap.LastDeviceId = apDeviceId;
                     ap.LastDeviceName = apDeviceName;

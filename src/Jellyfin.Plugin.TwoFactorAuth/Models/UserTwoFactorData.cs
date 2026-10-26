@@ -24,6 +24,13 @@ public class UserTwoFactorData
 
     public bool EmailOtpPreferred { get; set; }
 
+    /// <summary>[#285] The user's own Telegram chat ID, confirmed by a code sent
+    /// to it (see <c>TelegramLinkStore</c>). When set, login and step-up OTPs
+    /// are also delivered here, so a user is not locked out when email is down.
+    /// Numeric (negative for groups); empty = not linked. Per-user, never the
+    /// global admin alert chat, so a code reaches only its owner.</summary>
+    public string TelegramChatId { get; set; } = string.Empty;
+
     public List<TrustedDevice> TrustedDevices { get; set; } = new();
 
     public List<string> RegisteredDeviceIds { get; set; } = new();
@@ -255,6 +262,17 @@ public class AppPassword
     public string LastDeviceName { get; set; } = string.Empty;
 
     public string LastDeviceId { get; set; } = string.Empty;
+
+    /// <summary>[#270/#216] A one-time credential for a limited device (Fire TV,
+    /// a TV app that can't show the challenge, Quick Connect disabled): single
+    /// use, deleted the first time it signs a session in. Default false = an
+    /// ordinary, reusable app password.</summary>
+    public bool OneTime { get; set; }
+
+    /// <summary>[#270/#216] When set, the password stops being accepted after
+    /// this instant even if never used. One-time codes get a short life; a
+    /// normal app password leaves this null (never expires).</summary>
+    public DateTime? ExpiresAt { get; set; }
 }
 
 /// <summary>A FIDO2 / WebAuthn credential. The PublicKeyCose blob is the

@@ -268,6 +268,76 @@ public class NotificationService
             new { test = true },
             waitForEmail: true);
 
+    /// <summary>[#285] Send one message straight to a specific Telegram chat —
+    /// a user's OWN linked chat — reusing the alert path's token-shape check,
+    /// SSRF address pinning and token scrubbing. Unlike the alert channel this
+    /// targets a caller-supplied chat, never the global admin chat, so a login
+    /// code reaches only the account owner. Used for per-user OTP delivery and
+    /// for the confirmation code that verifies a newly linked chat. Returns
+    /// (sent, error?); never throws.</summary>
+    public async Task<(bool Sent, string? Error)> SendTelegramDirectAsync(string chatId, string text)
+    {
+        var config = _configAccessor();
+        if (config is null)
+        {
+            return (false, "Plugin not initialized.");
+        }
+
+        var token = config.TelegramBotToken?.Trim() ?? string.Empty;
+        var chat = chatId?.Trim() ?? string.Empty;
+        if (!IsTelegramToken(token))
+        {
+            return (false, "Telegram is not configured: set a bot token in the plugin settings.");
+        }
+
+        if (!IsTelegramChatId(chat))
+        {
+            return (false, "The chat ID must be a number (negative for groups) or a public @username.");
+        }
+
+        var addrs = GetSafeWebhookAddresses(TelegramApiBase);
+        if (addrs is null || addrs.Length == 0)
+        {
+            return (false, "api.telegram.org was refused by the SSRF guard (see server log).");
+        }
+
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, TelegramSendMessageUrl(token))
+            {
+                Content = JsonContent.Create(new
+                {
+                    chat_id = chat,
+                    text,
+                    disable_web_page_preview = true,
+                }),
+            };
+            _pinnedAllowedAddresses.Value = addrs;
+            try
+            {
+                using var response = await _webhookHttpClient.SendAsync(req).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    return (true, null);
+                }
+
+                var raw = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                var error = DescribeTelegramFailure((int)response.StatusCode, raw, token);
+                _logger.LogWarning("[2FA] Telegram direct send failed: {Error}", error);
+                return (false, error);
+            }
+            finally
+            {
+                _pinnedAllowedAddresses.Value = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("[2FA] Telegram direct send error: {Type}", ex.GetType().Name);
+            return (false, ex.GetType().Name);
+        }
+    }
+
     /// <summary>Centralised dispatch: sends to ntfy, Gotify, the admin email
     /// addresses and the configured webhook (with optional HMAC signature).
     /// `event` is the machine-readable type for webhook consumers; `payload`

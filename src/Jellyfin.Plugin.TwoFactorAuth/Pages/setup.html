@@ -270,6 +270,35 @@
                 <div class="alert error" id="emailError"></div>
             </div>
 
+            <!-- =========== TELEGRAM BACKUP (#285) =========== -->
+            <div class="card" id="cardTelegram" style="display:none;">
+                <div class="card-head">
+                    <div>
+                        <h2><span class="icon">💬</span> <span data-i18n-key="tfa.setup.telegram.heading">Telegram Codes</span></h2>
+                        <div class="desc" data-i18n-key="tfa.setup.telegram.desc">Optional. Receive your one-time sign-in codes on Telegram — handy if email ever goes down. Message your server's bot, then paste the chat ID it reports (from @userinfobot, for example).</div>
+                    </div>
+                </div>
+                <div id="telegramLinkedRow" style="display:none;">
+                    <p class="muted" style="margin:6px 0;">
+                        <span data-i18n-key="tfa.setup.telegram.linked">Linked chat:</span>
+                        <strong id="telegramLinkedId"></strong>
+                    </p>
+                    <button class="btn-danger" id="btnUnlinkTelegram" data-i18n-key="tfa.setup.telegram.btn_unlink">Unlink</button>
+                </div>
+                <div id="telegramLinkRow">
+                    <div class="row">
+                        <input type="text" id="telegramChatInput" inputmode="numeric" data-i18n-placeholder="tfa.setup.telegram.placeholder" placeholder="e.g. 123456789" />
+                        <button class="btn-primary" id="btnSendTelegram" data-i18n-key="tfa.setup.telegram.btn_send">Send code</button>
+                    </div>
+                    <div class="row" id="telegramConfirmRow" style="display:none;">
+                        <input type="text" id="telegramCodeInput" inputmode="numeric" maxlength="6" data-i18n-placeholder="tfa.setup.telegram.code_placeholder" placeholder="6-digit code" />
+                        <button class="btn-primary" id="btnConfirmTelegram" data-i18n-key="tfa.setup.telegram.btn_confirm">Confirm</button>
+                    </div>
+                </div>
+                <div class="alert success" id="telegramSuccess"></div>
+                <div class="alert error" id="telegramError"></div>
+            </div>
+
             <!-- =========== HARDENED SECURITY (round-5 fix D) =========== -->
             <div class="card" id="cardStepUpPref" style="display:none;">
                 <div class="card-head">
@@ -320,6 +349,10 @@
                 <div class="row">
                     <input type="text" id="apLabel" data-i18n-placeholder="tfa.setup.ap.label_placeholder" placeholder="e.g. iPhone Swiftfin" maxlength="80" />
                     <button class="btn-primary" id="btnCreateAp" data-i18n-key="tfa.setup.ap.btn_generate">Generate</button>
+                </div>
+                <p class="muted" style="font-size:13px;margin:10px 0 4px;line-height:1.6;" data-i18n-key="tfa.setup.ap.onetime_desc">For a TV or Fire TV that can't show the 2FA prompt and has no Quick Connect: generate a single-use code that expires in 30 minutes. It's shown here and also sent to your email / linked Telegram so you can read it next to the device.</p>
+                <div class="row">
+                    <button class="btn-ghost" id="btnOneTimeAp" data-i18n-key="tfa.setup.ap.btn_onetime">Generate one-time device code</button>
                 </div>
                 <div id="apNewPasswordWrap"></div>
                 <div id="apList" style="margin-top:14px;"></div>
@@ -1602,6 +1635,76 @@
             });
         });
 
+        // ============ TELEGRAM HANDLER (#285) ============
+        function loadTelegram() {
+            api('GET', 'TwoFactorAuth/Telegram').then(function(r) {
+                var card = document.getElementById('cardTelegram');
+                // Only show the card when the admin has configured a bot.
+                card.style.display = (r && r.botConfigured) ? 'block' : 'none';
+                var linkedRow = document.getElementById('telegramLinkedRow');
+                var linkRow = document.getElementById('telegramLinkRow');
+                if (r && r.linked) {
+                    linkedRow.style.display = 'block';
+                    linkRow.style.display = 'none';
+                    document.getElementById('telegramLinkedId').textContent = r.chatIdMasked || '';
+                } else {
+                    linkedRow.style.display = 'none';
+                    linkRow.style.display = 'block';
+                }
+                document.getElementById('telegramConfirmRow').style.display = 'none';
+            }).catch(function() {
+                document.getElementById('cardTelegram').style.display = 'none';
+            });
+        }
+
+        document.getElementById('btnSendTelegram').addEventListener('click', function() {
+            var ok = document.getElementById('telegramSuccess'), err = document.getElementById('telegramError');
+            ok.classList.remove('show'); err.classList.remove('show');
+            var chatId = document.getElementById('telegramChatInput').value.trim();
+            if (!chatId) {
+                err.textContent = _tr('tfa.setup.telegram.need_id', 'Enter your Telegram chat ID first.');
+                err.classList.add('show');
+                return;
+            }
+            api('POST', 'TwoFactorAuth/Telegram/Link', { chatId: chatId }).then(function() {
+                document.getElementById('telegramConfirmRow').style.display = 'flex';
+                ok.textContent = _tr('tfa.setup.telegram.code_sent', 'Code sent to that chat. Enter it below to finish.');
+                ok.classList.add('show');
+            }).catch(function(e) {
+                err.textContent = (e && e.message) || _tr('tfa.setup.telegram.send_failed', 'Could not send the code — check the chat ID.');
+                err.classList.add('show');
+            });
+        });
+
+        document.getElementById('btnConfirmTelegram').addEventListener('click', function() {
+            var ok = document.getElementById('telegramSuccess'), err = document.getElementById('telegramError');
+            ok.classList.remove('show'); err.classList.remove('show');
+            var code = document.getElementById('telegramCodeInput').value.trim();
+            api('POST', 'TwoFactorAuth/Telegram/Confirm', { code: code }).then(function() {
+                document.getElementById('telegramChatInput').value = '';
+                document.getElementById('telegramCodeInput').value = '';
+                ok.textContent = _tr('tfa.setup.telegram.linked_ok', 'Telegram linked. Sign-in codes will also be sent here.');
+                ok.classList.add('show');
+                loadTelegram();
+            }).catch(function(e) {
+                err.textContent = (e && e.message) || _tr('tfa.setup.telegram.bad_code', 'That code is wrong or expired. Start again.');
+                err.classList.add('show');
+            });
+        });
+
+        document.getElementById('btnUnlinkTelegram').addEventListener('click', function() {
+            var ok = document.getElementById('telegramSuccess'), err = document.getElementById('telegramError');
+            ok.classList.remove('show'); err.classList.remove('show');
+            api('DELETE', 'TwoFactorAuth/Telegram').then(function() {
+                ok.textContent = _tr('tfa.setup.telegram.unlinked', 'Telegram unlinked.');
+                ok.classList.add('show');
+                loadTelegram();
+            }).catch(function() {
+                err.textContent = _tr('tfa.error.unknown', 'Something went wrong.');
+                err.classList.add('show');
+            });
+        });
+
         // ============ APP PASSWORD HANDLER ============
         document.getElementById('btnCreateAp').addEventListener('click', async function() {
             var label = document.getElementById('apLabel').value.trim();
@@ -1626,6 +1729,41 @@
                     '<div style="font-size:13px;color:#ffa726;margin-bottom:8px;">⚠ ' + _tr('tfa.setup.ap.copy_now', 'Copy this now — it won\'t be shown again') + '</div>' +
                     '<code id="newAp">' + escapeHtml(r.password) + '</code>' +
                     '<button class="btn-ghost btn-sm" id="btnCopyAp">' + _tr('tfa.setup.ap.btn_copy', 'Copy') + '</button>' +
+                '</div>';
+            document.getElementById('apNewPasswordWrap').innerHTML = html;
+            document.getElementById('btnCopyAp').addEventListener('click', function() {
+                navigator.clipboard.writeText(r.password);
+                document.getElementById('btnCopyAp').textContent = '✓ ' + _tr('tfa.setup.common.copied', 'Copied');
+            });
+            loadAll();
+        });
+
+        // ============ ONE-TIME DEVICE CODE HANDLER (#270/#216) ============
+        document.getElementById('btnOneTimeAp').addEventListener('click', async function() {
+            var r;
+            try {
+                r = await mutateWithStepUp('POST', 'TwoFactorAuth/AppPasswords/OneTime', {}, {
+                    message: window.__tfa_userTotpOn
+                        ? _tr('tfa.setup.stepup.app_pw_msg', 'Enter your current TOTP or recovery code to create an app password.')
+                        : _tr('tfa.setup.stepup.app_pw_msg_no_totp', 'Confirm it is you with one of the options below to create an app password.')
+                });
+            } catch (e) {
+                if (e && e.cancelled) return;
+                alert((e && e.message) || _tr('tfa.setup.ap.create_failed', 'Failed to create the code.'));
+                return;
+            }
+            var sentBits = [];
+            if (r.emailSent) sentBits.push(_tr('tfa.setup.ap.onetime_via_email', 'emailed'));
+            if (r.telegramSent) sentBits.push(_tr('tfa.setup.ap.onetime_via_telegram', 'sent to Telegram'));
+            var sentLine = sentBits.length
+                ? _tr('tfa.setup.ap.onetime_also', 'Also') + ' ' + sentBits.join(' + ') + '.'
+                : '';
+            var html =
+                '<div class="new-password-display">' +
+                    '<div style="font-size:13px;color:#ffa726;margin-bottom:8px;">⚠ ' + _tr('tfa.setup.ap.onetime_banner', 'One-time code — single use, expires in 30 minutes. Use it as the password on your device.') + '</div>' +
+                    '<code id="newAp">' + escapeHtml(r.password) + '</code>' +
+                    '<button class="btn-ghost btn-sm" id="btnCopyAp">' + _tr('tfa.setup.ap.btn_copy', 'Copy') + '</button>' +
+                    (sentLine ? '<div class="muted" style="font-size:12px;margin-top:8px;">' + sentLine + '</div>' : '') +
                 '</div>';
             document.getElementById('apNewPasswordWrap').innerHTML = html;
             document.getElementById('btnCopyAp').addEventListener('click', function() {
@@ -1993,7 +2131,7 @@
         Promise.all([
             (window.tfaI18n && window.tfaI18n.ready ? window.tfaI18n.ready : Promise.resolve()),
             publicConfigPromise,
-        ]).then(function() { loadAll(); });
+        ]).then(function() { loadAll(); loadTelegram(); });
     </script>
 </body>
 </html>
