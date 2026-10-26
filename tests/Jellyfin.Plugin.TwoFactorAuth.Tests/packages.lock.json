@@ -10,9 +10,9 @@
       },
       "Microsoft.AspNetCore.TestHost": {
         "type": "Direct",
-        "requested": "[9.0.20, )",
-        "resolved": "9.0.20",
-        "contentHash": "dhm9XyhRX0rZqR3m8Uj1pL88xy+dSPKAlvuewE51YzYa7HHUXGp8IPKy3iBHswty8t86e1T1MKILkI6U7MWSzw=="
+        "requested": "[9.0.22, )",
+        "resolved": "9.0.22",
+        "contentHash": "CTKIoXPtM5itRjqUXvbtNOzgX4c1dS4wGpmu/ZwU2pDMY47L2KKB8JRl2wtSVLxbkc0mCSiRUBpeq6fpavtXXg=="
       },
       "Microsoft.NET.Test.Sdk": {
         "type": "Direct",
