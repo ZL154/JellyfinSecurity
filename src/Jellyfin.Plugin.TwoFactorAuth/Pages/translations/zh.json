@@ -841,6 +841,8 @@
   "tfa.admin.sso.template_user_help": "启用“自动创建”后，新创建的用户将复制此用户的权限和媒体库访问权限，而不是 Jellyfin 的默认值。保留“(Jellyfin 默认值)”以维持内置行为。",
   "tfa.admin.sso.template_user_default": "(Jellyfin 默认值)",
   "tfa.admin.sso.opt_show_button_help": "取消勾选可保持 SSO 启用（登录 URL 仍可用于你自己的自定义按钮），但隐藏插件内置的“使用…登录”按钮。",
+  "tfa.admin.sso.opt_auto_redirect": "将登录页面直接转到该提供商",
+  "tfa.admin.sso.opt_auto_redirect_help": "在网页浏览器中，Jellyfin 登录页面无需点击即可打开该提供商的登录；Jellyfin 应用仍保留按钮。需要上方的内置按钮。在退出登录后、登录失败后，以及以 …/web/#/login?oidcAuto=0 打开时（这是进入密码表单的方法），页面不会跳转。如果多个提供商启用了此选项，将使用列表中的第一个。",
   "tfa.setup.sso.link_failed": "关联失败",
   "tfa.admin.sso.lbl_callback_url": "回调 / 重定向 URL",
   "tfa.admin.sso.btn_copy": "复制",

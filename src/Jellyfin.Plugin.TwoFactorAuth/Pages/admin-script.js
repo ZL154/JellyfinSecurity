@@ -1935,6 +1935,9 @@
                     // [v2.5.13] (#97) show built-in button toggle (default on).
                     var showBtnEl = page.querySelector('#ssoShowButton');
                     if (showBtnEl) showBtnEl.checked = prov ? prov.showLoginButton !== false : true;
+                    // [#297] send the login page straight to this provider (default off).
+                    var autoRedirectEl = page.querySelector('#ssoAutoRedirect');
+                    if (autoRedirectEl) autoRedirectEl.checked = prov ? !!prov.autoRedirect : false;
                     page.querySelector('#ssoForceHttps').checked = prov ? !!prov.forceHttps : false;
                     // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
                     var allowPrivEl = page.querySelector('#ssoAllowPrivate');
@@ -2041,6 +2044,8 @@
                         Enabled: page.querySelector('#ssoEnabled').checked,
                         // [v2.5.13] (#97) show built-in button on login page.
                         ShowLoginButton: (page.querySelector('#ssoShowButton') ? page.querySelector('#ssoShowButton').checked : true),
+                        // [#297] send the login page straight to this provider.
+                        AutoRedirect: (page.querySelector('#ssoAutoRedirect') || {}).checked === true,
                         ForceHttps: page.querySelector('#ssoForceHttps').checked,
                         // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
                         AllowPrivateNetworks: (page.querySelector('#ssoAllowPrivate') || {}).checked === true,

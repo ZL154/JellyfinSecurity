@@ -861,6 +861,8 @@
   "tfa.admin.sso.template_user_help": "When \"Auto-create\" is on, a newly created user copies this user's permissions and library access instead of Jellyfin's defaults. Leave as \"(Jellyfin defaults)\" to keep the built-in behaviour.",
   "tfa.admin.sso.template_user_default": "(Jellyfin defaults)",
   "tfa.admin.sso.opt_show_button_help": "Uncheck to keep SSO enabled (the sign-in URL still works for your own custom button) but hide the plugin's built-in \"Sign in with…\" button.",
+  "tfa.admin.sso.opt_auto_redirect": "Send the login page straight to this provider",
+  "tfa.admin.sso.opt_auto_redirect_help": "In a web browser, Jellyfin's login page opens this provider's sign-in without a click; the Jellyfin apps keep the button. Needs the built-in button above. The page stays put after a sign-out, after a failed sign-in, and when opened as …/web/#/login?oidcAuto=0, which is how to reach the password form. If several providers have this on, the first one in the list is used.",
   "tfa.setup.sso.link_failed": "Linking failed",
   "tfa.admin.sso.lbl_callback_url": "Callback / redirect URL",
   "tfa.admin.sso.btn_copy": "Copy",

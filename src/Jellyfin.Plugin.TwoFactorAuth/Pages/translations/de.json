@@ -841,6 +841,8 @@
   "tfa.admin.sso.template_user_help": "Wenn „Automatisch erstellen“ aktiviert ist, übernimmt ein neu erstellter Benutzer die Berechtigungen und den Bibliothekszugriff dieses Benutzers anstelle der Jellyfin-Standardwerte. Belassen Sie „(Jellyfin-Standard)“, um das Standardverhalten beizubehalten.",
   "tfa.admin.sso.template_user_default": "(Jellyfin-Standard)",
   "tfa.admin.sso.opt_show_button_help": "Deaktivieren, um SSO aktiviert zu lassen (die Anmelde-URL funktioniert weiterhin für Ihre eigene Schaltfläche), aber die integrierte „Anmelden mit …“-Schaltfläche des Plugins auszublenden.",
+  "tfa.admin.sso.opt_auto_redirect": "Anmeldeseite direkt an diesen Anbieter weiterleiten",
+  "tfa.admin.sso.opt_auto_redirect_help": "In einem Webbrowser öffnet die Jellyfin-Anmeldeseite die Anmeldung dieses Anbieters ohne Klick; die Jellyfin-Apps behalten die Schaltfläche. Setzt die integrierte Schaltfläche oben voraus. Keine Weiterleitung nach einer Abmeldung, nach einer fehlgeschlagenen Anmeldung und wenn die Seite als …/web/#/login?oidcAuto=0 geöffnet wird; so erreichen Sie das Passwortformular. Haben mehrere Anbieter diese Option aktiviert, wird der erste in der Liste verwendet.",
   "tfa.setup.sso.link_failed": "Verknüpfung fehlgeschlagen",
   "tfa.admin.sso.lbl_callback_url": "Callback-/Weiterleitungs-URL",
   "tfa.admin.sso.btn_copy": "Kopieren",

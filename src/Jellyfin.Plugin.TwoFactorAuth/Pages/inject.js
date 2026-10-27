@@ -65,6 +65,20 @@
     // few render ticks, rather than looping the toast for the whole poll window.
     var _tfaOidcErrorAttempts = 0;
 
+    // [#297] Auto-redirect state lives in sessionStorage: per tab, and it
+    // survives the round trip through the provider. OFF holds the redirect
+    // back for the rest of the tab ('signout' or 'optout'); AT is when the
+    // last automatic redirect left, for the loop guard.
+    var OIDC_AUTO_OFF_KEY = '__tfa_oidc_auto_off';
+    var OIDC_AUTO_AT_KEY = '__tfa_oidc_auto_at';
+    // Read at load, like the error above, before the router can strip the
+    // hash query. oidcUser/oidcToken are the provider's answer being signed
+    // in; oidcAuto=0 is the opt-out a person types to reach the password form.
+    var _tfaOidcReturning = !!(getQueryParam('oidcUser') && getQueryParam('oidcToken'));
+    if (getQueryParam('oidcAuto') === '0') {
+        try { sessionStorage.setItem(OIDC_AUTO_OFF_KEY, 'optout'); } catch (e) {}
+    }
+
     // ============================================================
     // [v2.5.12] (#79, ZEROX7) i18n for the login page.
     //   The injected login UI (SSO buttons, 2FA/passkey buttons, the
@@ -1463,6 +1477,57 @@
         return null;
     }
 
+    // [#297] Which provider, if any, the login page sends this browser to
+    // without a click. Pure, so tests/oidc-bridge.test.mjs runs the rules as
+    // written. The first enabled provider set to auto-redirect wins, and
+    // nothing redirects:
+    //   - inside the Jellyfin apps, where the button opens the in-app flow;
+    //   - while the page shows a failed sign-in, or signs the provider's
+    //     answer in;
+    //   - after oidcAuto=0 or a sign-out in this tab;
+    //   - within two minutes of the last automatic redirect, so a round trip
+    //     that ends back here shows the button instead of looping.
+    function oidcAutoRedirectTarget(s) {
+        var LOOP_GUARD_MS = 120000;
+        if (s.embeddedApp || s.oidcError || s.returningFromProvider) return null;
+        if (s.optedOut || s.signedOut) return null;
+        if (s.lastAutoRedirectAt && s.now - s.lastAutoRedirectAt < LOOP_GUARD_MS) return null;
+        var list = s.providers || [];
+        for (var i = 0; i < list.length; i++) {
+            var p = list[i];
+            if (p && p.enabled && p.autoRedirect && p.id) return String(p.id);
+        }
+        return null;
+    }
+
+    // [#297] Decided once per page load: tryInject re-renders the login page
+    // many times, and the browser leaves at most once. It goes to the button's
+    // own URL, and replace() keeps Back from landing on a login page that
+    // would leave again.
+    var _tfaOidcAutoDecided = false;
+    function maybeAutoRedirectToOidc(rows) {
+        if (_tfaOidcAutoDecided) return;
+        _tfaOidcAutoDecided = true;
+        var off, lastAt;
+        try {
+            off = sessionStorage.getItem(OIDC_AUTO_OFF_KEY);
+            lastAt = parseInt(sessionStorage.getItem(OIDC_AUTO_AT_KEY) || '0', 10) || 0;
+        } catch (e) { return; } // no sessionStorage means no loop guard: keep the button
+        var id = oidcAutoRedirectTarget({
+            providers: rows,
+            embeddedApp: inEmbeddedWebView(),
+            oidcError: !!_tfaOidcError,
+            returningFromProvider: _tfaOidcReturning || !!window[OIDC_AUTOSUBMIT_FLAG],
+            optedOut: off === 'optout',
+            signedOut: off === 'signout',
+            lastAutoRedirectAt: lastAt,
+            now: Date.now()
+        });
+        if (!id) return;
+        try { sessionStorage.setItem(OIDC_AUTO_AT_KEY, String(Date.now())); } catch (e) { return; }
+        window.location.replace(serverUrl('TwoFactorAuth/Oidc/Login/' + encodeURIComponent(id)));
+    }
+
     // ---------------------------------------------------------------------
     // [v2.5.9] (issue #64): in-page OIDC for embedded app webviews.
     //
@@ -1780,6 +1845,8 @@
                 })(p.id, p.displayName || p.id);
                 container.appendChild(btn);
             });
+            // [#297] Only now: the redirect reuses one of these buttons.
+            maybeAutoRedirectToOidc(rows || []);
         }).catch(function() { /* silent */ });
     }
 
@@ -1940,6 +2007,14 @@
 
     function tfaSuppressRpLogout() { __tfaRpLogoutSuppressed = true; }
 
+    // [#297] A sign-out the user asked for holds the OIDC auto-redirect back
+    // for this tab; otherwise the login page would send them straight back
+    // into the provider's still-open session.
+    function tfaRememberSignOut() {
+        if (__tfaRpLogoutSuppressed) return;
+        try { sessionStorage.setItem(OIDC_AUTO_OFF_KEY, 'signout'); } catch (e) {}
+    }
+
     function tfaTakeRpLogoutProvider() {
         try {
             var id = window.localStorage.getItem(__tfaRpLogoutKey);
@@ -1960,6 +2035,7 @@
 
             var origLogout = api.logout;
             api.logout = function () {
+                tfaRememberSignOut();
                 var providerId = tfaTakeRpLogoutProvider();
                 var result = origLogout.apply(this, arguments);
                 if (!providerId) return result;

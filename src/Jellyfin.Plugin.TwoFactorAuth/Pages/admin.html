@@ -487,6 +487,11 @@
                                 <label><input type="checkbox" id="ssoShowButton" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_show_button">Show built-in button on login page</span></label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.sso.opt_show_button_help">Uncheck to keep SSO enabled (the sign-in URL still works for your own custom button) but hide the plugin's built-in "Sign in with…" button.</div>
                             </div>
+                            <!-- [#297] (sonalys): send the login page straight to this provider. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="ssoAutoRedirect" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_auto_redirect">Send the login page straight to this provider</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.opt_auto_redirect_help">In a web browser, Jellyfin's login page opens this provider's sign-in without a click; the Jellyfin apps keep the button. Needs the built-in button above. The page stays put after a sign-out, after a failed sign-in, and when opened as …/web/#/login?oidcAuto=0, which is how to reach the password form. If several providers have this on, the first one in the list is used.</div>
+                            </div>
                             <!-- [v2.5.11] (issue #69, ZEROX7): customize the login button text + icon. -->
                             <div class="tfa-row tfa-row-stack">
                                 <label data-i18n-key="tfa.admin.sso.lbl_button_text">Login button text (optional)</label>
