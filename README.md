@@ -96,6 +96,7 @@ visible trust signals is treated as a high-priority bug.
 - [Daily use](#-daily-use)
 - [Admin guide](#%EF%B8%8F-admin-guide)
 - [SSO / OIDC sign-in (v2.0)](#-sso--oidc-sign-in-v20)
+- [Sign-in through a trusted proxy (#298)](#-sign-in-through-a-trusted-proxy-298)
 - [Brute-force IP banning (v2.0)](#-brute-force-ip-banning-v20)
 - [Impossible-travel detection (v2.0)](#-impossible-travel-detection-v20)
 - [Per-user IP allowlist (v2.0)](#-per-user-ip-allowlist-v20)
@@ -161,6 +162,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - **Correct public links** — a **Public base URL** setting (falling back to Jellyfin's own published server URI) makes the OIDC `redirect_uri`, pairing QRs, and password-reset email link use the server's real public host rather than the address a direct/LAN client reached it on.
 - **Per-provider tuning** — custom button text/icon, IdP email auto-fill from a configurable claim, private/LAN IdP allow, and an "omit `prompt=login`" toggle for IdPs that reject forced re-auth.
 - **SSO-only account page**: an opt-in setting hides the plugin's own 2FA setup from users who sign in through a linked provider and are not administrators, so their account page shows their sessions and devices instead of factors their provider already covers.
+- **Sign-in through a trusted reverse proxy** *(#298, opt-in)*: a proxy that signs people in itself (NetBird, Authelia, oauth2-proxy) names the user in a header, and the login page signs that existing account in. See [Sign-in through a trusted proxy](#-sign-in-through-a-trusted-proxy-298).
 
 ### Enforcement
 - Session-level enforcement via `ISessionManager.SessionStarted` — works for all clients, not just web.
@@ -530,6 +532,34 @@ Implicit email/username linking is refused for administrators, ambiguous matches
 - **Return URL after provider sign-out** *(#134, optional)*: an absolute `https://` URL sent as `post_logout_redirect_uri` so the browser comes back to Jellyfin instead of stopping on the IdP's logged-out page. Leave empty (the default) to stop there, which is what most people want. **Register the exact URL at the provider first**, because most OPs reject the entire sign-out request when it carries an unregistered redirect. `{server}/TwoFactorAuth/Oidc/LoggedOut` is provided for this.
 - **Don't force re-authentication (`prompt=login`)** *(v2.5.19, #119, opt-in)* — compatibility switch for IdPs such as Authentik that reject `prompt=login`. Leave it off unless needed because forced re-authentication protects account-link, step-up, and onboarding validation flows from silently accepting an existing IdP session.
 - **Additional allowed CIDRs** *(v2.5.16, #103, andrewdunndev — Advanced)* — comma-separated CIDRs the SSRF guard will permit for this provider's endpoints, on top of "Allow private endpoints". For addresses the guard correctly rejects but you deliberately trust — e.g. the rootless Podman host-gateway `169.254.1.2/32`. `/0` is rejected; each listed CIDR bypasses safety checks for matching addresses, so only list addresses you own. See [OIDC private / VPN / LAN endpoints](#-oidc-private--vpn--lan-endpoints-v257).
+
+---
+
+## 🧭 Sign-in through a trusted proxy (#298)
+
+For a reverse proxy that signs people in itself and passes the user on in a header: [NetBird's reverse proxy](https://docs.netbird.io/manage/reverse-proxy/service-configuration) (`X-NetBird-User`, `X-NetBird-Groups`), or Authelia and oauth2-proxy (`Remote-User`). With it on, Jellyfin's login page signs that user in by itself, so someone the proxy already let in does not type a Jellyfin password. It is off by default, under **Settings → Sign in through a trusted proxy**.
+
+**Setup**
+1. Turn on **Sign in the user the proxy names** and set **User header** (for NetBird, `X-NetBird-User`).
+2. Under **Proxy addresses**, list the address the proxy itself connects to Jellyfin from, as a single host: the proxy container's address on the Docker network it shares with Jellyfin, or the proxy's NetBird address. If the login page does not sign in, the Jellyfin log names the address the request came from (`[2FA] Proxy sign-in: a request carried the user header but came from …`, at most once a minute).
+3. If the header holds an email, list its domain under **Email domains** to match the part before the @ to the Jellyfin username.
+4. Optionally, set **Groups header** and **Allowed groups** to admit only some of the people the proxy lets in.
+
+**How the header is trusted.** Only a request that reaches Jellyfin straight from a listed proxy address can name the user. That is judged on the TCP connection itself, recorded before Jellyfin's forwarded-headers handling runs, so `KnownProxies` cannot change it. The list is separate from **Trusted proxy CIDRs**, which only tells the plugin whose `X-Forwarded-For` to believe. Entries broader than `/8` (IPv6: `/16`) are ignored, and an imported configuration drops them.
+
+> ⚠️ **List the proxy itself, never a whole network.** Any machine in a listed range that can reach Jellyfin's port directly can send the header and sign in as anyone. Do not list NetBird's whole `100.64.0.0/10`, or a whole Docker network. The proxy must also replace any copy of the header the client sends, as NetBird's does; a header that arrives with more than one value names nobody.
+
+**Which account.** An existing Jellyfin account, never a new one:
+1. the Jellyfin username equal to the header value;
+2. when the header holds an email in one of the listed **Email domains**, the username equal to the part before the @ (`alice@example.com` signs in `alice`).
+
+The email a user saves in this plugin is never used to find the account: it is not verified, so matching on it would let one user claim another's account. Disabled accounts are always refused. Administrators are refused unless **Let administrator accounts sign in this way** is on, and the groups header never grants administration or anything else.
+
+**The sign-in itself** goes through the same one-shot bridge token as OIDC. This plugin's 2FA is skipped by default (**Skip this plugin's 2FA for these sign-ins**), as the proxy already authenticated the user; turn that off to also ask users who set up 2FA for their code. The per-user IP allowlist and IP bans still apply, and the audit log records the sign-in as `proxy_header` (`proxy_header_primary` when the 2FA was not skipped). Refusals are rate-limited but do not count towards an IP ban, since everyone behind the proxy can share its address.
+
+**On the login page** the sign-in runs once per page load. The page waits for a click on **Continue with your existing sign-in** instead after a sign-out in that tab, after a refusal (the reason stays on screen), when opened as `…/web/#/login?oidcAuto=0`, and within two minutes of its last automatic sign-in, so a sign-in that ends back on the login page cannot loop. While the proxy names the user, a provider set to **Send the login page straight to this provider** is not followed.
+
+Not covered yet: creating accounts, and library access from groups.
 
 ---
 
@@ -1042,6 +1072,7 @@ GET  /TwoFactorAuth/inject                               — cache-resistant log
 POST /TwoFactorAuth/Authenticate                         — username + password + code login
 POST /TwoFactorAuth/Verify                               — verify code against challenge token
 POST /TwoFactorAuth/Email/Send                           — request email OTP for current challenge
+POST /TwoFactorAuth/HeaderSignIn                         : bridge token for the user a trusted proxy names (#298)
 
 POST /TwoFactorAuth/Setup/Totp                           — generate TOTP secret + QR (auth)
 POST /TwoFactorAuth/Setup/Totp/Confirm                   — confirm TOTP enrollment (auth)
@@ -1086,6 +1117,7 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 | Replay attacks on TOTP | Used time-steps tracked per user |
 | Timing attacks | `CryptographicOperations.FixedTimeEquals` on all secret comparisons |
 | OIDC account-link confusion | Stable-subject links take precedence; implicit email/username matching is non-admin only, opt-in where applicable, and refuses ambiguous or conflicting identities |
+| Forged proxy identity header | Believed only from the listed proxy addresses, judged on the raw TCP peer before forwarded headers are applied; ranges broader than /8 (IPv6: /16) are ignored; only existing, enabled accounts, administrators only by opt-in |
 | Stale OIDC onboarding page/session theft | Live IdP revalidation plus a short-lived single-use proof is required before setting the password; cancel revokes the temporary server session |
 | Expired or unapproved OIDC signing key | Standard issuer/audience/nonce/certificate validation plus an explicit RSA/ECDSA/RSA-PSS algorithm allowlist |
 | Service integrations breaking | Standard Jellyfin API keys bypass user auth — Sonarr/Radarr unaffected |
