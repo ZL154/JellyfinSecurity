@@ -841,6 +841,8 @@
   "tfa.admin.sso.template_user_help": "「自動作成」が有効な場合、新しく作成されたユーザーはJellyfinの既定値ではなく、このユーザーの権限とライブラリアクセスをコピーします。標準の動作を維持するには「(Jellyfinの既定値)」のままにしてください。",
   "tfa.admin.sso.template_user_default": "(Jellyfinの既定値)",
   "tfa.admin.sso.opt_show_button_help": "チェックを外すと、SSOは有効なまま（サインインURLは独自のボタンで引き続き機能します）で、プラグインの組み込み「…でサインイン」ボタンを非表示にします。",
+  "tfa.admin.sso.opt_auto_redirect": "ログインページからこのプロバイダーへ直接移動する",
+  "tfa.admin.sso.opt_auto_redirect_help": "Web ブラウザーでは、Jellyfin のログインページがクリックなしでこのプロバイダーのサインインを開きます。Jellyfin アプリではボタンのままです。上の組み込みボタンが必要です。サインアウトの後、サインインに失敗した後、および …/web/#/login?oidcAuto=0 として開いた場合 (パスワードフォームを表示する方法) は移動しません。複数のプロバイダーで有効になっている場合は、一覧の最初のプロバイダーが使われます。",
   "tfa.setup.sso.link_failed": "リンクに失敗しました",
   "tfa.admin.sso.lbl_callback_url": "コールバック / リダイレクト URL",
   "tfa.admin.sso.btn_copy": "コピー",

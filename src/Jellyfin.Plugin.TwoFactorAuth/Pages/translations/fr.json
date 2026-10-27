@@ -841,6 +841,8 @@
   "tfa.admin.sso.template_user_help": "Lorsque « Création automatique » est activée, un nouvel utilisateur copie les autorisations et l'accès aux médiathèques de cet utilisateur au lieu des valeurs par défaut de Jellyfin. Laissez « (Valeurs par défaut de Jellyfin) » pour conserver le comportement intégré.",
   "tfa.admin.sso.template_user_default": "(Valeurs par défaut de Jellyfin)",
   "tfa.admin.sso.opt_show_button_help": "Décochez pour garder le SSO activé (l'URL de connexion fonctionne toujours pour votre propre bouton) tout en masquant le bouton intégré « Se connecter avec… » du plugin.",
+  "tfa.admin.sso.opt_auto_redirect": "Envoyer la page de connexion directement vers ce fournisseur",
+  "tfa.admin.sso.opt_auto_redirect_help": "Dans un navigateur web, la page de connexion de Jellyfin ouvre la connexion de ce fournisseur sans clic ; les applications Jellyfin gardent le bouton. Nécessite le bouton intégré ci-dessus. La page ne redirige pas après une déconnexion, après une connexion échouée, ni quand elle est ouverte en …/web/#/login?oidcAuto=0, ce qui permet d'atteindre le formulaire de mot de passe. Si plusieurs fournisseurs ont cette option activée, le premier de la liste est utilisé.",
   "tfa.setup.sso.link_failed": "Échec de la liaison",
   "tfa.admin.sso.lbl_callback_url": "URL de rappel / redirection",
   "tfa.admin.sso.btn_copy": "Copier",

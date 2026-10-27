@@ -841,6 +841,8 @@
   "tfa.admin.sso.template_user_help": "Cuando «Crear automáticamente» está activado, un usuario recién creado copia los permisos y el acceso a bibliotecas de este usuario en lugar de los valores predeterminados de Jellyfin. Deja «(Valores predeterminados de Jellyfin)» para mantener el comportamiento integrado.",
   "tfa.admin.sso.template_user_default": "(Valores predeterminados de Jellyfin)",
   "tfa.admin.sso.opt_show_button_help": "Desmarca para mantener el SSO activado (la URL de inicio de sesión sigue funcionando para tu propio botón) pero ocultar el botón integrado «Iniciar sesión con…» del plugin.",
+  "tfa.admin.sso.opt_auto_redirect": "Llevar la página de inicio de sesión directamente a este proveedor",
+  "tfa.admin.sso.opt_auto_redirect_help": "En un navegador web, la página de inicio de sesión de Jellyfin abre el inicio de sesión de este proveedor sin un clic; las aplicaciones de Jellyfin conservan el botón. Requiere el botón integrado de arriba. La página no redirige tras cerrar sesión, tras un inicio de sesión fallido ni cuando se abre como …/web/#/login?oidcAuto=0, que es la forma de llegar al formulario de contraseña. Si varios proveedores tienen esta opción activada, se usa el primero de la lista.",
   "tfa.setup.sso.link_failed": "Error al vincular",
   "tfa.admin.sso.lbl_callback_url": "URL de callback / redirección",
   "tfa.admin.sso.btn_copy": "Copiar",
