@@ -113,7 +113,23 @@ public class HeaderSignInTests
     public void Groups_are_split_on_commas()
     {
         Assert.Equal(new[] { "media", "family" }, HeaderSignIn.NamedGroups(new StringValues(" media, family ,,")));
-        Assert.Empty(HeaderSignIn.NamedGroups(StringValues.Empty));
+        Assert.Empty(HeaderSignIn.NamedGroups(StringValues.Empty)!);
+    }
+
+    [Fact]
+    public void A_groups_header_that_arrives_twice_lists_nothing_trustworthy()
+    {
+        // The same rule as the user header: a proxy that appends instead of
+        // replacing would otherwise let the client add a group of its own.
+        Assert.Null(HeaderSignIn.NamedGroups(new StringValues(new[] { "media", "guests" })));
+        Assert.Null(HeaderSignIn.NamedGroups(new StringValues("guests\u0001media")));
+    }
+
+    [Fact]
+    public void Untrustworthy_groups_refuse_only_when_groups_are_required()
+    {
+        Assert.False(HeaderSignIn.InAllowedGroup("media", null));
+        Assert.True(HeaderSignIn.InAllowedGroup("", null));
     }
 
     [Theory]

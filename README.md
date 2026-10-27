@@ -547,7 +547,7 @@ For a reverse proxy that signs people in itself and passes the user on in a head
 
 **How the header is trusted.** Only a request that reaches Jellyfin straight from a listed proxy address can name the user. That is judged on the TCP connection itself, recorded before Jellyfin's forwarded-headers handling runs, so `KnownProxies` cannot change it. The list is separate from **Trusted proxy CIDRs**, which only tells the plugin whose `X-Forwarded-For` to believe. Entries broader than `/8` (IPv6: `/16`) are ignored, and an imported configuration drops them.
 
-> ⚠️ **List the proxy itself, never a whole network.** Any machine in a listed range that can reach Jellyfin's port directly can send the header and sign in as anyone. Do not list NetBird's whole `100.64.0.0/10`, or a whole Docker network. The proxy must also replace any copy of the header the client sends, as NetBird's does; a header that arrives with more than one value names nobody.
+> ⚠️ **List the proxy itself, never a whole network.** Any machine in a listed range that can reach Jellyfin's port directly can send the header and sign in as anyone. Do not list NetBird's whole `100.64.0.0/10`, or a whole Docker network. The proxy must also replace any copy of these headers the client sends, as NetBird's does: a user header that arrives more than once names nobody, and a groups header that arrives more than once meets no **Allowed groups** requirement. A proxy that merges the client's groups into its own header on a single line cannot be told apart from an honest one, so only set **Allowed groups** behind a proxy that replaces the header.
 
 **Which account.** An existing Jellyfin account, never a new one:
 1. the Jellyfin username equal to the header value;

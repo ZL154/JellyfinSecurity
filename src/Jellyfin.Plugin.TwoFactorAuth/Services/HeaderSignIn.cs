@@ -125,14 +125,32 @@ internal static class HeaderSignIn
         return value.Any(c => char.IsControl(c) || c == ',') ? null : value;
     }
 
-    internal static string[] NamedGroups(StringValues values)
-        => SplitList(string.Join(',', values.Where(v => v is not null)));
+    /// <summary>The groups the header lists; empty when it is missing. Null
+    /// when it arrived more than once or carries a control character: as with
+    /// the user header, a proxy that appends instead of replacing would
+    /// otherwise let the client add a group of its own.</summary>
+    internal static string[]? NamedGroups(StringValues values)
+    {
+        if (values.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
 
-    /// <summary>True when no groups are required, or the user is in one of them.</summary>
-    internal static bool InAllowedGroup(string allowedGroups, IReadOnlyCollection<string> groups)
+        var value = values.Count == 1 ? values[0] ?? string.Empty : null;
+        return value is null || value.Any(char.IsControl) ? null : SplitList(value);
+    }
+
+    /// <summary>True when no groups are required, or the user is in one of
+    /// them. Groups that could not be read (null) never meet a requirement.</summary>
+    internal static bool InAllowedGroup(string allowedGroups, IReadOnlyCollection<string>? groups)
     {
         var allowed = SplitList(allowedGroups);
-        return allowed.Length == 0 || groups.Any(g => allowed.Contains(g, StringComparer.OrdinalIgnoreCase));
+        if (allowed.Length == 0)
+        {
+            return true;
+        }
+
+        return groups is not null && groups.Any(g => allowed.Contains(g, StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>Jellyfin usernames to try, in order: the named user itself;

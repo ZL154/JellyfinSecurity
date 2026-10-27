@@ -2241,7 +2241,15 @@ public class SecurityController : ControllerBase
             : HeaderSignIn.NamedGroups(Request.Headers[cfg.HeaderSignInGroupsHeader.Trim()]);
         if (!HeaderSignIn.InAllowedGroup(cfg.HeaderSignInAllowedGroups, groups))
         {
-            _logger.LogWarning("[2FA] Proxy sign-in refused for {Named}: not in an allowed group", named);
+            if (groups is null)
+            {
+                _logger.LogWarning("[2FA] Proxy sign-in refused for {Named}: the groups header arrived more than once or could not be read; the proxy must replace the client's copy", named);
+            }
+            else
+            {
+                _logger.LogWarning("[2FA] Proxy sign-in refused for {Named}: not in an allowed group", named);
+            }
+
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
                 message = "Your account isn't in a group allowed to sign in here.",
