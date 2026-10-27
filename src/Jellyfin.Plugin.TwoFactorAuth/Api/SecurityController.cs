@@ -5,6 +5,8 @@ using System.Globalization;
 using System.Linq;
 using System.Net.Mime;
 using System.Threading.Tasks;
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using MediaBrowser.Controller.Library;
@@ -2152,8 +2154,153 @@ public class SecurityController : ControllerBase
         // TwoFactorAuthProvider consumes it and signs the user in with no
         // password + no further 2FA challenge. Same security guarantees as OIDC.
         var token = _oidcBridge.Mint(user.Id, user.Username ?? req.Username, "passkey");
+        await RouteThroughPluginProviderAsync(user, "Passkey login").ConfigureAwait(false);
 
-        // Route this user's auth through our provider (same as OIDC flow).
+        _logger.LogInformation("[2FA] Passkey primary sign-in for {User}", req.Username);
+        return Ok(new { username = user.Username, token });
+    }
+
+    // =========================================================================
+    // [#298] SIGN-IN THROUGH A TRUSTED REVERSE PROXY (anonymous)
+    // =========================================================================
+    // A reverse proxy that authenticates people itself (NetBird, Authelia,
+    // oauth2-proxy, ...) names the user in a header. When the request reached
+    // Jellyfin straight from one of the proxy addresses the administrator
+    // listed, the login page signs that user in with the same one-shot bridge
+    // token as OIDC and passkeys. The header only selects an existing account:
+    // nothing is created, and nothing is granted.
+    //
+    // Refusals do not count towards an IP ban. Behind the proxy every user can
+    // share its address, and a refusal here is a configuration mismatch (no
+    // matching account, a group left out), not a guessed credential. The rate
+    // limit still applies to every call.
+
+    [HttpPost("HeaderSignIn")]
+    [AllowAnonymous]
+    public async Task<IActionResult> SignInThroughProxy()
+    {
+        var cfg = Plugin.Instance?.Configuration;
+        if (cfg is null || !cfg.HeaderSignInEnabled || string.IsNullOrWhiteSpace(cfg.HeaderSignInUserHeader))
+        {
+            return NotFound(new { message = "Proxy sign-in is not enabled." });
+        }
+
+        var ip = RateLimiter.ClientKey(HttpContext);
+        var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
+        if (_bans.CheckBanned(clientIp) is { } ban)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This IP address is temporarily blocked.",
+                expiresAt = ban.ExpiresAt,
+            });
+        }
+
+        var rl = _rateLimiter.CheckAndRecord("header_signin:" + ip, 20, TimeSpan.FromMinutes(5));
+        if (!rl.allowed)
+        {
+            Response.Headers.Append("Retry-After", rl.retryAfterSeconds.ToString(CultureInfo.InvariantCulture));
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                message = $"Too many attempts. Try again in {rl.retryAfterSeconds}s.",
+            });
+        }
+
+        // SECURITY: the header is believed only from the proxy's own address,
+        // the raw TCP peer the first plugin middleware recorded. Anyone else
+        // can send the same header.
+        var rawPeer = HeaderSignIn.RawPeer(HttpContext);
+        if (!HeaderSignIn.FromTrustedProxy(rawPeer, cfg.HeaderSignInProxyCidrs))
+        {
+            _logger.LogWarning("[2FA] Proxy sign-in refused: the request came from {Peer}, not from a trusted proxy address", rawPeer ?? "(unknown)");
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This request did not come through the trusted proxy.",
+            });
+        }
+
+        // SECURITY: and only the login page itself may ask, never a script
+        // another site runs in the same browser (see FromAnotherSite).
+        if (HeaderSignIn.FromAnotherSite(Request.Headers["Sec-Fetch-Site"]))
+        {
+            _logger.LogWarning("[2FA] Proxy sign-in refused: the request came from another site ({Site})", Request.Headers["Sec-Fetch-Site"].ToString());
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "This sign-in only works from Jellyfin's own login page.",
+            });
+        }
+
+        var named = HeaderSignIn.NamedUser(Request.Headers[cfg.HeaderSignInUserHeader.Trim()]);
+        if (named is null)
+        {
+            return Unauthorized(new { message = "The proxy did not name a user." });
+        }
+
+        var groups = string.IsNullOrWhiteSpace(cfg.HeaderSignInGroupsHeader)
+            ? Array.Empty<string>()
+            : HeaderSignIn.NamedGroups(Request.Headers[cfg.HeaderSignInGroupsHeader.Trim()]);
+        if (!HeaderSignIn.InAllowedGroup(cfg.HeaderSignInAllowedGroups, groups))
+        {
+            _logger.LogWarning("[2FA] Proxy sign-in refused for {Named}: not in an allowed group", named);
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Your account isn't in a group allowed to sign in here.",
+            });
+        }
+
+        Jellyfin.Database.Implementations.Entities.User? user = null;
+        foreach (var candidate in HeaderSignIn.UsernameCandidates(named, cfg.HeaderSignInEmailDomains))
+        {
+            user = _userManager.GetUserByName(candidate);
+            if (user is not null)
+            {
+                break;
+            }
+        }
+
+        if (user is null)
+        {
+            _logger.LogWarning("[2FA] Proxy sign-in refused: no Jellyfin account matches {Named}", named);
+            return Unauthorized(new { message = "No Jellyfin account matches this proxy sign-in." });
+        }
+
+        // The tracked entity carries the permissions HasPermission reads.
+        var account = _userManager.GetUserById(user.Id) ?? user;
+        var refusal = HeaderSignIn.Refusal(
+            account.HasPermission(PermissionKind.IsDisabled),
+            account.HasPermission(PermissionKind.IsAdministrator),
+            cfg.HeaderSignInAllowAdmins);
+        if (refusal is not null)
+        {
+            _logger.LogWarning("[2FA] Proxy sign-in refused for {User}: {Reason}", account.Username, refusal);
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = refusal });
+        }
+
+        if (!await _allowlist.IsAllowedAsync(account.Id, clientIp).ConfigureAwait(false))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Sign-in is not allowed from this network.",
+            });
+        }
+
+        var token = _oidcBridge.Mint(
+            account.Id,
+            account.Username,
+            HeaderSignIn.BridgeProviderId,
+            bypassPluginTwoFa: cfg.HeaderSignInBypassPluginTwoFa);
+        await RouteThroughPluginProviderAsync(account, "Proxy sign-in").ConfigureAwait(false);
+
+        _logger.LogInformation("[2FA] Proxy sign-in for {User} (named {Named} by the proxy)", account.Username, named);
+        return Ok(new { username = account.Username, token });
+    }
+
+    /// <summary>Route the user's sign-ins through the plugin's provider, so
+    /// /Users/AuthenticateByName recognises a bridge token. Additive: the
+    /// provider hands ordinary passwords to Jellyfin's default one. A failure
+    /// is logged and the sign-in carries on, as it always has.</summary>
+    private async Task RouteThroughPluginProviderAsync(Jellyfin.Database.Implementations.Entities.User user, string flow)
+    {
         try
         {
             var ourProviderId = typeof(TwoFactorAuthProvider).FullName!;
@@ -2165,11 +2312,8 @@ public class SecurityController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[2FA] Passkey login: could not reassign AuthenticationProviderId for {User}", req.Username);
+            _logger.LogWarning(ex, "[2FA] {Flow}: could not reassign AuthenticationProviderId for {User}", flow, user.Username);
         }
-
-        _logger.LogInformation("[2FA] Passkey primary sign-in for {User}", req.Username);
-        return Ok(new { username = user.Username, token });
     }
 
     private static bool IsValidCidr(string cidr)

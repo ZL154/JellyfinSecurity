@@ -4969,13 +4969,46 @@ public class TwoFactorAuthController : ControllerBase
     {
         var cfg = Plugin.Instance?.Configuration ?? new Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration();
         Response.Headers["Cache-Control"] = "no-cache, must-revalidate";
-        return Ok(BuildPublicConfig(cfg, ComputePasswordLoginDisabledForRequest(cfg)));
+        var rawPeer = HeaderSignIn.RawPeer(HttpContext);
+        if (HeaderSignIn.NamedFromUnlistedAddress(cfg, rawPeer, Request.Headers))
+        {
+            LogProxySignInSetupHint(rawPeer);
+        }
+
+        return Ok(BuildPublicConfig(
+            cfg,
+            ComputePasswordLoginDisabledForRequest(cfg),
+            HeaderSignIn.Available(cfg, rawPeer, Request.Headers)));
+    }
+
+    // [#298] When the last setup hint was logged. Anyone can call
+    // public-config with the header, so the hint is written at most once a
+    // minute.
+    private static long _proxySignInHintTicks;
+
+    private void LogProxySignInSetupHint(string? rawPeer)
+    {
+        var now = DateTime.UtcNow.Ticks;
+        var last = System.Threading.Interlocked.Read(ref _proxySignInHintTicks);
+        if (now - last < TimeSpan.TicksPerMinute
+            || System.Threading.Interlocked.CompareExchange(ref _proxySignInHintTicks, now, last) != last)
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            "[2FA] Proxy sign-in: a request carried the user header but came from {Peer}, which is not in the proxy address list. If that is your reverse proxy, add it there.",
+            rawPeer ?? "(unknown)");
     }
 
     /// <summary>[#247] The public-config body, kept apart from the request so
-    /// its fields can be tested. Only passwordLoginDisabled depends on the
-    /// caller (their address), so it arrives already computed.</summary>
-    internal static object BuildPublicConfig(Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration cfg, bool passwordLoginDisabled)
+    /// its fields can be tested. Only passwordLoginDisabled and
+    /// proxySignInAvailable depend on the caller (their address, and the
+    /// headers the proxy sent), so they arrive already computed.</summary>
+    internal static object BuildPublicConfig(
+        Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration cfg,
+        bool passwordLoginDisabled,
+        bool proxySignInAvailable = false)
     {
         return new
         {
@@ -5017,6 +5050,10 @@ public class TwoFactorAuthController : ControllerBase
             // [#247] UI gate: setup.html hides the plugin's own 2FA setup from
             // non-admin users who sign in through a linked identity provider.
             hideTwoFactorSetupForSsoUsers = cfg.HideTwoFactorSetupForSsoUsers,
+            // [#298] UI gate: this request came through the trusted proxy and
+            // it named a user, so the login page signs that user in. A flag
+            // only, never the name: the endpoint decides the account itself.
+            proxySignInAvailable,
         };
     }
 

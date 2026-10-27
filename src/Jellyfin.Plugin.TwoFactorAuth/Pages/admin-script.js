@@ -1301,6 +1301,16 @@
                         page.querySelector('#cfgLanCidrs').value = (c.LanBypassCidrs || []).join('\n');
                         page.querySelector('#cfgTrustFwd').checked = !!c.TrustForwardedFor;
                         page.querySelector('#cfgProxyCidrs').value = (c.TrustedProxyCidrs || []).join('\n');
+                        // [#298] Sign-in through a trusted proxy (off by default;
+                        // skipping the plugin's 2FA defaults on, like OIDC).
+                        page.querySelector('#cfgHeaderSignIn').checked = c.HeaderSignInEnabled === true;
+                        page.querySelector('#cfgHeaderUser').value = c.HeaderSignInUserHeader || '';
+                        page.querySelector('#cfgHeaderProxyCidrs').value = (c.HeaderSignInProxyCidrs || []).join('\n');
+                        page.querySelector('#cfgHeaderEmailDomains').value = c.HeaderSignInEmailDomains || '';
+                        page.querySelector('#cfgHeaderGroups').value = c.HeaderSignInGroupsHeader || '';
+                        page.querySelector('#cfgHeaderAllowedGroups').value = c.HeaderSignInAllowedGroups || '';
+                        page.querySelector('#cfgHeaderBypass2fa').checked = c.HeaderSignInBypassPluginTwoFa !== false;
+                        page.querySelector('#cfgHeaderAllowAdmins').checked = c.HeaderSignInAllowAdmins === true;
                         page.querySelector('#cfgMaxFail').value = c.MaxFailedAttempts || 5;
                         page.querySelector('#cfgLockoutMin').value = c.LockoutDurationMinutes || 15;
                         // [v2.5.10] (#55) admin lockout exemption (default true).
@@ -1512,6 +1522,15 @@
                         c.LanBypassCidrs = page.querySelector('#cfgLanCidrs').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.TrustForwardedFor = page.querySelector('#cfgTrustFwd').checked;
                         c.TrustedProxyCidrs = page.querySelector('#cfgProxyCidrs').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+                        // [#298] Sign-in through a trusted proxy.
+                        c.HeaderSignInEnabled = page.querySelector('#cfgHeaderSignIn').checked;
+                        c.HeaderSignInUserHeader = page.querySelector('#cfgHeaderUser').value.trim();
+                        c.HeaderSignInProxyCidrs = page.querySelector('#cfgHeaderProxyCidrs').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+                        c.HeaderSignInEmailDomains = page.querySelector('#cfgHeaderEmailDomains').value.trim();
+                        c.HeaderSignInGroupsHeader = page.querySelector('#cfgHeaderGroups').value.trim();
+                        c.HeaderSignInAllowedGroups = page.querySelector('#cfgHeaderAllowedGroups').value.trim();
+                        c.HeaderSignInBypassPluginTwoFa = page.querySelector('#cfgHeaderBypass2fa').checked;
+                        c.HeaderSignInAllowAdmins = page.querySelector('#cfgHeaderAllowAdmins').checked;
                         c.MaxFailedAttempts = parseInt(page.querySelector('#cfgMaxFail').value) || 5;
                         c.LockoutDurationMinutes = parseInt(page.querySelector('#cfgLockoutMin').value) || 15;
                         // [v2.5.10] (#55) admin lockout exemption.

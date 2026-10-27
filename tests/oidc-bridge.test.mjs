@@ -257,3 +257,73 @@ test('auto-redirect: creating and editing a provider both keep the option', () =
     assert.match(source, /\n\s+AutoRedirect = req\.AutoRedirect,/, 'CreateProvider must copy AutoRedirect');
     assert.match(source, /existing\.AutoRedirect = req\.AutoRedirect;/, 'UpdateProvider must copy AutoRedirect');
 });
+
+// [#298] A trusted reverse proxy that names the user in a header signs the
+// browser in from the login page, through the same bridge token as OIDC.
+const proxyRule = inject.match(/\n( *)function proxySignInAction\(s\) \{[\s\S]*?\n\1\}/);
+assert(proxyRule, 'inject.js must define proxySignInAction(s)');
+const proxySignInAction = runInNewContext(`(${proxyRule[0].trim()})`);
+
+const proxyNamesUser = {
+    available: true,
+    signedOut: false,
+    optedOut: false,
+    failedInTab: false,
+    oidcError: false,
+    returningFromProvider: false,
+    lastAutoAt: 0,
+    now: 1_000_000,
+};
+const proxyAction = changes => proxySignInAction({...proxyNamesUser, ...changes});
+
+test('proxy sign-in: a page the proxy names a user for signs in by itself', () => {
+    assert.equal(proxyAction({}), 'auto');
+});
+
+test('proxy sign-in: nothing is offered when the proxy names nobody', () => {
+    assert.equal(proxyAction({available: false}), null);
+    assert.equal(proxyAction({available: false, signedOut: true}), null);
+});
+
+test('proxy sign-in: after a sign-out it waits for a click instead of signing straight back in', () => {
+    assert.equal(proxyAction({signedOut: true}), 'button');
+});
+
+test('proxy sign-in: oidcAuto=0 keeps the password form in front, one click from the proxy sign-in', () => {
+    assert.equal(proxyAction({optedOut: true}), 'button');
+});
+
+test('proxy sign-in: a refusal is not retried by itself in the same tab', () => {
+    assert.equal(proxyAction({failedInTab: true}), 'button');
+});
+
+test('proxy sign-in: a page that comes back to the login right after signing in by itself waits for a click', () => {
+    assert.equal(proxyAction({lastAutoAt: 1_000_000 - 60_000}), 'button');
+    assert.equal(proxyAction({lastAutoAt: 1_000_000 - 121_000}), 'auto');
+});
+
+test('proxy sign-in: an OIDC error or answer on the page takes precedence', () => {
+    assert.equal(proxyAction({oidcError: true}), null);
+    assert.equal(proxyAction({returningFromProvider: true}), null);
+});
+
+test('auto-redirect: a proxy that names the user keeps the page here instead of leaving for a provider', () => {
+    assert.equal(autoTarget({proxySignIn: true}), null);
+});
+
+test('proxy sign-in: trust is decided on the raw peer the first middleware records', () => {
+    const filter = readFileSync(new URL('../src/Jellyfin.Plugin.TwoFactorAuth/Services/TwoFactorStartupFilter.cs', import.meta.url), 'utf8');
+    const record = filter.indexOf('HeaderSignIn.RememberRawPeer');
+    assert.ok(record >= 0, 'the startup filter must record the raw peer');
+    assert.ok(record < filter.indexOf('UseMiddleware<IndexHtmlInjectionMiddleware>'), 'before any other middleware runs');
+
+    const endpoint = source.match(/\[HttpPost\("HeaderSignIn"\)\][\s\S]*?\n    \}\n/)?.[0] ?? '';
+    assert.ok(endpoint, 'SecurityController must define the HeaderSignIn endpoint');
+    assert.match(endpoint, /var rawPeer = HeaderSignIn\.RawPeer\(HttpContext\);\s+if \(!HeaderSignIn\.FromTrustedProxy\(rawPeer, cfg\.HeaderSignInProxyCidrs\)\)/);
+    assert.match(endpoint, /if \(HeaderSignIn\.FromAnotherSite\(Request\.Headers\["Sec-Fetch-Site"\]\)\)/, 'only the login page itself may ask');
+});
+
+test('proxy sign-in: an imported configuration keeps only valid, narrow proxy addresses', () => {
+    const exporter = readFileSync(new URL('../src/Jellyfin.Plugin.TwoFactorAuth/Services/ConfigExportService.cs', import.meta.url), 'utf8');
+    assert.match(exporter, /c\.HeaderSignInProxyCidrs = SanitizeCidrArray\(c\.HeaderSignInProxyCidrs, "HeaderSignInProxyCidrs"\);/);
+});
