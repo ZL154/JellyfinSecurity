@@ -209,7 +209,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 DeviceId = oidcDeviceId ?? string.Empty,
                 DeviceName = GetDeviceHeader("X-Emby-Device-Name", "Device") ?? string.Empty,
                 Result = consumed.Value.BypassPluginTwoFa ? AuditResult.Bypassed : AuditResult.Success,
-                Method = (consumed.Value.BypassPluginTwoFa ? "oidc:" : "oidc_primary:") + consumed.Value.ProviderId,
+                Method = BridgeAuditMethod(consumed.Value.ProviderId, consumed.Value.BypassPluginTwoFa),
             }).ConfigureAwait(false);
 
             // [#216] The device-flow half of this fast path: the token was
@@ -774,6 +774,19 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    /// <summary>Audit method for a bridge-token sign-in. [#298] The proxy
+    /// header sign-in is labelled as such, not as an OIDC provider; every
+    /// other bridge keeps its existing label.</summary>
+    internal static string BridgeAuditMethod(string providerId, bool bypassPluginTwoFa)
+    {
+        if (string.Equals(providerId, HeaderSignIn.BridgeProviderId, StringComparison.Ordinal))
+        {
+            return bypassPluginTwoFa ? "proxy_header" : "proxy_header_primary";
+        }
+
+        return (bypassPluginTwoFa ? "oidc:" : "oidc_primary:") + providerId;
+    }
 
     internal static void EnsureResolvedUserAvailable(bool providerRequiresResolvedUser, bool userExists)
     {

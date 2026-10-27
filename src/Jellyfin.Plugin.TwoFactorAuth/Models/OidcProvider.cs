@@ -121,6 +121,16 @@ public class OidcProvider
     /// built-in button. Only has effect when <see cref="Enabled"/> is true.</summary>
     public bool ShowLoginButton { get; set; } = true;
 
+    /// <summary>[#297] Send Jellyfin's login page in a web browser straight to
+    /// this provider's sign-in, without a click. The redirect reuses the
+    /// provider's own login button, so it needs <see cref="ShowLoginButton"/>;
+    /// the Jellyfin apps keep the button. inject.js holds the redirect back
+    /// after a sign-out, after a failed sign-in, while the provider's answer is
+    /// signing the user in, and when the page is opened with
+    /// <c>?oidcAuto=0</c>. If several providers set it, the first one in the
+    /// list wins. Default off.</summary>
+    public bool AutoRedirect { get; set; }
+
     /// <summary>v2.5.1: force the redirect_uri scheme to https regardless of
     /// what the request / forwarded headers say. Needed when Jellyfin is
     /// behind a TLS-terminating proxy (Cloudflare Tunnel, some Caddy / nginx

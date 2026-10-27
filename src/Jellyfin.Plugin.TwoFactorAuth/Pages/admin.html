@@ -487,6 +487,11 @@
                                 <label><input type="checkbox" id="ssoShowButton" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_show_button">Show built-in button on login page</span></label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.sso.opt_show_button_help">Uncheck to keep SSO enabled (the sign-in URL still works for your own custom button) but hide the plugin's built-in "Sign in with…" button.</div>
                             </div>
+                            <!-- [#297] (sonalys): send the login page straight to this provider. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="ssoAutoRedirect" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_auto_redirect">Send the login page straight to this provider</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.opt_auto_redirect_help">In a web browser, Jellyfin's login page opens this provider's sign-in without a click; the Jellyfin apps keep the button. Needs the built-in button above. The page stays put after a sign-out, after a failed sign-in, and when opened as …/web/#/login?oidcAuto=0, which is how to reach the password form. If several providers have this on, the first one in the list is used.</div>
+                            </div>
                             <!-- [v2.5.11] (issue #69, ZEROX7): customize the login button text + icon. -->
                             <div class="tfa-row tfa-row-stack">
                                 <label data-i18n-key="tfa.admin.sso.lbl_button_text">Login button text (optional)</label>
@@ -608,6 +613,46 @@
                                 <label style="font-size:13px;color:#888;" data-i18n-key="tfa.admin.settings.lbl_proxy_cidrs">Trusted proxy CIDRs (one per line)</label>
                                 <textarea id="cfgProxyCidrs" class="tfa-input"></textarea>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.settings.proxy_cidrs_help">Put ONLY the IPs of your actual reverse-proxy hosts here — e.g. <code>127.0.0.1/32</code> + <code>::1/128</code> for a same-host nginx, or the specific LAN IPs of separate proxy hosts. Do NOT enter broad ranges like <code>10.0.0.0/8</code> or <code>192.168.0.0/16</code>: when a LAN client's IP falls inside one of these CIDRs and the request arrives without an X-Forwarded-For header, the plugin conservatively refuses LAN bypass (it can't distinguish a direct LAN client from a proxy that lost its XFF). Issue #56 was this misconfiguration. Leave empty if you don't have a reverse proxy in front of Jellyfin.</div>
+                            </div>
+                        </div>
+
+                        <!-- [#298] Sign-in through a trusted reverse proxy. -->
+                        <div class="tfa-section">
+                            <h2 data-i18n-key="tfa.admin.settings.header_heading">Sign in through a trusted proxy</h2>
+                            <div class="tfa-help" data-i18n-key="tfa.admin.settings.header_help">For a reverse proxy that signs people in itself and passes the user on in a header (NetBird, Authelia, oauth2-proxy and the like). The login page then signs that user in by itself. Only an existing, enabled Jellyfin account is signed in; none is ever created. The header is believed only from the proxy addresses below: list the proxy itself, never a whole network, since any machine in a listed range could send the header and sign in as anyone.</div>
+                            <div class="tfa-row" style="margin-top:12px;">
+                                <label><input type="checkbox" id="cfgHeaderSignIn" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_header_signin">Sign in the user the proxy names</span></label>
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label data-i18n-key="tfa.admin.settings.lbl_header_user">User header</label>
+                                <input type="text" id="cfgHeaderUser" class="tfa-input" style="width:240px;" placeholder="X-NetBird-User" autocomplete="off" spellcheck="false" />
+                            </div>
+                            <div style="margin-top:12px;">
+                                <label style="font-size:13px;color:#888;" data-i18n-key="tfa.admin.settings.lbl_header_proxy_cidrs">Proxy addresses (CIDR, one per line)</label>
+                                <textarea id="cfgHeaderProxyCidrs" class="tfa-input" placeholder="172.18.0.5/32"></textarea>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.header_proxy_cidrs_help">The address the proxy connects to Jellyfin from, as Jellyfin sees it: the proxy container's address on a Docker network, or the proxy's NetBird address. A single host is /32. Ranges broader than /8 (IPv6: /16) are ignored. Do not list NetBird's whole 100.64.0.0/10: any peer that can reach Jellyfin directly could then sign in as anyone.</div>
+                            </div>
+                            <div class="tfa-row tfa-row-stack" style="margin-top:12px;">
+                                <label data-i18n-key="tfa.admin.settings.lbl_header_email_domains">Email domains (comma-separated, optional)</label>
+                                <input type="text" id="cfgHeaderEmailDomains" class="tfa-input" style="width:320px;" placeholder="example.com" autocomplete="off" spellcheck="false" />
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.header_email_domains_help">When the header holds an email in one of these domains, the part before the @ is also tried as the Jellyfin username: alice@example.com signs in alice. The email a user saves in this plugin is never used to find the account.</div>
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label data-i18n-key="tfa.admin.settings.lbl_header_groups">Groups header (optional)</label>
+                                <input type="text" id="cfgHeaderGroups" class="tfa-input" style="width:240px;" placeholder="X-NetBird-Groups" autocomplete="off" spellcheck="false" />
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label data-i18n-key="tfa.admin.settings.lbl_header_allowed_groups">Allowed groups (comma-separated, optional)</label>
+                                <input type="text" id="cfgHeaderAllowedGroups" class="tfa-input" style="width:320px;" placeholder="jellyfin-users" autocomplete="off" spellcheck="false" />
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.header_groups_help">When groups are listed, the user must be in at least one of them, as the groups header reports. Groups never grant anything else, administration included.</div>
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgHeaderBypass2fa" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_header_bypass_2fa">Skip this plugin's 2FA for these sign-ins</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.header_bypass_2fa_help">The proxy has already signed the user in, as an identity provider does. Turn this off to also ask users who set up 2FA for their code.</div>
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgHeaderAllowAdmins" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_header_allow_admins">Let administrator accounts sign in this way</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.header_allow_admins_help">Off by default, so a misconfigured proxy cannot hand out administration. Administrators can still sign in the usual ways.</div>
                             </div>
                         </div>
 

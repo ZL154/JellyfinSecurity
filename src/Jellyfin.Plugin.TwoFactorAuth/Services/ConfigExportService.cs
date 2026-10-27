@@ -366,6 +366,9 @@ public class ConfigExportService
     {
         c.TrustedProxyCidrs = SanitizeCidrArray(c.TrustedProxyCidrs, "TrustedProxyCidrs");
         c.LanBypassCidrs = SanitizeCidrArray(c.LanBypassCidrs, "LanBypassCidrs");
+        // [#298] Addresses allowed to name the user who signs in: the same
+        // validation and the same /8 and /16 floor as the lists above.
+        c.HeaderSignInProxyCidrs = SanitizeCidrArray(c.HeaderSignInProxyCidrs, "HeaderSignInProxyCidrs");
 
         if (c.OidcProviders is { Count: > 0 })
         {

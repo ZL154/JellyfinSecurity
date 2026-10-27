@@ -52,7 +52,10 @@ plugin:
 - Issues that require an attacker to already be a Jellyfin administrator
 - Issues caused by misconfigured deployments (e.g. running Jellyfin
   without HTTPS in front of it, missing `TrustForwardedFor` +
-  `TrustedProxyCidrs` behind a reverse proxy)
+  `TrustedProxyCidrs` behind a reverse proxy, or listing a whole network
+  such as NetBird's `100.64.0.0/10` as the proxy addresses for sign-in
+  through a trusted proxy, which lets any machine in that range that
+  reaches Jellyfin directly name the user)
 - Self-XSS or theoretical timing attacks against TOTP without a working
   PoC
 - Reports against unsupported plugin versions (see table below)
@@ -72,6 +75,10 @@ In scope:
 - OIDC token forgery - signature + issuer + audience + nonce validated
 - Stolen X-Forwarded-For header - only honoured when peer is a trusted
   proxy CIDR; real client picked right-to-left
+- Forged proxy identity header (sign-in through a trusted proxy): only
+  believed from the listed proxy addresses, judged on the raw TCP peer
+  before Jellyfin applies forwarded headers; only existing, enabled,
+  non-admin accounts unless the admin allows administrators
 - Impossible travel - notification when consecutive sign-ins exceed
   cruise-jet speed
 - IP allowlist bypass - high-value accounts can be pinned to CIDRs

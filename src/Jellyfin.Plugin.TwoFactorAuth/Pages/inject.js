@@ -65,6 +65,20 @@
     // few render ticks, rather than looping the toast for the whole poll window.
     var _tfaOidcErrorAttempts = 0;
 
+    // [#297] Auto-redirect state lives in sessionStorage: per tab, and it
+    // survives the round trip through the provider. OFF holds the redirect
+    // back for the rest of the tab ('signout' or 'optout'); AT is when the
+    // last automatic redirect left, for the loop guard.
+    var OIDC_AUTO_OFF_KEY = '__tfa_oidc_auto_off';
+    var OIDC_AUTO_AT_KEY = '__tfa_oidc_auto_at';
+    // Read at load, like the error above, before the router can strip the
+    // hash query. oidcUser/oidcToken are the provider's answer being signed
+    // in; oidcAuto=0 is the opt-out a person types to reach the password form.
+    var _tfaOidcReturning = !!(getQueryParam('oidcUser') && getQueryParam('oidcToken'));
+    if (getQueryParam('oidcAuto') === '0') {
+        try { sessionStorage.setItem(OIDC_AUTO_OFF_KEY, 'optout'); } catch (e) {}
+    }
+
     // ============================================================
     // [v2.5.12] (#79, ZEROX7) i18n for the login page.
     //   The injected login UI (SSO buttons, 2FA/passkey buttons, the
@@ -1288,7 +1302,7 @@
             var qc = document.querySelector('.btnQuick');
             if (!qc || qc.offsetParent === null || !qc.parentNode) return;
             var after = qc;
-            [OIDC_BUTTONS_ID, BUTTON_ID, '__twofactor_passkey_btn'].forEach(function (id) {
+            [PROXY_BUTTON_ID, OIDC_BUTTONS_ID, BUTTON_ID, '__twofactor_passkey_btn'].forEach(function (id) {
                 var el = document.getElementById(id);
                 if (!el) return;
                 if (after.nextSibling !== el) { after.parentNode.insertBefore(el, after.nextSibling); }
@@ -1463,6 +1477,186 @@
         return null;
     }
 
+    // [#297] Which provider, if any, the login page sends this browser to
+    // without a click. Pure, so tests/oidc-bridge.test.mjs runs the rules as
+    // written. The first enabled provider set to auto-redirect wins, and
+    // nothing redirects:
+    //   - inside the Jellyfin apps, where the button opens the in-app flow;
+    //   - while the page shows a failed sign-in, or signs the provider's
+    //     answer in;
+    //   - after oidcAuto=0 or a sign-out in this tab;
+    //   - within two minutes of the last automatic redirect, so a round trip
+    //     that ends back here shows the button instead of looping;
+    //   - when a trusted proxy names the user (#298): the page signs that
+    //     user in instead.
+    function oidcAutoRedirectTarget(s) {
+        var LOOP_GUARD_MS = 120000;
+        if (s.embeddedApp || s.oidcError || s.returningFromProvider) return null;
+        if (s.proxySignIn) return null;
+        if (s.optedOut || s.signedOut) return null;
+        if (s.lastAutoRedirectAt && s.now - s.lastAutoRedirectAt < LOOP_GUARD_MS) return null;
+        var list = s.providers || [];
+        for (var i = 0; i < list.length; i++) {
+            var p = list[i];
+            if (p && p.enabled && p.autoRedirect && p.id) return String(p.id);
+        }
+        return null;
+    }
+
+    // [#297] Decided once per page load: tryInject re-renders the login page
+    // many times, and the browser leaves at most once. It goes to the button's
+    // own URL, and replace() keeps Back from landing on a login page that
+    // would leave again.
+    var _tfaOidcAutoDecided = false;
+    function maybeAutoRedirectToOidc(rows) {
+        if (_tfaOidcAutoDecided) return;
+        _tfaOidcAutoDecided = true;
+        // [#298] With public-config in hand: it says whether a trusted proxy
+        // named the user, who is then signed in here instead.
+        fetchTfaPublicConfig().then(function (cfg) {
+            var off, lastAt;
+            try {
+                off = sessionStorage.getItem(OIDC_AUTO_OFF_KEY);
+                lastAt = parseInt(sessionStorage.getItem(OIDC_AUTO_AT_KEY) || '0', 10) || 0;
+            } catch (e) { return; } // no sessionStorage means no loop guard: keep the button
+            var id = oidcAutoRedirectTarget({
+                providers: rows,
+                embeddedApp: inEmbeddedWebView(),
+                oidcError: !!_tfaOidcError,
+                returningFromProvider: _tfaOidcReturning || !!window[OIDC_AUTOSUBMIT_FLAG],
+                optedOut: off === 'optout',
+                signedOut: off === 'signout',
+                proxySignIn: !!(cfg && cfg.proxySignInAvailable),
+                lastAutoRedirectAt: lastAt,
+                now: Date.now()
+            });
+            if (!id) return;
+            try { sessionStorage.setItem(OIDC_AUTO_AT_KEY, String(Date.now())); } catch (e) { return; }
+            window.location.replace(serverUrl('TwoFactorAuth/Oidc/Login/' + encodeURIComponent(id)));
+        });
+    }
+
+    // ---------------------------------------------------------------------
+    // [#298] Sign-in through a trusted reverse proxy.
+    //
+    // A proxy that signs people in itself (NetBird, Authelia, ...) names the
+    // user in a header. public-config says, for this very request, whether
+    // it came through that proxy with a name; the server picks the account
+    // and answers with a bridge token, which this page spends exactly like
+    // the in-app OIDC flow does. The page never sees or sends the name.
+    // ---------------------------------------------------------------------
+    var PROXY_SIGNIN_AT_KEY = '__tfa_proxy_signin_at';
+    var PROXY_SIGNIN_FAILED_KEY = '__tfa_proxy_signin_failed';
+    var PROXY_BUTTON_ID = '__twofactor_proxy_btn';
+
+    // [#298] What the login page does with the sign-in a proxy offers. Pure,
+    // so tests/oidc-bridge.test.mjs runs the rules as written:
+    //   - 'auto' signs in at once;
+    //   - 'button' leaves it one click away: after a sign-out or oidcAuto=0
+    //     in this tab, after a refusal here (it is not retried on every
+    //     render), and within two minutes of the last automatic sign-in, so
+    //     a sign-in that ends back on this page cannot loop;
+    //   - null offers nothing: the proxy named nobody, or the page shows a
+    //     failed OIDC sign-in or signs a provider's answer in.
+    function proxySignInAction(s) {
+        var LOOP_GUARD_MS = 120000;
+        if (!s.available || s.oidcError || s.returningFromProvider) return null;
+        if (s.signedOut || s.optedOut || s.failedInTab) return 'button';
+        if (s.lastAutoAt && s.now - s.lastAutoAt < LOOP_GUARD_MS) return 'button';
+        return 'auto';
+    }
+
+    // Decided once per page load, once public-config is in. Undefined until then.
+    var _tfaProxyAction;
+    var _tfaProxySignInBusy = false;
+    function maybeSignInThroughProxy() {
+        // Only on a rendered login view: the bare /web/ address also passes
+        // isLoginPage() while a signed-in session is still routing home.
+        if (!isLoginPage() || !document.querySelector('.manualLoginForm')) return;
+        if (_tfaPublicCfg === null) { fetchTfaPublicConfig(); return; }
+        if (_tfaProxyAction === undefined) {
+            var off = null, failed = null, lastAt = 0;
+            try {
+                off = sessionStorage.getItem(OIDC_AUTO_OFF_KEY);
+                failed = sessionStorage.getItem(PROXY_SIGNIN_FAILED_KEY);
+                lastAt = parseInt(sessionStorage.getItem(PROXY_SIGNIN_AT_KEY) || '0', 10) || 0;
+            } catch (e) { off = 'signout'; } // no memory of a sign-out or a loop: wait for a click
+            _tfaProxyAction = proxySignInAction({
+                available: !!_tfaPublicCfg.proxySignInAvailable,
+                signedOut: off === 'signout',
+                optedOut: off === 'optout',
+                failedInTab: !!failed,
+                oidcError: !!_tfaOidcError,
+                returningFromProvider: _tfaOidcReturning || !!window[OIDC_AUTOSUBMIT_FLAG],
+                lastAutoAt: lastAt,
+                now: Date.now()
+            });
+            if (_tfaProxyAction === 'auto') {
+                try {
+                    sessionStorage.setItem(PROXY_SIGNIN_AT_KEY, String(Date.now()));
+                } catch (e) { _tfaProxyAction = 'button'; }
+                if (_tfaProxyAction === 'auto') signInThroughProxy();
+            }
+        }
+        if (_tfaProxyAction === 'button') injectProxySignInButton();
+    }
+
+    function signInThroughProxy() {
+        if (_tfaProxySignInBusy) return;
+        _tfaProxySignInBusy = true;
+        fetch(serverUrl('TwoFactorAuth/HeaderSignIn'), { method: 'POST', headers: { 'Accept': 'application/json' } })
+            .then(function (r) {
+                return r.json().catch(function () { return null; }).then(function (body) {
+                    if (r.ok && body && body.username && body.token) return body;
+                    var err = new Error('HTTP ' + r.status);
+                    var reason = body && (body.message || body.Message);
+                    if (typeof reason === 'string' && reason.trim()) err.serverMessage = reason.trim();
+                    throw err;
+                });
+            })
+            .then(function (body) {
+                console.log('[2FA] Signing in the user named by the trusted proxy');
+                completeWithBridgeToken(body.username, body.token, proxySignInFailed);
+            })
+            .catch(proxySignInFailed);
+    }
+
+    // A refusal stays on this page, says why, and leaves the button: the
+    // tab does not try again by itself.
+    function proxySignInFailed(e) {
+        _tfaProxySignInBusy = false;
+        _tfaProxyAction = 'button';
+        try { sessionStorage.setItem(PROXY_SIGNIN_FAILED_KEY, '1'); } catch (x) {}
+        var reason = e && e.serverMessage;
+        if (!reason) {
+            reason = /HTTP 403/.test(e && e.message)
+                ? T('tfa.login.oidc_refused', 'Jellyfin refused this account here. An administrator can check it under Dashboard > Users: remote connections, a disabled account, allowed hours, allowed devices or the session limit. A reverse proxy in front of Jellyfin can also refuse the request.')
+                : (e && e.message) || 'error';
+        }
+        console.warn('[2FA] Proxy sign-in failed: ' + reason);
+        showLockoutToast(T('tfa.login.signin_failed_prefix', 'Sign-in failed: ') + reason);
+        injectProxySignInButton();
+    }
+
+    function injectProxySignInButton() {
+        if (document.getElementById(PROXY_BUTTON_ID)) return;
+        var anchor = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
+        if (!anchor || !anchor.parentNode) return;
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = PROXY_BUTTON_ID;
+        btn.className = 'raised block emby-button';
+        btn.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;padding:0.9em 1em;margin-top:14px;';
+        btn.innerHTML = '<span class="material-icons" style="font-family:Material Icons;font-size:18px;">login</span>'
+            + '<span data-i18n-key="tfa.login.proxy_signin">' + T('tfa.login.proxy_signin', 'Continue with your existing sign-in') + '</span>';
+        btn.addEventListener('click', function () {
+            // A deliberate retry: a refusal from before no longer applies.
+            try { sessionStorage.removeItem(PROXY_SIGNIN_FAILED_KEY); } catch (e) {}
+            signInThroughProxy();
+        });
+        anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+    }
+
     // ---------------------------------------------------------------------
     // [v2.5.9] (issue #64): in-page OIDC for embedded app webviews.
     //
@@ -1577,7 +1771,9 @@
         document.getElementById(OIDC_MODAL_ID + '_cancel').addEventListener('click', closeOidcModal);
     }
 
-    function completeWithBridgeToken(user, token) {
+    // [#298] onFailure, when given, takes over the error report: the proxy
+    // sign-in has no modal to write into.
+    function completeWithBridgeToken(user, token, onFailure) {
         // [v2.5.9] (issue #64): authenticate exactly like the proven DESKTOP
         // OIDC bridge page — direct AuthenticateByName with a self-managed
         // device id, then store credentials and reload /web/. This matters for
@@ -1662,6 +1858,7 @@
                 setTimeout(function () { closeOidcModal(); window.location.href = serverUrl('web/index.html'); }, 300);
             })
             .catch(function (e) {
+                if (onFailure) { onFailure(e); return; }
                 var msg = (e && e.message ? e.message : 'error');
                 // [v2.5.16] (#64) The bridge token is single-use and short-lived,
                 // so a 401 here means it was already consumed or has expired.
@@ -1780,6 +1977,8 @@
                 })(p.id, p.displayName || p.id);
                 container.appendChild(btn);
             });
+            // [#297] Only now: the redirect reuses one of these buttons.
+            maybeAutoRedirectToOidc(rows || []);
         }).catch(function() { /* silent */ });
     }
 
@@ -1871,6 +2070,9 @@
         injectSettingsTile();
         injectOidcButtons();
         handleOidcCallback();
+        // [#298] After handleOidcCallback, so an OIDC answer being signed in
+        // takes precedence.
+        maybeSignInThroughProxy();
         // [#134] ApiClient is created lazily and per-server, so the wrap is
         // attempted on every pass and no-ops once it has taken.
         tfaWrapLogoutForRpLogout();
@@ -1940,6 +2142,14 @@
 
     function tfaSuppressRpLogout() { __tfaRpLogoutSuppressed = true; }
 
+    // [#297] A sign-out the user asked for holds the OIDC auto-redirect back
+    // for this tab; otherwise the login page would send them straight back
+    // into the provider's still-open session.
+    function tfaRememberSignOut() {
+        if (__tfaRpLogoutSuppressed) return;
+        try { sessionStorage.setItem(OIDC_AUTO_OFF_KEY, 'signout'); } catch (e) {}
+    }
+
     function tfaTakeRpLogoutProvider() {
         try {
             var id = window.localStorage.getItem(__tfaRpLogoutKey);
@@ -1960,6 +2170,7 @@
 
             var origLogout = api.logout;
             api.logout = function () {
+                tfaRememberSignOut();
                 var providerId = tfaTakeRpLogoutProvider();
                 var result = origLogout.apply(this, arguments);
                 if (!providerId) return result;
