@@ -390,4 +390,32 @@ public class AdminPageContractTests
         Assert.Contains("escapeHtml(_tr(f.noteKey, f.note || ''))", script);
         Assert.Contains("_tr('tfa.admin.posture_all_counted_full',", script);
     }
+
+    [Fact]
+    public void The_settings_page_has_no_script_tag_that_needs_a_synchronous_request()
+    {
+        // #307: Jellyfin's dashboard inserts this page with jQuery, which fetches
+        // every <script src> in it with a synchronous XMLHttpRequest. Behind
+        // Jellyfin's nginx example (Permissions-Policy sync-xhr=()) the browser
+        // refused both, and the page never loaded its data.
+        var page = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.admin.html");
+
+        Assert.NotNull(page);
+        Assert.DoesNotMatch(new System.Text.RegularExpressions.Regex(@"<script\b[^>]*\ssrc\s*="), page);
+    }
+
+    [Fact]
+    public void The_settings_page_loads_its_translations_before_its_script()
+    {
+        // The page script reads window.tfaI18n, so the two load in this order;
+        // async = false keeps a dynamically added script in insertion order.
+        var page = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.admin.html");
+
+        Assert.NotNull(page);
+        Assert.Contains("['../TwoFactorAuth/tfa-i18n', '../TwoFactorAuth/admin-script'].forEach(", page);
+        Assert.Contains("script.async = false;", page);
+        Assert.Contains("document.head.appendChild(script);", page);
+    }
 }

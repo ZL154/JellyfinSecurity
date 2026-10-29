@@ -5,7 +5,6 @@
 </head>
 <body>
     <div id="TwoFactorAuth" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-checkbox,emby-input,emby-select">
-        <script src="../TwoFactorAuth/tfa-i18n"></script>
         <style>
             #TwoFactorAuth .tfa-container { max-width: 1000px; margin: 0 auto; padding: 20px; }
             #TwoFactorAuth .tfa-section { background: rgba(0,0,0,0.2); border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.08); }
@@ -1050,7 +1049,22 @@
             </div>
         </div>
 
-        <script src="../TwoFactorAuth/admin-script"></script>
+        <script>
+            // [#307] Jellyfin's dashboard inserts this page with jQuery, which
+            // fetches a script tag's src with a synchronous XMLHttpRequest.
+            // Behind Jellyfin's nginx example (Permissions-Policy sync-xhr=())
+            // the browser refuses that request, and the page never loaded its
+            // data. Scripts added here load like any other script, and
+            // async = false runs them in this order: the page script reads
+            // window.tfaI18n.
+            ['../TwoFactorAuth/tfa-i18n', '../TwoFactorAuth/admin-script'].forEach(function (src) {
+                var script = document.createElement('script');
+                script.src = src;
+                script.async = false;
+                script.onload = script.onerror = function () { script.remove(); };
+                document.head.appendChild(script);
+            });
+        </script>
 
         <div style="max-width:960px;margin:32px auto 40px;padding:16px 24px 0;border-top:1px solid rgba(255,255,255,.08);">
             <p style="color:rgba(255,255,255,.55);font-size:.85em;line-height:1.6;margin:0;text-align:center;">

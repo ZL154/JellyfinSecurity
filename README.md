@@ -918,27 +918,31 @@ Two changes in v2.5.21 are worth knowing about:
 
 If you changed or rotated the signing key and sign-in still fails, restart Jellyfin so the JWKS cache picks up the new key. See Authentik's [certificate management](https://docs.goauthentik.io/sys-mgmt/certificates/) and [OAuth2/OIDC provider](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/) documentation.
 
-### Chromium console errors about `Permissions-Policy` and synchronous XHR
+### Behind Jellyfin's nginx example: `Permissions-Policy` and `Content-Security-Policy`
 
-If you deployed the `Permissions-Policy` header from Jellyfin's [official nginx example](https://jellyfin.org/docs/general/post-install/networking/reverse-proxy/nginx#https-config-example), Chromium-based browsers log:
+Jellyfin's [official nginx example](https://jellyfin.org/docs/general/post-install/networking/reverse-proxy/nginx#https-config-example) sends a `Permissions-Policy` and a `Content-Security-Policy` header. Two of their directives get in the plugin's way, each with its own symptom (discussion [#307](https://github.com/ZL154/JellyfinSecurity/discussions/307)):
+
+- **No QR code.** Every QR code the plugin shows (authenticator setup and rotation, scanning on another device, single sign-on) is a `data:` image, and `img-src 'self' https://*` blocks them; the console says the image "violates the following Content Security Policy directive". Add `data:` to `img-src`. A `data:` image can't run script.
+- **Passkeys refused.** `publickey-credentials-get=()` turns passkeys off in Chromium-based browsers: the passkey request fails with `NotAllowedError: The 'publickey-credentials-get' feature is not enabled in this document`, so signing in or confirming a change with a passkey doesn't work. Set it to `(self)`.
+
+With those two changes the rest of the example can stay as it is:
+
+```nginx
+add_header Permissions-Policy "accelerometer=(), bluetooth=(), camera=(), clipboard-read=(), display-capture=(), encrypted-media=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), keyboard-map=(), local-fonts=(), magnetometer=(), microphone=(), payment=(), publickey-credentials-get=(self), serial=(), sync-xhr=(), usb=(), xr-spatial-tracking=()" always;
+
+add_header Content-Security-Policy "default-src https: data: blob: ; img-src 'self' data: https://* ; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.youtube.com blob:; worker-src 'self' blob:; connect-src 'self'; object-src 'none'; font-src 'self'";
+```
+
+That `Permissions-Policy` line also leaves out four features the example still lists. They were removed from the spec, so Chromium warns about them and ignores them:
 
 ```
 Error with Permissions-Policy header: Unrecognized feature: 'ambient-light-sensor'.
 Error with Permissions-Policy header: Unrecognized feature: 'battery'.
 Error with Permissions-Policy header: Unrecognized feature: 'document-domain'.
 Error with Permissions-Policy header: Unrecognized feature: 'interest-cohort'.
-[Violation] Permissions policy violation: Synchronous requests are disabled by permissions policy.
 ```
 
-The first four are harmless: those features were removed from the spec, so Chromium warns and ignores them. Dropping them from the header silences the noise:
-
-```nginx
-add_header Permissions-Policy "accelerometer=(), bluetooth=(), camera=(), clipboard-read=(), display-capture=(), encrypted-media=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), keyboard-map=(), local-fonts=(), magnetometer=(), microphone=(), payment=(), publickey-credentials-get=(), serial=(), sync-xhr=(), usb=(), xr-spatial-tracking=()" always;
-```
-
-**The `sync-xhr` violation does not come from this plugin.** Jellyfin Security issues no synchronous `XMLHttpRequest` anywhere — every request it makes, on every page, uses `fetch()` — so you can keep the strict `sync-xhr=()` baseline. The violation is raised by another plugin's bundled jQuery calling `$.ajax({ async: false })`, and the culprit is named on the line *above* the `inject.js` frame in the stack trace.
-
-Jellyfin Security patched `XMLHttpRequest.prototype.send` globally, which put `inject.js` in the stack of those third-party calls and made it look responsible. As of v2.5.21 the plugin passes synchronous requests straight through untouched, so the stack trace now points at the real caller. If a plugin genuinely needs synchronous XHR, either report it upstream or relax the header to `sync-xhr=(self)` for that deployment.
+**`sync-xhr=()` and plugin settings pages.** Jellyfin's dashboard inserts a plugin's settings page with jQuery, and jQuery fetches each `<script src>` in that page with a synchronous `XMLHttpRequest`, which `sync-xhr=()` refuses. The console shows `Permissions policy violation: Synchronous requests are disabled by permissions policy`, and that settings page stays empty. Older versions of this plugin had the same problem on their own settings page (#307); it now adds its scripts itself and works with `sync-xhr=()`. If another plugin's settings page stays empty with that violation, report it to that plugin, or relax the header to `sync-xhr=(self)`. `inject.js` shows up in the violation's stack because the plugin wraps `XMLHttpRequest.send`, but since v2.5.21 it passes synchronous requests through untouched, so it is never the caller.
 
 ### Plugin breaking your server
 Disable the plugin without uninstalling:
