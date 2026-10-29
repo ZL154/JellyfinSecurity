@@ -719,7 +719,7 @@ Closes the stolen-session takeover path. Before v2.5.6, an attacker who hijacked
 - **User choice** — exposes a per-user toggle on the Setup page; each user opts in individually.
 - **Forced** (default) — every user must submit a current factor before adding/replacing any 2FA factor.
 
-**Covered mutations** — adding/replacing TOTP, regenerating recovery codes, creating an app password, adding/removing a passkey, enabling/disabling email OTP. All gated.
+**Covered mutations**: adding/replacing TOTP, regenerating recovery codes, creating an app password, adding/removing a passkey, enabling/disabling email OTP, changing or clearing the email address that receives codes, and linking or unlinking a Telegram chat. All gated. An email address on file counts as an existing factor while email OTP is on, so an account whose only factor is email confirms these changes with an emailed code.
 
 **Proof of factor** — the step-up prompt accepts any of:
 - A current TOTP code from the user's authenticator app

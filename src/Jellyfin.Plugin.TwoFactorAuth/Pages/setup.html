@@ -1622,17 +1622,29 @@
         });
 
         // ============ EMAIL HANDLER ============
-        document.getElementById('btnSaveEmail').addEventListener('click', function() {
+        document.getElementById('btnSaveEmail').addEventListener('click', async function() {
             var ok = document.getElementById('emailSuccess'), err = document.getElementById('emailError');
             ok.classList.remove('show'); err.classList.remove('show');
             var email = document.getElementById('emailInput').value.trim();
-            api('POST', 'TwoFactorAuth/Email', { email: email }).then(function() {
+            // The address receives sign-in and step-up codes, so the server
+            // asks for a step-up when it changes; the UI retries with the prompt.
+            try {
+                await mutateWithStepUp('POST', 'TwoFactorAuth/Email', { email: email }, {
+                    message: _tr('tfa.setup.stepup.msg', 'Enter your current TOTP or recovery code to make this change.')
+                });
                 ok.textContent = email ? _tr('tfa.setup.email.saved', 'Email saved.') : _tr('tfa.setup.email.cleared', 'Email cleared.');
                 ok.classList.add('show');
-            }).catch(function() {
-                err.textContent = _tr('tfa.error.unknown', 'Save failed — check the address.');
+                // The step-up prompt offers "Send code by email" from this flag.
+                window.__tfa_userHasEmail = !!email && ((window._tfaPublicConfig || {}).emailOtpEnabled !== false);
+            } catch (e) {
+                if (e && e.cancelled) return;
+                if (e && e.status === 403 && e.body && (e.body.stepUpRequired || e.body.twoFactorRequired)) {
+                    err.textContent = _tr('tfa.setup.stepup.wrong_code', 'That code did not verify. Try again.');
+                } else {
+                    err.textContent = _tr('tfa.error.unknown', 'Something went wrong. Check the server log.');
+                }
                 err.classList.add('show');
-            });
+            }
         });
 
         // ============ TELEGRAM HANDLER (#285) ============
@@ -1657,7 +1669,7 @@
             });
         }
 
-        document.getElementById('btnSendTelegram').addEventListener('click', function() {
+        document.getElementById('btnSendTelegram').addEventListener('click', async function() {
             var ok = document.getElementById('telegramSuccess'), err = document.getElementById('telegramError');
             ok.classList.remove('show'); err.classList.remove('show');
             var chatId = document.getElementById('telegramChatInput').value.trim();
@@ -1666,14 +1678,23 @@
                 err.classList.add('show');
                 return;
             }
-            api('POST', 'TwoFactorAuth/Telegram/Link', { chatId: chatId }).then(function() {
+            // Linking a chat is a factor change; Confirm below needs no second prompt.
+            try {
+                await mutateWithStepUp('POST', 'TwoFactorAuth/Telegram/Link', { chatId: chatId }, {
+                    message: _tr('tfa.setup.stepup.msg', 'Enter your current TOTP or recovery code to make this change.')
+                });
                 document.getElementById('telegramConfirmRow').style.display = 'flex';
                 ok.textContent = _tr('tfa.setup.telegram.code_sent', 'Code sent to that chat. Enter it below to finish.');
                 ok.classList.add('show');
-            }).catch(function(e) {
-                err.textContent = (e && e.message) || _tr('tfa.setup.telegram.send_failed', 'Could not send the code — check the chat ID.');
+            } catch (e) {
+                if (e && e.cancelled) return;
+                if (e && e.status === 403 && e.body && (e.body.stepUpRequired || e.body.twoFactorRequired)) {
+                    err.textContent = _tr('tfa.setup.stepup.wrong_code', 'That code did not verify. Try again.');
+                } else {
+                    err.textContent = (e && e.message) || _tr('tfa.setup.telegram.send_failed', 'Could not send the code. Check the chat ID.');
+                }
                 err.classList.add('show');
-            });
+            }
         });
 
         document.getElementById('btnConfirmTelegram').addEventListener('click', function() {
@@ -1692,17 +1713,25 @@
             });
         });
 
-        document.getElementById('btnUnlinkTelegram').addEventListener('click', function() {
+        document.getElementById('btnUnlinkTelegram').addEventListener('click', async function() {
             var ok = document.getElementById('telegramSuccess'), err = document.getElementById('telegramError');
             ok.classList.remove('show'); err.classList.remove('show');
-            api('DELETE', 'TwoFactorAuth/Telegram').then(function() {
+            try {
+                await mutateWithStepUpUrl('DELETE', 'TwoFactorAuth/Telegram', {
+                    message: _tr('tfa.setup.stepup.msg', 'Enter your current TOTP or recovery code to make this change.')
+                });
                 ok.textContent = _tr('tfa.setup.telegram.unlinked', 'Telegram unlinked.');
                 ok.classList.add('show');
                 loadTelegram();
-            }).catch(function() {
-                err.textContent = _tr('tfa.error.unknown', 'Something went wrong.');
+            } catch (e) {
+                if (e && e.cancelled) return;
+                if (e && e.status === 403 && e.body && (e.body.stepUpRequired || e.body.twoFactorRequired)) {
+                    err.textContent = _tr('tfa.setup.stepup.wrong_code', 'That code did not verify. Try again.');
+                } else {
+                    err.textContent = _tr('tfa.error.unknown', 'Something went wrong. Check the server log.');
+                }
                 err.classList.add('show');
-            });
+            }
         });
 
         // ============ APP PASSWORD HANDLER ============
