@@ -454,9 +454,21 @@ public class TwoFactorEnforcementMiddleware
             // 50–500ms of artificial latency. Now we register a TaskCompletionSource
             // that ApproveToken signals immediately on completion. Cap at 500ms
             // for fail-safety (matches the previous worst case).
-            var approved = await _challengeStore
-                .WaitForApprovalAsync(authResult.AccessToken, userGuid, deviceId, TimeSpan.FromMilliseconds(500))
-                .ConfigureAwait(false);
+            //
+            // [#304] A Quick Connect sign-in does not share a request with the
+            // handler: Jellyfin mints the device's token inside the approver's
+            // /QuickConnect/Authorize, where the handler judges the session,
+            // and the device fetches it afterwards with the request this
+            // response answers. The approval flag lasts 30 seconds and one
+            // read, while Jellyfin keeps the secret for ten minutes, so a
+            // device that fetched late, or fetched again, was challenged for a
+            // token already let through. That verdict outlives the flag as the
+            // verified mark, so it is read first.
+            var quickConnect = IsQuickConnectSignIn(path);
+            var approved = (quickConnect && _challengeStore.IsTokenVerified(authResult.AccessToken))
+                || await _challengeStore
+                    .WaitForApprovalAsync(authResult.AccessToken, userGuid, deviceId, TimeSpan.FromMilliseconds(500))
+                    .ConfigureAwait(false);
             if (approved)
             {
                 _logger.LogDebug("[2FA] Token pre-approved by event handler — passing auth response through for {Name}",
@@ -492,6 +504,10 @@ public class TwoFactorEnforcementMiddleware
             {
                 _logger.LogWarning("[2FA] Bypass triggered for {Name} from {Ip} (reason={Reason})",
                     authResult.User.Name, remoteIp, bypass.Reason);
+                if (quickConnect)
+                {
+                    ReleaseQuickConnectToken(authResult.AccessToken, userGuid, deviceId);
+                }
                 await _store.AddAuditEntryAsync(new AuditEntry
                 {
                     Timestamp = DateTime.UtcNow,
@@ -525,6 +541,10 @@ public class TwoFactorEnforcementMiddleware
                     BypassEvaluator.DeviceIdMatches(p.DeviceId, deviceId));
                 if (paired is not null)
                 {
+                    if (quickConnect)
+                    {
+                        ReleaseQuickConnectToken(authResult.AccessToken, userGuid, deviceId);
+                    }
                     // Atomic update of LastUsedAt to avoid lost-update vs. concurrent
                     // Setup-page edits adding/revoking devices for the same user.
                     var capturedRemoteIp = remoteIp ?? string.Empty;
@@ -724,6 +744,27 @@ public class TwoFactorEnforcementMiddleware
         }
     }
 
+    /// <summary>[#304] Lift what the SessionStarted handler left on a Quick
+    /// Connect token it could not let through. The handler judged the session
+    /// inside the approver's /QuickConnect/Authorize request, which carries
+    /// neither the device's address nor its headers, so unless a verified
+    /// session approved the code, or the device is paired, it blocked the token
+    /// and recorded the device as waiting for approval. A bypass decided on the
+    /// device's own request settles both, as the handler's own bypass branch
+    /// does; left in place, the block refused every request the device made
+    /// with the token this response hands it.</summary>
+    private void ReleaseQuickConnectToken(string token, Guid userId, string? deviceId)
+    {
+        _challengeStore.UnblockToken(token);
+        // Verified as well, so the handler takes the device's next sessions on
+        // this token for reconnects even where the bypass no longer applies (#35).
+        _challengeStore.MarkTokenVerified(token);
+        if (!string.IsNullOrEmpty(deviceId))
+        {
+            _pendingPairings.Remove(userId, deviceId);
+        }
+    }
+
     /// <summary>
     /// Match by both path AND response shape to avoid false positives — any other
     /// 200 JSON response that happens to contain the substrings would otherwise
@@ -741,18 +782,28 @@ public class TwoFactorEnforcementMiddleware
                 | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
             TimeSpan.FromMilliseconds(50));
 
-    internal static bool IsAuthPath(string path)
+    internal static bool IsAuthPath(string path) => MatchAuthEndpoint(path) is not null;
+
+    /// <summary>[#304] Whether <paramref name="path"/> is the request a Quick
+    /// Connect device fetches its access token with. Read off the same match as
+    /// <see cref="IsAuthPath"/>, so the two cannot disagree about a path.</summary>
+    internal static bool IsQuickConnectSignIn(string path)
+        => string.Equals(MatchAuthEndpoint(path), "AuthenticateWithQuickConnect", StringComparison.OrdinalIgnoreCase);
+
+    // The sign-in endpoint an auth path names, or null for any other path.
+    private static string? MatchAuthEndpoint(string path)
     {
-        if (string.IsNullOrEmpty(path)) return false;
+        if (string.IsNullOrEmpty(path)) return null;
         // Cheap length cap: any auth path we care about is under 256 chars.
-        if (path.Length > 256) return false;
+        if (path.Length > 256) return null;
         try
         {
-            return _authPathRegex.IsMatch(path);
+            var match = _authPathRegex.Match(path);
+            return match.Success ? match.Groups[1].Value : null;
         }
         catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
         {
-            return false;
+            return null;
         }
     }
 
