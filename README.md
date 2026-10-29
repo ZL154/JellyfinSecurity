@@ -194,6 +194,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - **Device pairing**: passwordless users can pair native clients by approving a pending request from the Setup page. A paired device only skips 2FA while the admin has `BareDeviceIdBypassEnabled` turned on, which is off by default (see [First-time setup](#-first-time-setup)).
 - **Remembering a second-screen approval** (`PairDeviceOnSecondScreenApproval`, off by default): a sign-in someone approved on another screen, the OIDC login QR on a TV or a Quick Connect code, adds that device to the user's paired devices instead of forgetting it. The record is visible and revocable on the Setup page, and it only waives 2FA where the bare device ID bypass is enabled.
 - **Quick Connect pass-through** — a 2FA-verified user approving a Quick Connect code lets the new device inherit verified status, so TVs sign in without a TOTP prompt.
+- **Quick Connect approved with an API key**: the approval carries no verified user, so the device is judged on its own request when it fetches its token. The LAN bypass and the other bypasses apply as they do to a password sign-in from that device; otherwise the device gets the 2FA challenge.
 - **Active sessions view** — see every active session with device/IP/last-activity and sign them out individually.
 - **Official Android / mobile hand-off** — preserves Base URLs, returns to the app after verification, and recognises the trusted session on follow-up requests.
 
