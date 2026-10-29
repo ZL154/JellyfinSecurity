@@ -80,12 +80,22 @@ public class TestSmtpRequest
 public class SetEmailRequest
 {
     public string Email { get; set; } = string.Empty;
+
+    /// <summary>Self-service step-up proof, needed when the address changes.</summary>
+    public string? Code { get; set; }
+
+    public string? StepUpToken { get; set; }
 }
 
 /// <summary>[#285] Candidate Telegram chat ID the user wants to link for OTP.</summary>
 public class LinkTelegramRequest
 {
     public string ChatId { get; set; } = string.Empty;
+
+    /// <summary>Self-service step-up proof, as for any other factor change.</summary>
+    public string? Code { get; set; }
+
+    public string? StepUpToken { get; set; }
 }
 
 /// <summary>[#285] The confirmation code the bot delivered to the candidate chat.</summary>

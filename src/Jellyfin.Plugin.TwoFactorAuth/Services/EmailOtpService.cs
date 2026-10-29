@@ -165,7 +165,16 @@ public class EmailOtpService
         public string ChatId { get; init; } = string.Empty;
 
         public DateTime ExpiresAt { get; init; }
+
+        private int _failedAttempts;
+
+        /// <summary>Counts one wrong code and returns the total so far.</summary>
+        public int RecordFailure() => Interlocked.Increment(ref _failedAttempts);
     }
+
+    /// <summary>Wrong codes a pending link survives; the next one drops it and
+    /// the user asks for a new code.</summary>
+    private const int TelegramLinkMaxAttempts = 5;
 
     private readonly ConcurrentDictionary<Guid, TelegramLinkPending> _telegramLinkCodes = new();
 
@@ -196,7 +205,9 @@ public class EmailOtpService
 
     /// <summary>[#285] Validate + consume a Telegram link code. Constant-time,
     /// single-use. Returns the bound chat ID on success (so the caller stores
-    /// exactly the chat the code was sent to), or null on any mismatch/expiry.</summary>
+    /// exactly the chat the code was sent to), or null on any mismatch/expiry.
+    /// The pending link is dropped after <see cref="TelegramLinkMaxAttempts"/>
+    /// wrong codes.</summary>
     public string? ConfirmTelegramLinkCode(Guid userId, string code)
     {
         if (!_telegramLinkCodes.TryGetValue(userId, out var entry)) return null;
@@ -207,7 +218,17 @@ public class EmailOtpService
         }
 
         var submitted = HashOtp(code ?? string.Empty);
-        if (!CryptographicOperations.FixedTimeEquals(entry.CodeHash, submitted)) return null;
+        if (!CryptographicOperations.FixedTimeEquals(entry.CodeHash, submitted))
+        {
+            // Removes this entry only, never a newer one issued meanwhile.
+            if (entry.RecordFailure() >= TelegramLinkMaxAttempts)
+            {
+                _telegramLinkCodes.TryRemove(new KeyValuePair<Guid, TelegramLinkPending>(userId, entry));
+            }
+
+            return null;
+        }
+
         return _telegramLinkCodes.TryRemove(userId, out var confirmed) ? confirmed.ChatId : null;
     }
 
