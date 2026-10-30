@@ -331,6 +331,8 @@
   "tfa.admin.settings.authenticator_heading": "Aplicativo autenticador",
   "tfa.admin.settings.lbl_issuer": "Nome do emissor exibido nos aplicativos dos usuários",
   "tfa.admin.settings.issuer_help": "Registros existentes mantêm o nome antigo. Novos registros usarão este. Escolha algo que os usuários reconheçam como seu servidor.",
+  "tfa.admin.settings.opt_accept_code_after_password": "Aceitar o código do autenticador digitado depois da senha",
+  "tfa.admin.settings.accept_code_after_password_help": "Para aplicativos que não conseguem mostrar o desafio de 2FA (Infuse, Swiftfin, Findroid, a maioria dos apps de TV): o usuário digita a senha seguida do código atual de 6 dígitos, sem espaço, por exemplo MinhaSenha123456. Um código errado conta como uma senha errada. Desativado por padrão: o código passa pelo aplicativo junto com a senha, e um aplicativo que salva o que foi digitado não consegue entrar de novo com isso depois, então as senhas de aplicativo continuam sendo a melhor opção para aplicativos que entram de novo sozinhos.",
   "tfa.admin.settings.push_heading": "Notificações push",
   "tfa.admin.settings.lbl_ntfy_url": "URL do ntfy (ex.: https://ntfy.sh)",
   "tfa.admin.settings.lbl_ntfy_topic": "Tópico do ntfy",

@@ -397,6 +397,21 @@ public class TwoFactorEnforcementMiddleware
                 return;
             }
 
+            // [#312] The authenticator code came after the password, and
+            // CodeAfterPasswordMiddleware checked both for this very request.
+            // The token is marked verified before the response goes out:
+            // Jellyfin queues SessionStarted on the thread pool, and a handler
+            // that only gets to it once the request is over no longer sees the
+            // mark, so it has to find the token verified and take the session
+            // for a reconnect instead of blocking it.
+            if (CodeAfterPasswordMiddleware.WasVerifiedFor(context, userGuid))
+            {
+                _challengeStore.MarkTokenVerified(authResult.AccessToken);
+                _ipBans.RecordSuccess(remoteIp ?? string.Empty);
+                await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
+                return;
+            }
+
             var twoFactorToken = context.Request.Headers["X-TwoFactor-Token"].FirstOrDefault();
             // Jellyfin web/Tizen clients don't always send X-Emby-Device-Id
             // as a dedicated header — they pack it inside X-Emby-Authorization

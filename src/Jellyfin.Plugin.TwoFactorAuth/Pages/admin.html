@@ -818,6 +818,11 @@
                                 <input type="text" id="cfgIssuer" class="tfa-input" style="width:240px;" placeholder="Jellyfin" />
                             </div>
                             <p style="font-size:12px;color:#888;margin-top:6px;" data-i18n-key="tfa.admin.settings.issuer_help">Existing enrollments keep their old name. New enrollments will use this. Pick something users will recognize as your server.</p>
+                            <!-- [#312]: the code after the password, for apps that can't show the challenge. -->
+                            <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
+                                <label><input type="checkbox" id="cfgAcceptCodeAfterPassword" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_accept_code_after_password">Accept the authenticator code typed after the password</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.accept_code_after_password_help">For apps that can't show the 2FA challenge (Infuse, Swiftfin, Findroid, most TV apps): the user types the password followed by the current 6-digit code, with no space, for example MyPassword123456. A wrong code counts as a wrong password. Off by default: the code travels through the app together with the password, and an app that saves what was typed can't sign in again with it later, so app passwords remain the better fit for apps that sign in again on their own.</div>
+                            </div>
                         </div>
 
                         <div class="tfa-section">

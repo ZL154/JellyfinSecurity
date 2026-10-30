@@ -311,6 +311,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// identity provider stops letting that person in, until it is revoked.</summary>
     public bool AllowAppPasswordsWhenPasswordLoginDisabled { get; set; }
 
+    /// <summary>[#312] Accept the current authenticator code typed right after
+    /// the password, with no space ("MyPassword123456"), on
+    /// POST /Users/AuthenticateByName, for apps that can't show the 2FA
+    /// challenge. The part before the last six digits has to be the account's
+    /// password and the six digits its code, with the challenge's replay
+    /// protection and per-account attempt limit; then only the password goes
+    /// on to Jellyfin and the new token isn't held for the challenge. Off by
+    /// default: the code then travels with the password through the app, and
+    /// an app that stores what was typed can't sign in again with it.</summary>
+    public bool AcceptCodeAfterPassword { get; set; }
+
     /// <summary>[#244] Extra client names that may NOT sign in with an app
     /// password, on top of the always-refused "Jellyfin Web". An admin who
     /// wants a stricter posture can list first-party apps that CAN show the 2FA

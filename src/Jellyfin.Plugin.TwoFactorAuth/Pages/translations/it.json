@@ -331,6 +331,8 @@
   "tfa.admin.settings.authenticator_heading": "App di autenticazione",
   "tfa.admin.settings.lbl_issuer": "Nome dell'emittente mostrato nelle app degli utenti",
   "tfa.admin.settings.issuer_help": "Le registrazioni esistenti mantengono il vecchio nome. Le nuove registrazioni useranno questo. Scegli qualcosa che gli utenti riconoscano come il tuo server.",
+  "tfa.admin.settings.opt_accept_code_after_password": "Accetta il codice dell'autenticatore digitato dopo la password",
+  "tfa.admin.settings.accept_code_after_password_help": "Per le app che non possono mostrare la verifica 2FA (Infuse, Swiftfin, Findroid, la maggior parte delle app TV): l'utente digita la password seguita dal codice attuale di 6 cifre, senza spazi, per esempio MiaPassword123456. Un codice errato conta come una password errata. Disattivato per impostazione predefinita: il codice passa dall'app insieme alla password, e un'app che salva quanto digitato non può accedere di nuovo con quello più tardi, quindi le password per app restano la scelta migliore per le app che accedono di nuovo da sole.",
   "tfa.admin.settings.push_heading": "Notifiche push",
   "tfa.admin.settings.lbl_ntfy_url": "URL ntfy (es. https://ntfy.sh)",
   "tfa.admin.settings.lbl_ntfy_topic": "Topic ntfy",
