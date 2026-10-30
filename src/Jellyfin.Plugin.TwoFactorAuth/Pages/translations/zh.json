@@ -331,6 +331,8 @@
   "tfa.admin.settings.authenticator_heading": "认证器应用",
   "tfa.admin.settings.lbl_issuer": "在用户应用中显示的发行者名称",
   "tfa.admin.settings.issuer_help": "现有注册保留其旧名称。新注册将使用此名称。请选择用户能识别为您服务器的名称。",
+  "tfa.admin.settings.opt_accept_code_after_password": "接受在密码后输入的验证器代码",
+  "tfa.admin.settings.accept_code_after_password_help": "适用于无法显示 2FA 验证的应用(Infuse、Swiftfin、Findroid、大多数电视应用)：用户输入密码，紧接着输入当前的 6 位代码，中间不加空格，例如 MyPassword123456。错误的代码按错误的密码计算。默认关闭：代码会和密码一起经过应用，而保存输入内容的应用之后无法再用它登录，因此对于会自行重新登录的应用，应用密码仍是更合适的选择。",
   "tfa.admin.settings.push_heading": "推送通知",
   "tfa.admin.settings.lbl_ntfy_url": "ntfy URL(例如 https://ntfy.sh)",
   "tfa.admin.settings.lbl_ntfy_topic": "ntfy 主题",

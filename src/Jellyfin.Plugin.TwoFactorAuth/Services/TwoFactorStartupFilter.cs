@@ -22,6 +22,10 @@ public class TwoFactorStartupFilter : IStartupFilter
             // [v2.5.10] (#55) emits a recognizable lockout 401 on AuthenticateByName
             // so the login page can show a "temporarily locked" message.
             app.UseMiddleware<LockoutMessageMiddleware>();
+            // [#312] After the lockout middleware, so its gates see what was
+            // typed and it counts the outcome; before the rest, so they all
+            // see the password alone.
+            app.UseMiddleware<CodeAfterPasswordMiddleware>();
             app.UseMiddleware<TrustCookieMiddleware>();
             app.UseMiddleware<TwoFactorEnforcementMiddleware>();
             app.UseMiddleware<RequestBlockerMiddleware>();
