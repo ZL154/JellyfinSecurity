@@ -307,6 +307,10 @@
   "tfa.admin.settings.opt_hibp": "Check passwords against Have I Been Pwned on sign-in",
   "tfa.admin.settings.hibp_help": "v2.4: opt-in. Only the first 5 hex chars of SHA-1(password) leave the server (k-anonymity). On a breach hit, an audit-log entry is written and a warning is logged — sign-in is never blocked. Fails open if api.pwnedpasswords.com is unreachable.",
   "tfa.admin.settings.opt_email_otp": "Allow email OTP as fallback",
+  "tfa.admin.settings.opt_send_sign_in_code_to_apps": "Send a sign-in code by email and Telegram to apps that can't show the challenge",
+  "tfa.admin.settings.send_sign_in_code_to_apps_help": "When an app such as Infuse, Swiftfin or a TV app signs in with the right password and can't show the 2FA challenge, the user also gets an 8-digit code by email and on their linked Telegram chat, then signs in again in that app with the password followed by the code, with no space. The code works once, for a few minutes, only in that app on that device, and only while the password is unchanged. Needs email OTP. The web interface never gets one, nor do the apps listed in AppPasswordRefusedClients. Off by default.",
+  "tfa.admin.settings.opt_accept_sign_in_code_alone": "Accept the sign-in code alone, in place of the password",
+  "tfa.admin.settings.accept_sign_in_code_alone_help": "Only on the app's second attempt, once, and only when the account, device, app, password and client address all match the first attempt. Refused when the plugin can't see the client's own address, as behind a proxy it doesn't trust. Someone who can read the mailbox, shares that address and knows the device ID could still use the code while it is valid, so the security score counts this as an open escape hatch. Off by default.",
   "tfa.admin.settings.lan_heading": "LAN Bypass",
   "tfa.admin.settings.opt_lan_bypass": "Skip 2FA for LAN requests",
   "tfa.admin.settings.lbl_lan_cidrs": "LAN CIDR ranges (one per line)",
@@ -910,6 +914,8 @@
   "tfa.setpassword.error_failed": "Could not set your password. Please try again.",
   "tfa.setpassword.error_network": "Network error. Please try again.",
   "tfa.setpassword.error_logout": "Could not sign out. Please try again.",
+  "tfa.factor.sign_in_code_alone.label": "Sign-in code accepted without the password",
+  "tfa.factor.sign_in_code_alone.action": "An app's second sign-in attempt can use the emailed code alone, without the password. Turn off 'Accept the sign-in code alone' to close this escape hatch.",
   "tfa.factor.password_login_disabled.label": "Password sign-in disabled (SSO only)",
   "tfa.factor.password_login_disabled.action": "Password sign-in is off, but still allowed for {hatches}. Close those exemptions for full credit."
 }

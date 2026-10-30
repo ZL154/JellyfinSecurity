@@ -94,6 +94,7 @@ public class AuthenticationEventHandler : IHostedService
         string? requestToken = null;
         string? requestDeviceId = null;
         var codeAfterPasswordUser = Guid.Empty;
+        var codeAfterPasswordMethod = CodeAfterPasswordMiddleware.AuditMethod;
         var httpContext = _httpContextAccessor.HttpContext;
         if (httpContext is not null)
         {
@@ -102,6 +103,7 @@ public class AuthenticationEventHandler : IHostedService
             // Jellyfin queues this event on the thread pool, so the request
             // may already be gone by the time the session is judged.
             codeAfterPasswordUser = CodeAfterPasswordMiddleware.VerifiedUser(httpContext);
+            codeAfterPasswordMethod = CodeAfterPasswordMiddleware.VerifiedMethod(httpContext);
 
             var xff = httpContext.Request.Headers["X-Forwarded-For"].ToString();
             if (!string.IsNullOrWhiteSpace(xff))
@@ -142,7 +144,7 @@ public class AuthenticationEventHandler : IHostedService
         {
             try
             {
-                await HandleSessionAsync(info, forwardedFor, twoFactorToken, requestToken, requestDeviceId, codeAfterPasswordUser).ConfigureAwait(false);
+                await HandleSessionAsync(info, forwardedFor, twoFactorToken, requestToken, requestDeviceId, codeAfterPasswordUser, codeAfterPasswordMethod).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -157,7 +159,8 @@ public class AuthenticationEventHandler : IHostedService
         string? twoFactorToken,
         string? requestToken,
         string? requestDeviceId,
-        Guid codeAfterPasswordUser)
+        Guid codeAfterPasswordUser,
+        string codeAfterPasswordMethod)
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null || !config.Enabled)
@@ -249,9 +252,9 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
-        // [#312] This very request carried the authenticator code after the
-        // password, and CodeAfterPasswordMiddleware checked both before
-        // Jellyfin signed in.
+        // [#312] This very request carried the authenticator code (or [#313]
+        // the code sent to this app) after the password, and
+        // CodeAfterPasswordMiddleware checked both before Jellyfin signed in.
         if (codeAfterPasswordUser == info.UserId)
         {
             _logger.LogDebug("[2FA] {Name} signed in with the code after the password; session allowed", info.UserName);
@@ -270,7 +273,7 @@ public class AuthenticationEventHandler : IHostedService
                 DeviceId = info.DeviceId ?? string.Empty,
                 DeviceName = info.DeviceName ?? string.Empty,
                 Result = AuditResult.Success,
-                Method = CodeAfterPasswordMiddleware.AuditMethod,
+                Method = codeAfterPasswordMethod,
             }).ConfigureAwait(false);
 
             // [#215] A completed sign-in that never touches the controller.

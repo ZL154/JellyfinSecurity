@@ -36,6 +36,7 @@ public class TwoFactorEnforcementMiddleware
     private readonly IpBanService _ipBans;
     private readonly IpAllowlistService _allowlist;
     private readonly HibpService _hibp;
+    private readonly AppSignInCodeService _appSignInCodes;
     private readonly ILogger<TwoFactorEnforcementMiddleware> _logger;
 
     public TwoFactorEnforcementMiddleware(
@@ -49,6 +50,7 @@ public class TwoFactorEnforcementMiddleware
         IpBanService ipBans,
         IpAllowlistService allowlist,
         HibpService hibp,
+        AppSignInCodeService appSignInCodes,
         ILogger<TwoFactorEnforcementMiddleware> logger)
     {
         _next = next;
@@ -61,6 +63,7 @@ public class TwoFactorEnforcementMiddleware
         _ipBans = ipBans;
         _allowlist = allowlist;
         _hibp = hibp;
+        _appSignInCodes = appSignInCodes;
         _logger = logger;
     }
 
@@ -712,6 +715,16 @@ public class TwoFactorEnforcementMiddleware
                 Result = AuditResult.ChallengeIssued,
                 Method = string.Join(",", methods),
             }).ConfigureAwait(false);
+
+            // [#313] An app that can't show this challenge gets a sign-in code
+            // by email and Telegram instead; AppSignInCodeService decides
+            // whether this one qualifies. The request is read now, and the
+            // code goes out after the response.
+            if (config.SendSignInCodeToApps && CodeAfterPasswordMiddleware.IsHandledEndpoint(context))
+            {
+                var attempt = AppSignInCodeService.Capture(context, config, userGuid, authResult.User.Name ?? string.Empty, challenge.Token);
+                _ = Task.Run(() => _appSignInCodes.SendAsync(attempt, enrollmentRequired));
+            }
 
             var response = new TwoFactorRequiredResponse
             {
