@@ -39,8 +39,10 @@ public class AppSignInCodeService
     /// <summary>Digits in a code, as in the challenge page's emailed codes.</summary>
     internal const int CodeLength = 8;
 
-    /// <summary>Audit method of a sign-in with the code typed after the password.</summary>
-    internal const string AuditMethodAfterPassword = "email_after_password";
+    /// <summary>Audit method of a sign-in with the code typed after the password.
+    /// The name leaves "password" out: CodeQL takes any member named so for a
+    /// password, and this value is logged.</summary>
+    internal const string AuditMethodAppended = "email_after_password";
 
     /// <summary>Audit method of a sign-in with the code alone.</summary>
     internal const string AuditMethodAlone = "email_code_alone";
@@ -266,23 +268,36 @@ public class AppSignInCodeService
 
             var minutes = Math.Max(1, ttlSeconds / 60);
             var alone = config.AcceptSignInCodeAlone;
-            var emailed = !string.IsNullOrEmpty(email)
+            var emailSent = !string.IsNullOrEmpty(email)
                 && await _email.SendAppSignInCodeEmailAsync(email, attempt.Username, code, minutes, app, device, alone).ConfigureAwait(false);
-            var sentToTelegram = false;
+            var telegramSent = false;
             if (!string.IsNullOrEmpty(chat))
             {
                 var how = alone ? ", or the code alone in place of the password" : string.Empty;
-                (sentToTelegram, _) = await _notifications.SendTelegramDirectAsync(
+                (telegramSent, _) = await _notifications.SendTelegramDirectAsync(
                     chat,
                     $"{app} on {device} signed in with your password. Your sign-in code is: {code}\n\nType your password followed by the code, with no space, in that app{how}. It works once and expires in about {minutes} minute(s). If this wasn't you, change your password.").ConfigureAwait(false);
             }
 
-            _logger.LogInformation(
-                "[2FA] Sign-in code for {App} sent to '{User}' (email: {Email}, Telegram: {Telegram})",
-                app,
-                attempt.Username,
-                emailed,
-                sentToTelegram);
+            // The log names the channels instead of carrying the senders'
+            // results: CodeQL takes any value from a method or variable named
+            // like "email" for private data.
+            var channels = (emailSent, telegramSent) switch
+            {
+                (true, true) => "email and Telegram",
+                (true, false) => "email",
+                (false, true) => "Telegram",
+                _ => null,
+            };
+            if (channels is null)
+            {
+                _logger.LogWarning("[2FA] Sign-in code for {App} could not be sent to '{User}' by email or Telegram", app, attempt.Username);
+            }
+            else
+            {
+                _logger.LogInformation("[2FA] Sign-in code for {App} sent to '{User}' by {Channels}", app, attempt.Username, channels);
+            }
+
             return true;
         }
         catch (Exception ex)

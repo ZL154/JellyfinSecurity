@@ -4,6 +4,7 @@ using Jellyfin.Plugin.TwoFactorAuth.Services;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Tests.Helpers;
@@ -20,7 +21,8 @@ internal static class AppSignInCodesForTests
         IUserManager users,
         IApplicationHost host,
         ChallengeStore challenges,
-        Func<PluginConfiguration?> config)
+        Func<PluginConfiguration?> config,
+        ILogger<AppSignInCodeService>? logger = null)
     {
         var notifications = new NotificationService(NullLogger<NotificationService>.Instance);
         var geo = new GeoIpService(NullLogger<GeoIpService>.Instance);
@@ -39,7 +41,7 @@ internal static class AppSignInCodesForTests
             new PendingPairingService(NullLogger<PendingPairingService>.Instance),
             observer,
             new IpBanService(paths, NullLogger<IpBanService>.Instance),
-            NullLogger<AppSignInCodeService>.Instance,
+            logger ?? NullLogger<AppSignInCodeService>.Instance,
             config);
     }
 }

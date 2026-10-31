@@ -221,7 +221,7 @@ public class CodeAfterPasswordMiddleware
                 await RecordWrongCodeAsync(
                     context,
                     user,
-                    AppSignInCodeService.AuditMethodAfterPassword,
+                    AppSignInCodeService.AuditMethodAppended,
                     outcome == AppSignInCodeService.Outcome.Wrong
                         ? "wrong sign-in code after the right password"
                         : "sign-in code sent before the password changed").ConfigureAwait(false);
@@ -230,7 +230,7 @@ public class CodeAfterPasswordMiddleware
             return false;
         }
 
-        Accept(context, user, username, password, AppSignInCodeService.AuditMethodAfterPassword, attemptsKey);
+        Accept(context, user, username, password, AppSignInCodeService.AuditMethodAppended, attemptsKey);
         return true;
     }
 

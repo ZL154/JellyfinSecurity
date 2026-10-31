@@ -13,6 +13,7 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using OtpNet;
@@ -214,6 +215,21 @@ public sealed class SignInCodeForAppsTests : IDisposable
         Assert.False(await _codes.SendAsync(Attempt() with { DeviceId = "tv-3" }, enrollmentRequired: false));
     }
 
+    [Fact]
+    public async Task A_code_that_no_channel_delivered_is_logged_as_a_warning()
+    {
+        // Mail and Telegram aren't configured here: the code is issued, and
+        // the log must not say it was sent.
+        var log = new CapturingLogger();
+        var codes = AppSignInCodesForTests.Build(_paths, _store, _users, _host, _challenges, () => _cfg, log);
+
+        Assert.True(await codes.SendAsync(Attempt(), enrollmentRequired: false));
+
+        Assert.Contains(log.Entries, e => e.Level == LogLevel.Warning
+            && e.Message == "[2FA] Sign-in code for Infuse could not be sent to 'alice' by email or Telegram");
+        Assert.DoesNotContain(log.Entries, e => e.Level == LogLevel.Information);
+    }
+
     // ---- Redeeming ------------------------------------------------------------
 
     [Fact]
@@ -300,7 +316,7 @@ public sealed class SignInCodeForAppsTests : IDisposable
 
         Assert.Equal("{\"Username\":\"alice\",\"Pw\":\"MyPassword\"}", await BodyOf(context.Request));
         Assert.True(CodeAfterPasswordMiddleware.WasVerifiedFor(context, _alice.Id));
-        Assert.Equal(AppSignInCodeService.AuditMethodAfterPassword, CodeAfterPasswordMiddleware.VerifiedMethod(context));
+        Assert.Equal(AppSignInCodeService.AuditMethodAppended, CodeAfterPasswordMiddleware.VerifiedMethod(context));
     }
 
     [Fact]
@@ -314,7 +330,7 @@ public sealed class SignInCodeForAppsTests : IDisposable
         Assert.Equal(Json(Password + "11111111"), await BodyOf(context.Request));
         Assert.Contains(await _store.GetAuditLogAsync(), e => e.UserId == _alice.Id
             && e.Result == AuditResult.Failed
-            && e.Method == AppSignInCodeService.AuditMethodAfterPassword);
+            && e.Method == AppSignInCodeService.AuditMethodAppended);
     }
 
     [Fact]
@@ -361,7 +377,8 @@ public sealed class SignInCodeForAppsTests : IDisposable
 
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         context.Response.Body.Position = 0;
-        Assert.Equal(challenge.PendingAuthResponse, await new StreamReader(context.Response.Body).ReadToEndAsync());
+        using var reader = new StreamReader(context.Response.Body, Encoding.UTF8);
+        Assert.Equal(challenge.PendingAuthResponse, await reader.ReadToEndAsync());
         Assert.False(_challenges.IsTokenBlocked("tok-1"));
         Assert.True(_challenges.IsTokenVerified("tok-1"));
         Assert.Null(_challenges.GetChallenge(challenge.Token));
@@ -495,5 +512,19 @@ public sealed class SignInCodeForAppsTests : IDisposable
 
         throw new FileNotFoundException(
             $"Could not find {repoRelativePath} walking up from {AppContext.BaseDirectory}");
+    }
+
+    private sealed class CapturingLogger : ILogger<AppSignInCodeService>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+            => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, formatter(state, exception)));
     }
 }
