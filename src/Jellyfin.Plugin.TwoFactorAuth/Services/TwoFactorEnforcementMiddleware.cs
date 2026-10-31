@@ -155,6 +155,8 @@ public class TwoFactorEnforcementMiddleware
                     {
                         if (doc.RootElement.TryGetProperty("Pw", out var pw) && pw.ValueKind == JsonValueKind.String)
                             submittedPassword = pw.GetString();
+                        else if (doc.RootElement.TryGetProperty("PW", out var pwUc) && pwUc.ValueKind == JsonValueKind.String)
+                            submittedPassword = pwUc.GetString();
                         else if (doc.RootElement.TryGetProperty("pw", out var pwLc) && pwLc.ValueKind == JsonValueKind.String)
                             submittedPassword = pwLc.GetString();
                         else if (doc.RootElement.TryGetProperty("Password", out var p) && p.ValueKind == JsonValueKind.String)

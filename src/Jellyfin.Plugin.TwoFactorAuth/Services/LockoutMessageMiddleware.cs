@@ -418,7 +418,7 @@ public class LockoutMessageMiddleware
     /// downstream pipeline (EnableBuffering + rewind). Returns (null, null) on
     /// any error or an unexpectedly large body — callers treat that as a
     /// pass-through.</summary>
-    private static async Task<(string? Username, string? Password)> PeekCredentialsAsync(HttpRequest request)
+    internal static async Task<(string? Username, string? Password)> PeekCredentialsAsync(HttpRequest request)
     {
         try
         {
@@ -451,7 +451,7 @@ public class LockoutMessageMiddleware
 
             return (
                 GetString(doc.RootElement, "Username", "username", "Name", "name"),
-                GetString(doc.RootElement, "Pw", "Password", "pw", "password"));
+                GetString(doc.RootElement, "Pw", "PW", "Password", "pw", "password"));
         }
         catch
         {
