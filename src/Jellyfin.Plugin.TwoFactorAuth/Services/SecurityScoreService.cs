@@ -420,6 +420,24 @@ public class SecurityScoreService : IDisposable
             });
         }
 
+        // [#313] Only counted while it is on, like the factor above: an app's
+        // second attempt can sign in with the emailed code alone, without the
+        // password, which is an open escape hatch.
+        if (cfg.SendSignInCodeToApps && cfg.AcceptSignInCodeAlone)
+        {
+            factors.Add(new ScoreFactor
+            {
+                Id = "sign-in-code-alone",
+                Label = "Sign-in code accepted without the password",
+                LabelKey = "tfa.factor.sign_in_code_alone.label",
+                Earned = 0,
+                Possible = 5,
+                Status = "fail",
+                NextAction = "An app's second sign-in attempt can use the emailed code alone, without the password. Turn off 'Accept the sign-in code alone' to close this escape hatch.",
+                NextActionKey = "tfa.factor.sign_in_code_alone.action",
+            });
+        }
+
         int total = factors.Sum(f => f.Earned);
         int possible = factors.Sum(f => f.Possible);
         // v2.5.0: scale to a 100 ceiling so adding factors doesn't break the

@@ -95,15 +95,16 @@ public class SignInObserverTests
     [Fact]
     public void Every_completed_sign_in_path_in_the_session_handler_hands_the_resolved_address_to_the_observer()
     {
-        // The sign-ins that never reach the controller: device pre-verified,
-        // QuickConnect, app password, paired device and bypass. The reconnect
+        // The sign-ins that never reach the controller: the code after the
+        // password (#312), device pre-verified, QuickConnect, app password,
+        // paired device and bypass. The reconnect
         // path is deliberately absent, since a websocket reconnect on an
         // already-verified token is not a fresh sign-in, and so is the
         // challenge path, where no sign-in has happened yet.
         var handler = SourceFile("src/Jellyfin.Plugin.TwoFactorAuth/Services/AuthenticationEventHandler.cs");
         var calls = ObserveCalls("src/Jellyfin.Plugin.TwoFactorAuth/Services/AuthenticationEventHandler.cs");
 
-        Assert.Equal(5, calls.Count);
+        Assert.Equal(6, calls.Count);
         Assert.All(calls, call => Assert.Matches(@"_signInObserver\.Observe\([^)]*,\s*observedIp\);", call));
 
         // observedIp must come from the proxy-aware resolution, not RemoteEndPoint.

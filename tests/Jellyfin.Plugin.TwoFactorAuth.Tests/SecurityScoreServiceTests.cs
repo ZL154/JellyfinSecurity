@@ -212,6 +212,25 @@ public class SecurityScoreComputeTests
     }
 
     [Fact]
+    public async Task SignInCodeAlone_CountsAsAnOpenEscapeHatchOnlyWhileOn()
+    {
+        // [#313] The emailed code alone signs an app in on its second
+        // attempt, without the password.
+        var svc = Build(out _, out var cfg);
+        cfg.SendSignInCodeToApps = true;
+        Assert.DoesNotContain((await svc.ComputeAsync()).Factors, f => f.Id == "sign-in-code-alone");
+
+        cfg.AcceptSignInCodeAlone = true;
+        var factor = Assert.Single((await svc.ComputeAsync()).Factors, f => f.Id == "sign-in-code-alone");
+
+        Assert.Equal(0, factor.Earned);
+        Assert.Equal(5, factor.Possible);
+        Assert.Equal("fail", factor.Status);
+        Assert.Equal("tfa.factor.sign_in_code_alone.label", factor.LabelKey);
+        Assert.Equal("tfa.factor.sign_in_code_alone.action", factor.NextActionKey);
+    }
+
+    [Fact]
     public async Task PasswordLoginFactor_CountsLettingAppPasswordsThroughAsAnOpenHatch()
     {
         // [#248] An app password keeps a sign-in that skips the identity

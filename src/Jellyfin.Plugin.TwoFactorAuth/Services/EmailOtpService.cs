@@ -379,6 +379,44 @@ public class EmailOtpService
         }
     }
 
+    /// <summary>[#313] The sign-in code for an app that can't show the
+    /// two-factor prompt, sent when it signed in with the right password. The
+    /// user types it after the password in that app, or alone where the admin
+    /// allows it (<paramref name="codeAloneAccepted"/>). <paramref name="app"/>
+    /// and <paramref name="device"/> are the names the app sent, already
+    /// sanitized.</summary>
+    public async Task<bool> SendAppSignInCodeEmailAsync(string email, string username, string code, int ttlMinutes, string app, string device, bool codeAloneAccepted)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || string.IsNullOrEmpty(email) || !IsSmtpConfigured(config))
+        {
+            return false;
+        }
+
+        var serverName = string.IsNullOrWhiteSpace(config.SmtpFromName) ? "Jellyfin" : config.SmtpFromName;
+        var how = codeAloneAccepted
+            ? "type your password followed by this code, with no space, in that app, or the code alone in place of the password"
+            : "type your password followed by this code, with no space, in that app";
+        try
+        {
+            var msg = BuildMimeMessage(
+                config.SmtpFromAddress,
+                string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName,
+                email,
+                $"Your sign-in code for {app} on {serverName}",
+                $"Hi {username},\n\n{app} on {device} signed in to {serverName} with your password, and it can't show the two-factor prompt. To finish signing in, {how}:\n\n    {code}\n\nIt works once, only in that app on that device, and expires in about {ttlMinutes} minutes. If this wasn't you, change your password: whoever signed in knows it.\n\n{serverName} Security");
+
+            await SendMimeMessageAsync(config, msg).ConfigureAwait(false);
+            _logger.LogInformation("[2FA] Sign-in code for an app emailed for {User}", username);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Sign-in code email for {User} failed", username);
+            return false;
+        }
+    }
+
     private async Task<bool> TrySendEmailAsync(string? email, string username, string code, int ttlSeconds)
     {
         var config = Plugin.Instance?.Configuration;

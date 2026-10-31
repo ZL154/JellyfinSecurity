@@ -48,7 +48,7 @@ public class AuthenticationEventHandlerTests
         var handler = SourceFile(HandlerPath);
 
         var auditAddresses = Regex.Matches(handler, @"RemoteIp = [^\r\n]*");
-        Assert.Equal(7, auditAddresses.Count);
+        Assert.Equal(8, auditAddresses.Count);
         Assert.All(auditAddresses, m => Assert.Equal("RemoteIp = observedIp ?? string.Empty,", m.Value));
 
         Assert.Contains("p.LastIp = observedIp ?? string.Empty;", handler, StringComparison.Ordinal);
@@ -194,7 +194,7 @@ public class AuthenticationEventHandlerTests
         Assert.Contains("RequestBlockerMiddleware.GetAccessToken(httpContext)", snapshot, StringComparison.Ordinal);
         Assert.Contains("TwoFactorAuthProvider.ResolveDeviceHeaderValue(", snapshot, StringComparison.Ordinal);
         Assert.Contains(
-            "HandleSessionAsync(info, forwardedFor, twoFactorToken, requestToken, requestDeviceId)",
+            "HandleSessionAsync(info, forwardedFor, twoFactorToken, requestToken, requestDeviceId, codeAfterPasswordUser, codeAfterPasswordMethod)",
             Region(handler, "Task.Run(", "private async Task HandleSessionAsync("),
             StringComparison.Ordinal);
         Assert.Matches(

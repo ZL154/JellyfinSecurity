@@ -590,6 +590,13 @@
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="cfgEmailOtp" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_email_otp">Allow email OTP as fallback</span></label>
                             </div>
+                            <!-- [#313]: sign-in codes for apps that can't show the challenge. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgSendSignInCodeToApps" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_send_sign_in_code_to_apps">Send a sign-in code by email and Telegram to apps that can't show the challenge</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.send_sign_in_code_to_apps_help">When an app such as Infuse, Swiftfin or a TV app signs in with the right password and can't show the 2FA challenge, the user also gets an 8-digit code by email and on their linked Telegram chat, then signs in again in that app with the password followed by the code, with no space. The code works once, for a few minutes, only in that app on that device, and only while the password is unchanged. Needs email OTP. The web interface never gets one, nor do the apps listed in AppPasswordRefusedClients. Off by default.</div>
+                                <label style="margin-top:8px;"><input type="checkbox" id="cfgAcceptSignInCodeAlone" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_accept_sign_in_code_alone">Accept the sign-in code alone, in place of the password</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.accept_sign_in_code_alone_help">Only on the app's second attempt, once, and only when the account, device, app, password and client address all match the first attempt. Refused when the plugin can't see the client's own address, as behind a proxy it doesn't trust. Someone who can read the mailbox, shares that address and knows the device ID could still use the code while it is valid, so the security score counts this as an open escape hatch. Off by default.</div>
+                            </div>
                         </div>
 
                         <div class="tfa-section">
@@ -818,6 +825,11 @@
                                 <input type="text" id="cfgIssuer" class="tfa-input" style="width:240px;" placeholder="Jellyfin" />
                             </div>
                             <p style="font-size:12px;color:#888;margin-top:6px;" data-i18n-key="tfa.admin.settings.issuer_help">Existing enrollments keep their old name. New enrollments will use this. Pick something users will recognize as your server.</p>
+                            <!-- [#312]: the code after the password, for apps that can't show the challenge. -->
+                            <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
+                                <label><input type="checkbox" id="cfgAcceptCodeAfterPassword" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_accept_code_after_password">Accept the authenticator code typed after the password</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.accept_code_after_password_help">For apps that can't show the 2FA challenge (Infuse, Swiftfin, Findroid, most TV apps): the user types the password followed by the current 6-digit code, with no space, for example MyPassword123456. A wrong code counts as a wrong password. Off by default: the code travels through the app together with the password, and an app that saves what was typed can't sign in again with it later, so app passwords remain the better fit for apps that sign in again on their own.</div>
+                            </div>
                         </div>
 
                         <div class="tfa-section">

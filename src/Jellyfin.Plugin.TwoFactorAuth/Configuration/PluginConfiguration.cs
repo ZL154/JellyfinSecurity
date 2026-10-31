@@ -311,6 +311,37 @@ public class PluginConfiguration : BasePluginConfiguration
     /// identity provider stops letting that person in, until it is revoked.</summary>
     public bool AllowAppPasswordsWhenPasswordLoginDisabled { get; set; }
 
+    /// <summary>[#312] Accept the current authenticator code typed right after
+    /// the password, with no space ("MyPassword123456"), on
+    /// POST /Users/AuthenticateByName, for apps that can't show the 2FA
+    /// challenge. The part before the last six digits has to be the account's
+    /// password and the six digits its code, with the challenge's replay
+    /// protection and per-account attempt limit; then only the password goes
+    /// on to Jellyfin and the new token isn't held for the challenge. Off by
+    /// default: the code then travels with the password through the app, and
+    /// an app that stores what was typed can't sign in again with it.</summary>
+    public bool AcceptCodeAfterPassword { get; set; }
+
+    /// <summary>[#313] When an app that can't show the 2FA challenge signs in
+    /// with the right password and gets the challenge, also send an 8-digit
+    /// sign-in code to the account's email address and linked Telegram chat.
+    /// The user signs in again in the same app with the password followed by
+    /// the code. The code works once, for a few minutes, only for that
+    /// account, device and app, and only while the password is unchanged.
+    /// Needs <see cref="EmailOtpEnabled"/>; the web interface and the apps in
+    /// <see cref="AppPasswordRefusedClients"/> show the challenge and never
+    /// trigger it. Off by default.</summary>
+    public bool SendSignInCodeToApps { get; set; }
+
+    /// <summary>[#313] With <see cref="SendSignInCodeToApps"/> on, accept the
+    /// code alone in place of the password on the second attempt. Accepted
+    /// once, only when the account, device, app, password and client address
+    /// all match the first attempt, and refused when the plugin can't see the
+    /// client's own address. Off by default: someone who can read the mailbox,
+    /// shares that address and knows the device ID could use the code while it
+    /// is valid, so the security score counts it as an open escape hatch.</summary>
+    public bool AcceptSignInCodeAlone { get; set; }
+
     /// <summary>[#244] Extra client names that may NOT sign in with an app
     /// password, on top of the always-refused "Jellyfin Web". An admin who
     /// wants a stricter posture can list first-party apps that CAN show the 2FA

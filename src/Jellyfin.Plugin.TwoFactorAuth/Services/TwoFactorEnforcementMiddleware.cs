@@ -36,6 +36,7 @@ public class TwoFactorEnforcementMiddleware
     private readonly IpBanService _ipBans;
     private readonly IpAllowlistService _allowlist;
     private readonly HibpService _hibp;
+    private readonly AppSignInCodeService _appSignInCodes;
     private readonly ILogger<TwoFactorEnforcementMiddleware> _logger;
 
     public TwoFactorEnforcementMiddleware(
@@ -49,6 +50,7 @@ public class TwoFactorEnforcementMiddleware
         IpBanService ipBans,
         IpAllowlistService allowlist,
         HibpService hibp,
+        AppSignInCodeService appSignInCodes,
         ILogger<TwoFactorEnforcementMiddleware> logger)
     {
         _next = next;
@@ -61,6 +63,7 @@ public class TwoFactorEnforcementMiddleware
         _ipBans = ipBans;
         _allowlist = allowlist;
         _hibp = hibp;
+        _appSignInCodes = appSignInCodes;
         _logger = logger;
     }
 
@@ -397,6 +400,21 @@ public class TwoFactorEnforcementMiddleware
                 return;
             }
 
+            // [#312] The authenticator code came after the password, and
+            // CodeAfterPasswordMiddleware checked both for this very request.
+            // The token is marked verified before the response goes out:
+            // Jellyfin queues SessionStarted on the thread pool, and a handler
+            // that only gets to it once the request is over no longer sees the
+            // mark, so it has to find the token verified and take the session
+            // for a reconnect instead of blocking it.
+            if (CodeAfterPasswordMiddleware.WasVerifiedFor(context, userGuid))
+            {
+                _challengeStore.MarkTokenVerified(authResult.AccessToken);
+                _ipBans.RecordSuccess(remoteIp ?? string.Empty);
+                await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
+                return;
+            }
+
             var twoFactorToken = context.Request.Headers["X-TwoFactor-Token"].FirstOrDefault();
             // Jellyfin web/Tizen clients don't always send X-Emby-Device-Id
             // as a dedicated header — they pack it inside X-Emby-Authorization
@@ -697,6 +715,16 @@ public class TwoFactorEnforcementMiddleware
                 Result = AuditResult.ChallengeIssued,
                 Method = string.Join(",", methods),
             }).ConfigureAwait(false);
+
+            // [#313] An app that can't show this challenge gets a sign-in code
+            // by email and Telegram instead; AppSignInCodeService decides
+            // whether this one qualifies. The request is read now, and the
+            // code goes out after the response.
+            if (config.SendSignInCodeToApps && CodeAfterPasswordMiddleware.IsHandledEndpoint(context))
+            {
+                var attempt = AppSignInCodeService.Capture(context, config, userGuid, authResult.User.Name ?? string.Empty, challenge.Token);
+                _ = Task.Run(() => _appSignInCodes.SendAsync(attempt, enrollmentRequired));
+            }
 
             var response = new TwoFactorRequiredResponse
             {

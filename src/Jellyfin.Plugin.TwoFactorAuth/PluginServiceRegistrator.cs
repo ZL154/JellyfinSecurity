@@ -64,6 +64,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // SignInObserver is the single place that hands a completed sign-in to
         // the pair, so the wiring cannot go quiet again one path at a time.
         serviceCollection.AddSingleton<SignInObserver>();
+        // [#313] Sign-in codes for apps that can't show the challenge.
+        serviceCollection.AddSingleton<AppSignInCodeService>();
         serviceCollection.AddSingleton<IpAllowlistService>();
         serviceCollection.AddSingleton<OidcLoginTokenStore>();
         // v2.4: HIBP password-breach check. Typed HttpClient gets its own

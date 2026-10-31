@@ -194,6 +194,8 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - **Device pairing**: passwordless users can pair native clients by approving a pending request from the Setup page. A paired device only skips 2FA while the admin has `BareDeviceIdBypassEnabled` turned on, which is off by default (see [First-time setup](#-first-time-setup)).
 - **Remembering a second-screen approval** (`PairDeviceOnSecondScreenApproval`, off by default): a sign-in someone approved on another screen, the OIDC login QR on a TV or a Quick Connect code, adds that device to the user's paired devices instead of forgetting it. The record is visible and revocable on the Setup page, and it only waives 2FA where the bare device ID bypass is enabled.
 - **Quick Connect pass-through** — a 2FA-verified user approving a Quick Connect code lets the new device inherit verified status, so TVs sign in without a TOTP prompt.
+- **Authenticator code after the password** (`AcceptCodeAfterPassword`, off by default, #312): an app that can't show the challenge signs in with the password followed by the current 6-digit code, with no space (`MyPassword123456`). The plugin checks the password part, then the code, and only the password goes on to Jellyfin. See [Apps that can't show the challenge](#apps-that-cant-show-the-challenge-the-code-after-the-password).
+- **Sign-in codes by email and Telegram for those apps** (`SendSignInCodeToApps`, off by default, #313): the challenge such an app can't show also sends an 8-digit code, and the user signs in again with the password followed by it, or, with `AcceptSignInCodeAlone`, the code alone from the same address. Same section.
 - **Active sessions view** — see every active session with device/IP/last-activity and sign them out individually.
 - **Official Android / mobile hand-off** — preserves Base URLs, returns to the app after verification, and recognises the trusted session on follow-up requests.
 
@@ -400,6 +402,22 @@ Use **app passwords**: in Setup → App Passwords → Generate. You get a one-ti
 
 Any account with TOTP, a passkey or a linked sign-in provider can create one; the Setup page asks the user to confirm with one of those first, so someone who only signs in through SSO confirms with their provider (#248). With **Disable password sign-in** on, app passwords are refused like any other password unless an escape hatch covers the client or **Let app passwords sign in while password sign-in is disabled** is checked. That setting is off by default because an app password keeps working after the identity provider stops letting that person in, until it is revoked, and the security score counts it as an open escape hatch.
 
+### Apps that can't show the challenge: the code after the password
+
+With **Accept the authenticator code typed after the password** checked (Settings → Authenticator App, off by default, #312), an account with an authenticator app can sign in to such an app with the password immediately followed by the current 6-digit code, with no space: `MyPassword123456`. It applies to Jellyfin's `POST /Users/AuthenticateByName`, from any client.
+
+- The part before the last six digits has to be the account's password. When it isn't, the sign-in goes on unchanged, so a password that itself ends in digits keeps working typed alone.
+- The code works once, as on the challenge page, and wrong codes share that page's limit of 15 attempts per 15 minutes per account, which also covers administrators exempt from the lockout. A wrong code gets the same `401` as a wrong password and counts like one, toward the plugin's lockout and toward Jellyfin's own limit of failed sign-ins.
+- The code alone never signs in: an account without a password stays behind **Block sign-in with an empty password**, and **Disable password sign-in** refuses it like any other password sign-in.
+- An app that saves what was typed and signs in again on its own can't do so once the code has changed; use an app password for those. Accounts that sign in through another authentication plugin (LDAP and the like) aren't covered and still get the challenge.
+
+**Codes by email and Telegram** (#313). With **Send a sign-in code by email and Telegram to apps that can't show the challenge** checked (Settings → General, off by default, needs email OTP), an account whose codes come by email or Telegram can do the same. When such an app signs in with the right password, the challenge it can't show also sends an 8-digit code to the account's email address and linked Telegram chat. Sign in again in the same app with the password followed by that code, with no space: `MyPassword12345678`.
+
+- The code works once, while the challenge lasts (5 minutes by default), only in the app on the device that asked for it, and only while the password is unchanged. It is checked like the authenticator code above: the password part first, then the code, with the same attempt limit, and five wrong guesses void it.
+- Sending has its own limits, one code per device a minute and three per account in 15 minutes, apart from the codes the challenge page sends and from step-up codes.
+- The web interface never gets one, nor do the apps listed in `AppPasswordRefusedClients` (#244): they show the challenge. The app name is chosen by the client, so it only decides whether the code goes out, never whether a sign-in succeeds.
+- **Accept the sign-in code alone, in place of the password** (off by default) lets the second attempt carry the code alone, like Jelly2FA's code-only step (discussion #311). It completes the first attempt's challenge, once, and only when the account, device, app, password and client address all match that attempt. It is refused when the plugin can't see the client's own address: behind a proxy it doesn't trust, every client shows up with the proxy's address. Clients behind one NAT, or a port forward that adds no header, share an address too, so there the address only tells networks apart. Someone who can read the mailbox, shares that address and knows the device ID could still use the code while it is valid, so the security score lists the setting as an open escape hatch.
+
 ---
 
 ## 🔄 Daily use
@@ -422,6 +440,8 @@ For clients without that browser-capable flow, use the **device pairing** proces
 4. Retry on the TV/app. With `BareDeviceIdBypassEnabled` on, it now works until you revoke the device.
 
 Alternative: generate an **app password** in Setup and use it in place of your real password. Useful for older apps or anything that can't tolerate the pairing-request delay, and it works with the default settings.
+
+Where the admin turned on [the code after the password](#apps-that-cant-show-the-challenge-the-code-after-the-password), you can also type your password followed by the current 6-digit code, with no space, in the app's password field. If your codes come by email or Telegram and the admin turned on sign-in codes for apps, sign in once with your password, then again with your password followed by the 8-digit code you get.
 
 ### Sonarr / Radarr / Overseerr / Jellyseerr
 
