@@ -34,7 +34,7 @@ internal static class AppSignInCodesForTests
             store,
             users,
             host,
-            new EmailOtpService(NullLogger<EmailOtpService>.Instance),
+            new EmailOtpService(NullLogger<EmailOtpService>.Instance, config),
             notifications,
             new RateLimiter(),
             challenges,
