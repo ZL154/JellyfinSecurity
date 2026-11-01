@@ -193,6 +193,78 @@
     function clearTfaPending() {
         try { sessionStorage.removeItem(TFA_PENDING_KEY); } catch (e) {}
     }
+    // Jellyfin Web's "Remember Me" box, left unticked once, stores
+    // localStorage['enableAutoLogin'] = 'false', and from then on every page
+    // load drops the stored access token before connecting. The plugin's
+    // sign-in pages (password and code, the challenge, the OIDC bridges) hand
+    // the session over by storing it and loading /web, so with that setting a
+    // valid sign-in always ended on Jellyfin's login page again. Those pages
+    // leave a one-shot marker in this tab naming the session they stored: the
+    // time, the server entry Id, the UserId and the last characters of the
+    // token. This script runs before Jellyfin Web's bundles, so for the load
+    // that follows it answers their enableAutoLogin reads with 'true', until
+    // Jellyfin's login form shows the setting again, and leaves the stored
+    // setting alone: the next full load signs out again, as the user asked.
+    var TFA_HANDOFF_KEY = '__tfa_session_handoff';
+    // Long enough for the OIDC set-password step, which sits between the
+    // hand-off and /web.
+    var TFA_HANDOFF_TTL_MS = 10 * 60 * 1000;
+    // Enough of the token to tell a session stored later from the handed-over
+    // one, without keeping a second usable copy of it in sessionStorage.
+    var TFA_HANDOFF_TOKEN_TAIL = 8;
+    function isWholeNumber(value) {
+        return typeof value === 'number' && isFinite(value) && Math.floor(value) === value;
+    }
+    function isFilledString(value) {
+        return typeof value === 'string' && value !== '';
+    }
+    function honorSessionHandoff(storageProto, local, session, onLoginRoute, now) {
+        try {
+            var raw = session.getItem(TFA_HANDOFF_KEY);
+            session.removeItem(TFA_HANDOFF_KEY);
+            if (raw === null) return false;
+            var mark = JSON.parse(raw);
+            if (!mark || typeof mark !== 'object' || !isWholeNumber(mark.at)) return false;
+            if (!isFilledString(mark.server) || !isFilledString(mark.user) || !isFilledString(mark.tokenTail)) return false;
+            if (!(now - mark.at >= 0 && now - mark.at <= TFA_HANDOFF_TTL_MS)) return false;
+            if (local.getItem('enableAutoLogin') !== 'false') return false;
+            // Jellyfin Web connects to the server entry it accessed last. Keep
+            // it only if it still holds the session the hand-off stored: another
+            // tab of this origin may have stored a different one since.
+            var servers = (JSON.parse(local.getItem('jellyfin_credentials') || '{}') || {}).Servers || [];
+            var last = null;
+            var lastAccessed = -1;
+            for (var i = 0; i < servers.length; i++) {
+                if (!servers[i]) continue;
+                var accessed = servers[i].DateLastAccessed == null ? 0 : servers[i].DateLastAccessed;
+                // With a time that is not a number, which entry Jellyfin Web
+                // picks is not known, so nothing is kept.
+                if (!isWholeNumber(accessed)) return false;
+                if (accessed > lastAccessed) { last = servers[i]; lastAccessed = accessed; }
+            }
+            // A field missing on both sides must not match, so the entry's are
+            // checked the same way as the marker's.
+            if (!last || !isFilledString(last.Id) || !isFilledString(last.UserId) || !isFilledString(last.AccessToken)) return false;
+            if (last.Id !== mark.server || last.UserId !== mark.user
+                || last.AccessToken.slice(-TFA_HANDOFF_TOKEN_TAIL) !== mark.tokenTail) return false;
+            var getItem = storageProto.getItem;
+            var active = true;
+            storageProto.getItem = function (key) {
+                if (active && this === local && key === 'enableAutoLogin') {
+                    // The login form reads this to show the Remember Me box and
+                    // saves it again, so from there on it is the user's own.
+                    if (!onLoginRoute()) return 'true';
+                    active = false;
+                }
+                return getItem.apply(this, arguments);
+            };
+            return true;
+        } catch (e) { return false; }
+    }
+    try {
+        honorSessionHandoff(window.Storage.prototype, window.localStorage, window.sessionStorage,
+            isExplicitLoginRoute, Date.now());
+    } catch (e) { /* storage unavailable: nothing was handed over */ }
     // [v2.5.14] (#99/#98) Escape hatch for the soft-lock. When the pending flag
     // is armed, every non-auth fetch/XHR is short-circuited with a synthetic 403.
     // If the user is NOT actively on a 2FA page completing the challenge, that
@@ -1655,6 +1727,10 @@
                     creds.Servers.unshift({ Id: res.ServerId, Name: 'Jellyfin', AccessToken: res.AccessToken, UserId: res.User.Id, Type: 'Server', DateLastAccessed: now, LastConnectionMode: TFA_CONNECTION_MODE_MANUAL, ManualAddress: address });
                 }
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+                try {
+                    var stored = existing || creds.Servers[0];
+                    sessionStorage.setItem(TFA_HANDOFF_KEY, JSON.stringify({ at: Date.now(), server: stored.Id, user: stored.UserId, tokenTail: String(stored.AccessToken).slice(-TFA_HANDOFF_TOKEN_TAIL) }));
+                } catch (e) {}
                 // A stale pending flag would short-circuit the fresh session's
                 // bootstrap calls (#98); this sign-in just succeeded, so none applies.
                 try { clearTfaPending(); } catch (e) {}
