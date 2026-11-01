@@ -628,7 +628,7 @@
                             </div>
                             <!-- [v2.5.10] (issue #68, CWabbity): block empty-password sign-in. -->
                             <div class="tfa-row tfa-row-stack">
-                                <label><input type="checkbox" id="cfgBlockEmptyPassword" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_block_empty_password">Block sign-in with an empty password</span></label>
+                                <label><input type="checkbox" id="cfgBlockEmptyPassword" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_block_empty_password">Block sign-in with a blank password</span></label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.settings.block_empty_password_help">Rejects any sign-in attempt with a blank password, for every user. Closes the flaw where an account with no stored password hash (some OIDC-provisioned or imported accounts) can be signed into by anyone who knows the username. Leave OFF only if you rely on Jellyfin's passwordless "tap a user tile" kiosk login.</div>
                             </div>
                             <!-- [v2.5.11] (issue #69, ZEROX7): disable password login (OIDC-only). -->
