@@ -2149,7 +2149,7 @@ public class SecurityController : ControllerBase
         // A nonce from LoginBegin with a username names that user. The nonce
         // of a sign-in without a username was spent and checked above.
         var (optionsJson, storedUserId) = usernameless
-            ? (discoverableOptions, (Guid?)null)
+            ? (discoverableOptions, null)
             : _passkeyChallenges.Consume(req.Nonce);
         if (optionsJson is null || storedUserId != (usernameless ? (Guid?)null : user.Id))
         {

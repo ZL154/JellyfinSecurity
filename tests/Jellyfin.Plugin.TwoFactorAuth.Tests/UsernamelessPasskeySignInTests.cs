@@ -76,7 +76,7 @@ public sealed class UsernamelessPasskeySignInTests : IDisposable
         _bridge.Dispose();
         _bans.Dispose();
         _store.Dispose();
-        try { Directory.Delete(_sandbox, recursive: true); } catch (IOException) { }
+        try { Directory.Delete(_sandbox, recursive: true); } catch (IOException) { /* best-effort cleanup */ }
     }
 
     [Theory]
