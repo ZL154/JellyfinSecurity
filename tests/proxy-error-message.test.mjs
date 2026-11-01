@@ -297,3 +297,154 @@ test('Admin: a proxy page in place of the import answer names the proxy', async 
     await element('btnImportConfig').handlers.click();
     assert.match(element('importResult').innerHTML, /A reverse proxy or firewall replaced the answer from the server \(HTTP 403\)/);
 });
+
+// The step-up code check (#320 follow-up). The admin types a valid code, but
+// the proxy answers StepUp/Verify with its own page: the prompt must stop and
+// hand that page to the caller, which names the proxy, instead of reading it
+// as a wrong code and asking again.
+const pendingOrResult = (promise, ms = 200) => Promise.race([promise, new Promise(resolve => setTimeout(() => resolve('still pending'), ms))]);
+
+async function submitCode(answers) {
+    const verified = [];
+    const admin = await adminPage({
+        'Admin/HardeningConfig': stepUp403,
+        'TwoFactorAuth/MyStatus': () => response(200, 'application/json', '{"passkeyCount":0}'),
+        'StepUp/Verify': () => { const answer = answers[verified.length] || answers[answers.length - 1]; verified.push(answer); return answer(); },
+    });
+    const pending = admin.context.stepUpFetch('TwoFactorAuth/Admin/HardeningConfig', {method: 'POST'});
+    await settle();
+    admin.element('tfa-stepup-code').value = '123456';
+    admin.element('tfa-stepup-submit').handlers.click();
+    await settle();
+    return {...admin, pending, verified};
+}
+
+test('Admin: a proxy page in place of the code check stops the prompt and names the proxy', async () => {
+    for (const status of [403, 429]) {
+        const {context, element, pending, verified} = await submitCode([() => proxyPage(status)]);
+        const result = await pendingOrResult(pending);
+        assert.notEqual(result, 'still pending', 'the prompt asked for the code again');
+        assert.equal(verified.length, 1);
+        assert(!element('tfa-stepup-overlay').classList.contains('active'), 'the code prompt is closed');
+        assert.equal(await context.failureMessage(result), proxyText(status));
+    }
+});
+
+const invalidCode = () => response(403, 'application/json; charset=utf-8', '{"message":"Invalid code."}');
+
+test('Admin: a wrong code says so on the prompt it reopens', async () => {
+    const wrong = await submitCode([invalidCode]);
+    assert(wrong.element('tfa-stepup-overlay').classList.contains('active'));
+    assert.equal(wrong.element('tfa-stepup-error').textContent, english['tfa.admin.modal.err_invalid_code']);
+    wrong.context.closeStepUpModal();
+});
+
+test('Admin: the plugin\'s own answers to the code check behave as before', async () => {
+    const wrong = await submitCode([invalidCode]);
+    assert.equal(await pendingOrResult(wrong.pending), 'still pending');
+    assert.equal(wrong.verified.length, 1);
+    assert(wrong.element('tfa-stepup-overlay').classList.contains('active'), 'a wrong code asks again');
+    wrong.context.closeStepUpModal();
+
+    const limited = await submitCode([() => response(429, 'application/json; charset=utf-8', '{"message":"Too many step-up attempts."}')]);
+    const result = await pendingOrResult(limited.pending);
+    assert.equal(result.status, 403);
+    assert.equal((await result.json()).stepUpRequired, true, 'the original step-up answer goes back to the caller');
+    assert(!limited.element('tfa-stepup-overlay').classList.contains('active'));
+
+    const accepted = await submitCode([() => response(200, 'application/json', '{"verified":true}')]);
+    assert.notEqual(await pendingOrResult(accepted.pending), 'still pending');
+    assert.equal(accepted.requests.filter(url => url.includes('Admin/HardeningConfig')).length, 2, 'the original request is replayed');
+});
+
+// Jellyfin's own sign-in page: the first section of inject.js (the fetch and
+// XHR interceptors and their helpers), run as written.
+function injectInterceptors(source) {
+    const from = source.indexOf('(function () {');
+    const to = source.indexOf('    var DASHBOARD_NAV_ID');
+    assert(from === 0 && to > from, 'inject.js interceptor section');
+    return source.slice(from, to) + '})();\n';
+}
+
+async function signInPage(answer) {
+    const toasts = [];
+    const storage = new Map();
+    const context = createContext({
+        fetch: async url => { assert.match(String(url), /Users\/AuthenticateByName$/); return answer(); },
+    });
+    await loadI18n(context);
+    class FakeXHR {
+        constructor() { this.listeners = []; this.readyState = 0; this.status = 0; this.responseType = ''; this.responseText = ''; }
+        open(method, url) { this.url = url; }
+        setRequestHeader() {}
+        addEventListener(type, fn) { if (type === 'readystatechange') this.listeners.push(fn); }
+        getResponseHeader(name) { return name.toLowerCase() === 'content-type' ? this.contentType : null; }
+        send() {
+            const answered = answer();
+            setTimeout(() => {
+                this.status = answered.status;
+                this.contentType = answered.headers.get('Content-Type');
+                answered.text().then(text => {
+                    this.responseText = text;
+                    this.readyState = 4;
+                    this.listeners.forEach(fn => fn());
+                });
+            });
+        }
+    }
+    const location = {pathname: '/web/', search: '', hash: '#/login', href: 'https://jf.test/web/#/login'};
+    Object.assign(context, {
+        XMLHttpRequest: FakeXHR,
+        location,
+        sessionStorage: {getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, String(value)), removeItem: key => storage.delete(key)},
+        setTimeout: (fn, ms) => (ms >= 1000 ? 0 : setTimeout(fn, ms)),
+    });
+    Object.assign(context.document, {
+        addEventListener() {},
+        getElementById: () => null,
+        createElement: () => ({style: {}, setAttribute() {}, textContent: ''}),
+        body: {appendChild: node => toasts.push(node.textContent)},
+    });
+    runInContext(injectInterceptors(read('inject.js')), context);
+    const signIn = {
+        fetch: () => context.fetch('https://jf.test/Users/AuthenticateByName', {method: 'POST', headers: {}, body: '{"Username":"alice","Pw":"secret"}'}),
+        xhr: () => new Promise(resolve => {
+            const xhr = new context.XMLHttpRequest();
+            xhr.open('POST', 'https://jf.test/Users/AuthenticateByName');
+            xhr.addEventListener('readystatechange', () => { if (xhr.readyState === 4) setTimeout(() => resolve(xhr)); });
+            xhr.send('{"Username":"alice","Pw":"secret"}');
+        }),
+    };
+    return {signIn, toasts, location, storage};
+}
+
+test('Sign-in page: a proxy page in place of the sign-in answer names the proxy, over fetch and XHR', async () => {
+    for (const transport of ['fetch', 'xhr']) {
+        for (const status of [401, 403]) {
+            const page = await signInPage(() => proxyPage(status));
+            const result = await pendingOrResult(page.signIn[transport]());
+            assert.equal(result.status, status, transport + ': the answer still reaches Jellyfin');
+            assert.deepEqual(page.toasts, [proxyText(status)], transport + ' ' + status);
+            assert.equal(page.location.href, 'https://jf.test/web/#/login', 'no redirect');
+            assert.equal(page.storage.size, 0, 'no 2FA marker');
+        }
+    }
+});
+
+test('Sign-in page: the 2FA challenge and Jellyfin\'s own errors behave as before', async () => {
+    const challenge = () => response(401, 'application/json; charset=utf-8', '{"TwoFactorRequired":true,"ChallengeToken":"tok123"}');
+    for (const transport of ['fetch', 'xhr']) {
+        const page = await signInPage(challenge);
+        await pendingOrResult(page.signIn[transport]());
+        assert.match(page.location.href, /TwoFactorAuth\/Challenge\?token=tok123$/, transport + ': the challenge starts');
+        assert.deepEqual(page.toasts, []);
+
+        for (const own of [() => response(401, null, ''), () => response(500, 'text/plain', 'Error processing request.')]) {
+            const plain = await signInPage(own);
+            const result = await pendingOrResult(plain.signIn[transport]());
+            assert.equal(result.status, own().status);
+            assert.deepEqual(plain.toasts, [], transport + ': Jellyfin\'s own error is left alone');
+            assert.equal(plain.location.href, 'https://jf.test/web/#/login');
+        }
+    }
+});

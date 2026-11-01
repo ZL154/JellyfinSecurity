@@ -476,6 +476,13 @@
                 // 403 instead of 401 for blocked-token-2FA-pending). Auth paths
                 // still get 401 with the TwoFactorRequired marker.
                 if (resp.status !== 401 && resp.status !== 403) return resp;
+                // [#320] A proxy's page in place of a sign-in answer hides the
+                // 2FA challenge: say so, and leave the answer to Jellyfin.
+                var replaced = isAuthPath(url) ? proxyError(resp) : '';
+                if (replaced) {
+                    showLockoutToast(replaced);
+                    return resp;
+                }
                 var clone = resp.clone();
                 return clone.json().then(function (body) {
                     // Any 2FA-required marker (from any endpoint) sets the flag
@@ -607,6 +614,15 @@
                 // v2.4.12: also recognise 403 (RequestBlockerMiddleware) in
                 // addition to 401 (auth-path challenge response).
                 if (xhr.status !== 401 && xhr.status !== 403) return;
+                // [#320] Same as the fetch path: name a proxy's page.
+                var replaced = proxyError({
+                    status: xhr.status,
+                    headers: { get: function (name) { return xhr.getResponseHeader(name); } }
+                });
+                if (replaced) {
+                    showLockoutToast(replaced);
+                    return;
+                }
                 var body = readJsonBody(xhr);
                 if (!body) return;
                 if (body.twoFactorRequired || body.TwoFactorRequired) {

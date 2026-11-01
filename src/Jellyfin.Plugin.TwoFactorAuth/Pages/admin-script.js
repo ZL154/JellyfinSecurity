@@ -291,15 +291,24 @@
                                             // replay the original request once.
                                             return fetch(fullInput, fullInit);
                                         }
+                                        // [#320] A proxy's page in place of the plugin's answer says
+                                        // nothing about the code: stop asking and hand the page to
+                                        // the caller, which names the proxy.
+                                        if (proxyError(verifyResp)) {
+                                            closeStepUpModal();
+                                            return verifyResp;
+                                        }
                                         if (verifyResp.status === 429) {
                                             // Rate limit hit — show distinct message, stop retrying.
                                             closeStepUpModal();
                                             showStepUpError(_tr('tfa.admin.modal.err_too_many', 'Too many attempts. Try again later.'));
                                             return resp;
                                         }
-                                        // Wrong code — show error and loop back to prompt again.
+                                        // Wrong code: prompt again, then say why (reopening the
+                                        // prompt clears its error line).
+                                        var again = tryVerify();
                                         showStepUpError(_tr('tfa.admin.modal.err_invalid_code', 'Invalid code.'));
-                                        return tryVerify();
+                                        return again;
                                     });
                                 });
                             }
