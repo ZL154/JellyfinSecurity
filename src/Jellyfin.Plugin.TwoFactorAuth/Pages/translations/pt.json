@@ -637,7 +637,7 @@
   "tfa.login.reset_sent": "Se existir uma conta, um link de redefinição foi enviado.",
   "tfa.login.btn_2fa": "Entrar com autenticação de dois fatores",
   "tfa.login.btn_passkey": "Entrar com chave de acesso",
-  "tfa.login.passkey_enter_user": "Primeiro informe seu usuário e depois clique em Entrar com chave de acesso.",
+  "tfa.login.passkey_usernameless_failed": "Não foi possível entrar com a chave de acesso. Se a sua chave de acesso não foi oferecida, primeiro informe seu usuário e tente novamente.",
   "tfa.login.oidc_title": "Entrar com {name}",
   "tfa.login.oidc_help": "Seu navegador será aberto para concluir o login. Aprove lá e depois volte a esta tela — ela é concluída automaticamente.",
   "tfa.login.oidc_open": "Abrir o login no navegador",

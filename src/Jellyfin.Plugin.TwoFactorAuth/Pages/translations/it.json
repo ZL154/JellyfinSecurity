@@ -637,7 +637,7 @@
   "tfa.login.reset_sent": "Se esiste un account, è stato inviato un link per il reimpostamento.",
   "tfa.login.btn_2fa": "Accedi con l'autenticazione a due fattori",
   "tfa.login.btn_passkey": "Accedi con passkey",
-  "tfa.login.passkey_enter_user": "Inserisci prima il tuo nome utente, poi fai clic su Accedi con passkey.",
+  "tfa.login.passkey_usernameless_failed": "Accesso con passkey non riuscito. Se la tua passkey non è stata proposta, inserisci prima il tuo nome utente e riprova.",
   "tfa.login.oidc_title": "Accedi con {name}",
   "tfa.login.oidc_help": "Il tuo browser si aprirà per completare l'accesso. Approva lì, poi torna a questa schermata — si completa automaticamente.",
   "tfa.login.oidc_open": "Apri l'accesso nel browser",

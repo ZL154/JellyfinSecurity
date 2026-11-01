@@ -637,7 +637,7 @@
   "tfa.login.reset_sent": "如果账户存在，重置链接已发送。",
   "tfa.login.btn_2fa": "使用双因素认证登录",
   "tfa.login.btn_passkey": "使用通行密钥登录",
-  "tfa.login.passkey_enter_user": "请先输入您的用户名，然后点击“使用通行密钥登录”。",
+  "tfa.login.passkey_usernameless_failed": "通行密钥登录失败。如果没有显示您的通行密钥，请先输入用户名，然后重试。",
   "tfa.login.oidc_title": "使用 {name} 登录",
   "tfa.login.oidc_help": "您的浏览器将打开以完成登录。请在那里批准，然后返回此屏幕——登录会自动完成。",
   "tfa.login.oidc_open": "在浏览器中打开登录",

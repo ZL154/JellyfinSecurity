@@ -637,7 +637,7 @@
   "tfa.login.reset_sent": "アカウントが存在する場合、リセットリンクを送信しました。",
   "tfa.login.btn_2fa": "二要素認証でサインイン",
   "tfa.login.btn_passkey": "パスキーでサインイン",
-  "tfa.login.passkey_enter_user": "先にユーザー名を入力してから、「パスキーでサインイン」をクリックしてください。",
+  "tfa.login.passkey_usernameless_failed": "パスキーでのサインインに失敗しました。パスキーが表示されなかった場合は、先にユーザー名を入力してからもう一度お試しください。",
   "tfa.login.oidc_title": "{name} でサインイン",
   "tfa.login.oidc_help": "サインインを完了するためにブラウザが開きます。そこで承認してから、この画面に戻ってください — 自動的に完了します。",
   "tfa.login.oidc_open": "ブラウザでサインインを開く",

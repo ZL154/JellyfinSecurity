@@ -1106,8 +1106,11 @@
         var hash = window.location.hash || '';
         return hash.indexOf('login') >= 0 || hash === '' || hash === '#';
     }
+    function findUsernameInput() {
+        return document.querySelector('input#txtManualName, input[name="username"], input#username, .manualLoginForm input[type="text"]:not([type="password"])');
+    }
     function findUsername() {
-        var input = document.querySelector('input#txtManualName, input[name="username"], input#username, .manualLoginForm input[type="text"]:not([type="password"])');
+        var input = findUsernameInput();
         return input && input.value ? input.value.trim() : '';
     }
     // [v2.5.7] (issue #48 feature, Gaarindor): lazy-fetch the anonymous
@@ -1365,6 +1368,9 @@
     // takes the username from the form, asks the server for assertion options,
     // runs navigator.credentials.get, posts the signed assertion back, gets a
     // bridge token, fills it in as the password and submits the form.
+    // [#319] With the username field empty, the browser offers the passkeys it
+    // holds for this site and the server names the account of the one picked,
+    // which is then filled in as the username.
     function addPasskeyButton(signInBtn, twoFaBtn) {
         if (document.getElementById('__twofactor_passkey_btn')) return;
         // Only show when WebAuthn is available in a secure context.
@@ -1380,7 +1386,6 @@
         btn.addEventListener('click', async function(e) {
             e.preventDefault();
             var u = findUsername();
-            if (!u) { alert(T('tfa.login.passkey_enter_user', 'Enter your username first, then click Sign in with passkey.')); return; }
             var orig = btn.innerHTML;
             btn.innerHTML = '<span class="tfa-icon">🔑</span>Waiting for authenticator…';
             try {
@@ -1420,12 +1425,22 @@
                 // prefix and accepts the login with no further challenge.
                 var passInput = document.querySelector('input#txtManualPassword, input[name="password"], input#password');
                 if (!passInput) throw new Error('Password field not found');
+                if (!u) {
+                    var nameInput = findUsernameInput();
+                    if (!nameInput) throw new Error('Username field not found');
+                    nameInput.value = data.username;
+                    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
                 passInput.value = data.token;
                 passInput.dispatchEvent(new Event('input', { bubbles: true }));
                 signInBtn.click();
             } catch (err) {
                 btn.innerHTML = orig;
-                alert('Passkey sign-in failed: ' + (err && err.message ? err.message : err));
+                var detail = err && err.message ? err.message : err;
+                // A passkey registered without discoverable storage is never
+                // offered here, so point to the username path that still works.
+                alert(u ? 'Passkey sign-in failed: ' + detail
+                    : T('tfa.login.passkey_usernameless_failed', 'Passkey sign-in failed. If your passkey was not offered, type your username first and try again.') + '\n\n' + detail);
             }
         });
         var parent = twoFaBtn.parentNode;

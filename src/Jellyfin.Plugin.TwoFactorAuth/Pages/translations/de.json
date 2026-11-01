@@ -637,7 +637,7 @@
   "tfa.login.reset_sent": "Falls ein Konto existiert, wurde ein Link zum Zurücksetzen gesendet.",
   "tfa.login.btn_2fa": "Mit Zwei-Faktor-Authentifizierung anmelden",
   "tfa.login.btn_passkey": "Mit Passkey anmelden",
-  "tfa.login.passkey_enter_user": "Geben Sie zuerst Ihren Benutzernamen ein und klicken Sie dann auf „Mit Passkey anmelden“.",
+  "tfa.login.passkey_usernameless_failed": "Anmeldung mit Passkey fehlgeschlagen. Wenn Ihr Passkey nicht angeboten wurde, geben Sie zuerst Ihren Benutzernamen ein und versuchen Sie es erneut.",
   "tfa.login.oidc_title": "Mit {name} anmelden",
   "tfa.login.oidc_help": "Ihr Browser wird geöffnet, um die Anmeldung abzuschließen. Bestätigen Sie dort und kehren Sie dann zu diesem Bildschirm zurück — der Vorgang wird automatisch abgeschlossen.",
   "tfa.login.oidc_open": "Anmeldung im Browser öffnen",
