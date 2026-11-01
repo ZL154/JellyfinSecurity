@@ -110,6 +110,7 @@
   "tfa.error.unknown": "Etwas ist schiefgelaufen. Prüfen Sie das Serverprotokoll.",
   "tfa.error.unauthorized": "Nicht autorisiert.",
   "tfa.error.forbidden": "Verboten.",
+  "tfa.error.proxy_replaced": "Ein Reverse-Proxy oder eine Firewall hat die Antwort des Servers ersetzt (HTTP {status}). Prüfen Sie dort das Abfangen von Fehlern und die WAF-Regeln für /TwoFactorAuth/.",
   "tfa.admin.common.api_keys_note": "Dienst-Integrationen wie Sonarr/Radarr verwenden Standard-Jellyfin-API-Schlüssel, die die Benutzer-Authentifizierung bereits umgehen — keine Plugin-Konfiguration erforderlich.",
   "tfa.admin.common.loading": "Wird geladen…",
   "tfa.admin.common.refresh": "Aktualisieren",

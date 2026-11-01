@@ -86,6 +86,11 @@
                 function apiDelete(path) {
                     return stepUpFetch(path, { method: 'DELETE', headers: getHeaders() }).then(function(r) { return r.ok ? r.json().catch(function(){return{};}) : Promise.reject(r); });
                 }
+                // [#320] Names a reverse proxy's error page standing in for the
+                // plugin's answer, '' otherwise (see tfa-i18n.js).
+                function proxyError(r) {
+                    try { return window.tfaI18n.proxyErrorMessage(r) || ''; } catch (e) { return ''; }
+                }
                 // [#198] The reason behind a failed call: the server's own message
                 // when the body carries one, otherwise the HTTP status, so the
                 // admin sees why instead of a bare "Save failed".
@@ -93,9 +98,10 @@
                     if (!err || typeof err.clone !== 'function') {
                         return Promise.resolve(err && err.message ? String(err.message) : '');
                     }
+                    var fallback = proxyError(err) || ('HTTP ' + err.status);
                     return err.clone().json().then(function(body) {
-                        return (body && body.message) ? String(body.message) : ('HTTP ' + err.status);
-                    }).catch(function() { return 'HTTP ' + err.status; });
+                        return (body && body.message) ? String(body.message) : fallback;
+                    }).catch(function() { return fallback; });
                 }
                 // [v2.5.21] (#156/#149) The old downloadGet() helper was removed.
                 // Its only caller was the per-user Export button, which needs to
@@ -212,7 +218,7 @@
                         if (verify && verify.stepUpToken) { resolveStepUp({ stepUpToken: verify.stepUpToken }); }
                         else { showStepUpError(_tr('tfa.admin.modal.passkey_failed', 'Passkey verification failed.')); }
                     }).catch(function(e) {
-                        showStepUpError((e && e.message) || _tr('tfa.admin.modal.passkey_failed', 'Passkey verification failed.'));
+                        showStepUpError((e && e.message) || proxyError(e) || _tr('tfa.admin.modal.passkey_failed', 'Passkey verification failed.'));
                     }).then(function() { stepUpPasskeyBtn.disabled = false; });
                 });
                 // Email: the server sends a single-use step-up code to the
@@ -230,7 +236,7 @@
                         return r.json().catch(function() { return null; }).then(function(b) {
                             stepUpEmailBtn.disabled = false;
                             stepUpStatusEl.textContent = '';
-                            showStepUpError((b && b.message) || _tr('tfa.admin.modal.email_failed', 'Failed to send the email. Check SMTP and your account email.'));
+                            showStepUpError((b && b.message) || proxyError(r) || _tr('tfa.admin.modal.email_failed', 'Failed to send the email. Check SMTP and your account email.'));
                         });
                     }).catch(function() {
                         stepUpEmailBtn.disabled = false;
@@ -1145,7 +1151,7 @@
                         headers: getHeaders(),
                         body: JSON.stringify({ action: action, userIds: ids }),
                     }).then(function(r) {
-                        if (!r.ok) { r.json().catch(function(){return{};}).then(function(b){ alert(_tr('tfa.admin.users.action_failed', 'Action failed:') + ' ' + (b.message || r.status)); }); return; }
+                        if (!r.ok) { r.json().catch(function(){return{};}).then(function(b){ alert(_tr('tfa.admin.users.action_failed', 'Action failed:') + ' ' + (b.message || proxyError(r) || r.status)); }); return; }
                         return r.json().catch(function(){return{};}).then(function(r) {
                             alert(_tr('tfa.admin.users.processed_prefix', 'Processed') + ' ' + (r.processed || 0) + ' ' + _tr('tfa.admin.users.processed_suffix', 'user(s).'));
                             loadUsers();
@@ -1645,7 +1651,7 @@
                             if (!r.ok) {
                                 var s = page.querySelector('#saveStatus');
                                 s.style.color = '#f44336';
-                                s.textContent = '✗ ' + _tr('tfa.admin.settings.save_failed', 'Save failed (HTTP ') + r.status + ')';
+                                s.textContent = '✗ ' + (proxyError(r) || (_tr('tfa.admin.settings.save_failed', 'Save failed (HTTP ') + r.status + ')'));
                                 setTimeout(function() { s.style.color = ''; s.textContent = ''; }, 5000);
                                 throw new Error('updatePluginConfiguration failed: ' + r.status);
                             }
@@ -1669,9 +1675,13 @@
                             body: JSON.stringify(hardening),
                         }).then(function(r) {
                             var s = page.querySelector('#saveStatus');
+                            var replaced = proxyError(r);
                             if (r.ok || r.status === 200) {
                                 s.style.color = '#4caf50';
                                 s.textContent = '✓ ' + _tr('tfa.admin.settings.saved', 'Saved');
+                            } else if (replaced) {
+                                s.style.color = '#f44336';
+                                s.textContent = '✗ ' + replaced;
                             } else if (r.status === 403) {
                                 s.style.color = '#ff9800';
                                 s.textContent = '⚠ ' + _tr('tfa.admin.settings.saved_partial_stepup', 'Other settings saved; hardening config requires step-up verification.');
@@ -1689,7 +1699,7 @@
                 document.getElementById('btnExportConfigOnly')?.addEventListener('click', async () => {
                     try {
                         const resp = await stepUpFetch(ApiClient.getUrl('TwoFactorAuth/Config/Export?includeSecrets=false'), { method: 'GET' });
-                        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                        if (!resp.ok) throw new Error(proxyError(resp) || ('HTTP ' + resp.status));
                         const blob = await resp.blob();
                         const link = document.createElement('a');
                         link.href = URL.createObjectURL(blob);
@@ -1708,6 +1718,8 @@
                             headers: Object.assign({}, getHeaders(), { 'X-Export-Passphrase': pass })
                         });
                         if (!resp.ok) {
+                            const replaced = proxyError(resp);
+                            if (replaced) throw new Error(replaced);
                             const txt = await resp.text();
                             throw new Error('HTTP ' + resp.status + ': ' + txt);
                         }
@@ -1733,7 +1745,7 @@
                         });
                         const data = await resp.json().catch(() => ({}));
                         if (!resp.ok) {
-                            resultEl.innerHTML = '<span style="color:#d9534f">' + escapeHtml(_tr('tfa.admin.import_failed', 'Failed:')) + ' ' + escapeHtml(data.message || _tr('tfa.admin.common.unknown_error', 'unknown error')) + '</span>';
+                            resultEl.innerHTML = '<span style="color:#d9534f">' + escapeHtml(_tr('tfa.admin.import_failed', 'Failed:')) + ' ' + escapeHtml(data.message || proxyError(resp) || _tr('tfa.admin.common.unknown_error', 'unknown error')) + '</span>';
                             return;
                         }
                         const warnings = data.warnings || [];

@@ -516,13 +516,19 @@
             }
             return headers;
         }
+        // [#320] Names a reverse proxy's error page standing in for the
+        // plugin's answer, '' otherwise. Guarded like the rest of this
+        // transport: without tfa-i18n.js the text stays "HTTP <status>".
+        function proxyError(r) {
+            try { return window.tfaI18n.proxyErrorMessage(r) || ''; } catch (e) { return ''; }
+        }
         function api(method, path, body) {
             var opts = { method: method, headers: getAuthHeaders() };
             if (body !== undefined) opts.body = JSON.stringify(body);
             return fetch(apiUrl(path), opts).then(function(r) {
                 if (!r.ok) {
                     return r.json().catch(function() { return {}; }).then(function(j) {
-                        var err = new Error(j.message || ('HTTP ' + r.status));
+                        var err = new Error(j.message || proxyError(r) || ('HTTP ' + r.status));
                         err.status = r.status; err.body = j;
                         throw err;
                     });

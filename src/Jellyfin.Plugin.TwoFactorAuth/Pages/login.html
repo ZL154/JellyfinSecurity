@@ -346,7 +346,7 @@
                     }
                     return r.json();
                 }
-                return r.json().catch(function() { return { message: _tr('tfa.login.error_signin_status', 'Sign in failed') + ' (' + r.status + ').' }; }).then(function(body) {
+                return r.json().catch(function() { return { message: (window.tfaI18n && window.tfaI18n.proxyErrorMessage && window.tfaI18n.proxyErrorMessage(r)) || (_tr('tfa.login.error_signin_status', 'Sign in failed') + ' (' + r.status + ').') }; }).then(function(body) {
                     if (body && (body.TwoFactorRequired || body.twoFactorRequired)) {
                         var challengeToken = body.ChallengeToken || body.challengeToken || '';
                         window.location.href = window.tfaUrl('TwoFactorAuth/Challenge?token=' + encodeURIComponent(challengeToken));

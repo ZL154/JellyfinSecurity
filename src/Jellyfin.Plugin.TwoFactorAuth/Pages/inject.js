@@ -96,6 +96,11 @@
         } catch (e) { /* ignore */ }
         return fallback;
     }
+    // [#320] Names a reverse proxy's error page standing in for the plugin's
+    // answer, '' otherwise (see tfa-i18n.js, which may still be loading).
+    function proxyError(r) {
+        try { return window.tfaI18n.proxyErrorMessage(r) || ''; } catch (e) { return ''; }
+    }
     // Interpolate "{name}"-style placeholders into a translated template.
     function Tf(key, fallback, vars) {
         var s = T(key, fallback);
@@ -1390,7 +1395,7 @@
                 });
                 if (!begin.ok) {
                     var err = await begin.json().catch(function(){return{};});
-                    throw new Error(err.message || ('HTTP ' + begin.status));
+                    throw new Error(err.message || proxyError(begin) || ('HTTP ' + begin.status));
                 }
                 var beginBody = await begin.json();
                 var opts = JSON.parse(beginBody.options);
@@ -1412,7 +1417,7 @@
                 });
                 if (!complete.ok) {
                     var err2 = await complete.json().catch(function(){return{};});
-                    throw new Error(err2.message || 'Passkey verification failed');
+                    throw new Error(err2.message || proxyError(complete) || 'Passkey verification failed');
                 }
                 var data = await complete.json();
                 // Stuff the bridge token into the password field and submit the

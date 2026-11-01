@@ -110,6 +110,7 @@
   "tfa.error.unknown": "Algo deu errado. Verifique o log do servidor.",
   "tfa.error.unauthorized": "Não autorizado.",
   "tfa.error.forbidden": "Proibido.",
+  "tfa.error.proxy_replaced": "Um proxy reverso ou firewall substituiu a resposta do servidor (HTTP {status}). Verifique a interceptação de erros dele e as regras de WAF para /TwoFactorAuth/.",
   "tfa.admin.common.api_keys_note": "Integrações de serviço como Sonarr/Radarr usam chaves de API padrão do Jellyfin, que já ignoram a autenticação do usuário — nenhuma configuração do plugin é necessária.",
   "tfa.admin.common.loading": "Carregando…",
   "tfa.admin.common.refresh": "Atualizar",
