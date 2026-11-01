@@ -34,20 +34,50 @@ public class EmailOtpService
         return HMACSHA256.HashData(_otpHmacKey, Encoding.UTF8.GetBytes(code));
     }
 
-    // [#259] Only SendAlertEmailsAsync reads the configuration through this,
-    // so its SMTP session can be tested against a local fake server.
+    // [#259] SendAlertEmailsAsync and [#318] ResolveRecipientLanguageAsync
+    // read the configuration through this, so tests can supply their own.
     private readonly Func<Configuration.PluginConfiguration?> _configAccessor;
 
-    public EmailOtpService(ILogger<EmailOtpService> logger)
-        : this(logger, () => Plugin.Instance?.Configuration)
+    // [#318] The language a user chose for the plugin, null when none.
+    private readonly Func<Guid, Task<string?>> _userLanguage;
+
+    public EmailOtpService(ILogger<EmailOtpService> logger, UserTwoFactorStore store)
+        : this(
+            logger,
+            () => Plugin.Instance?.Configuration,
+            async userId => (await store.GetUserDataAsync(userId).ConfigureAwait(false)).Language)
     {
     }
 
     // [#259] Test seam, as in SecurityScoreService.
-    internal EmailOtpService(ILogger<EmailOtpService> logger, Func<Configuration.PluginConfiguration?> configAccessor)
+    internal EmailOtpService(
+        ILogger<EmailOtpService> logger,
+        Func<Configuration.PluginConfiguration?> configAccessor,
+        Func<Guid, Task<string?>>? userLanguage = null)
     {
         _logger = logger;
         _configAccessor = configAccessor;
+        _userLanguage = userLanguage ?? (_ => Task.FromResult<string?>(null));
+    }
+
+    /// <summary>[#318] The language of the emails <paramref name="userId"/>
+    /// receives: the one they chose, else the server default, else English.
+    /// Always the recipient's, never the requester's: anyone can ask for a
+    /// reset link or a code for an account, and the email goes to its owner.
+    /// A user record that cannot be read leaves the server default.</summary>
+    public async Task<string> ResolveRecipientLanguageAsync(Guid userId)
+    {
+        string? chosen = null;
+        try
+        {
+            chosen = await _userLanguage(userId).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Could not read the language of user {UserId}; using the server default", userId);
+        }
+
+        return Helpers.ServerTranslations.ResolveLanguage(chosen, _configAccessor()?.DefaultLanguage);
     }
 
     /// <summary>[#259] Ceiling for one alert session, all addresses included.
@@ -93,7 +123,7 @@ public class EmailOtpService
 
         RecordSend(userId, now);
 
-        var sent = await TrySendEmailAsync(email, username, code, ttlSeconds).ConfigureAwait(false);
+        var sent = await TrySendEmailAsync(userId, email, username, code, ttlSeconds).ConfigureAwait(false);
         return (code, sent);
     }
 
@@ -134,7 +164,7 @@ public class EmailOtpService
         // The code is stored above, so even with no email address (Telegram-only
         // user) it can still be delivered by the caller and validated later.
         var sent = !string.IsNullOrEmpty(email)
-            && await TrySendEmailAsync(email, username, code, ttlSeconds).ConfigureAwait(false);
+            && await TrySendEmailAsync(userId, email, username, code, ttlSeconds).ConfigureAwait(false);
         return (sent, code);
     }
 
@@ -290,8 +320,9 @@ public class EmailOtpService
 
     /// <summary>[v2.5.11] (#71) Email a one-time password-reset link. No-ops if
     /// SMTP isn't configured. Callers must NOT surface success/failure to the
-    /// requester (anti-enumeration).</summary>
-    public async Task SendPasswordResetAsync(string email, string username, string resetUrl, int ttlMinutes)
+    /// requester (anti-enumeration). [#318] <paramref name="language"/> is the
+    /// recipient's, from <see cref="ResolveRecipientLanguageAsync"/>.</summary>
+    public async Task SendPasswordResetAsync(string email, string username, string resetUrl, int ttlMinutes, string language)
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null || string.IsNullOrEmpty(email)
@@ -301,12 +332,13 @@ public class EmailOtpService
             return;
         }
 
+        var (subject, body) = ComposePasswordReset(language, username, resetUrl, ttlMinutes);
         var msg = BuildMimeMessage(
             config.SmtpFromAddress,
             string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName,
             email,
-            "Reset your Jellyfin password",
-            $"Hi {username},\n\nWe received a request to reset your Jellyfin password. Open this link to choose a new one:\n\n  {resetUrl}\n\nThis link expires in {ttlMinutes} minutes and can be used once. If you didn't request this, you can ignore this email — your password won't change.\n\n— Jellyfin 2FA");
+            subject,
+            body);
 
         await SendMimeMessageAsync(config, msg).ConfigureAwait(false);
         _logger.LogInformation("Password-reset email sent to {Email} for {User}", MaskEmail(email), username);
@@ -379,7 +411,7 @@ public class EmailOtpService
         }
     }
 
-    private async Task<bool> TrySendEmailAsync(string? email, string username, string code, int ttlSeconds)
+    private async Task<bool> TrySendEmailAsync(Guid userId, string? email, string username, string code, int ttlSeconds)
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null)
@@ -402,12 +434,14 @@ public class EmailOtpService
 
         try
         {
+            var language = await ResolveRecipientLanguageAsync(userId).ConfigureAwait(false);
+            var (subject, body) = ComposeSignInCode(language, username, code, ttlSeconds / 60);
             var msg = BuildMimeMessage(
                 config.SmtpFromAddress,
                 string.IsNullOrEmpty(config.SmtpFromName) ? "Jellyfin 2FA" : config.SmtpFromName,
                 email,
-                "Jellyfin sign-in code",
-                $"Hi {username},\n\nYour Jellyfin sign-in code is:\n\n  {code}\n\nThis code expires in {ttlSeconds / 60} minutes. If you did not request this code, change your password and revoke active sessions immediately.\n\n— Jellyfin 2FA");
+                subject,
+                body);
 
             await SendMimeMessageAsync(config, msg).ConfigureAwait(false);
 
@@ -422,6 +456,29 @@ public class EmailOtpService
             return false;
         }
     }
+
+    /// <summary>[#318] Subject and body of the password reset email.</summary>
+    internal static (string Subject, string Body) ComposePasswordReset(string language, string username, string resetUrl, int ttlMinutes)
+        => Compose(language, "tfa.email.reset", new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["username"] = username,
+            ["link"] = resetUrl,
+            ["minutes"] = ttlMinutes.ToString(CultureInfo.InvariantCulture),
+        });
+
+    /// <summary>[#318] Subject and body of the email with a sign-in or
+    /// step-up code.</summary>
+    internal static (string Subject, string Body) ComposeSignInCode(string language, string username, string code, int ttlMinutes)
+        => Compose(language, "tfa.email.code", new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["username"] = username,
+            ["code"] = code,
+            ["minutes"] = ttlMinutes.ToString(CultureInfo.InvariantCulture),
+        });
+
+    private static (string Subject, string Body) Compose(string language, string keyPrefix, IReadOnlyDictionary<string, string> values)
+        => (Helpers.ServerTranslations.Format(Helpers.ServerTranslations.Get(language, keyPrefix + ".subject"), values),
+            Helpers.ServerTranslations.Format(Helpers.ServerTranslations.Get(language, keyPrefix + ".body"), values));
 
     private static MimeMessage BuildMimeMessage(string fromAddress, string fromName, string toAddress, string subject, string body)
     {
