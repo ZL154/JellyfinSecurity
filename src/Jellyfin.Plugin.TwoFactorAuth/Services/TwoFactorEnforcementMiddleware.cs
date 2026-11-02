@@ -66,7 +66,7 @@ public class TwoFactorEnforcementMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Only consider POST requests — auth is always POST
+        // Only consider POST requests : auth is always POST
         if (!HttpMethods.IsPost(context.Request.Method))
         {
             await _next(context).ConfigureAwait(false);
@@ -109,7 +109,7 @@ public class TwoFactorEnforcementMiddleware
         // fail silently (binary noise contains no "AccessToken" /
         // "accessToken" / "access_token", and Deserialize<AuthResult> throws).
         // FsxShader2012's v2.4.10 logs showed all three substring flags
-        // False even with OrdinalIgnoreCase matching — gzip is the leading
+        // False even with OrdinalIgnoreCase matching : gzip is the leading
         // hypothesis. Forcing identity encoding for the request makes the
         // response uncompressed regardless of upstream client preference.
         // Cost: auth response goes ~600 bytes gzipped → ~2000 bytes plain.
@@ -123,7 +123,7 @@ public class TwoFactorEnforcementMiddleware
         // SECURITY [v2.5.5] (N-A5, defense-in-depth note): submittedPassword
         // lives on the managed heap (string, immutable) across async awaits
         // until the request completes. .NET strings can't be zeroed in
-        // place — short of refactoring this whole hot path to use
+        // place : short of refactoring this whole hot path to use
         // Span<char>/SecureString (which interops poorly with JSON
         // deserialization and the HIBP HTTP client) we can't reduce the
         // exposure further. Acceptable trade-off given the value is needed
@@ -166,7 +166,7 @@ public class TwoFactorEnforcementMiddleware
             }
             catch
             {
-                // Bad/non-JSON/oversized body — ignore, proceed without password extraction.
+                // Bad/non-JSON/oversized body : ignore, proceed without password extraction.
                 try { context.Request.Body.Position = 0; } catch { /* best effort */ }
             }
         }
@@ -198,7 +198,7 @@ public class TwoFactorEnforcementMiddleware
         {
             // Issue #35 diagnostic: surface the skip reason so bug reports
             // immediately show why the intercept didn't fire on an auth path.
-            // Debug level — happens on legitimate non-200 auth failures too
+            // Debug level : happens on legitimate non-200 auth failures too
             // (wrong password) and we don't want to spam Info logs.
             _logger.LogDebug(
                 "[2FA] Auth path {Path} but skipping response intercept (status={Status} bodyLen={Len} contentType={CT})",
@@ -211,7 +211,7 @@ public class TwoFactorEnforcementMiddleware
         var bodyText = Encoding.UTF8.GetString(bodyBytes);
 
         // Path is already pre-validated at the top (SEC v2.4 M3). Only check
-        // response shape here — prevents false positives on third-party admin
+        // response shape here : prevents false positives on third-party admin
         // APIs that happen to return JSON bodies containing the literal
         // substrings.
         if (!LooksLikeAuthResponse(bodyText))
@@ -219,19 +219,19 @@ public class TwoFactorEnforcementMiddleware
             // Issue #35 diagnostic: this is the gate most likely to silently
             // miss when Jellyfin's auth response shape varies (other plugins
             // mutating it, chunked transfer caught mid-stream, schema drift).
-            // Log at Information so it surfaces without needing Debug — but
+            // Log at Information so it surfaces without needing Debug : but
             // only the substring-presence flags, NEVER the body itself (the
             // body contains AccessToken + user PII).
-            // v2.4.10.1: expanded diagnostic for issue #35 — v2.4.10's
+            // v2.4.10.1: expanded diagnostic for issue #35 : v2.4.10's
             // case-insensitive substring match didn't resolve FsxShader2012's
             // case (all three flags still False even with OrdinalIgnoreCase).
             // We now also log:
-            //   * first 8 bytes as hex — identifies gzip (1f 8b), zlib (78 9c),
+            //   * first 8 bytes as hex : identifies gzip (1f 8b), zlib (78 9c),
             //     brotli, HTML (3c 21 = "<!"), plain JSON (7b = "{"), or any
             //     binary marker the substring scan can't see through
-            //   * Content-Encoding response header — direct evidence of
+            //   * Content-Encoding response header : direct evidence of
             //     gzip / br / deflate compression
-            //   * First 100 chars of body as plain text — for a Jellyfin
+            //   * First 100 chars of body as plain text : for a Jellyfin
             //     auth response, AccessToken is typically further into the
             //     JSON than the first 100 chars, so this reveals shape
             //     ({"User":{... vs {"data":{... vs <html>...) without
@@ -240,13 +240,13 @@ public class TwoFactorEnforcementMiddleware
             //     itself the diagnostic signal.
             // Also switched the substring checks to OrdinalIgnoreCase
             // (matching LooksLikeAuthResponse) so the log accurately
-            // reports what the gate ACTUALLY checked — previously the log
+            // reports what the gate ACTUALLY checked : previously the log
             // used strict Ordinal which made "Has AccessToken: False"
             // ambiguous (could have been a casing mismatch).
             // SECURITY [v2.5.5]: dropped the `First 100 chars: '{Preview}'`
             // field from this log. Jellyfin's AuthenticationResult serializes
             // AccessToken near the top of the JSON, so the first 100 chars
-            // routinely captured the JWT prefix — and this log fires at INFO
+            // routinely captured the JWT prefix : and this log fires at INFO
             // level on every auth-path response that doesn't match our shape
             // check, meaning live JWT prefixes were leaking into any log
             // aggregator (Loki/Seq/Grafana/etc.) the admin had attached.
@@ -258,7 +258,7 @@ public class TwoFactorEnforcementMiddleware
             var firstBytesHex = Convert.ToHexString(firstBytes);
             var contentEncoding = context.Response.Headers["Content-Encoding"].ToString();
             _logger.LogInformation(
-                "[2FA] Auth path {Path} matched but response body didn't look like a Jellyfin auth response — pass-through. " +
+                "[2FA] Auth path {Path} matched but response body didn't look like a Jellyfin auth response : pass-through. " +
                 "Body length: {Len}. Has \"AccessToken\" (case-insensitive): {HasAT}. Has \"User\": {HasU}. Has \"SessionInfo\": {HasSI}. " +
                 "Content-Encoding: '{Enc}'. Content-Type: '{CT}'. First 8 bytes (hex): {Hex}. " +
                 "If a 2FA-enabled user is stuck on login, see issue #35.",
@@ -294,7 +294,7 @@ public class TwoFactorEnforcementMiddleware
 
             // v2.4: HIBP password-breach check. Opt-in (config.HibpEnabled).
             // Fire-and-forget so we don't block the auth response on an
-            // external API call. The check is advisory only — on a hit we
+            // external API call. The check is advisory only : on a hit we
             // log + write an audit entry so the admin can act on it. We
             // never block the user's login on HIBP because the password
             // was already validated by Jellyfin core; preventing sign-in
@@ -378,19 +378,17 @@ public class TwoFactorEnforcementMiddleware
             //
             // v2.4.1: gate on TotpEnabled && TotpVerified, not TotpEnabled
             // alone. A user who clicked Begin Setup and navigated away has
-            // TotpEnabled=true with no verified secret — treating that as
+            // TotpEnabled=true with no verified secret : treating that as
             // "has 2FA" lets the next sign-in fall through into a method
             // list that omits "totp" (TotpVerified is false), leaving the
             // user with an email-only challenge they may have no way to
             // satisfy. Rescues any pre-existing half-enrolled rows from
             // v2.4.0 too: they now pass through to no-2FA if policy allows.
             var isAdmin = authResult.User.Policy?.IsAdministrator ?? false;
-            var hasRealTwoFactor = (userData.TotpEnabled && userData.TotpVerified)
-                || userData.Passkeys.Count > 0;
-            if (!hasRealTwoFactor && !config.ShouldEnforceFor(isAdmin))
+            if (!SignInChallengePolicy.RequiresChallenge(userData, config, isAdmin))
             {
                 _logger.LogDebug(
-                    "[2FA] User {Name} has no 2FA and policy scope ({Scope}) does not require it — passing through",
+                    "[2FA] User {Name} does not require a sign-in challenge under scope ({Scope}) : passing through",
                     authResult.User.Name, config.EnforcementScope);
                 _ipBans.RecordSuccess(remoteIp ?? string.Empty);
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
@@ -399,7 +397,7 @@ public class TwoFactorEnforcementMiddleware
 
             var twoFactorToken = context.Request.Headers["X-TwoFactor-Token"].FirstOrDefault();
             // Jellyfin web/Tizen clients don't always send X-Emby-Device-Id
-            // as a dedicated header — they pack it inside X-Emby-Authorization
+            // as a dedicated header : they pack it inside X-Emby-Authorization
             // as `DeviceId="..."`. Without parsing that we fail to match the
             // paired-device list for those clients, and they get challenged
             // despite having been approved (this bit Samsung TV specifically).
@@ -412,7 +410,7 @@ public class TwoFactorEnforcementMiddleware
                 ?? "Unknown";
 
             // Samsung Tizen Jellyfin Web over Cloudflare+Caddy doesn't reliably
-            // send X-Emby-Device-Id OR a parseable X-Emby-Authorization — so
+            // send X-Emby-Device-Id OR a parseable X-Emby-Authorization : so
             // deviceId comes up null and we can't check paired/registered
             // bypasses. Fallback: Jellyfin's auth RESPONSE body (which we
             // already parsed into authResult) contains SessionInfo.DeviceId,
@@ -442,7 +440,7 @@ public class TwoFactorEnforcementMiddleware
             }
 
             // SessionStarted handler runs on a parallel code path that sees the
-            // authoritative SessionInfo.DeviceId — for clients that don't send
+            // authoritative SessionInfo.DeviceId : for clients that don't send
             // X-Emby-Authorization (Samsung Tizen), it's the only path that can
             // match a paired device. If it already decided to allow this token,
             // don't overwrite the response with a challenge. Since the two
@@ -451,7 +449,7 @@ public class TwoFactorEnforcementMiddleware
             // so a stale approval can't be reused on a subsequent request.
             // PERF-P2: WaitForApprovalAsync replaces the 50ms × 10-tick polling
             // loop. The previous loop forced every successful login to pay
-            // 50–500ms of artificial latency. Now we register a TaskCompletionSource
+            // 50:500ms of artificial latency. Now we register a TaskCompletionSource
             // that ApproveToken signals immediately on completion. Cap at 500ms
             // for fail-safety (matches the previous worst case).
             var approved = await _challengeStore
@@ -459,7 +457,7 @@ public class TwoFactorEnforcementMiddleware
                 .ConfigureAwait(false);
             if (approved)
             {
-                _logger.LogDebug("[2FA] Token pre-approved by event handler — passing auth response through for {Name}",
+                _logger.LogDebug("[2FA] Token pre-approved by event handler : passing auth response through for {Name}",
                     authResult.User.Name);
                 _ipBans.RecordSuccess(remoteIp ?? string.Empty);
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
@@ -515,7 +513,7 @@ public class TwoFactorEnforcementMiddleware
             //
             // SECURITY [v2.5.6] (ext review bare-DeviceId): gated on
             // BareDeviceIdBypassEnabled (default false). Same threat model as
-            // BypassEvaluator and TwoFactorAuthProvider — bare DeviceId is
+            // BypassEvaluator and TwoFactorAuthProvider : bare DeviceId is
             // client-supplied with no integrity binding. The signed trusted-
             // device cookie path (handled in BypassEvaluator above) is the
             // secure equivalent and remains active regardless.
@@ -550,7 +548,7 @@ public class TwoFactorEnforcementMiddleware
                         Result = AuditResult.Bypassed,
                         Method = "paired_device",
                     }).ConfigureAwait(false);
-                    _logger.LogInformation("[2FA] Paired device match for {Name} (device={Device}) — bypassing 2FA",
+                    _logger.LogInformation("[2FA] Paired device match for {Name} (device={Device}) : bypassing 2FA",
                         authResult.User.Name, paired.DeviceName);
                     _ipBans.RecordSuccess(remoteIp ?? string.Empty);
                     await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
@@ -609,7 +607,7 @@ public class TwoFactorEnforcementMiddleware
                         // device match).
                         Method = "app_password:" + SanitizeLabel(matchedAp.Label),
                     }).ConfigureAwait(false);
-                    _logger.LogInformation("[2FA] App password '{Label}' matched for {Name} — bypassing 2FA",
+                    _logger.LogInformation("[2FA] App password '{Label}' matched for {Name} : bypassing 2FA",
                         matchedAp.Label, authResult.User.Name);
                     _ipBans.RecordSuccess(remoteIp ?? string.Empty);
                     await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
@@ -646,7 +644,7 @@ public class TwoFactorEnforcementMiddleware
             var methods = new List<string>();
             // v1.4: emergency lockout sets ForceRecoveryOnNextLogin to true.
             // Strip TOTP and passkey from the available methods until the user
-            // consumes a recovery code OR an email OTP — that's the contract
+            // consumes a recovery code OR an email OTP : that's the contract
             // the user-facing button promises ("recovery code required to sign
             // in"). The flag is cleared in the controller's Verify path on
             // successful recovery.
@@ -669,7 +667,7 @@ public class TwoFactorEnforcementMiddleware
                 // only surfaced on lockout (ForceRecoveryOnNextLogin above), so a
                 // user who lost their authenticator couldn't reach the Recovery tab
                 // here even though the full login portal (login.html) always offers
-                // it — leaving valid recovery codes unusable mid-session.
+                // it : leaving valid recovery codes unusable mid-session.
                 if (userData.RecoveryCodes.Any(rc => !rc.Used)) methods.Add("recovery");
             }
             if (methods.Count == 0) methods.Add("email");
@@ -725,7 +723,7 @@ public class TwoFactorEnforcementMiddleware
     }
 
     /// <summary>
-    /// Match by both path AND response shape to avoid false positives — any other
+    /// Match by both path AND response shape to avoid false positives : any other
     /// 200 JSON response that happens to contain the substrings would otherwise
     /// get routed into the 2FA challenge flow.
     /// </summary>
@@ -812,7 +810,7 @@ public class TwoFactorEnforcementMiddleware
         var needle = key + "=";
         var idx = header.IndexOf(needle, StringComparison.OrdinalIgnoreCase);
         if (idx < 0) return null;
-        // Make sure we matched a word boundary — ", Client=" not "XClient=".
+        // Make sure we matched a word boundary : ", Client=" not "XClient=".
         if (idx > 0)
         {
             var prev = header[idx - 1];

@@ -80,12 +80,12 @@ public class AuthenticationEventHandler : IHostedService
         // Issue #35 follow-up (v2.4.11): capture the inbound request's
         // X-Forwarded-For header NOW, while HttpContext is still alive.
         // SessionStarted fires synchronously during request processing, but
-        // the Task.Run below outlives the request — reading the header
+        // the Task.Run below outlives the request : reading the header
         // inside HandleSessionAsync would race with request completion and
         // see HttpContext=null. Without this snapshot the bypass evaluator's
         // LAN-bypass path was called with forwardedFor=null on every
         // authentication event, so Trust X-Forwarded-For + Trusted Proxy
-        // CIDRs had no effect on the session-start bypass decision — every
+        // CIDRs had no effect on the session-start bypass decision : every
         // reverse-proxy request whose peer IP fell inside a LAN-bypass CIDR
         // was treated as a LAN client regardless of the real upstream
         // client IP, silently skipping 2FA for users behind a proxy.
@@ -201,58 +201,31 @@ public class AuthenticationEventHandler : IHostedService
         _logger.LogDebug("[2FA] User {Name} TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
             info.UserName, userData.TotpEnabled, userData.TotpVerified, config.RequireForAllUsers);
 
-        // SECURITY [v2.5.6]: align fail-safe gate with the modern policy.
-        // Prior version only checked TotpEnabled + the legacy
-        // RequireForAllUsers flag, ignoring (a) passkey enrolment and (b)
-        // the v2.4+ EnforcementScope (Admins / All). A passkey-only user
-        // signing in via Jellyfin's native /Users/AuthenticateByName would
-        // hit this handler with TotpEnabled=false and (under modern
-        // EnforcementScope.All but legacy flag false) get an early-return,
-        // bypassing 2FA on the SessionStarted fail-safe.
-        //
-        // [v2.5.12] (#81, cpb34): resolve whether THIS user is actually required
-        // to do 2FA, honouring admin status. Earlier this couldn't check isAdmin,
-        // so under EnforcementScope.Admins it conservatively did NOT early-return
-        // for non-admins either — their session then fell through to the block
-        // path and hung ("Server Unavailable") even though Admins-only 2FA
-        // shouldn't touch them. Now we look up admin status (IUserManager) and
-        // exempt non-admins under Admins scope. FAIL SAFE: if the user can't be
-        // resolved, treat as required so a real admin can never be exempted.
-        var hasPasskey = userData.Passkeys.Count > 0;
-        var has2fa = userData.TotpEnabled || hasPasskey;
-        bool requiredByScope;
-        if (config.RequireForAllUsers || config.EnforcementScope == Configuration.EnforcementScope.All)
-        {
-            requiredByScope = true;
-        }
-        else if (config.EnforcementScope == Configuration.EnforcementScope.Admins)
+        // Resolve the role only when scope needs it. An unresolved user remains
+        // subject to Admins enforcement, preserving the session fail-safe.
+        var isAdmin = false;
+        if (config.EnforcementScope == Configuration.EnforcementScope.Admins)
         {
             var u = _userManager.GetUserById(info.UserId);
-            requiredByScope = u is null || u.HasPermission(PermissionKind.IsAdministrator);
+            isAdmin = u is null || u.HasPermission(PermissionKind.IsAdministrator);
         }
-        else
+        if (!SignInChallengePolicy.RequiresChallenge(userData, config, isAdmin))
         {
-            requiredByScope = false; // Optional
-        }
-        if (!has2fa && !requiredByScope)
-        {
-            // No enrolled factor AND not required by policy for this user → 2FA
-            // doesn't apply; let the session proceed untouched.
             return;
         }
 
         // Pre-verified for THIS device+user within the 2-minute window? Normal web
         // 2FA completion path (and trust cookie / app-password bypass) hits this.
         // Scoped to deviceId so a browser's verification can't grant Swiftfin a
-        // free pass — a foot-gun that was live in v1.3.0.
+        // free pass : a foot-gun that was live in v1.3.0.
         if (_challengeStore.IsDevicePreVerified(info.UserId, info.DeviceId))
         {
-            _logger.LogDebug("[2FA] {Name} within device-verified window — session allowed", info.UserName);
+            _logger.LogDebug("[2FA] {Name} within device-verified window : session allowed", info.UserName);
             // [v2.5.17] (#107): the app-password fast path in TwoFactorAuthProvider
             // arms BOTH a device pre-verify AND the user-scoped one-shot below (the
             // session's deviceId may differ from the auth request's). When THIS
             // device matches the pre-verify, the one-shot is never reached by its
-            // own branch — so consume it here too. Otherwise it lingers up to its
+            // own branch : so consume it here too. Otherwise it lingers up to its
             // TTL and the next session for the same user (even an unrelated
             // real-password login on another device) would wrongly bypass 2FA.
             _challengeStore.ConsumeAppPasswordPending(info.UserId);
@@ -286,7 +259,7 @@ public class AuthenticationEventHandler : IHostedService
         // code. The TV's session (with a different deviceId) consumes it once.
         if (_challengeStore.ConsumeQuickConnectPending(info.UserId))
         {
-            _logger.LogDebug("[2FA] {Name} QuickConnect-pending consumed — session allowed", info.UserName);
+            _logger.LogDebug("[2FA] {Name} QuickConnect-pending consumed : session allowed", info.UserName);
             if (approvedToken is not null)
             {
                 _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
@@ -336,7 +309,7 @@ public class AuthenticationEventHandler : IHostedService
         // here to verify the token, otherwise every follow-up request is blocked.
         if (_challengeStore.ConsumeAppPasswordPending(info.UserId))
         {
-            _logger.LogDebug("[2FA] {Name} app-password session — allowed (app password is the factor)", info.UserName);
+            _logger.LogDebug("[2FA] {Name} app-password session : allowed (app password is the factor)", info.UserName);
             if (approvedToken is not null)
             {
                 _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
@@ -378,7 +351,7 @@ public class AuthenticationEventHandler : IHostedService
             : null;
         if (userDataPaired is not null)
         {
-            _logger.LogDebug("[2FA] {Name} paired device {Device} — session allowed",
+            _logger.LogDebug("[2FA] {Name} paired device {Device} : session allowed",
                 info.UserName, userDataPaired.DeviceName);
             if (approvedToken is not null)
             {
@@ -421,7 +394,7 @@ public class AuthenticationEventHandler : IHostedService
         // exists in RegisteredDeviceEntries with a RegisteredAt timestamp
         // newer than the cutoff. Entries that exist only in the legacy
         // RegisteredDeviceIds list (no timestamped sibling) are passed
-        // through unchanged for backwards compatibility — admins clearing
+        // through unchanged for backwards compatibility : admins clearing
         // the list and re-registering after the v2.5.5 upgrade get fresh
         // timestamped entries automatically.
         var maxAgeDays = Plugin.Instance?.Configuration?.RegisteredDeviceMaxAgeDays ?? 0;
@@ -454,14 +427,14 @@ public class AuthenticationEventHandler : IHostedService
                 // (websocket reconnects, new tabs, idle-resume) must not
                 // re-block this legitimately-bypassed token. Critical for
                 // Cloudflare Tunnel / reverse-proxy setups where the
-                // RemoteIpAddress can shift between firings — making
+                // RemoteIpAddress can shift between firings : making
                 // BypassEvaluator return "not bypassed" on the second hit
                 // and falling through to BlockToken at line 337, locking
                 // the user out 5-10 minutes after login.
                 _challengeStore.MarkTokenVerified(approvedToken);
             }
             // Same physical browser often hits the server via both LAN (bypassed)
-            // and public-IP routes (challenged) within seconds — same deviceId,
+            // and public-IP routes (challenged) within seconds : same deviceId,
             // different IPs (Cloudflare split-horizon, Wi-Fi captive, VPN). To
             // avoid nuisance pending entries for a device the user is actively
             // signing in from on LAN, auto-register the deviceId on LAN-bypass
@@ -473,7 +446,7 @@ public class AuthenticationEventHandler : IHostedService
                 if (string.Equals(bypass.Reason, "lan", StringComparison.OrdinalIgnoreCase)
                     && info.DeviceId!.Length <= 128)
                 {
-                    // Same 50-device cap as explicit /Devices/Register — prevents
+                    // Same 50-device cap as explicit /Devices/Register : prevents
                     // an attacker who controls a LAN device from spamming unique
                     // deviceIds to inflate storage.
                     await _store.MutateAsync(info.UserId, ud =>
@@ -516,7 +489,7 @@ public class AuthenticationEventHandler : IHostedService
         }
 
         // Issue #27 fix: SessionStarted fires not only on initial login but
-        // also on websocket reconnects, new tabs, and idle-resume — all of
+        // also on websocket reconnects, new tabs, and idle-resume : all of
         // which happen outside the 2-minute pre-verify window. If this token
         // has already completed 2FA at least once, we are NOT looking at a
         // fresh login; re-blocking it would 401 every subsequent request and
@@ -525,7 +498,7 @@ public class AuthenticationEventHandler : IHostedService
         if (!string.IsNullOrEmpty(approvedToken)
             && _challengeStore.IsTokenVerified(approvedToken))
         {
-            _logger.LogDebug("[2FA] {Name} SessionStarted on previously-verified token — reconnect, session allowed",
+            _logger.LogDebug("[2FA] {Name} SessionStarted on previously-verified token : reconnect, session allowed",
                 info.UserName);
             _challengeStore.ApproveToken(approvedToken, info.UserId, info.DeviceId);
             // Renew the mark, so its 30 days run from the last use and not from
@@ -547,7 +520,7 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
-        _logger.LogInformation("[2FA] 2FA required for {Name} — middleware will replace response with challenge",
+        _logger.LogInformation("[2FA] 2FA required for {Name} : middleware will replace response with challenge",
             info.UserName);
 
         // #124: Jellyfin can emit duplicate SessionStarted events for the same
@@ -571,7 +544,7 @@ public class AuthenticationEventHandler : IHostedService
         // SessionInfo.DeviceId is authoritative whereas the middleware's
         // header-parsed deviceId can come up null for clients that use
         // unusual auth header formats. PendingPairingService uses AddOrUpdate,
-        // so double-recording is a safe idempotent merge — not a dupe.
+        // so double-recording is a safe idempotent merge : not a dupe.
         _pendingPairings.Record(
             info.UserId,
             info.DeviceId ?? string.Empty,
@@ -642,12 +615,12 @@ public class AuthenticationEventHandler : IHostedService
     /// <see cref="Models.RegisteredDeviceEntry"/> (legacy entry, treated
     /// as indefinite for back-compat) or (b) has a parallel entry whose
     /// RegisteredAt is within <paramref name="maxAgeDays"/> of now.
-    /// Expired entries are skipped — the user re-registers naturally on
+    /// Expired entries are skipped : the user re-registers naturally on
     /// the next sign-in via the LAN-auto-register path.
     /// Promoted to <c>internal static</c> in v2.5.6 so that
     /// <see cref="TwoFactorAuthProvider"/> and
     /// <see cref="TwoFactorEnforcementMiddleware"/> can apply the same
-    /// filter before passing the list to <see cref="BypassEvaluator"/> —
+    /// filter before passing the list to <see cref="BypassEvaluator"/> :
     /// the v2.5.5 batch-3 release only filtered in this handler, leaving
     /// the feature half-broken on the other two enforcement paths.</summary>
     internal static List<string> FilterActiveRegisteredDeviceIds(
@@ -671,7 +644,7 @@ public class AuthenticationEventHandler : IHostedService
             }
             else
             {
-                // No timestamp — legacy entry, allow.
+                // No timestamp : legacy entry, allow.
                 result.Add(id);
             }
         }
