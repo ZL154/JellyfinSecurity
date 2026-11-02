@@ -270,7 +270,12 @@ public class TwoFactorAuthController : ControllerBase
                  && (_stepUp.VerifyUserCode(userData, code!) || _emailOtpService.ValidateStepUpCode(userId, code!));
         if (!ok)
         {
-            await _store.RecordFailedAttemptAsync(userId).ConfigureAwait(false);
+            // The UI first asks whether step-up is needed without submitting proof.
+            // Missing proof or a stale token is not a failed code verification.
+            if (!string.IsNullOrWhiteSpace(code))
+            {
+                await _store.RecordFailedAttemptAsync(userId).ConfigureAwait(false);
+            }
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
                 message = "A current authenticator or recovery code is required to modify two-factor settings.",
