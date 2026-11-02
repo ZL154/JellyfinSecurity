@@ -94,7 +94,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         }
 
         // ------------------------------------------------------------------
-        // SECURITY [v2.5.5] : Empty-password rejection (CVE pending).
+        // SECURITY [v2.5.5] — Empty-password rejection (CVE pending).
         //
         // Jellyfin's DefaultAuthenticationProvider treats users with a null /
         // empty stored password hash as "any submitted password matches",
@@ -114,7 +114,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // log on every restart makes the impact visible so admins can
         // flip the flag to TRUE once they've decided how to handle their
         // passwordless users. New OIDC users are ALWAYS hardened at
-        // creation time (see OidcService.HardenNewUserPasswordAsync) :
+        // creation time (see OidcService.HardenNewUserPasswordAsync) —
         // this gate is the layer that protects pre-existing accounts.
         //
         // Bridge tokens are non-empty (LooksLikeBridgeToken requires a prefix
@@ -126,7 +126,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 username, authIp ?? "(unknown)");
             _ipBans.RecordFailure(authIp ?? string.Empty);
 
-            // Forensic audit entry : record the attempted UPN so admins can
+            // Forensic audit entry — record the attempted UPN so admins can
             // see empty-password probing in the audit log. Best-effort lookup
             // of the user record so we get a UserId when possible.
             try
@@ -155,12 +155,12 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 _logger.LogDebug(ex, "[2FA] Empty-password audit entry write failed (non-fatal)");
             }
 
-            // Generic message : never reveal whether the username exists.
+            // Generic message — never reveal whether the username exists.
             throw new AuthenticationException("Invalid username or password.");
         }
 
         // ------------------------------------------------------------------
-        // -1. OIDC BRIDGE TOKEN FAST PATH : when the password starts with the
+        // -1. OIDC BRIDGE TOKEN FAST PATH — when the password starts with the
         //     bridge prefix, this is a Jellyfin login form auto-submitted on
         //     behalf of an OIDC callback. The token was minted server-side
         //     after a fully verified id_token; nothing else needs checking.
@@ -242,19 +242,19 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         }
 
         // ------------------------------------------------------------------
-        // 0. APP PASSWORD FAST PATH : check if the submitted password is a
+        // 0. APP PASSWORD FAST PATH — check if the submitted password is a
         //    PBKDF2-hashed app password for this user. If so, we synthesize a
         //    successful result without calling the default provider.
         //
         //    SECURITY: Rate-limited per IP (10/min) and gated by lockout to
         //    prevent brute force. Deviceless requests (no X-Emby-Device-Id)
-        //    do NOT get pre-verified device scoping : they must still pass
+        //    do NOT get pre-verified device scoping — they must still pass
         //    the default provider flow below.
         // ------------------------------------------------------------------
         var earlyUser = UserManager.GetUserByName(username);
         if (earlyUser is not null && !string.IsNullOrEmpty(password))
         {
-            // Lockout always takes precedence : if the account is locked, we
+            // Lockout always takes precedence — if the account is locked, we
             // don't even check app passwords. Matches the fail-closed posture
             // the default provider would produce.
             if (await _store.IsLockedOutAsync(earlyUser.Id).ConfigureAwait(false))
@@ -350,7 +350,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                     throw new AuthenticationException("Invalid credentials");
                 }
 
-                // Pre-verify (user, device). Skip for empty deviceId : the
+                // Pre-verify (user, device). Skip for empty deviceId — the
                 // IsDevicePreVerified fallback would otherwise grant bypass
                 // to every device of this user for 2 minutes.
                 if (!string.IsNullOrEmpty(apDeviceId))
@@ -379,7 +379,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                     Method = "app_password:" + matched.Label,
                 }).ConfigureAwait(false);
 
-                _logger.LogInformation("[2FA] App password '{Label}' matched for {User} : skipping default provider",
+                _logger.LogInformation("[2FA] App password '{Label}' matched for {User} — skipping default provider",
                     matched.Label, username);
 
                 _ipBans.RecordSuccess(authIp ?? string.Empty);
@@ -399,7 +399,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // 2. Find the default (password) provider and delegate credential
         //    validation to it, making sure we don't recurse into ourselves.
         //    Jellyfin 10.11's DefaultAuthenticationProvider only implements
-        //    IRequiresResolvedUser.Authenticate(username, password, user) :
+        //    IRequiresResolvedUser.Authenticate(username, password, user) —
         //    the plain Authenticate(username, password) overload throws
         //    NotImplementedException. We must call the user-aware overload.
         // ------------------------------------------------------------------
@@ -409,7 +409,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
 
         if (defaultProvider is null)
         {
-            _logger.LogError("No default authentication provider found : cannot validate credentials");
+            _logger.LogError("No default authentication provider found — cannot validate credentials");
             throw new AuthenticationException("Authentication provider not available");
         }
 
@@ -457,7 +457,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // ------------------------------------------------------------------
         if (jellyfinUser is null)
         {
-            // User authenticated but not found in manager : pass through.
+            // User authenticated but not found in manager — pass through.
             _logger.LogWarning("User '{Username}' authenticated but not found in IUserManager", username);
             _ipBans.RecordSuccess(authIp ?? string.Empty);
             return baseResult;
@@ -479,7 +479,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // a passkey) and on the per-user enforcement scope, not on the bare
         // TotpEnabled flag. SetupTotp no longer pre-sets TotpEnabled, but
         // any half-enrolled rows left over from v2.4.0 (TotpEnabled=true,
-        // TotpVerified=false) are rescued here too : they read as "no 2FA"
+        // TotpVerified=false) are rescued here too — they read as "no 2FA"
         // and pass straight through when policy doesn't require enrollment.
         // Re-fetch via GetUserById to get the same User shape the controller
         // uses (where HasPermission resolves). GetUserByName here may hand
@@ -536,7 +536,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // SECURITY [v2.5.6] (third-audit F6): apply registered-device
         // expiry filter before passing the list to BypassEvaluator. The
         // v2.5.5 batch-3 release added the expiry feature in
-        // AuthenticationEventHandler only : this provider's auth path
+        // AuthenticationEventHandler only — this provider's auth path
         // was passing the raw unfiltered list, silently disabling the
         // feature on this enforcement codepath.
         var maxAgeDaysProv = config.RegisteredDeviceMaxAgeDays;
@@ -558,7 +558,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         if (bypassResult.IsBypassed)
         {
             _logger.LogInformation(
-                "2FA bypassed for '{Username}' : reason: {Reason}",
+                "2FA bypassed for '{Username}' — reason: {Reason}",
                 username,
                 bypassResult.Reason);
 
@@ -638,14 +638,14 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         }
 
         // ------------------------------------------------------------------
-        // 8. 2FA is required and no bypass applies : build the available
+        // 8. 2FA is required and no bypass applies — build the available
         //    methods list and issue a challenge token.
         // ------------------------------------------------------------------
         // v2.4.1: use ShouldEnforceFor so per-role policy (Admins-only) is
         // honored in this provider too, not just in the middleware.
         //
         // [v2.5.6] (round-5 fix B): a configured email + globally-enabled
-        // email OTP counts as a valid sole factor : matches the path in
+        // email OTP counts as a valid sole factor — matches the path in
         // TwoFactorEnforcementMiddleware so the two enforcement entry points
         // stay consistent. Lets a passkey-less / TOTP-less user with email
         // configured complete sign-in via email OTP instead of being forced
@@ -699,7 +699,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             enrollmentRequired);
 
         _logger.LogInformation(
-            "2FA challenge issued for '{Username}' : methods: {Methods}",
+            "2FA challenge issued for '{Username}' — methods: {Methods}",
             username,
             string.Join(", ", methods));
 
@@ -727,10 +727,10 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         //    TwoFactorEnforcementMiddleware intercepts the 200 response to
         //    /Users/AuthenticateByName, sees the challenge exists for this
         //    user+device in ChallengeStore, and REPLACES the response body
-        //    with a 401 + TwoFactorRequired JSON : inject.js then redirects.
+        //    with a 401 + TwoFactorRequired JSON — inject.js then redirects.
         //
         //    Earlier versions of this provider threw an AuthenticationException
-        //    carrying the challenge JSON as its Message : but Jellyfin's
+        //    carrying the challenge JSON as its Message — but Jellyfin's
         //    UserManager eats the exception and returns a generic "Invalid
         //    username or password" to the client, never giving inject.js the
         //    payload. The throw path only worked when this provider was NOT
@@ -762,7 +762,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
 
         if (defaultProvider is null)
         {
-            _logger.LogError("No default authentication provider found : cannot change password");
+            _logger.LogError("No default authentication provider found — cannot change password");
             return Task.CompletedTask;
         }
 

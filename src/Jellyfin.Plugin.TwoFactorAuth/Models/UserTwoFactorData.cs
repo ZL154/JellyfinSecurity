@@ -40,7 +40,7 @@ public class UserTwoFactorData
     /// When PluginConfiguration.RegisteredDeviceMaxAgeDays &gt; 0, only entries
     /// whose RegisteredAt is within that window grant 2FA bypass. Entries
     /// that exist only in legacy RegisteredDeviceIds (no parallel timestamp)
-    /// are treated as "indefinite trust" for backward compatibility : admins
+    /// are treated as "indefinite trust" for backward compatibility — admins
     /// clearing the list during the v2.5.5 upgrade will get fresh timestamped
     /// entries on the next sign-in.</summary>
     public List<RegisteredDeviceEntry> RegisteredDeviceEntries { get; set; } = new();
@@ -73,7 +73,7 @@ public class UserTwoFactorData
     public bool PasskeyRequiresSecondFactor { get; set; } = true;
 
     /// <summary>Set by emergency self-service lockout. While true, the user's next
-    /// sign-in must consume a recovery code or email OTP : TOTP and passkey are
+    /// sign-in must consume a recovery code or email OTP — TOTP and passkey are
     /// stripped from the available methods list. Cleared on successful recovery.</summary>
     public bool ForceRecoveryOnNextLogin { get; set; }
 
@@ -111,13 +111,13 @@ public class UserTwoFactorData
 
     /// <summary>ASN + country combinations we have already seen sign-ins from.
     /// Used by SuspiciousLoginDetector to fire a notification on first-seen
-    /// contexts. Bounded : old entries pruned by LastSeen on cleanup.</summary>
+    /// contexts. Bounded — old entries pruned by LastSeen on cleanup.</summary>
     public List<SeenContext> SeenContexts { get; set; } = new();
 
     // ---- v2.0 additions ----
 
     /// <summary>SSO/OIDC accounts linked to this Jellyfin user. Each entry is
-    /// (providerId, sub) : the IdP-issued immutable subject identifier. We
+    /// (providerId, sub) — the IdP-issued immutable subject identifier. We
     /// look up by sub on every sign-in so the user can change their email
     /// at the IdP and we still match correctly. Multiple links allowed so
     /// one Jellyfin user can have e.g. Google AND GitHub linked.</summary>
@@ -157,9 +157,9 @@ public class UserTwoFactorData
     public bool RequireStepUpForChanges { get; set; }
 }
 
-/// <summary>SSO/OIDC link : ties a Jellyfin user to an external IdP identity.
+/// <summary>SSO/OIDC link — ties a Jellyfin user to an external IdP identity.
 /// `Subject` is the IdP's stable user id (Google's `sub`, GitHub's numeric id,
-/// Cloudflare's user id). Email is included for display/audit only : never
+/// Cloudflare's user id). Email is included for display/audit only — never
 /// trusted for matching, since users can change emails at their IdP.</summary>
 public class SsoLink
 {
@@ -192,7 +192,7 @@ public class SsoLink
 }
 
 /// <summary>Cached geo for impossible-travel detection. Lat/lon may be 0 if
-/// only city-level data wasn't available : detector falls back to country
+/// only city-level data wasn't available — detector falls back to country
 /// centroid distances in that case.</summary>
 public class LastKnownLocation
 {
@@ -281,7 +281,7 @@ public class AppPassword
 }
 
 /// <summary>A FIDO2 / WebAuthn credential. The PublicKeyCose blob is the
-/// COSE-encoded public key returned by the authenticator at registration :
+/// COSE-encoded public key returned by the authenticator at registration —
 /// stored verbatim because Fido2NetLib re-parses it on each verification.
 /// SignatureCounter must monotonically increase across uses; a regression
 /// indicates credential cloning and is rejected.</summary>
@@ -299,7 +299,7 @@ public class PasskeyCredential
     /// <summary>Counter from the most recent successful assertion.</summary>
     public uint SignatureCounter { get; set; }
 
-    /// <summary>Authenticator AAGUID : identifies the model (YubiKey, Windows
+    /// <summary>Authenticator AAGUID — identifies the model (YubiKey, Windows
     /// Hello, iCloud Keychain, etc.). Surfaces in the admin UI for context.</summary>
     public string Aaguid { get; set; } = string.Empty;
 
