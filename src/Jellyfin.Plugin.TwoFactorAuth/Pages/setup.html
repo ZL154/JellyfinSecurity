@@ -96,6 +96,11 @@
         .device-meta { font-size: 12px; color: #777; margin-top: 2px; line-height: 1.4; }
         .empty { text-align: center; padding: 22px 10px; color: #666; font-size: 13px; }
         .muted { color: #777; font-size: 12px; }
+        /* A checkbox with its label, as on the login and challenge pages. */
+        .trust-row { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #ccc; cursor: pointer; }
+        .trust-row input { width: 16px; height: 16px; margin: 0; flex-shrink: 0; cursor: pointer; }
+        .trust-row input:disabled { cursor: not-allowed; }
+        .trust-row input:disabled + span { color: #777; }
 
         .new-password-display {
             background: #0a0a0a; border: 2px solid #00a4dc; border-radius: 8px; padding: 16px;
@@ -200,6 +205,18 @@
                 </div>
                 <div class="alert error" id="passkeyError"></div>
                 <div class="alert success" id="passkeySuccess"></div>
+                <!-- [#339] Whether password sign-in also asks for a second
+                     factor while this account has a passkey. -->
+                <div id="passkeySecondFactor" style="display:none;border-top:1px solid #2a2a2a;margin-top:16px;padding-top:14px;">
+                    <label class="trust-row">
+                        <input type="checkbox" id="passkeySecondFactorToggle" />
+                        <span data-i18n-key="tfa.setup.passkeys.second_factor_label">Ask for a second factor after password sign-in</span>
+                    </label>
+                    <p class="muted" style="margin-top:8px;line-height:1.5;" data-i18n-key="tfa.setup.passkeys.second_factor_help">When this is on, signing in with your password also asks for a second factor. When it is off, your passkey is only for "Sign in with passkey", and anyone who has your password can sign in without it.</p>
+                    <p class="muted" id="passkeySecondFactorReason" style="display:none;margin-top:6px;line-height:1.5;"></p>
+                    <p class="muted" id="passkeySecondFactorStillAsked" style="display:none;margin-top:6px;line-height:1.5;" data-i18n-key="tfa.setup.passkeys.second_factor_still_asked">You turned this off, but password sign-in still asks for a second factor.</p>
+                    <div class="alert error" id="passkeySecondFactorError"></div>
+                </div>
             </div>
 
             <!-- =========== TOTP ROTATE (v1.4) =========== -->
@@ -948,6 +965,8 @@
                     passwordRecoveryEnabled: publicCfg.passwordRecoveryEnabled === true,
                 });
                 applySsoOnlyPage(ssoPage);
+                // [#339] The switch on the Passkeys card, from the same status.
+                renderPasskeySecondFactor(myStatus);
                 renderStatus(me, totpOn, ssoPage.ssoStatus ? window.__tfa_userOidcLinks : null);
                 renderEnroll(totpOn, ssoPage.hideEnroll);
                 renderRecovery(totpOn, r[3]);
@@ -1918,6 +1937,7 @@
                             await mutateWithStepUpUrl('DELETE', url, {
                                 message: _tr('tfa.setup.stepup.passkey_del_msg', 'Enter your current TOTP or recovery code to remove this passkey.')
                             });
+                            refreshPasskeySecondFactor().catch(function() {});
                             loadPasskeys();
                         } catch (e) {
                             if (e && e.cancelled) return;
@@ -1983,6 +2003,7 @@
                 await api('POST', 'TwoFactorAuth/Passkeys/RegisterFinish', { nonce: begin.nonce, response: JSON.stringify(resp), label: label });
                 ok.textContent = _tr('tfa.setup.passkeys.added', 'Passkey added.'); ok.classList.add('show');
                 document.getElementById('passkeyLabel').value = '';
+                refreshPasskeySecondFactor().catch(function() {});
                 loadPasskeys();
             } catch (e) {
                 // [v2.5.6] (round-5d): user-cancelled the step-up prompt is
@@ -2005,6 +2026,91 @@
                 } catch (_) {}
             }
         });
+
+        // ============ [#339] PASSKEY AND PASSWORD SIGN-IN ============
+        // Whether a password sign-in also asks for a second factor while the
+        // account has a passkey. The switch shows the stored choice: a missing
+        // field reads as on, the default the server keeps for accounts from
+        // earlier versions, and an explicit false stays off. The enforcement
+        // scope or a verified authenticator app makes password sign-in ask
+        // anyway, so the switch is then disabled and the card says why. Pure,
+        // so tests/passkey-second-factor-page.test.mjs can run it.
+        function passkeySecondFactorView(s) {
+            if (!s || !((s.passkeyCount || s.PasskeyCount) > 0)) return { show: false };
+            var stored = typeof s.passkeyRequiresSecondFactor === 'boolean' ? s.passkeyRequiresSecondFactor : s.PasskeyRequiresSecondFactor;
+            var asked = typeof s.passwordSignInRequiresSecondFactor === 'boolean' ? s.passwordSignInRequiresSecondFactor : s.PasswordSignInRequiresSecondFactor;
+            var reason = s.passwordSignInSecondFactorReason || s.PasswordSignInSecondFactorReason;
+            var on = stored !== false;
+            var overridden = reason === 'scope' || reason === 'authenticator';
+            return {
+                show: true,
+                checked: on,
+                disabled: overridden,
+                reason: overridden ? reason : null,
+                stillAsked: overridden && !on && asked === true,
+            };
+        }
+        function renderPasskeySecondFactor(status) {
+            var view = passkeySecondFactorView(status);
+            document.getElementById('passkeySecondFactor').style.display = view.show ? '' : 'none';
+            if (!view.show) return;
+            var toggle = document.getElementById('passkeySecondFactorToggle');
+            toggle.checked = view.checked;
+            toggle.disabled = view.disabled;
+            var notes = {
+                scope: ['tfa.setup.passkeys.second_factor_scope', 'Your administrator requires a second factor for this account, so this setting has no effect.'],
+                authenticator: ['tfa.setup.passkeys.second_factor_authenticator', 'Your authenticator app already protects password sign-in, so this setting has no effect.'],
+            };
+            var note = notes[view.reason];
+            var reasonEl = document.getElementById('passkeySecondFactorReason');
+            // Like relabel: the key travels with the text, so a later
+            // applyTranslations keeps the note in the chosen language.
+            if (note) {
+                reasonEl.setAttribute('data-i18n-key', note[0]);
+                reasonEl.textContent = _tr(note[0], note[1]);
+            } else {
+                reasonEl.removeAttribute('data-i18n-key');
+                reasonEl.textContent = '';
+            }
+            reasonEl.style.display = note ? '' : 'none';
+            document.getElementById('passkeySecondFactorStillAsked').style.display = view.stillAsked ? '' : 'none';
+        }
+        // A passkey added or removed decides whether the switch shows, and the
+        // step-up prompt offers the passkey from the count loadAll keeps, so
+        // both are reread from the server after either change.
+        function refreshPasskeySecondFactor() {
+            return api('GET', 'TwoFactorAuth/MyStatus').then(function(status) {
+                window.__tfa_userPasskeyCount = (status && (status.passkeyCount || status.PasskeyCount)) || 0;
+                renderPasskeySecondFactor(status);
+            });
+        }
+        // Turning the switch off takes the second factor away from password
+        // sign-in, so the server wants fresh proof for it whatever the step-up
+        // mode, and mutateWithStepUp asks for it on the 403 and retries.
+        // Turning it on needs none. The card then shows what the server
+        // stored; a change that fails puts the switch back.
+        async function changePasskeySecondFactor(e) {
+            var toggle = e.target;
+            var err = document.getElementById('passkeySecondFactorError');
+            err.classList.remove('show');
+            var enabled = toggle.checked;
+            toggle.disabled = true;
+            try {
+                var status = await mutateWithStepUp('POST', 'TwoFactorAuth/MyPasskeySecondFactorPreference', { enabled: enabled }, {
+                    message: _tr('tfa.setup.passkeys.second_factor_stepup_msg', 'Confirm it is you with one of the options below to stop asking for a second factor after password sign-in.')
+                });
+                renderPasskeySecondFactor(status);
+            } catch (ex) {
+                toggle.checked = !enabled;
+                toggle.disabled = false;
+                if (ex && ex.cancelled) return;
+                err.textContent = (ex && ex.status === 403 && ex.body && (ex.body.stepUpRequired || ex.body.twoFactorRequired))
+                    ? _tr('tfa.setup.stepup.wrong_code', 'That code did not verify. Try again.')
+                    : _tr('tfa.setup.stepup_pref.save_failed', 'Could not save preference.');
+                err.classList.add('show');
+            }
+        }
+        document.getElementById('passkeySecondFactorToggle').addEventListener('change', changePasskeySecondFactor);
 
         // ============ v1.4: TOTP rotate ============
         // The server keeps the new secret pending and the current one active
