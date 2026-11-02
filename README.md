@@ -170,6 +170,8 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - LAN bypass (configurable CIDR ranges), and a force-2FA-for-all-users mode.
 - **Disable password sign-in** — OIDC / Quick-Connect-only mode with independently toggleable admin / LAN / exempt-CIDR escape hatches, plus an opt-in setting that lets app passwords (never the account password) through for native apps.
 
+A completed password change through the plugin's reset link, Jellyfin's Forgot Password PIN, an administrator setting or resetting a password, or a user changing their password clears the plugin's temporary failed-attempt count and lockout. Requesting a reset, opening a link, or submitting an invalid or expired token does not. The plugin leaves second factors, trusted devices, IP bans, the token blocklist, and Jellyfin's own failed-attempt count and disabled-account status unchanged.
+
 ### Brute-force & anomaly protection
 - **Brute-force IP banning** — auto-bans source IPs that exceed N failed sign-ins in M minutes, persisted across restarts, with an admin list/unban UI.
 - **Impossible-travel detection** — flags consecutive sign-ins that exceed commercial-jet cruise speed, using MaxMind GeoLite2-City for geolocation.
