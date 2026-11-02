@@ -167,7 +167,7 @@ public class TwoFactorAuthController : ControllerBase
         if (current == userId) return true;
 
         // Admin check mirrors how AdminForceLogout / dashboard enumeration
-        // identify admins : the IsAdministrator permission on the Jellyfin
+        // identify admins — the IsAdministrator permission on the Jellyfin
         // user record. The [Authorize] policy "RequiresElevation" reads the
         // same bit, so this stays consistent with the rest of the controller.
         try
@@ -180,7 +180,7 @@ public class TwoFactorAuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "[2FA] IsAuthorizedForUser admin probe failed : denying");
+            _logger.LogDebug(ex, "[2FA] IsAuthorizedForUser admin probe failed — denying");
         }
 
         return false;
@@ -208,13 +208,16 @@ public class TwoFactorAuthController : ControllerBase
     ///   * UserChoice → enforce only if the user has opted in via
     ///     <see cref="Models.UserTwoFactorData.RequireStepUpForChanges"/>.
     ///   * Forced → always enforce when user has existing 2FA.
-    /// Users with no existing 2FA are exempt under every mode : first-time
+    /// Users with no existing 2FA are exempt under every mode — first-time
     /// enrollment has no prior factor to step up from.
+    /// Reducing sign-in protection sets requireProof to enforce fresh proof
+    /// regardless of mode or the current factor inventory.
     /// Returns null when allowed, or a 403 ActionResult to short-circuit.</summary>
-    private async Task<ActionResult?> EnforceSelfServiceStepUpAsync(Guid userId, string? code, string? stepUpToken = null)
+    private async Task<ActionResult?> EnforceSelfServiceStepUpAsync(Guid userId, string? code, string? stepUpToken = null, bool requireProof = false)
     {
         var config = Plugin.Instance?.Configuration;
-        if (config is null) return null;
+        if (config is null && !requireProof) return null;
+        config ??= new Configuration.PluginConfiguration();
 
         var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
         // SECURITY [v2.5.9]: "existing 2FA" must count EVERY factor that
@@ -225,7 +228,7 @@ public class TwoFactorAuthController : ControllerBase
         // (SSO/OIDC links and email OTP included) lives in
         // SelfServiceFactors.HasAny [#248], which app password creation
         // shares.
-        if (!SelfServiceFactors.HasAny(userData, config)) return null;
+        if (!requireProof && !SelfServiceFactors.HasAny(userData, config)) return null;
 
         var modeRequiresStepUp = config.SelfServiceStepUpMode switch
         {
@@ -234,7 +237,7 @@ public class TwoFactorAuthController : ControllerBase
             Configuration.SelfServiceStepUpMode.Forced => true,
             _ => true,
         };
-        if (!modeRequiresStepUp) return null;
+        if (!requireProof && !modeRequiresStepUp) return null;
 
         // [v2.5.6] (round-5c): single-use step-up token path. The UI calls
         // /StepUp/UserCodeVerify or /StepUp/UserPasskeyVerify to exchange a
@@ -249,7 +252,7 @@ public class TwoFactorAuthController : ControllerBase
         // an attacker can't replay the same email OTP.
         // SECURITY [v2.5.9] (audit medium): rate-limit the user-self step-up
         // CODE path. The admin StepUp/Verify and the login verify path each
-        // have a per-user limiter; this gate didn't : letting a hijacked
+        // have a per-user limiter; this gate didn't — letting a hijacked
         // (non-elevated) session brute-force the 6-digit TOTP step-up code to
         // mint factor changes without ever tripping a limiter or lockout.
         // 15 attempts / 15 min per user, mirroring "verify_user:".
@@ -279,7 +282,7 @@ public class TwoFactorAuthController : ControllerBase
             });
         }
 
-        // Success : clear the step-up attempt counter for this user.
+        // Success — clear the step-up attempt counter for this user.
         _rateLimiter.Reset("stepup_self:" + userId.ToString("N"));
 
         // VerifyUserCode may have marked a recovery code as Used on the
@@ -309,7 +312,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // GET /TwoFactorAuth/Challenge : serves the standalone challenge HTML page
+    // GET /TwoFactorAuth/Challenge — serves the standalone challenge HTML page
     // -------------------------------------------------------------------------
 
     [HttpGet("Challenge")]
@@ -395,7 +398,7 @@ public class TwoFactorAuthController : ControllerBase
         // Confirm verifies a code. Without this, a user who clicks Begin
         // Setup then navigates away gets stranded: TotpEnabled=true makes
         // the middleware treat them as enrolled, but TotpVerified=false
-        // means "totp" isn't offered as a method : so on next sign-in they
+        // means "totp" isn't offered as a method — so on next sign-in they
         // get an email-only challenge with no way to actually use it.
         // SECURITY [v2.5.6] (F4): MutateAsync for atomic enrollment-stash.
         var encryptedSecretForced = _totpService.EncryptSecret(secret, challenge.UserId);
@@ -564,7 +567,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // GET /TwoFactorAuth/Setup : user-facing enrollment page
+    // GET /TwoFactorAuth/Setup — user-facing enrollment page
     // -------------------------------------------------------------------------
 
     [HttpGet("Setup")]
@@ -576,7 +579,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // GET /TwoFactorAuth/Login : dedicated 2FA-aware login page
+    // GET /TwoFactorAuth/Login — dedicated 2FA-aware login page
     // -------------------------------------------------------------------------
 
     [HttpGet("Login")]
@@ -588,7 +591,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // POST /TwoFactorAuth/Authenticate : username + password + TOTP code in one call
+    // POST /TwoFactorAuth/Authenticate — username + password + TOTP code in one call
     // -------------------------------------------------------------------------
 
     [HttpPost("Authenticate")]
@@ -623,7 +626,7 @@ public class TwoFactorAuthController : ControllerBase
 
             // [v2.5.12] (#82, cpb34): only the username is required. Jellyfin
             // supports passwordless users (admin-disabled password), who sign in
-            // with a blank password at the standard portal : so the 2FA portal
+            // with a blank password at the standard portal — so the 2FA portal
             // must accept a blank password too. Jellyfin's own auth path below
             // still rejects a blank password for users who DO have one, so this
             // doesn't weaken anyone's real password policy.
@@ -745,7 +748,7 @@ public class TwoFactorAuthController : ControllerBase
 
             // --- Step 1: If user has 2FA, verify TOTP/recovery code FIRST ---
             // We return identical "invalid credentials" messages whether the password is wrong,
-            // the code is missing, or the code is wrong : preventing account enumeration of
+            // the code is missing, or the code is wrong — preventing account enumeration of
             // which users have 2FA enabled.
             if (totpEnabled && !trustedDeviceBypass)
             {
@@ -809,7 +812,7 @@ public class TwoFactorAuthController : ControllerBase
                     {
                         // SEC-M3: pass userId for AAD-bound v2 ciphertexts.
                         // Auto-migrate any legacy v1 (no-AAD) record to v2 on
-                        // first successful read : the rewrite happens lazily
+                        // first successful read — the rewrite happens lazily
                         // and is idempotent (already-v2 inputs are returned
                         // unchanged by MigrateToV2).
                         if (userData.EncryptedTotpSecret is { Length: > 0 } enc
@@ -837,7 +840,7 @@ public class TwoFactorAuthController : ControllerBase
                         codeValid = true;
                         usedMethod = "totp";
                         userData.LastUsedTotpStep = acceptedStep;
-                        // Persist the floor immediately : even if the password
+                        // Persist the floor immediately — even if the password
                         // verification below fails, the replay floor advance
                         // is correct (the code was valid, an attacker who
                         // intercepted it cannot replay anyway).
@@ -1030,7 +1033,7 @@ public class TwoFactorAuthController : ControllerBase
             }
 
             // Only create a trust cookie/record if the user actually completed 2FA.
-            // Users without 2FA don't need a trust cookie : there's nothing to trust.
+            // Users without 2FA don't need a trust cookie — there's nothing to trust.
             if (totpEnabled && req.TrustDevice && !trustedDeviceBypass)
             {
                 var (rawDeviceToken, trustRecord) =
@@ -1115,7 +1118,7 @@ public class TwoFactorAuthController : ControllerBase
     private static int FindRecoveryCodeIndex(UserTwoFactorData userData, string submitted)
     {
         var normalized = RecoveryCodeService.NormalizeForCompare(submitted);
-        // Iterate in constant time relative to the user's code count : don't
+        // Iterate in constant time relative to the user's code count — don't
         // early-return on match so timing can't reveal which index matched.
         int found = -1;
         for (int i = 0; i < userData.RecoveryCodes.Count; i++)
@@ -1131,7 +1134,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // GET /TwoFactorAuth/inject.js : script injected into Jellyfin web UI
+    // GET /TwoFactorAuth/inject.js — script injected into Jellyfin web UI
     // -------------------------------------------------------------------------
 
     // [v2.5.9] (issue #64): also serve at an EXTENSION-LESS route. A CDN /
@@ -1156,12 +1159,12 @@ public class TwoFactorAuthController : ControllerBase
         using var reader = new System.IO.StreamReader(stream);
         var js = reader.ReadToEnd();
         // [v2.5.9] (issue #64): Debug-level trace of which inject URL was
-        // requested + the client UA : invaluable for diagnosing CDN/webview
+        // requested + the client UA — invaluable for diagnosing CDN/webview
         // caching of the injected script. Debug so it doesn't spam Info on
         // every login-page load.
         _logger.LogDebug("[2FA] inject served: path={Path}{Query} len={Len} ua={UA}",
             Request.Path.Value, Request.QueryString.Value, js.Length, Request.Headers.UserAgent.ToString());
-        // inject.js changes with every plugin upgrade : a CDN / reverse proxy
+        // inject.js changes with every plugin upgrade — a CDN / reverse proxy
         // caching it for 24h means users don't see new login buttons, bug fixes,
         // or security hardening until the cache expires. Tell every intermediate
         // to revalidate on each request.
@@ -1269,7 +1272,7 @@ public class TwoFactorAuthController : ControllerBase
             });
         }
 
-        // Per-user rate limit on Verify : defense in depth against an attacker
+        // Per-user rate limit on Verify — defense in depth against an attacker
         // using an IP rotator to sidestep the per-IP bucket. 15 attempts per 15
         // minutes matches the per-challenge 5-limit * typical churn without
         // locking out a flaky-connection legitimate user.
@@ -1284,7 +1287,7 @@ public class TwoFactorAuthController : ControllerBase
             });
         }
 
-        // Per-challenge attempt limit : burns the challenge after 5 failed guesses
+        // Per-challenge attempt limit — burns the challenge after 5 failed guesses
         if (challenge.AttemptCount >= 5)
         {
             _challengeStore.ConsumeChallenge(request.ChallengeToken);
@@ -1318,14 +1321,14 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         // v1.4: ForceRecoveryOnNextLogin (set by emergency lockout) limits the
-        // user to recovery / email until they consume one of those : block any
+        // user to recovery / email until they consume one of those — block any
         // other method for this challenge.
         var lockedToRecovery = userData.ForceRecoveryOnNextLogin;
         if (lockedToRecovery
             && !string.Equals(request.Method, "email", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(request.Method, "recovery", StringComparison.OrdinalIgnoreCase))
         {
-            return Unauthorized(new { message = "Account is in recovery mode : use a recovery code or email OTP." });
+            return Unauthorized(new { message = "Account is in recovery mode — use a recovery code or email OTP." });
         }
 
         if (string.Equals(request.Method, "email", StringComparison.OrdinalIgnoreCase))
@@ -1449,7 +1452,7 @@ public class TwoFactorAuthController : ControllerBase
         }
         else
         {
-            _logger.LogWarning("[2FA] challenge.DeviceId was null/empty : NOT marking pre-verified. Next session will be re-blocked.");
+            _logger.LogWarning("[2FA] challenge.DeviceId was null/empty — NOT marking pre-verified. Next session will be re-blocked.");
         }
         await _store.AddAuditEntryAsync(new AuditEntry
         {
@@ -1488,7 +1491,7 @@ public class TwoFactorAuthController : ControllerBase
         // client ends up with a valid session identical to a non-2FA login.
         if (!string.IsNullOrEmpty(challenge.PendingAuthResponse))
         {
-            // Unblock the access token inside the stashed response : it was
+            // Unblock the access token inside the stashed response — it was
             // blocked at middleware level when the challenge was issued, and
             // now that 2FA is complete the client is authorized to use it.
             UnblockAccessTokenFromPendingAuthResponse(challenge.PendingAuthResponse, challenge.Username);
@@ -1515,7 +1518,7 @@ public class TwoFactorAuthController : ControllerBase
 
     // v2.5.3 (issue #37 follow-up): same reflection shim applied to
     // ISessionManager.Sessions. Jellyfin 10.11.9+ also changed the return
-    // type of this property : without this wrapper, the Overview dashboard
+    // type of this property — without this wrapper, the Overview dashboard
     // KPI count, the active-sessions admin endpoint, and the MySessions
     // device-enrichment endpoint would each throw MissingMethodException
     // on a 10.11.9+ host. Empty enumeration on any failure so the dashboard
@@ -1718,7 +1721,7 @@ public class TwoFactorAuthController : ControllerBase
         // destructive self-service action (the wipe below clears TOTP,
         // recovery codes, trusted + paired devices and app passwords), yet it
         // previously required a fresh factor ONLY when the legacy
-        // RequireTwoFactorToDisable flag (default off) was set : so under
+        // RequireTwoFactorToDisable flag (default off) was set — so under
         // SelfServiceStepUpMode.Forced a hijacked session could still strip a
         // victim's 2FA with no step-up. Require verification when EITHER the
         // legacy flag is set OR the self-service mode demands it for a user
@@ -1800,7 +1803,7 @@ public class TwoFactorAuthController : ControllerBase
         return Ok();
     }
 
-    // POST /TwoFactorAuth/StepUp/Verify : exchange a fresh 2FA code for a
+    // POST /TwoFactorAuth/StepUp/Verify — exchange a fresh 2FA code for a
     // short-lived step-up token so the next sensitive admin action passes.
     [HttpPost("StepUp/Verify")]
     [Authorize]
@@ -1878,7 +1881,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // POST /TwoFactorAuth/RecoveryCodes/Generate : generate (or rotate) recovery codes.
+    // POST /TwoFactorAuth/RecoveryCodes/Generate — generate (or rotate) recovery codes.
     // Returns plaintext codes ONCE. User must save them.
     // -------------------------------------------------------------------------
 
@@ -1923,7 +1926,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // GET /TwoFactorAuth/RecoveryCodes/Status : count of remaining + generated date.
+    // GET /TwoFactorAuth/RecoveryCodes/Status — count of remaining + generated date.
     // Doesn't return the codes themselves.
     // -------------------------------------------------------------------------
 
@@ -1981,7 +1984,7 @@ public class TwoFactorAuthController : ControllerBase
 
         // SECURITY [v2.5.6] (F1): MutateAsync for atomic find+remove under
         // the per-user semaphore. Prior code did Get→Save outside the lock
-        // : a concurrent device-add or auth-handler LastUsedAt update could
+        // — a concurrent device-add or auth-handler LastUsedAt update could
         // silently drop one of the changes.
         Models.TrustedDevice? device = null;
         await _store.MutateAsync(userId, ud =>
@@ -1995,7 +1998,7 @@ public class TwoFactorAuthController : ControllerBase
             return NotFound();
         }
 
-        // Wipe in-memory pre-verify state for this device : otherwise a user
+        // Wipe in-memory pre-verify state for this device — otherwise a user
         // who just revoked would be in a ~2-minute window where the device
         // could still bypass 2FA.
         if (!string.IsNullOrWhiteSpace(device.DeviceId))
@@ -2097,7 +2100,7 @@ public class TwoFactorAuthController : ControllerBase
     {
         var userId = GetCurrentUserId();
 
-        // Validate : deviceIds are client-controlled, so without bounds a
+        // Validate — deviceIds are client-controlled, so without bounds a
         // hostile client can inflate the user's JSON file indefinitely.
         if (!IsValidDeviceId(request.DeviceId))
         {
@@ -2106,7 +2109,7 @@ public class TwoFactorAuthController : ControllerBase
 
         var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
 
-        // Hard cap : if the user already has 50 registered devices, refuse to
+        // Hard cap — if the user already has 50 registered devices, refuse to
         // add more (likely a bug or a churn attack). Admins can clear via
         // Setup page. 50 is comfortably beyond any realistic number of
         // simultaneously-used browsers/clients a user owns.
@@ -2144,7 +2147,7 @@ public class TwoFactorAuthController : ControllerBase
         return Ok();
     }
 
-    /// <summary>DeviceId validator : 1-128 chars, printable ASCII, no control bytes.
+    /// <summary>DeviceId validator — 1-128 chars, printable ASCII, no control bytes.
     /// Jellyfin clients use short hex-ish or base64-ish ids; anything else is
     /// either a bug or an attempt to smuggle control characters into storage.</summary>
     private static bool IsValidDeviceId(string? id)
@@ -2179,7 +2182,7 @@ public class TwoFactorAuthController : ControllerBase
             });
         }
 
-        // Sanitize inputs : anonymous endpoint, fields surface in the admin
+        // Sanitize inputs — anonymous endpoint, fields surface in the admin
         // UI for approval, so reject anything that could be an XSS vector or
         // a control-character smuggle. Cap length so the list can't be used
         // as a write-amplification channel.
@@ -2198,7 +2201,7 @@ public class TwoFactorAuthController : ControllerBase
     // SECURITY [v2.5.5] (Finding 7): same-IP-prefix check for the optional
     // challenge-token IP binding. /24 (IPv4) tolerates NAT and corporate
     // proxy egress; /48 (IPv6) tolerates standard SLAAC subnet allocations.
-    // Both sides are best-effort parsed : unparseable strings return false
+    // Both sides are best-effort parsed — unparseable strings return false
     // (i.e. mismatch) so a malformed IP can't accidentally pass the check.
     private static bool SameIpPrefix(string a, string b)
     {
@@ -2271,7 +2274,7 @@ public class TwoFactorAuthController : ControllerBase
             });
         }
 
-        // Reject obviously malformed tokens cheaply : the pairing store keys
+        // Reject obviously malformed tokens cheaply — the pairing store keys
         // are 32-byte base64url, so anything outside that shape is bogus.
         if (token.Length > 64 || token.Length < 16)
         {
@@ -2331,12 +2334,12 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         // Reject pairing records that were initiated without a concrete user or
-        // device : an empty-string DeviceId stored as a paired device would
+        // device — an empty-string DeviceId stored as a paired device would
         // create a trust record that matches any request whose DeviceId header
         // also ends up as an empty string (a 2FA bypass primitive).
         if (pairing.UserId == Guid.Empty || string.IsNullOrWhiteSpace(pairing.DeviceId))
         {
-            return BadRequest("Pairing is missing user or device : refuse to approve");
+            return BadRequest("Pairing is missing user or device — refuse to approve");
         }
 
         var approved = _devicePairingService.ApprovePairing(code);
@@ -2347,7 +2350,7 @@ public class TwoFactorAuthController : ControllerBase
 
         // Create a trusted device for the user
         // SECURITY [v2.5.6] (A1): MutateAsync for atomic add under the
-        // per-user semaphore. Prior code did Get→Save outside the lock :
+        // per-user semaphore. Prior code did Get→Save outside the lock —
         // a concurrent TrustedDevices mutation (user-side revoke, LastUsedAt
         // update from auth handler) could silently drop the just-created
         // record, leaving the TV device token issued to the user with no
@@ -2391,7 +2394,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // GET /TwoFactorAuth/MyStatus [Authorize] : the caller's own 2FA summary.
+    // GET /TwoFactorAuth/MyStatus [Authorize] — the caller's own 2FA summary.
     // Non-admin equivalent of /Users filtered to self. Setup page uses this
     // so non-admin users see accurate status.
     // -------------------------------------------------------------------------
@@ -2405,6 +2408,8 @@ public class TwoFactorAuthController : ControllerBase
         var jellyfinUser = _userManager.GetUserById(userId);
         var isLockedOut = await _store.IsLockedOutAsync(userId).ConfigureAwait(false);
         var cfg = Plugin.Instance?.Configuration;
+        var signInReason = SignInChallengePolicy.GetReason(data, cfg ?? new Configuration.PluginConfiguration(),
+            jellyfinUser is null || jellyfinUser.HasPermission(PermissionKind.IsAdministrator));
         return Ok(new UserTwoFactorStatus
         {
             UserId = userId,
@@ -2415,6 +2420,9 @@ public class TwoFactorAuthController : ControllerBase
             RecoveryCodesRemaining = data.RecoveryCodes.Count(c => !c.Used),
             IsLockedOut = isLockedOut,
             PasskeyCount = data.Passkeys.Count,
+            PasskeyRequiresSecondFactor = data.PasskeyRequiresSecondFactor,
+            PasswordSignInRequiresSecondFactor = signInReason != "none",
+            PasswordSignInSecondFactorReason = signInReason,
             // [v2.5.6] (round-5 fix D): surface the admin's mode + per-user
             // opt-in so the Setup page can render the toggle and decide
             // whether to prompt for the current code on each mutation.
@@ -2448,6 +2456,7 @@ public class TwoFactorAuthController : ControllerBase
         var jellyfinUsers = EnumerateAllUsers().ToList();
         var result = new List<UserTwoFactorStatus>(jellyfinUsers.Count);
 
+        var cfg = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
         foreach (var ju in jellyfinUsers)
         {
             if (ju.Id == Guid.Empty) continue;
@@ -2462,7 +2471,7 @@ public class TwoFactorAuthController : ControllerBase
                 // SECURITY [v2.5.6]: store reads fail CLOSED on I/O errors.
                 // For the LISTING (read-only, no auth decision) surface a
                 // best-effort row with zero counts rather than 500'ing the
-                // whole dashboard : admins still see the user and can
+                // whole dashboard — admins still see the user and can
                 // investigate the missing record from logs.
                 _logger.LogWarning(ex, "[2FA] User {UserId} ({Username}) data unreadable; rendering with zeroes",
                     ju.Id, ju.Username);
@@ -2479,6 +2488,7 @@ public class TwoFactorAuthController : ControllerBase
                 isLockedOut = false;
             }
 
+            var signInReason = SignInChallengePolicy.GetReason(data, cfg, ju.HasPermission(PermissionKind.IsAdministrator));
             result.Add(new UserTwoFactorStatus
             {
                 UserId = ju.Id,
@@ -2489,6 +2499,9 @@ public class TwoFactorAuthController : ControllerBase
                 RecoveryCodesRemaining = data.RecoveryCodes.Count(c => !c.Used),
                 IsLockedOut = isLockedOut,
                 PasskeyCount = data.Passkeys.Count,
+                PasskeyRequiresSecondFactor = data.PasskeyRequiresSecondFactor,
+                PasswordSignInRequiresSecondFactor = signInReason != "none",
+                PasswordSignInSecondFactorReason = signInReason,
             });
         }
 
@@ -2496,7 +2509,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // POST /TwoFactorAuth/TestSmtp [admin] : sends a test email so admins can verify SMTP
+    // POST /TwoFactorAuth/TestSmtp [admin] — sends a test email so admins can verify SMTP
     // -------------------------------------------------------------------------
 
     [HttpPost("TestSmtp")]
@@ -2516,12 +2529,12 @@ public class TwoFactorAuthController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "[2FA] Test SMTP failed");
-            return StatusCode(500, new { message = "SMTP test failed : check server logs for details." });
+            return StatusCode(500, new { message = "SMTP test failed — check server logs for details." });
         }
     }
 
     // -------------------------------------------------------------------------
-    // POST /TwoFactorAuth/Email [auth] : user sets their own email for OTP delivery
+    // POST /TwoFactorAuth/Email [auth] — user sets their own email for OTP delivery
     // -------------------------------------------------------------------------
 
     [HttpPost("Email")]
@@ -2574,13 +2587,13 @@ public class TwoFactorAuthController : ControllerBase
     // =========================================================================
     // [#285] Per-user Telegram as an OTP delivery channel. A user links their
     // OWN chat (never the global admin alert chat), confirmed by a code sent to
-    // it, so a login/step-up code reaches only the account owner : a fallback
+    // it, so a login/step-up code reaches only the account owner — a fallback
     // for when email is down.
     // =========================================================================
 
     /// <summary>[#285] Deliver an OTP to the user's linked Telegram chat, if any.
     /// No-op when unlinked, when Telegram isn't configured, or on any send error
-    /// : it is purely additive to email and must never fail the caller.</summary>
+    /// — it is purely additive to email and must never fail the caller.</summary>
     private async Task<bool> DeliverOtpViaTelegramAsync(Guid userId, string code, string purpose)
     {
         if (string.IsNullOrEmpty(code)) return false;
@@ -2689,7 +2702,7 @@ public class TwoFactorAuthController : ControllerBase
 
     /// <summary>[v2.5.6] (round-5 fix D): per-user toggle for the
     /// hardened-security step-up gate. Only meaningful when the admin's
-    /// SelfServiceStepUpMode is UserChoice : Forced overrides this on
+    /// SelfServiceStepUpMode is UserChoice — Forced overrides this on
     /// the server side; Off ignores it. Honors the same step-up gate as
     /// every other mutating endpoint so an attacker with a stolen session
     /// can't silently flip it off.</summary>
@@ -2697,8 +2710,59 @@ public class TwoFactorAuthController : ControllerBase
     {
         public bool Enabled { get; set; }
         public string? Code { get; set; }
-        // [v2.5.6] (round-5c): step-up token alternative : see StepUpCodeRequest.
+        // [v2.5.6] (round-5c): step-up token alternative — see StepUpCodeRequest.
         public string? StepUpToken { get; set; }
+    }
+
+    /// <summary>Changes only the caller's passkey challenge preference. Reducing
+    /// sign-in protection always needs fresh proof, independent of step-up mode.</summary>
+    [HttpPost("MyPasskeySecondFactorPreference")]
+    [Authorize]
+    public async Task<ActionResult<UserTwoFactorStatus>> SetMyPasskeySecondFactorPreference(
+        [FromBody, Required] PasskeySecondFactorRequest req)
+    {
+        var userId = GetCurrentUserId();
+        if (_userManager.GetUserById(userId) is null) return Unauthorized();
+        if (req.Enabled is not bool enabled)
+            return BadRequest(new { message = "Specify whether the second factor is required." });
+
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (data.Passkeys.Count == 0)
+            return BadRequest(new { message = "Register a passkey before changing this preference." });
+
+        if (!enabled)
+        {
+            var stepUp = await EnforceSelfServiceStepUpAsync(userId, req.Code, req.StepUpToken, requireProof: true).ConfigureAwait(false);
+            if (stepUp is not null) return stepUp;
+        }
+
+        var hasPasskey = false;
+        var changed = false;
+        await _store.MutateAsync(userId, current =>
+        {
+            // A concurrent removal must not turn this into a write for a user
+            // without a passkey. Preserve every other setting under the lock.
+            hasPasskey = current.Passkeys.Count > 0;
+            if (hasPasskey && current.PasskeyRequiresSecondFactor != enabled)
+            {
+                current.PasskeyRequiresSecondFactor = enabled;
+                changed = true;
+            }
+        }).ConfigureAwait(false);
+        if (!hasPasskey)
+            return BadRequest(new { message = "Register a passkey before changing this preference." });
+
+        if (changed)
+        {
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = userId,
+                Result = AuditResult.ConfigChanged,
+                Method = enabled ? "passkey_second_factor_on" : "passkey_second_factor_off",
+            }).ConfigureAwait(false);
+        }
+        return await GetMyStatus().ConfigureAwait(false);
     }
 
     [HttpPost("MyStepUpPreference")]
@@ -2708,7 +2772,7 @@ public class TwoFactorAuthController : ControllerBase
         var userId = GetCurrentUserId();
 
         // [v2.5.6] (round-5 fix D): changing this preference is itself a
-        // factor-mutating operation : a stolen session could otherwise flip
+        // factor-mutating operation — a stolen session could otherwise flip
         // it off and then mutate factors without any step-up. Gate via the
         // same EnforceSelfServiceStepUpAsync helper.
         var stepUp = await EnforceSelfServiceStepUpAsync(userId, req.Code, req.StepUpToken).ConfigureAwait(false);
@@ -2719,7 +2783,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // GET /TwoFactorAuth/AllTrustedDevices : admin: every trusted device across all users
+    // GET /TwoFactorAuth/AllTrustedDevices — admin: every trusted device across all users
     // -------------------------------------------------------------------------
 
     [HttpGet("AllTrustedDevices")]
@@ -2751,7 +2815,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // DELETE /TwoFactorAuth/Users/{userId}/Devices/{deviceRecordId} : admin revokes
+    // DELETE /TwoFactorAuth/Users/{userId}/Devices/{deviceRecordId} — admin revokes
     // -------------------------------------------------------------------------
 
     [HttpDelete("Users/{userId}/Devices/{deviceRecordId}")]
@@ -2760,7 +2824,7 @@ public class TwoFactorAuthController : ControllerBase
     {
         // SECURITY [v2.5.5] (N-A11): use MutateAsync so the read-modify-write
         // happens under the per-user semaphore. Prior code did a clone-read,
-        // mutated the clone, then SaveUserDataAsync : racing with any
+        // mutated the clone, then SaveUserDataAsync — racing with any
         // concurrent write to the same user (a parallel auth bypass updating
         // TrustedDevices[].LastUsedAt, or the user's own /Devices/{id}
         // DELETE) silently overwrote those updates. MutateAsync is the
@@ -2841,7 +2905,7 @@ public class TwoFactorAuthController : ControllerBase
 
         if (request.Enabled)
         {
-            // Admin can't enable 2FA on behalf of a user : they need to enroll themselves.
+            // Admin can't enable 2FA on behalf of a user — they need to enroll themselves.
             // We just clear the lockout / unblock so they can log in and visit /Setup.
             _challengeStore.UnblockAllForUser(id);
             await _store.ResetFailedAttemptsAsync(id).ConfigureAwait(false);
@@ -2849,7 +2913,7 @@ public class TwoFactorAuthController : ControllerBase
         else
         {
             // SECURITY [v2.5.6] (A2): admin disable now runs under MutateAsync
-            // for atomic wipe. Prior code did Get→Save outside the lock :
+            // for atomic wipe. Prior code did Get→Save outside the lock —
             // racing concurrent auth-side mutations could lose updates.
             await _store.MutateAsync(id, ud =>
             {
@@ -2896,7 +2960,7 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<ActionResult> RequirePasswordSetup([FromRoute] Guid id)
     {
         // SECURITY (#104): require step-up. Re-arming MustSetPassword on behalf
-        // of another user is a privileged action : same classification as
+        // of another user is a privileged action — same classification as
         // ToggleUser / ResetOtherUser2fa.
         var guard = StepUpGuard(StepUpAction.ResetOtherUser2fa);
         if (guard is not null) return guard;
@@ -2927,7 +2991,7 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<AuditEntry>>> GetAuditLog([FromQuery] int? limit = null)
     {
         // SECURITY [v2.5.5] (N-A6): apply step-up guard. StepUpAction.ViewAuditLog
-        // is classified as StepUpLevel.Everything in StepUpService : the
+        // is classified as StepUpLevel.Everything in StepUpService — the
         // classification existed but was never enforced. The audit log
         // contains usernames, IPs, device IDs, and auth-method strings;
         // a hijacked admin session token shouldn't be enough to read it,
@@ -2949,7 +3013,7 @@ public class TwoFactorAuthController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<object>>> GetApiKeys()
     {
         var keys = await _store.GetApiKeysAsync().ConfigureAwait(false);
-        // Never expose raw key material : only id/label/preview/created for
+        // Never expose raw key material — only id/label/preview/created for
         // admin UI. Legacy keys with a raw Key still use preview from there.
         var safe = keys.Select(k => new
         {
@@ -3121,7 +3185,7 @@ public class TwoFactorAuthController : ControllerBase
         if (!userEmailRl.allowed)
         {
             // Return the same generic success as the happy path. Don't reveal
-            // a per-user cap was hit : that itself leaks which tokens map to
+            // a per-user cap was hit — that itself leaks which tokens map to
             // spammable accounts.
             return Ok(new { message = "If an email is configured for this user, a code has been sent." });
         }
@@ -3138,7 +3202,7 @@ public class TwoFactorAuthController : ControllerBase
         // [#285] Deliver the SAME code to the user's own linked Telegram chat,
         // so a dead mail server (the issue's exact case) doesn't lock them out.
         // A user with Telegram but no email now still receives a code. The
-        // generic response below is unchanged : no oracle about which channels
+        // generic response below is unchanged — no oracle about which channels
         // a user has.
         await DeliverOtpViaTelegramAsync(challenge.UserId, otpCode, "sign-in").ConfigureAwait(false);
 
@@ -3180,7 +3244,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // =========================================================================
-    // App Passwords  (v1.3.0 : for native clients that submit a password)
+    // App Passwords  (v1.3.0 — for native clients that submit a password)
     // =========================================================================
 
     public class CreateAppPasswordBody
@@ -3190,11 +3254,11 @@ public class TwoFactorAuthController : ControllerBase
         // SECURITY [v2.5.6] (ext review self-service-takeover): step-up
         // code accompanying a factor-mutation. Required when the user
         // already has 2FA enrolled and the admin's SelfServiceStepUpMode
-        // requires it (Forced : or UserChoice + per-user opt-in). Validated
+        // requires it (Forced — or UserChoice + per-user opt-in). Validated
         // by EnforceSelfServiceStepUpAsync.
         public string? Code { get; set; }
 
-        // [v2.5.6] (round-5c): step-up token alternative : see StepUpCodeRequest.
+        // [v2.5.6] (round-5c): step-up token alternative — see StepUpCodeRequest.
         public string? StepUpToken { get; set; }
     }
 
@@ -3276,7 +3340,7 @@ public class TwoFactorAuthController : ControllerBase
         // /Users/AuthenticateByName. A TOTP-only user otherwise stays on Jellyfin's
         // DefaultAuthenticationProvider (only the passkey + OIDC paths reassigned
         // before), which validates the submitted app password against their REAL
-        // password and rejects it : so native / third-party apps (Symfonium, Seerr,
+        // password and rejects it — so native / third-party apps (Symfonium, Seerr,
         // …) could never sign in with an app password, even though the web client
         // worked. Mirrors the passkey/OIDC reassignment; TwoFactorAuthProvider
         // delegates real-password logins back to the default provider, so normal
@@ -3447,7 +3511,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // =========================================================================
-    // Paired Devices  (v1.3.0 : TVs/native clients trusted for 2FA bypass)
+    // Paired Devices  (v1.3.0 — TVs/native clients trusted for 2FA bypass)
     // =========================================================================
 
     [HttpGet("PairedDevices")]
@@ -3522,7 +3586,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // =========================================================================
-    // Pending Pairings  (v1.3.0 : devices that hit the 2FA wall)
+    // Pending Pairings  (v1.3.0 — devices that hit the 2FA wall)
     // =========================================================================
 
     [HttpGet("PendingPairings")]
@@ -3654,7 +3718,7 @@ public class TwoFactorAuthController : ControllerBase
         });
     }
 
-    /// <summary>GET /TwoFactorAuth/PairConfirm : anonymous HTML confirm page rendered when
+    /// <summary>GET /TwoFactorAuth/PairConfirm — anonymous HTML confirm page rendered when
     /// someone scans the QR. JS on the page verifies they're signed in, decodes the token,
     /// and shows an approval prompt. Actual approval goes through the POST endpoint.</summary>
     [HttpGet("PairConfirm")]
@@ -3664,7 +3728,7 @@ public class TwoFactorAuthController : ControllerBase
 
     public class PairConfirmBody { public string Token { get; set; } = string.Empty; }
 
-    /// <summary>POST /TwoFactorAuth/PairConfirm : authenticates the current signed-in user
+    /// <summary>POST /TwoFactorAuth/PairConfirm — authenticates the current signed-in user
     /// and, if the signed token is valid and matches THIS user, adds the device to paired list.</summary>
     [HttpPost("PairConfirm")]
     [Authorize]
@@ -3692,7 +3756,7 @@ public class TwoFactorAuthController : ControllerBase
         if (!_cookieSigner.Verify(payload, sig))
             return Unauthorized(new { message = "Invalid token signature." });
 
-        // Replay guard : a signed token inside its TTL can only be consumed once.
+        // Replay guard — a signed token inside its TTL can only be consumed once.
         if (!_challengeStore.TryConsumePairToken(sig))
             return Unauthorized(new { message = "Token already used." });
 
@@ -3772,7 +3836,7 @@ public class TwoFactorAuthController : ControllerBase
         // [v2.5.6] (round-5 fix A): use the new Deny() which also adds the
         // device to a sticky denylist so the next auth retry from that device
         // doesn't immediately re-create the pending entry (which made the
-        // Deny button appear broken in v2.5.5 : the entry would reappear
+        // Deny button appear broken in v2.5.5 — the entry would reappear
         // within seconds).
         _pendingPairings.Deny(userId, req.DeviceId);
 
@@ -3903,7 +3967,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // =========================================================================
-    // v1.4 : Passkey / WebAuthn (additive 2nd factor)
+    // v1.4 — Passkey / WebAuthn (additive 2nd factor)
     // =========================================================================
 
     public class PasskeyRegisterFinishRequest
@@ -3954,7 +4018,7 @@ public class TwoFactorAuthController : ControllerBase
         if (await _store.IsLockedOutAsync(userId).ConfigureAwait(false))
         {
             return StatusCode(StatusCodes.Status403Forbidden,
-                new { message = "Account is locked out : cannot modify passkeys until lockout expires." });
+                new { message = "Account is locked out — cannot modify passkeys until lockout expires." });
         }
 
         // SECURITY [v2.5.6] (ext review self-service-takeover): adding a
@@ -4007,7 +4071,7 @@ public class TwoFactorAuthController : ControllerBase
             // implementation detail (expected RP ID, expected origin, raw
             // credential ID, attestation format names) that are useful for
             // fingerprinting the WebAuthn configuration. Full detail still
-            // goes to the warning log for admin diagnostics : generic
+            // goes to the warning log for admin diagnostics — generic
             // message to the client.
             _logger.LogWarning(ex, "[2FA] Passkey registration failed");
             return BadRequest(new
@@ -4041,7 +4105,7 @@ public class TwoFactorAuthController : ControllerBase
     /// "not allowed" string in some browsers (looking at you, Safari). The
     /// Setup page POSTs the actual DOMException name + message here so admins
     /// can debug from the server log. Rate-limited and length-capped because
-    /// any signed-in user can hit this : without bounds it would be a
+    /// any signed-in user can hit this — without bounds it would be a
     /// trivial log-spam vector.</summary>
     [HttpPost("Passkeys/ClientLog")]
     [Authorize]
@@ -4160,7 +4224,7 @@ public class TwoFactorAuthController : ControllerBase
         return Content("{\"nonce\":\"" + nonce + "\",\"options\":" + optionsJson + "}", "application/json");
     }
 
-    /// <summary>Validate the assertion and consume the 2FA challenge : returns
+    /// <summary>Validate the assertion and consume the 2FA challenge — returns
     /// the same VerifyResponse shape the TOTP path returns so the browser
     /// flow is uniform.</summary>
     [HttpPost("Verify/Passkey/Finish")]
@@ -4226,7 +4290,7 @@ public class TwoFactorAuthController : ControllerBase
             return Unauthorized(new { message = "Passkey verification failed" });
         }
 
-        // Consume the challenge : same code path as TOTP-success (controller
+        // Consume the challenge — same code path as TOTP-success (controller
         // already has Verify endpoint for that; we delegate by re-issuing the
         // stash). Simplest reuse: mark device pre-verified and return the
         // stashed PendingAuthResponse the way the TOTP Verify does.
@@ -4254,19 +4318,19 @@ public class TwoFactorAuthController : ControllerBase
         // assertion that reaches here is a completed sign-in.
         _signInObserver.Observe(challenge.UserId, challenge.Username, ip);
 
-        // Return the stashed Jellyfin auth payload verbatim : same shape the
+        // Return the stashed Jellyfin auth payload verbatim — same shape the
         // standard challenge.html flow consumes (parses out AccessToken etc.).
         var stashed = challenge.PendingAuthResponse;
         if (string.IsNullOrEmpty(stashed))
         {
-            return Ok(new { message = "Verified, but no stashed auth response : sign in again from the start" });
+            return Ok(new { message = "Verified, but no stashed auth response — sign in again from the start" });
         }
         UnblockAccessTokenFromPendingAuthResponse(stashed, challenge.Username);
         return Content(stashed, "application/json");
     }
 
     // =========================================================================
-    // [v2.5.6] (round-5c): User-self step-up : exchange a fresh factor proof
+    // [v2.5.6] (round-5c): User-self step-up — exchange a fresh factor proof
     // (TOTP code, recovery code, OR a passkey assertion) for a single-use
     // 60-second token that the next factor-mutation request can submit in
     // lieu of a fresh code. Lets the prompt UI give the user a choice of
@@ -4375,7 +4439,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // =========================================================================
-    // v1.4 : Self-service emergency lockout
+    // v1.4 — Self-service emergency lockout
     // =========================================================================
 
     [HttpPost("Setup/EmergencyLockout")]
@@ -4386,6 +4450,7 @@ public class TwoFactorAuthController : ControllerBase
         var user = _userManager.GetUserById(userId);
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
 
+        var rearmed = false;
         // Wipe persisted bypass routes so no stale device sneaks back in.
         await _store.MutateAsync(userId, ud =>
         {
@@ -4393,10 +4458,27 @@ public class TwoFactorAuthController : ControllerBase
             ud.PairedDevices.Clear();
             ud.RegisteredDeviceIds.Clear();
             ud.ForceRecoveryOnNextLogin = true;
+            // Emergency recovery must still challenge an opted-out passkey user.
+            if (ud.Passkeys.Count > 0 && !ud.PasskeyRequiresSecondFactor)
+            {
+                ud.PasskeyRequiresSecondFactor = true;
+                rearmed = true;
+            }
             // The new secret of an unfinished rotation may sit on the lost
             // phone; it must not be confirmable after the lockout.
             TotpRotation.Clear(ud);
         }).ConfigureAwait(false);
+
+        if (rearmed)
+        {
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = userId,
+                Result = AuditResult.ConfigChanged,
+                Method = "passkey_second_factor_on",
+            }).ConfigureAwait(false);
+        }
 
         var killed = await _sessionTerm.LogoutAllForUserAsync(userId).ConfigureAwait(false);
 
@@ -4416,7 +4498,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // =========================================================================
-    // v1.4 : Admin force-logout (single user)
+    // v1.4 — Admin force-logout (single user)
     // =========================================================================
 
     [HttpPost("Users/{userId:guid}/ForceLogout")]
@@ -4431,13 +4513,13 @@ public class TwoFactorAuthController : ControllerBase
         // would render the server unrecoverable without CLI access). Two
         // guards: (1) admin can self-force-logout if other admins exist;
         // (2) any admin can be force-logged-out unless they're the only one.
-        // SEC-M2: refuse to force-logout the only remaining administrator :
+        // SEC-M2: refuse to force-logout the only remaining administrator —
         // would lock the server out of the admin UI permanently.
         try
         {
             if (target.HasPermission(PermissionKind.IsAdministrator))
             {
-                // Reflection-based enumeration : Jellyfin 10.11.9 changed
+                // Reflection-based enumeration — Jellyfin 10.11.9 changed
                 // IUserManager.Users's return type, breaking the IL-bound
                 // call site compiled against 10.11.8. Reflection works on
                 // both ABIs. See issue #27 / StatsService.EnumerateUsers.
@@ -4451,7 +4533,7 @@ public class TwoFactorAuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "[2FA] Couldn't enumerate admins for last-admin guard : proceeding");
+            _logger.LogDebug(ex, "[2FA] Couldn't enumerate admins for last-admin guard — proceeding");
         }
 
         await _store.MutateAsync(userId, ud =>
@@ -4478,7 +4560,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // =========================================================================
-    // v1.4 : Bulk admin actions
+    // v1.4 — Bulk admin actions
     // =========================================================================
 
     public class BulkActionRequest
@@ -4518,7 +4600,7 @@ public class TwoFactorAuthController : ControllerBase
             {
                 switch (req.Action.ToLowerInvariant())
                 {
-                    // SEC-M8: full reset : wipes EVERY 2FA artifact for the user.
+                    // SEC-M8: full reset — wipes EVERY 2FA artifact for the user.
                     case "reset_2fa":
                     case "disable_2fa": // legacy alias
                         await _store.MutateAsync(uid, ud =>
@@ -4547,7 +4629,7 @@ public class TwoFactorAuthController : ControllerBase
                             ud.RecoveryCodes = records;
                             ud.RecoveryCodesGeneratedAt = DateTime.UtcNow;
                         }).ConfigureAwait(false);
-                        // Plaintext is NOT returned in bulk : admin must reset per user to see codes.
+                        // Plaintext is NOT returned in bulk — admin must reset per user to see codes.
                         break;
                     case "revoke_paired_devices":
                         await _store.MutateAsync(uid, ud => ud.PairedDevices.Clear()).ConfigureAwait(false);
@@ -4560,7 +4642,7 @@ public class TwoFactorAuthController : ControllerBase
                         break;
                 }
                 // SEC-L1: per-user audit entry so the hash chain reflects bulk
-                // admin actions : without this the audit log silently drops them.
+                // admin actions — without this the audit log silently drops them.
                 await _store.AddAuditEntryAsync(new AuditEntry
                 {
                     Timestamp = DateTime.UtcNow,
@@ -4580,7 +4662,7 @@ public class TwoFactorAuthController : ControllerBase
         return Ok(new { processed, action = req.Action });
     }
 
-    // POST /TwoFactorAuth/Admin/HardeningConfig : focused save endpoint for the
+    // POST /TwoFactorAuth/Admin/HardeningConfig — focused save endpoint for the
     // v2.5.0 opt-in hardening toggles. Gated by step-up so an admin can't flip
     // these from a hijacked session. Broader plugin config still flows through
     // Jellyfin's built-in PUT /Plugins/{guid}/Configuration which can't be
@@ -4620,14 +4702,14 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // =========================================================================
-    // v1.4 : Recovery codes PDF
+    // v1.4 — Recovery codes PDF
     // =========================================================================
 
     public class RecoveryPdfRequest { public List<string> Codes { get; set; } = new(); }
 
     /// <summary>Render the just-generated recovery codes as a PDF the user can
     /// print + save. Codes must be supplied by the caller (we don't keep
-    /// plaintext) : the Setup page POSTs back what /Generate returned.</summary>
+    /// plaintext) — the Setup page POSTs back what /Generate returned.</summary>
     [HttpPost("RecoveryCodes/Pdf")]
     [Authorize]
     public IActionResult GenerateRecoveryPdf([FromBody, Required] RecoveryPdfRequest req)
@@ -4654,7 +4736,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // =========================================================================
-    // v1.4 : Diagnostics + Stats + Export + Rate-limit observability
+    // v1.4 — Diagnostics + Stats + Export + Rate-limit observability
     // =========================================================================
 
     [HttpGet("Diagnostics")]
@@ -4667,7 +4749,7 @@ public class TwoFactorAuthController : ControllerBase
 
     /// <summary>v2.5.0: rebuilds the audit-log hash chain after the admin
     /// has reviewed a broken-chain diagnostic. Gated by the destructive-tier
-    /// step-up policy because it intentionally erases tampering evidence :
+    /// step-up policy because it intentionally erases tampering evidence —
     /// a malicious admin who already has 2FA could use this to clean up
     /// after themselves. The dashboard audit_chain factor reads as green
     /// again immediately after a successful rebuild.</summary>
@@ -4735,7 +4817,7 @@ public class TwoFactorAuthController : ControllerBase
     {
         // SECURITY [v2.5.6] (A5): normalise the cache key to a small set of
         // accepted values BEFORE indexing the cache. Prior code keyed on
-        // raw user input (`range.ToLowerInvariant()`) : any distinct value
+        // raw user input (`range.ToLowerInvariant()`) — any distinct value
         // an admin sent created a new cache entry. With unknown values
         // all normalising to the same body downstream, this just bloated
         // memory permanently.
@@ -4752,7 +4834,7 @@ public class TwoFactorAuthController : ControllerBase
             {
                 return Ok(entry.Body);
             }
-            // Also cap the cache to those known keys : bound on growth.
+            // Also cap the cache to those known keys — bound on growth.
             if (_overviewCache.Count > 16)
             {
                 _overviewCache.Clear();
@@ -4790,7 +4872,7 @@ public class TwoFactorAuthController : ControllerBase
         // v2.5.0: time-series window is selectable via ?range=1w|1m|1y.
         // 1w and 1m bucket per UTC day; 1y buckets per month. Any unknown
         // value falls back to 1m so admins can't trigger a server error
-        // by hand-crafting the URL. The output is BACKFILLED : every
+        // by hand-crafting the URL. The output is BACKFILLED — every
         // bucket between `since` and now appears (even with zero counts)
         // so the chart spans the full range instead of collapsing to a
         // single bar when audit retention is shorter than the window.
@@ -4879,7 +4961,7 @@ public class TwoFactorAuthController : ControllerBase
         var body = new
         {
             // Flatten typed DTOs into anonymous shape so System.Text.Json
-            // emits camelCase consistently : the SecurityScore/IpBanEntry
+            // emits camelCase consistently — the SecurityScore/IpBanEntry
             // classes have PascalCase properties and Jellyfin's serializer
             // does not auto-lowercase nested DTO members.
             score = new
@@ -4971,12 +5053,12 @@ public class TwoFactorAuthController : ControllerBase
             supportedLanguages = SupportedLanguages,
             // v2.5.0: lets setup.html decide whether to render the per-device
             // indefinite-trust toggle. The server-side endpoints also enforce
-            // this : the public-config flag is purely a UI gate.
+            // this — the public-config flag is purely a UI gate.
             allowIndefiniteTrust = cfg.AllowIndefiniteTrust,
             // [v2.5.7] (issue #48 feature): inject.js reads these to decide
             // whether to render the built-in 2FA / Passkey login buttons.
             // Independent toggles so admins can pick the shape they want.
-            // Purely a UI gate : the /TwoFactorAuth/Login plugin login page
+            // Purely a UI gate — the /TwoFactorAuth/Login plugin login page
             // still works regardless of these flags.
             hideBuiltInTwoFactorButton = cfg.HideBuiltInTwoFactorButton,
             hideBuiltInPasskeyButton = cfg.HideBuiltInPasskeyButton,
@@ -5048,7 +5130,7 @@ public class TwoFactorAuthController : ControllerBase
         }
         catch
         {
-            // Fall through : report disabled (the reveal link still lets admins in).
+            // Fall through — report disabled (the reveal link still lets admins in).
         }
 
         return true;
@@ -5093,7 +5175,7 @@ public class TwoFactorAuthController : ControllerBase
             await svc.RequestResetAsync(body?.Identifier, origin, ip).ConfigureAwait(false);
         }
 
-        // Always identical : anti-enumeration.
+        // Always identical — anti-enumeration.
         return Ok(new { message = "If an account with that name or email exists and has an email on file, a reset link has been sent." });
     }
 
@@ -5141,7 +5223,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // =====================================================================
-    // [v2.5.14] (#100, Re4mstr) OIDC onboarding : set a local Jellyfin password.
+    // [v2.5.14] (#100, Re4mstr) OIDC onboarding — set a local Jellyfin password.
     // An OIDC-auto-created user (provider has ForcePasswordSetup on) is flagged
     // MustSetPassword and landed here by the bridge. The page authenticates with
     // the just-minted session token and POSTs a chosen password; we validate it
@@ -5214,7 +5296,7 @@ public class TwoFactorAuthController : ControllerBase
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
         if (!data.MustSetPassword)
         {
-            // Not pending (already set, or never flagged) : don't let this be a
+            // Not pending (already set, or never flagged) — don't let this be a
             // generic password-change backdoor that skips Jellyfin's own checks.
             return BadRequest(new { message = "No password setup is pending for this account." });
         }
@@ -5337,7 +5419,7 @@ public class TwoFactorAuthController : ControllerBase
     // v2.5.0: shared anonymous i18n helper script. Serves an embedded JS
     // resource so pre-login pages (login.html, challenge.html, setup.html)
     // can share a single tr() loader. The .js file is added in a follow-up
-    // commit : until then this endpoint returns 404, which is harmless.
+    // commit — until then this endpoint returns 404, which is harmless.
     // [v2.5.12] (#79) Also served at the EXTENSIONLESS path so a CDN cache rule
     // matching "*.js" (e.g. Cloudflare's default) can't edge-cache it and freeze
     // the UI language / login strings for days, overriding our no-store header.
@@ -5359,7 +5441,7 @@ public class TwoFactorAuthController : ControllerBase
         // strings and changes every upgrade. The previous "no-cache,
         // must-revalidate" (no no-store, no max-age=0) still let browsers serve
         // a stale copy, so language/i18n fixes didn't take effect until the
-        // cache aged out. Match inject.js : tell every intermediary never to
+        // cache aged out. Match inject.js — tell every intermediary never to
         // store it.
         Response.Headers.CacheControl = "no-store, no-cache, must-revalidate, max-age=0";
         Response.Headers.Pragma = "no-cache";
@@ -5374,14 +5456,14 @@ public class TwoFactorAuthController : ControllerBase
     //
     // v2.5.2: MUST stay [AllowAnonymous]. v2.5.1's CodeQL CWE-285 "fix" set
     // this to [Authorize] on the assumption that same-origin <script src>
-    // requests carry credentials : they carry COOKIES, not the
+    // requests carry credentials — they carry COOKIES, not the
     // `Authorization: MediaBrowser Token="..."` header that Jellyfin's auth
     // pipeline actually checks. The script 401s, never loads, admin page
     // sticks at "Computing…" and tabs stop working. The script content is
-    // PURE JAVASCRIPT UI code shipped to every admin browser anyway : there
+    // PURE JAVASCRIPT UI code shipped to every admin browser anyway — there
     // is nothing to gate. CodeQL #255 stays dismissed as a false-positive
     // (the named-resource heuristic flagged the "admin-" prefix).
-    // [v2.5.12] (#79) Extensionless alias too : see GetSharedI18nScript: keeps a
+    // [v2.5.12] (#79) Extensionless alias too — see GetSharedI18nScript: keeps a
     // CDN "*.js" cache rule from freezing the admin UI script.
     [HttpGet("admin-script")]
     [HttpGet("admin-script.js")]
@@ -5474,8 +5556,8 @@ public class TwoFactorAuthController : ControllerBase
     /// the admin Users table's inline details panel.
     ///
     /// The panel previously read GET Users/{id}/Export, which is step-up gated
-    /// (ExportWithSecrets). With StepUpLevel >= Destructive : and the panel's
-    /// plain fetch carrying no step-up token : expanding a row always came back
+    /// (ExportWithSecrets). With StepUpLevel >= Destructive — and the panel's
+    /// plain fetch carrying no step-up token — expanding a row always came back
     /// 403 and rendered "Failed to load details". Since the panel only shows
     /// device labels and dates, it gets its own endpoint carrying exactly that
     /// and nothing else (no audit log, IPs, device ids, contexts or email), so
@@ -5510,7 +5592,7 @@ public class TwoFactorAuthController : ControllerBase
     public IActionResult GetRateLimitTrips() => Ok(_rateLimiter.RecentTrips());
 
     // =========================================================================
-    // v1.4 : TOTP self-service rotate (current code + recovery code)
+    // v1.4 — TOTP self-service rotate (current code + recovery code)
     // =========================================================================
 
     public class TotpRotateRequest
@@ -5539,7 +5621,7 @@ public class TwoFactorAuthController : ControllerBase
         // (the base64 ciphertext) directly, which Base32Encoding.ToBytes() then
         // threw on (lowercase letters not in base32 alphabet), causing
         // ValidateCode to return false for every legitimate rotation attempt.
-        // Effect was a functional DoS on /Setup/Totp/Rotate : users could not
+        // Effect was a functional DoS on /Setup/Totp/Rotate — users could not
         // self-rotate their authenticator without admin intervention. The
         // canonical decrypt-then-validate pattern is used in every other
         // ValidateCode call site in this file (e.g. /Authenticate, /Verify).
@@ -5699,7 +5781,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // =========================================================================
-    // v1.4 : Per-user max concurrent sessions (admin override)
+    // v1.4 — Per-user max concurrent sessions (admin override)
     // =========================================================================
 
     public class MaxSessionsRequest { public int? Max { get; set; } }
@@ -5715,7 +5797,7 @@ public class TwoFactorAuthController : ControllerBase
     }
 
     // =========================================================================
-    // v1.4 : Webhook test ping (admin)
+    // v1.4 — Webhook test ping (admin)
     // =========================================================================
 
     [HttpPost("Admin/WebhookTest")]
@@ -5734,7 +5816,7 @@ public class TwoFactorAuthController : ControllerBase
         // [v2.5.21] (#143, keinezeit8) Test EVERY configured channel, not just
         // the webhook, and report each one's outcome. The old call went through
         // NotifyLoginAttemptAsync and returned a flat "dispatched" regardless of
-        // what actually happened : an admin running ntfy-only had no way to test
+        // what actually happened — an admin running ntfy-only had no way to test
         // it at all (the button refused to fire without a webhook URL), and one
         // whose ntfy was rejecting on an ACL still saw a success message.
         var channels = await _notificationService.SendTestAsync().ConfigureAwait(false);

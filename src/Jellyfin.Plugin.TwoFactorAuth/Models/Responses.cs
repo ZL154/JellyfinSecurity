@@ -82,6 +82,14 @@ public class UserTwoFactorStatus
     /// <summary>v1.4: count of registered passkey credentials.</summary>
     public int PasskeyCount { get; set; }
 
+    public bool PasskeyRequiresSecondFactor { get; set; } = true;
+
+    /// <summary>The challenge policy before device or primary-factor bypasses.</summary>
+    public bool PasswordSignInRequiresSecondFactor { get; set; }
+
+    /// <summary>Effective policy reason: scope, authenticator, passkey or none.</summary>
+    public string PasswordSignInSecondFactorReason { get; set; } = "none";
+
     /// <summary>[v2.5.6] (round-5 fix D): admin-selected mode for the
     /// self-service step-up gate. UI hides the toggle when Off, exposes a
     /// user toggle when UserChoice, locks the prompt on when Forced.

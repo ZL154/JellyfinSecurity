@@ -66,6 +66,17 @@ public class SignInChallengeIntegrationTests
         Assert.Equal(required ? 403 : 200, await fixture.UseTokenAsync());
     }
 
+    [Fact]
+    public async Task Legacy_all_user_enforcement_does_not_depend_on_a_role_lookup()
+    {
+        using var fixture = new SignInPolicyFixture();
+        fixture.Config.RequireForAllUsers = true;
+        fixture.Config.EnforcementScope = EnforcementScope.Admins;
+        fixture.Users.GetUserById(fixture.User.Id).Returns(_ => throw new InvalidOperationException("Role lookup unavailable."));
+        await fixture.ProcessSessionAsync();
+        Assert.True(fixture.Challenges.IsTokenBlocked(SignInPolicyFixture.Token));
+    }
+
     [Theory]
     [InlineData(false, 200)]
     [InlineData(true, 401)]
