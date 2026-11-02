@@ -1483,18 +1483,7 @@ public class TwoFactorAuthController : ControllerBase
         // trusted-proxy chain, which is what the detectors have to compare.
         _signInObserver.Observe(challenge.UserId, challenge.Username, clientIp);
 
-        string? deviceToken = null;
-        if (request.TrustDevice && !string.IsNullOrEmpty(challenge.DeviceId))
-        {
-            var (rawToken, trustedDevice) = _deviceTokenService.CreateDeviceToken(
-                challenge.DeviceId,
-                challenge.DeviceName ?? challenge.DeviceId);
-
-            // Added to the stored record, cap included, as in Authenticate.
-            await _store.MutateAsync(challenge.UserId, ud => UserDataUpdates.AddTrustedDevice(ud, trustedDevice)).ConfigureAwait(false);
-
-            deviceToken = rawToken;
-        }
+        var deviceToken = await CreateChallengeDeviceTokenAsync(challenge, request.TrustDevice).ConfigureAwait(false);
 
         // Return the stashed Jellyfin auth response from the middleware so the
         // client ends up with a valid session identical to a non-2FA login.
@@ -1520,6 +1509,23 @@ public class TwoFactorAuthController : ControllerBase
             AccessToken = string.Empty,
             DeviceToken = deviceToken,
         });
+    }
+
+    private async Task<string?> CreateChallengeDeviceTokenAsync(ChallengeData challenge, bool remember)
+    {
+        if (remember && !string.IsNullOrEmpty(challenge.DeviceId))
+        {
+            var (rawToken, trustedDevice) = _deviceTokenService.CreateDeviceToken(
+                challenge.DeviceId,
+                challenge.DeviceName ?? challenge.DeviceId);
+
+            // Added to the stored record, cap included, as in Authenticate.
+            await _store.MutateAsync(challenge.UserId, ud => UserDataUpdates.AddTrustedDevice(ud, trustedDevice)).ConfigureAwait(false);
+
+            return rawToken;
+        }
+
+        return null;
     }
 
     // Issue #27 ABI shim, now shared with the uninstall restore (#213).
@@ -4106,6 +4112,7 @@ public class TwoFactorAuthController : ControllerBase
         public string ChallengeToken { get; set; } = string.Empty;
         public string Nonce { get; set; } = string.Empty;
         public string Response { get; set; } = string.Empty;
+        public bool TrustDevice { get; set; }
     }
 
     /// <summary>Begin an assertion ceremony to satisfy the 2FA challenge step
@@ -4238,12 +4245,14 @@ public class TwoFactorAuthController : ControllerBase
             return Unauthorized(new { message = "Passkey verification failed" });
         }
 
-        // Consume the challenge — same code path as TOTP-success (controller
-        // already has Verify endpoint for that; we delegate by re-issuing the
-        // stash). Simplest reuse: mark device pre-verified and return the
-        // stashed PendingAuthResponse the way the TOTP Verify does.
+        // A valid passkey completes the sign-in challenge just like a code.
+        // Claim it before clearing attempts or recording device verification.
         if (!_challengeStore.ConsumeChallenge(req.ChallengeToken))
             return BadRequest(new { message = "Challenge already consumed" });
+
+        await _store.ResetFailedAttemptsAsync(challenge.UserId).ConfigureAwait(false);
+        _rateLimiter.Reset("verify_user:" + challenge.UserId.ToString("N"));
+        _rateLimiter.Reset("verify:" + clientIp);
 
         _challengeStore.MarkDevicePreVerified(challenge.UserId, challenge.DeviceId);
         _pendingPairings.Remove(challenge.UserId, challenge.DeviceId ?? string.Empty);
@@ -4266,6 +4275,8 @@ public class TwoFactorAuthController : ControllerBase
         // assertion that reaches here is a completed sign-in.
         _signInObserver.Observe(challenge.UserId, challenge.Username, ip);
 
+        var deviceToken = await CreateChallengeDeviceTokenAsync(challenge, req.TrustDevice).ConfigureAwait(false);
+
         // Return the stashed Jellyfin auth payload verbatim — same shape the
         // standard challenge.html flow consumes (parses out AccessToken etc.).
         var stashed = challenge.PendingAuthResponse;
@@ -4274,6 +4285,10 @@ public class TwoFactorAuthController : ControllerBase
             return Ok(new { message = "Verified, but no stashed auth response — sign in again from the start" });
         }
         UnblockAccessTokenFromPendingAuthResponse(stashed, challenge.Username);
+        if (deviceToken is not null)
+        {
+            Response.Headers.Append("X-TwoFactor-Device-Token", deviceToken);
+        }
         return Content(stashed, "application/json");
     }
 
