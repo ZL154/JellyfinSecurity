@@ -661,7 +661,7 @@
   "tfa.email.code.body": "Hola {username}:\n\nTu código de inicio de sesión de Jellyfin es:\n\n  {code}\n\nEste código caduca en {minutes} minutos. Si no has solicitado este código, cambia tu contraseña y revoca de inmediato las sesiones activas.\n\nJellyfin 2FA",
   "tfa.login.btn_2fa": "Iniciar sesión con autenticación de dos factores",
   "tfa.login.btn_passkey": "Iniciar sesión con clave de acceso",
-  "tfa.login.passkey_enter_user": "Primero introduce tu nombre de usuario y luego haz clic en Iniciar sesión con clave de acceso.",
+  "tfa.login.passkey_usernameless_failed": "No se pudo iniciar sesión con la clave de acceso. Si no se ofreció tu clave de acceso, primero introduce tu nombre de usuario y vuelve a intentarlo.",
   "tfa.login.oidc_title": "Iniciar sesión con {name}",
   "tfa.login.oidc_help": "Tu navegador se abrirá para finalizar el inicio de sesión. Apruébalo allí y luego vuelve a esta pantalla — se completa automáticamente.",
   "tfa.login.oidc_open": "Abrir el inicio de sesión en el navegador",

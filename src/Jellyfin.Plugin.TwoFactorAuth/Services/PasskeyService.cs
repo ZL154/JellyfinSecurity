@@ -143,7 +143,17 @@ public class PasskeyService
         {
             User = fidoUser,
             ExcludeCredentials = excludeCreds,
-            AuthenticatorSelection = AuthenticatorSelection.Default,
+            // [#319] Ask for a discoverable credential so the passkey can sign
+            // in without a username. "Preferred", never "required": an
+            // authenticator without room for resident keys still registers,
+            // and that passkey keeps working when the username is typed.
+            // Spelled out rather than taken from AuthenticatorSelection.Default,
+            // which Fido2 changed between 3.x (discouraged) and 4.x.
+            AuthenticatorSelection = new AuthenticatorSelection
+            {
+                ResidentKey = ResidentKeyRequirement.Preferred,
+                UserVerification = UserVerificationRequirement.Discouraged,
+            },
             AttestationPreference = AttestationConveyancePreference.None,
             Extensions = new AuthenticationExtensionsClientInputs(),
             // Fido2NetLib advertises Ed25519 first by default. Its EdDSA
@@ -244,9 +254,10 @@ public class PasskeyService
         return credential;
     }
 
-    /// <summary>Begin an assertion ceremony for an authenticated user (the
-    /// challenge step happens AFTER username+password, so userId is known).
-    /// Returns the JSON for navigator.credentials.get().</summary>
+    /// <summary>Begin an assertion ceremony. Returns the JSON for
+    /// navigator.credentials.get(). An empty credential list leaves
+    /// allowCredentials empty, so the browser offers every discoverable
+    /// passkey it holds for this site (sign-in without a username, #319).</summary>
     public string BuildAssertionOptions(
         HttpContext context,
         IReadOnlyList<PasskeyCredential> userCreds)
@@ -261,6 +272,37 @@ public class PasskeyService
             Extensions = new AuthenticationExtensionsClientInputs(),
         });
         return options.ToJson();
+    }
+
+    /// <summary>[#319] The account an assertion from a ceremony without a
+    /// username names: the user handle the authenticator returned (the user id
+    /// bytes registration stored) and the id of the credential it signed with.
+    /// Nothing here is verified; CompleteAssertionAsync still checks the
+    /// signature. Null when the response is malformed or carries no 16-byte
+    /// user handle, or an all-zero one (Jellyfin's GetUserById throws on
+    /// Guid.Empty).</summary>
+    public static (Guid UserId, string CredentialId)? ReadDiscoverableAssertion(string responseJson)
+    {
+        AuthenticatorAssertionRawResponse? raw;
+        try
+        {
+            raw = JsonSerializer.Deserialize<AuthenticatorAssertionRawResponse>(
+                responseJson,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        var handle = raw?.Response?.UserHandle;
+        if (raw?.RawId is not { Length: > 0 } rawId || handle is not { Length: 16 })
+        {
+            return null;
+        }
+
+        var userId = new Guid(handle);
+        return userId == Guid.Empty ? null : (userId, Base64UrlEncode(rawId));
     }
 
     /// <summary>Validate the browser's assertion. Updates the credential's

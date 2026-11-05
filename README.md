@@ -375,15 +375,21 @@ New registrations request **ES256**, the WebAuthn-required portable algorithm. T
 
 #### Using a passkey to sign in
 
-1. Visit your Jellyfin URL → enter username + password as usual
-2. At the 2FA challenge page → tap **🔑 Use a passkey instead**
-3. The browser prompts your authenticator → confirm with biometric / hardware key
-4. You're in. No code typed.
+**Instead of the password.** On the Jellyfin login page, click **🔑 Sign in with passkey**:
+
+- **Without typing anything** (#319): leave the username empty. The browser lists the passkeys it holds for this server, you pick yours, confirm with biometric / hardware key, and you are signed in as the account that passkey belongs to. This needs a *discoverable* passkey, one the authenticator stores together with the account.
+- **With the username typed first**: the browser asks only for that account's passkeys. This works with every passkey, discoverable or not.
+
+Both ways go through the same checks: IP bans, rate limits, the account's network allowlist, the failed-attempt lockout, and disabled accounts.
+
+**Which passkeys work without a username.** Since v2.4.1, adding a passkey asks the authenticator for a discoverable one ("resident key: preferred"); v2.4.0 and earlier asked it not to store one. Passkey managers (iCloud Keychain, Google Password Manager, Windows Hello, 1Password, Bitwarden and the like) store every passkey as discoverable anyway. A hardware security key added before v2.4.1, or one with no free slots, usually holds a passkey that is not discoverable, and the plugin cannot tell which kind it stored. If the browser does not offer your passkey with the username empty, type the username first (that keeps working), or remove the passkey on the Setup page and add it again so the authenticator can store it as discoverable.
+
+**As the second factor.** After username + password, at the 2FA challenge page, tap **🔑 Use a passkey instead**, confirm with biometric / hardware key, and you're in. No code typed.
 
 #### What passkeys do NOT do
 
 - **Native apps (Findroid, Streamyfin, Swiftfin, official Jellyfin app) cannot use passkeys.** WebAuthn is a browser-only API; native apps have no hook to call it. For app sign-in use **device pairing** (below) and the **app's own biometric lock** (Findroid → Settings → Biometric authentication, Swiftfin → Settings → Security → Lock with Face ID, etc.).
-- Passkeys do not replace your password — they replace the **2FA code step**. You still enter username + password first.
+- Outside the browser login page, a passkey does not replace the password: it stands in for the **2FA code step** after username + password.
 
 ### Native apps / TVs (Jellyfin for Tizen, Swiftfin, Jellyfin Android, etc.)
 

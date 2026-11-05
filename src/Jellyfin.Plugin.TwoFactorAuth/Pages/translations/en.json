@@ -684,7 +684,7 @@
   "tfa.email.code.body": "Hi {username},\n\nYour Jellyfin sign-in code is:\n\n  {code}\n\nThis code expires in {minutes} minutes. If you did not request this code, change your password and revoke active sessions immediately.\n\nJellyfin 2FA",
   "tfa.login.btn_2fa": "Sign in with Two-Factor Authentication",
   "tfa.login.btn_passkey": "Sign in with passkey",
-  "tfa.login.passkey_enter_user": "Enter your username first, then click Sign in with passkey.",
+  "tfa.login.passkey_usernameless_failed": "Passkey sign-in failed. If your passkey was not offered, type your username first and try again.",
   "tfa.login.oidc_title": "Sign in with {name}",
   "tfa.login.oidc_help": "Your browser will open to finish sign-in. Approve there, then come back to this screen — it completes automatically.",
   "tfa.login.oidc_open": "Open sign-in in browser",

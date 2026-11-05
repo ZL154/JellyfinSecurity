@@ -661,7 +661,7 @@
   "tfa.email.code.body": "Bonjour {username},\n\nVotre code de connexion Jellyfin est :\n\n  {code}\n\nCe code expire dans {minutes} minutes. Si vous n'avez pas demandé ce code, changez votre mot de passe et révoquez immédiatement les sessions actives.\n\nJellyfin 2FA",
   "tfa.login.btn_2fa": "Se connecter avec l'authentification à deux facteurs",
   "tfa.login.btn_passkey": "Se connecter avec une clé d'accès",
-  "tfa.login.passkey_enter_user": "Saisissez d'abord votre nom d'utilisateur, puis cliquez sur Se connecter avec une clé d'accès.",
+  "tfa.login.passkey_usernameless_failed": "La connexion avec une clé d'accès a échoué. Si votre clé d'accès n'a pas été proposée, saisissez d'abord votre nom d'utilisateur et réessayez.",
   "tfa.login.oidc_title": "Se connecter avec {name}",
   "tfa.login.oidc_help": "Votre navigateur va s'ouvrir pour terminer la connexion. Approuvez-la là-bas, puis revenez à cet écran — elle se termine automatiquement.",
   "tfa.login.oidc_open": "Ouvrir la connexion dans le navigateur",
