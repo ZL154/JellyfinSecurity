@@ -59,6 +59,7 @@ function page({responses = [], proof = null} = {}) {
     const elements = new Map();
     const requests = [];
     const prompts = [];
+    const stepUpEvents = [];
     const context = {
         window: {},
         document: {
@@ -70,7 +71,9 @@ function page({responses = [], proof = null} = {}) {
         apiUrl: path => '/jf/' + path,
         getAuthHeaders: () => ({'Content-Type': 'application/json'}),
         _tr: (key, fallback) => fallback,
+        refreshFactors: async () => { stepUpEvents.push('refreshFactors'); },
         tfaPromptForCode: async opts => {
+            stepUpEvents.push('prompt');
             prompts.push(opts);
             return proof;
         },
@@ -83,7 +86,7 @@ function page({responses = [], proof = null} = {}) {
     };
     runInNewContext(pageScript(), context);
     const el = id => context.document.getElementById(id);
-    return {context, requests, prompts, el, toggle: el('passkeySecondFactorToggle'), error: el('passkeySecondFactorError')};
+    return {context, requests, prompts, stepUpEvents, el, toggle: el('passkeySecondFactorToggle'), error: el('passkeySecondFactorError')};
 }
 const view = s => ({...page().context.passkeySecondFactorView(s)});
 const shown = element => element.style.display !== 'none';
@@ -173,6 +176,7 @@ for (const proof of [{stepUpToken: 'test-step-up-token'}, {code: '123456'}]) {
             {url: PREFERENCE, method: 'POST', body: {enabled: false}},
             {url: PREFERENCE, method: 'POST', body: {enabled: false, ...proof}},
         ]);
+        assert.deepEqual(p.stepUpEvents, ['refreshFactors', 'prompt']);
         assert.equal(p.prompts.length, 1);
         assert.match(p.prompts[0].message, /stop asking for a second factor after password sign-in/);
         assert.equal(p.toggle.checked, false);
@@ -187,6 +191,7 @@ test('turning the switch on sends no proof and shows what the server stored', as
     p.toggle.checked = true;
     await p.context.changePasskeySecondFactor({target: p.toggle});
     assert.deepEqual(p.requests, [{url: PREFERENCE, method: 'POST', body: {enabled: true}}]);
+    assert.deepEqual(p.stepUpEvents, []);
     assert.equal(p.prompts.length, 0);
     assert.equal(p.toggle.checked, true);
     assert.equal(p.toggle.disabled, true, 'the returned status is rendered, scope included');
@@ -198,6 +203,7 @@ test('a refused proof puts the switch back and says the code did not verify', as
     p.context.renderPasskeySecondFactor(status());
     p.toggle.checked = false;
     await p.context.changePasskeySecondFactor({target: p.toggle});
+    assert.deepEqual(p.stepUpEvents, ['refreshFactors', 'prompt']);
     assert.equal(p.requests.length, 2);
     assert.equal(p.toggle.checked, true);
     assert.equal(p.toggle.disabled, false);
@@ -210,6 +216,7 @@ test('a cancelled prompt puts the switch back without an error', async () => {
     p.context.renderPasskeySecondFactor(status());
     p.toggle.checked = false;
     await p.context.changePasskeySecondFactor({target: p.toggle});
+    assert.deepEqual(p.stepUpEvents, ['refreshFactors', 'prompt']);
     assert.equal(p.requests.length, 1);
     assert.equal(p.toggle.checked, true);
     assert.equal(p.toggle.disabled, false);
