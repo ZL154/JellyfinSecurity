@@ -625,9 +625,14 @@
                 };
                 var finishR = await fetch(window.tfaUrl('TwoFactorAuth/Verify/Passkey/Finish'), {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ challengeToken: challengeToken, nonce: begin.nonce, response: JSON.stringify(resp) })
+                    body: JSON.stringify({ challengeToken: challengeToken, nonce: begin.nonce, response: JSON.stringify(resp),
+                        trustDevice: document.getElementById('trustDevice').checked })
                 });
                 if (!finishR.ok) { btn.disabled = false; btn.textContent = _tr('tfa.challenge.btn_passkey', '🔑 Use a passkey instead'); showError(proxyError(finishR) || _tr('tfa.challenge.passkey_verify_failed', 'Passkey verification failed.')); return; }
+                var deviceToken = finishR.headers.get('X-TwoFactor-Device-Token');
+                if (deviceToken) {
+                    try { localStorage.setItem('twofactor_device_token', deviceToken); } catch (e) {}
+                }
                 var authData = await finishR.json();
                 if (!authData || !authData.AccessToken) { showError(_tr('tfa.challenge.passkey_no_auth_response', 'Verified, but no auth response — sign in again.')); return; }
                 storeCredentials(authData).then(function() { window.location.href = returnUrl; });
