@@ -228,6 +228,11 @@
         function _tr(key, fallback) {
             return (window.tfaI18n && window.tfaI18n.tr) ? window.tfaI18n.tr(key, fallback) : fallback;
         }
+        // [#320] Names a reverse proxy's error page standing in for the
+        // plugin's answer, '' otherwise (see tfa-i18n.js).
+        function proxyError(r) {
+            try { return window.tfaI18n.proxyErrorMessage(r) || ''; } catch (e) { return ''; }
+        }
 
         var params = new URLSearchParams(window.location.search);
         var challengeToken = params.get('token');
@@ -422,7 +427,7 @@
                 } else {
                     btn.disabled = false;
                     btn.textContent = _tr('tfa.challenge.btn_send_email', 'Send code by email');
-                    showError(_tr('tfa.challenge.email_send_failed', 'Failed to send email code. Too many requests?'));
+                    showError(proxyError(r) || _tr('tfa.challenge.email_send_failed', 'Failed to send email code. Too many requests?'));
                 }
             }).catch(function() {
                 btn.disabled = false;
@@ -443,7 +448,7 @@
             }).then(function(r) {
                 if (!r.ok) {
                     return r.json().catch(function() { return {}; }).then(function(j) {
-                        throw new Error(j.message || _tr('tfa.challenge.enroll_setup_failed', 'Setup failed.'));
+                        throw new Error(j.message || proxyError(r) || _tr('tfa.challenge.enroll_setup_failed', 'Setup failed.'));
                     });
                 }
                 return r.json();
@@ -495,7 +500,7 @@
             }).then(function(r) {
                 if (!r.ok) {
                     return r.json().catch(function() { return {}; }).then(function(j) {
-                        throw new Error(j.message || _tr('tfa.challenge.invalid_code', 'Invalid code.'));
+                        throw new Error(j.message || proxyError(r) || _tr('tfa.challenge.invalid_code', 'Invalid code.'));
                     });
                 }
                 var deviceToken = r.headers.get('X-TwoFactor-Device-Token');
@@ -561,7 +566,7 @@
                     btn.disabled = false;
                     btn.textContent = _tr('tfa.challenge.btn_verify', 'Verify');
                     if (r.status === 429) showError(_tr('tfa.challenge.locked_out', 'Too many attempts. Please wait and try again.'));
-                    else showError(_tr('tfa.challenge.wrong_code', 'Invalid code. Try again.'));
+                    else showError(proxyError(r) || _tr('tfa.challenge.wrong_code', 'Invalid code. Try again.'));
                     return null;
                 }
                 var deviceToken = r.headers.get('X-TwoFactor-Device-Token');
@@ -597,7 +602,12 @@
                 var begin = await fetch(window.tfaUrl('TwoFactorAuth/Verify/Passkey/Begin'), {
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({ challengeToken: challengeToken })
-                }).then(function(r){ if (!r.ok) throw new Error(_tr('tfa.challenge.passkey_begin_failed', 'Begin failed')); return r.json(); });
+                }).then(function(r){
+                    if (r.ok) return r.json();
+                    return r.json().catch(function() { return {}; }).then(function(j) {
+                        throw new Error(j.message || proxyError(r) || _tr('tfa.challenge.passkey_begin_failed', 'Begin failed'));
+                    });
+                });
                 var opts = begin.options;
                 opts.challenge = b64uToBytes(opts.challenge);
                 if (opts.allowCredentials) opts.allowCredentials.forEach(function(c){ c.id = b64uToBytes(c.id); });
@@ -615,9 +625,14 @@
                 };
                 var finishR = await fetch(window.tfaUrl('TwoFactorAuth/Verify/Passkey/Finish'), {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ challengeToken: challengeToken, nonce: begin.nonce, response: JSON.stringify(resp) })
+                    body: JSON.stringify({ challengeToken: challengeToken, nonce: begin.nonce, response: JSON.stringify(resp),
+                        trustDevice: document.getElementById('trustDevice').checked })
                 });
-                if (!finishR.ok) { btn.disabled = false; btn.textContent = _tr('tfa.challenge.btn_passkey', '🔑 Use a passkey instead'); showError(_tr('tfa.challenge.passkey_verify_failed', 'Passkey verification failed.')); return; }
+                if (!finishR.ok) { btn.disabled = false; btn.textContent = _tr('tfa.challenge.btn_passkey', '🔑 Use a passkey instead'); showError(proxyError(finishR) || _tr('tfa.challenge.passkey_verify_failed', 'Passkey verification failed.')); return; }
+                var deviceToken = finishR.headers.get('X-TwoFactor-Device-Token');
+                if (deviceToken) {
+                    try { localStorage.setItem('twofactor_device_token', deviceToken); } catch (e) {}
+                }
                 var authData = await finishR.json();
                 if (!authData || !authData.AccessToken) { showError(_tr('tfa.challenge.passkey_no_auth_response', 'Verified, but no auth response — sign in again.')); return; }
                 storeCredentials(authData).then(function() { window.location.href = returnUrl; });
@@ -654,12 +669,24 @@
         // Deliberately does NOT touch localStorage['__tfa_set_pw_required'] —
         // that belongs to the OIDC force-password step (#100) and is cleared
         // only by the set-password page.
-        function clearTfaClientState() {
+        function clearTfaClientState(stored) {
             try { sessionStorage.removeItem('__tfa_pending'); } catch (e) {}
             // [#134] This browser just signed in locally, so any RP-logout
             // marker still sitting here belongs to an older OIDC session.
             // Leaving it armed would send a password sign-out to that IdP.
             try { localStorage.removeItem('__tfa_rp_logout'); } catch (e) {}
+            // Tells inject.js which session this page handed over, so the next
+            // /web load keeps that one even when Jellyfin Web's "Remember Me"
+            // box was left unticked. Called right after the session is stored,
+            // with its server entry; the marker names it by its Id, UserId and
+            // the last 8 characters of the token (not the token itself).
+            try {
+                if (stored && stored.AccessToken) {
+                    sessionStorage.setItem('__tfa_session_handoff', JSON.stringify({ at: Date.now(), server: stored.Id, user: stored.UserId, tokenTail: String(stored.AccessToken).slice(-8) }));
+                } else {
+                    sessionStorage.removeItem('__tfa_session_handoff');
+                }
+            } catch (e) {}
         }
 
         function storeCredentials(authData) {
@@ -708,7 +735,7 @@
                     });
                 }
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
-                clearTfaClientState();
+                clearTfaClientState(existing || creds.Servers[0]);
             }).catch(function() {
                 // If /System/Info/Public fails, still set minimal credentials
                 var creds;
@@ -720,7 +747,7 @@
                     creds.Servers[0].DateLastAccessed = Date.now();
                 }
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
-                clearTfaClientState();
+                clearTfaClientState(creds.Servers[0]);
             });
         }
     </script>

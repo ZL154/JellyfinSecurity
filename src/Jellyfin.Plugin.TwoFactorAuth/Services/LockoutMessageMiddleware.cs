@@ -34,6 +34,11 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// </summary>
 public class LockoutMessageMiddleware
 {
+    // "blank", not "empty": OWASP CRS rule 953101 reads "empty password" in a
+    // response body as a leaked PHP error (#320).
+    internal const string BlankSignInRefusalJson =
+        "{\"message\":\"Signing in with a blank password is not allowed. Please enter your password.\",\"emptyPasswordBlocked\":true}";
+
     private readonly RequestDelegate _next;
     private readonly UserTwoFactorStore _store;
     private readonly IUserManager _userManager;
@@ -108,9 +113,7 @@ public class LockoutMessageMiddleware
             _logger.LogWarning("[2FA] Login refused: empty password blocked (BlockEmptyPasswordLogin) for '{User}'.", username ?? "(unknown)");
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(
-                "{\"message\":\"Signing in with an empty password is not allowed. Please enter your password.\",\"emptyPasswordBlocked\":true}")
-                .ConfigureAwait(false);
+            await context.Response.WriteAsync(BlankSignInRefusalJson).ConfigureAwait(false);
             return;
         }
 
@@ -206,7 +209,7 @@ public class LockoutMessageMiddleware
             {
                 await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
             }
-            else if (status == StatusCodes.Status401Unauthorized)
+            else if (IsFailedSignIn(context))
             {
                 await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
             }
@@ -216,6 +219,15 @@ public class LockoutMessageMiddleware
             _logger.LogDebug(ex, "[2FA] lockout record/reset after login failed (non-fatal)");
         }
     }
+
+    /// <summary>A 401 is a failed sign-in, except the 2FA challenge, which
+    /// TwoFactorEnforcementMiddleware only answers with after Jellyfin accepted
+    /// the password. The count stays as it is then, neither raised nor reset:
+    /// completing the challenge resets it, a wrong code raises it, and signing
+    /// in again with the password can't wipe it.</summary>
+    internal static bool IsFailedSignIn(HttpContext context)
+        => context.Response.StatusCode == StatusCodes.Status401Unauthorized
+           && !TwoFactorEnforcementMiddleware.IssuedChallenge(context);
 
     /// <summary>[v2.5.11] (#69) true when password login should still be allowed
     /// for this request despite DisablePasswordLogin — via the admin, LAN, or
@@ -417,7 +429,8 @@ public class LockoutMessageMiddleware
     /// <summary>Read the JSON body's Username + Pw without consuming it for the
     /// downstream pipeline (EnableBuffering + rewind). Returns (null, null) on
     /// any error or an unexpectedly large body — callers treat that as a
-    /// pass-through.</summary>
+    /// pass-through. [#312] CodeAfterPasswordMiddleware reads the body with
+    /// this too, so it splits the same password these gates judged.</summary>
     internal static async Task<(string? Username, string? Password)> PeekCredentialsAsync(HttpRequest request)
     {
         try
