@@ -219,12 +219,24 @@
         // that flag belongs to the OIDC force-password-onboarding step (#100)
         // and is cleared only by the set-password page once the password is
         // actually set.
-        function clearTfaClientState() {
+        function clearTfaClientState(stored) {
             try { sessionStorage.removeItem('__tfa_pending'); } catch (e) {}
             // [#134] This browser just signed in locally, so any RP-logout
             // marker still sitting here belongs to an older OIDC session.
             // Leaving it armed would send a password sign-out to that IdP.
             try { localStorage.removeItem('__tfa_rp_logout'); } catch (e) {}
+            // Tells inject.js which session this page handed over, so the next
+            // /web load keeps that one even when Jellyfin Web's "Remember Me"
+            // box was left unticked. Called right after the session is stored,
+            // with its server entry; the marker names it by its Id, UserId and
+            // the last 8 characters of the token (not the token itself).
+            try {
+                if (stored && stored.AccessToken) {
+                    sessionStorage.setItem('__tfa_session_handoff', JSON.stringify({ at: Date.now(), server: stored.Id, user: stored.UserId, tokenTail: String(stored.AccessToken).slice(-8) }));
+                } else {
+                    sessionStorage.removeItem('__tfa_session_handoff');
+                }
+            } catch (e) {}
         }
 
         var params = new URLSearchParams(window.location.search);
@@ -464,7 +476,7 @@
                     });
                 }
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
-                clearTfaClientState();
+                clearTfaClientState(existing || creds.Servers[0]);
             }).catch(function() {/* best effort */});
         }
     </script>
