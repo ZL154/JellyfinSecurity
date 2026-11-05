@@ -110,6 +110,11 @@
         } catch (e) { /* ignore */ }
         return fallback;
     }
+    // [#320] Names a reverse proxy's error page standing in for the plugin's
+    // answer, '' otherwise (see tfa-i18n.js, which may still be loading).
+    function proxyError(r) {
+        try { return window.tfaI18n.proxyErrorMessage(r) || ''; } catch (e) { return ''; }
+    }
     // Interpolate "{name}"-style placeholders into a translated template.
     function Tf(key, fallback, vars) {
         var s = T(key, fallback);
@@ -557,6 +562,13 @@
                 // 403 instead of 401 for blocked-token-2FA-pending). Auth paths
                 // still get 401 with the TwoFactorRequired marker.
                 if (resp.status !== 401 && resp.status !== 403) return resp;
+                // [#320] A proxy's page in place of a sign-in answer hides the
+                // 2FA challenge: say so, and leave the answer to Jellyfin.
+                var replaced = isAuthPath(url) ? proxyError(resp) : '';
+                if (replaced) {
+                    showLockoutToast(replaced);
+                    return resp;
+                }
                 var clone = resp.clone();
                 return clone.json().then(function (body) {
                     // Any 2FA-required marker (from any endpoint) sets the flag
@@ -688,6 +700,15 @@
                 // v2.4.12: also recognise 403 (RequestBlockerMiddleware) in
                 // addition to 401 (auth-path challenge response).
                 if (xhr.status !== 401 && xhr.status !== 403) return;
+                // [#320] Same as the fetch path: name a proxy's page.
+                var replaced = proxyError({
+                    status: xhr.status,
+                    headers: { get: function (name) { return xhr.getResponseHeader(name); } }
+                });
+                if (replaced) {
+                    showLockoutToast(replaced);
+                    return;
+                }
                 var body = readJsonBody(xhr);
                 if (!body) return;
                 if (body.twoFactorRequired || body.TwoFactorRequired) {
@@ -1192,8 +1213,11 @@
         var hash = window.location.hash || '';
         return hash.indexOf('login') >= 0 || hash === '' || hash === '#';
     }
+    function findUsernameInput() {
+        return document.querySelector('input#txtManualName, input[name="username"], input#username, .manualLoginForm input[type="text"]:not([type="password"])');
+    }
     function findUsername() {
-        var input = document.querySelector('input#txtManualName, input[name="username"], input#username, .manualLoginForm input[type="text"]:not([type="password"])');
+        var input = findUsernameInput();
         return input && input.value ? input.value.trim() : '';
     }
     // [v2.5.7] (issue #48 feature, Gaarindor): lazy-fetch the anonymous
@@ -1374,7 +1398,7 @@
             var qc = document.querySelector('.btnQuick');
             if (!qc || qc.offsetParent === null || !qc.parentNode) return;
             var after = qc;
-            [OIDC_BUTTONS_ID, BUTTON_ID, '__twofactor_passkey_btn'].forEach(function (id) {
+            [PROXY_BUTTON_ID, OIDC_BUTTONS_ID, BUTTON_ID, '__twofactor_passkey_btn'].forEach(function (id) {
                 var el = document.getElementById(id);
                 if (!el) return;
                 if (after.nextSibling !== el) { after.parentNode.insertBefore(el, after.nextSibling); }
@@ -1455,7 +1479,10 @@
     // v2.1: passkey primary login button — sits below the 2FA button. Click
     // takes the username from the form, asks the server for assertion options,
     // runs navigator.credentials.get, posts the signed assertion back, gets a
-    // bridge token, fills it in as the password and submits the form.
+    // bridge token and signs in with it (signInWithBridgeToken).
+    // [#319] With the username field empty, the browser offers the passkeys it
+    // holds for this site and the server names the account of the one picked,
+    // which is then signed in.
     function addPasskeyButton(signInBtn, twoFaBtn) {
         if (document.getElementById('__twofactor_passkey_btn')) return;
         // Only show when WebAuthn is available in a secure context.
@@ -1471,8 +1498,8 @@
         btn.addEventListener('click', async function(e) {
             e.preventDefault();
             var u = findUsername();
-            if (!u) { alert(T('tfa.login.passkey_enter_user', 'Enter your username first, then click Sign in with passkey.')); return; }
             var orig = btn.innerHTML;
+            var verified = false;
             btn.innerHTML = '<span class="tfa-icon">🔑</span>Waiting for authenticator…';
             try {
                 var begin = await fetch(serverUrl('TwoFactorAuth/Passkey/LoginBegin'), {
@@ -1481,7 +1508,7 @@
                 });
                 if (!begin.ok) {
                     var err = await begin.json().catch(function(){return{};});
-                    throw new Error(err.message || ('HTTP ' + begin.status));
+                    throw new Error(err.message || proxyError(begin) || ('HTTP ' + begin.status));
                 }
                 var beginBody = await begin.json();
                 var opts = JSON.parse(beginBody.options);
@@ -1503,25 +1530,100 @@
                 });
                 if (!complete.ok) {
                     var err2 = await complete.json().catch(function(){return{};});
-                    throw new Error(err2.message || 'Passkey verification failed');
+                    throw new Error(err2.message || proxyError(complete) || 'Passkey verification failed');
                 }
                 var data = await complete.json();
-                // Stuff the bridge token into the password field and submit the
-                // standard Jellyfin form — TwoFactorAuthProvider sees the token
-                // prefix and accepts the login with no further challenge.
+                verified = true;
+                var signedIn = signInWithBridgeToken(signInBtn, data.username, data.token);
+                if (signedIn) {
+                    await signedIn;
+                    return;
+                }
+                console.warn('[2FA] Cannot sign in through the Jellyfin Web ApiClient on this page; submitting the login form with the passkey token instead.');
+                // Fallback: stuff the bridge token into the password field and
+                // submit the standard Jellyfin form. TwoFactorAuthProvider sees
+                // the token prefix and accepts the login with no further challenge.
                 var passInput = document.querySelector('input#txtManualPassword, input[name="password"], input#password');
                 if (!passInput) throw new Error('Password field not found');
+                if (!u) {
+                    var nameInput = findUsernameInput();
+                    if (!nameInput) throw new Error('Username field not found');
+                    nameInput.value = data.username;
+                    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
                 passInput.value = data.token;
                 passInput.dispatchEvent(new Event('input', { bubbles: true }));
                 signInBtn.click();
             } catch (err) {
                 btn.innerHTML = orig;
-                alert('Passkey sign-in failed: ' + (err && err.message ? err.message : err));
+                var detail = err && err.message ? err.message : err;
+                // Jellyfin answers 403 after accepting the token when the
+                // account may not sign in from here, which retrying cannot fix.
+                if (err && err.signInRefused) {
+                    alert(T('tfa.login.oidc_refused', 'Jellyfin refused this account here. An administrator can check it under Dashboard > Users: remote connections, a disabled account, allowed hours, allowed devices or the session limit. A reverse proxy in front of Jellyfin can also refuse the request.'));
+                    return;
+                }
+                // A passkey registered without discoverable storage is never
+                // offered here, so point to the username path that still works.
+                alert(u || verified ? 'Passkey sign-in failed: ' + detail
+                    : T('tfa.login.passkey_usernameless_failed', 'Passkey sign-in failed. If your passkey was not offered, type your username first and try again.') + '\n\n' + detail);
             }
         });
         var parent = twoFaBtn.parentNode;
         if (twoFaBtn.nextSibling) parent.insertBefore(btn, twoFaBtn.nextSibling);
         else parent.appendChild(btn);
+    }
+
+    // [#NEW_ISSUE] Sign in with a bridge token the way Jellyfin Web's login
+    // page does once its form has been read, and the way its Quick Connect
+    // button does: ApiClient.authenticateUserByName stores the session, then
+    // Dashboard switches to that client and opens the page the login route was
+    // asked to return to. The token never touches the password field: a
+    // password manager watching that field offered to save each single-use
+    // token as the account's new password. Returns null when this Jellyfin Web
+    // lacks what that needs, so the caller can submit the form instead.
+    function signInWithBridgeToken(signInBtn, username, token) {
+        var apiClient = window.ApiClient;
+        var dashboard = window.Dashboard;
+        if (!apiClient || typeof apiClient.authenticateUserByName !== 'function'
+            || !dashboard || typeof dashboard.onServerChanged !== 'function'
+            || typeof dashboard.navigate !== 'function') return null;
+        // Parsed like Jellyfin Web parses the login route's own parameters:
+        // when a key repeats, the last value wins.
+        var hash = window.location.hash || '';
+        var params = {};
+        new URLSearchParams(hash.indexOf('?') < 0 ? '' : hash.substring(hash.indexOf('?') + 1))
+            .forEach(function (value, key) { params[key] = value; });
+        // A route naming another server signs in through that server's client,
+        // which only Jellyfin Web can reach.
+        var serverId = params.serverid;
+        if (serverId && (typeof apiClient.serverId !== 'function' || apiClient.serverId() !== serverId)) return null;
+        var form = signInBtn.closest ? signInBtn.closest('form') : null;
+        var remember = form ? form.querySelector('.chkRememberLogin') : null;
+        // The form's submit handler saves "Remember me" here, and Jellyfin Web
+        // drops the stored session on its next start when it is off.
+        if (remember) {
+            try { localStorage.setItem('enableAutoLogin', String(!!remember.checked)); } catch (e) { /* storage blocked */ }
+        }
+        var target = '/home';
+        if (params.url) {
+            try { target = decodeURIComponent(params.url); } catch (e) { /* keep /home, as Jellyfin Web does */ }
+        }
+        if (typeof dashboard.showLoadingMsg === 'function') dashboard.showLoadingMsg();
+        function hideLoading() {
+            if (typeof dashboard.hideLoadingMsg === 'function') dashboard.hideLoadingMsg();
+        }
+        return apiClient.authenticateUserByName(username, token).then(function (result) {
+            hideLoading();
+            dashboard.onServerChanged(result.User.Id, result.AccessToken, apiClient);
+            dashboard.navigate(target);
+        }, function (response) {
+            hideLoading();
+            var status = response && response.status;
+            var err = new Error(status ? 'HTTP ' + status : 'Sign-in request failed');
+            err.signInRefused = status === 403;
+            throw err;
+        });
     }
 
     // Base64url ⇔ ArrayBuffer — same helpers as challenge.html.
@@ -1563,10 +1665,13 @@
     //     answer in;
     //   - after oidcAuto=0 or a sign-out in this tab;
     //   - within two minutes of the last automatic redirect, so a round trip
-    //     that ends back here shows the button instead of looping.
+    //     that ends back here shows the button instead of looping;
+    //   - when a trusted proxy names the user (#298): the page signs that
+    //     user in instead.
     function oidcAutoRedirectTarget(s) {
         var LOOP_GUARD_MS = 120000;
         if (s.embeddedApp || s.oidcError || s.returningFromProvider) return null;
+        if (s.proxySignIn) return null;
         if (s.optedOut || s.signedOut) return null;
         if (s.lastAutoRedirectAt && s.now - s.lastAutoRedirectAt < LOOP_GUARD_MS) return null;
         var list = s.providers || [];
@@ -1585,24 +1690,150 @@
     function maybeAutoRedirectToOidc(rows) {
         if (_tfaOidcAutoDecided) return;
         _tfaOidcAutoDecided = true;
-        var off, lastAt;
-        try {
-            off = sessionStorage.getItem(OIDC_AUTO_OFF_KEY);
-            lastAt = parseInt(sessionStorage.getItem(OIDC_AUTO_AT_KEY) || '0', 10) || 0;
-        } catch (e) { return; } // no sessionStorage means no loop guard: keep the button
-        var id = oidcAutoRedirectTarget({
-            providers: rows,
-            embeddedApp: inEmbeddedWebView(),
-            oidcError: !!_tfaOidcError,
-            returningFromProvider: _tfaOidcReturning || !!window[OIDC_AUTOSUBMIT_FLAG],
-            optedOut: off === 'optout',
-            signedOut: off === 'signout',
-            lastAutoRedirectAt: lastAt,
-            now: Date.now()
+        // [#298] With public-config in hand: it says whether a trusted proxy
+        // named the user, who is then signed in here instead.
+        fetchTfaPublicConfig().then(function (cfg) {
+            var off, lastAt;
+            try {
+                off = sessionStorage.getItem(OIDC_AUTO_OFF_KEY);
+                lastAt = parseInt(sessionStorage.getItem(OIDC_AUTO_AT_KEY) || '0', 10) || 0;
+            } catch (e) { return; } // no sessionStorage means no loop guard: keep the button
+            var id = oidcAutoRedirectTarget({
+                providers: rows,
+                embeddedApp: inEmbeddedWebView(),
+                oidcError: !!_tfaOidcError,
+                returningFromProvider: _tfaOidcReturning || !!window[OIDC_AUTOSUBMIT_FLAG],
+                optedOut: off === 'optout',
+                signedOut: off === 'signout',
+                proxySignIn: !!(cfg && cfg.proxySignInAvailable),
+                lastAutoRedirectAt: lastAt,
+                now: Date.now()
+            });
+            if (!id) return;
+            try { sessionStorage.setItem(OIDC_AUTO_AT_KEY, String(Date.now())); } catch (e) { return; }
+            window.location.replace(serverUrl('TwoFactorAuth/Oidc/Login/' + encodeURIComponent(id)));
         });
-        if (!id) return;
-        try { sessionStorage.setItem(OIDC_AUTO_AT_KEY, String(Date.now())); } catch (e) { return; }
-        window.location.replace(serverUrl('TwoFactorAuth/Oidc/Login/' + encodeURIComponent(id)));
+    }
+
+    // ---------------------------------------------------------------------
+    // [#298] Sign-in through a trusted reverse proxy.
+    //
+    // A proxy that signs people in itself (NetBird, Authelia, ...) names the
+    // user in a header. public-config says, for this very request, whether
+    // it came through that proxy with a name; the server picks the account
+    // and answers with a bridge token, which this page spends exactly like
+    // the in-app OIDC flow does. The page never sees or sends the name.
+    // ---------------------------------------------------------------------
+    var PROXY_SIGNIN_AT_KEY = '__tfa_proxy_signin_at';
+    var PROXY_SIGNIN_FAILED_KEY = '__tfa_proxy_signin_failed';
+    var PROXY_BUTTON_ID = '__twofactor_proxy_btn';
+
+    // [#298] What the login page does with the sign-in a proxy offers. Pure,
+    // so tests/oidc-bridge.test.mjs runs the rules as written:
+    //   - 'auto' signs in at once;
+    //   - 'button' leaves it one click away: after a sign-out or oidcAuto=0
+    //     in this tab, after a refusal here (it is not retried on every
+    //     render), and within two minutes of the last automatic sign-in, so
+    //     a sign-in that ends back on this page cannot loop;
+    //   - null offers nothing: the proxy named nobody, or the page shows a
+    //     failed OIDC sign-in or signs a provider's answer in.
+    function proxySignInAction(s) {
+        var LOOP_GUARD_MS = 120000;
+        if (!s.available || s.oidcError || s.returningFromProvider) return null;
+        if (s.signedOut || s.optedOut || s.failedInTab) return 'button';
+        if (s.lastAutoAt && s.now - s.lastAutoAt < LOOP_GUARD_MS) return 'button';
+        return 'auto';
+    }
+
+    // Decided once per page load, once public-config is in. Undefined until then.
+    var _tfaProxyAction;
+    var _tfaProxySignInBusy = false;
+    function maybeSignInThroughProxy() {
+        // Only on a rendered login view: the bare /web/ address also passes
+        // isLoginPage() while a signed-in session is still routing home.
+        if (!isLoginPage() || !document.querySelector('.manualLoginForm')) return;
+        if (_tfaPublicCfg === null) { fetchTfaPublicConfig(); return; }
+        if (_tfaProxyAction === undefined) {
+            var off = null, failed = null, lastAt = 0;
+            try {
+                off = sessionStorage.getItem(OIDC_AUTO_OFF_KEY);
+                failed = sessionStorage.getItem(PROXY_SIGNIN_FAILED_KEY);
+                lastAt = parseInt(sessionStorage.getItem(PROXY_SIGNIN_AT_KEY) || '0', 10) || 0;
+            } catch (e) { off = 'signout'; } // no memory of a sign-out or a loop: wait for a click
+            _tfaProxyAction = proxySignInAction({
+                available: !!_tfaPublicCfg.proxySignInAvailable,
+                signedOut: off === 'signout',
+                optedOut: off === 'optout',
+                failedInTab: !!failed,
+                oidcError: !!_tfaOidcError,
+                returningFromProvider: _tfaOidcReturning || !!window[OIDC_AUTOSUBMIT_FLAG],
+                lastAutoAt: lastAt,
+                now: Date.now()
+            });
+            if (_tfaProxyAction === 'auto') {
+                try {
+                    sessionStorage.setItem(PROXY_SIGNIN_AT_KEY, String(Date.now()));
+                } catch (e) { _tfaProxyAction = 'button'; }
+                if (_tfaProxyAction === 'auto') signInThroughProxy();
+            }
+        }
+        if (_tfaProxyAction === 'button') injectProxySignInButton();
+    }
+
+    function signInThroughProxy() {
+        if (_tfaProxySignInBusy) return;
+        _tfaProxySignInBusy = true;
+        fetch(serverUrl('TwoFactorAuth/HeaderSignIn'), { method: 'POST', headers: { 'Accept': 'application/json' } })
+            .then(function (r) {
+                return r.json().catch(function () { return null; }).then(function (body) {
+                    if (r.ok && body && body.username && body.token) return body;
+                    var err = new Error('HTTP ' + r.status);
+                    var reason = body && (body.message || body.Message);
+                    if (typeof reason === 'string' && reason.trim()) err.serverMessage = reason.trim();
+                    throw err;
+                });
+            })
+            .then(function (body) {
+                console.log('[2FA] Signing in the user named by the trusted proxy');
+                completeWithBridgeToken(body.username, body.token, proxySignInFailed);
+            })
+            .catch(proxySignInFailed);
+    }
+
+    // A refusal stays on this page, says why, and leaves the button: the
+    // tab does not try again by itself.
+    function proxySignInFailed(e) {
+        _tfaProxySignInBusy = false;
+        _tfaProxyAction = 'button';
+        try { sessionStorage.setItem(PROXY_SIGNIN_FAILED_KEY, '1'); } catch (x) {}
+        var reason = e && e.serverMessage;
+        if (!reason) {
+            reason = /HTTP 403/.test(e && e.message)
+                ? T('tfa.login.oidc_refused', 'Jellyfin refused this account here. An administrator can check it under Dashboard > Users: remote connections, a disabled account, allowed hours, allowed devices or the session limit. A reverse proxy in front of Jellyfin can also refuse the request.')
+                : (e && e.message) || 'error';
+        }
+        console.warn('[2FA] Proxy sign-in failed: ' + reason);
+        showLockoutToast(T('tfa.login.signin_failed_prefix', 'Sign-in failed: ') + reason);
+        injectProxySignInButton();
+    }
+
+    function injectProxySignInButton() {
+        if (document.getElementById(PROXY_BUTTON_ID)) return;
+        var anchor = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
+        if (!anchor || !anchor.parentNode) return;
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = PROXY_BUTTON_ID;
+        btn.className = 'raised block emby-button';
+        btn.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;padding:0.9em 1em;margin-top:14px;';
+        btn.innerHTML = '<span class="material-icons" style="font-family:Material Icons;font-size:18px;">login</span>'
+            + '<span data-i18n-key="tfa.login.proxy_signin">' + T('tfa.login.proxy_signin', 'Continue with your existing sign-in') + '</span>';
+        btn.addEventListener('click', function () {
+            // A deliberate retry: a refusal from before no longer applies.
+            try { sessionStorage.removeItem(PROXY_SIGNIN_FAILED_KEY); } catch (e) {}
+            signInThroughProxy();
+        });
+        anchor.parentNode.insertBefore(btn, anchor.nextSibling);
     }
 
     // ---------------------------------------------------------------------
@@ -1719,7 +1950,9 @@
         document.getElementById(OIDC_MODAL_ID + '_cancel').addEventListener('click', closeOidcModal);
     }
 
-    function completeWithBridgeToken(user, token) {
+    // [#298] onFailure, when given, takes over the error report: the proxy
+    // sign-in has no modal to write into.
+    function completeWithBridgeToken(user, token, onFailure) {
         // [v2.5.9] (issue #64): authenticate exactly like the proven DESKTOP
         // OIDC bridge page — direct AuthenticateByName with a self-managed
         // device id, then store credentials and reload /web/. This matters for
@@ -1808,6 +2041,7 @@
                 setTimeout(function () { closeOidcModal(); window.location.href = serverUrl('web/index.html'); }, 300);
             })
             .catch(function (e) {
+                if (onFailure) { onFailure(e); return; }
                 var msg = (e && e.message ? e.message : 'error');
                 // [v2.5.16] (#64) The bridge token is single-use and short-lived,
                 // so a 401 here means it was already consumed or has expired.
@@ -2019,6 +2253,9 @@
         injectSettingsTile();
         injectOidcButtons();
         handleOidcCallback();
+        // [#298] After handleOidcCallback, so an OIDC answer being signed in
+        // takes precedence.
+        maybeSignInThroughProxy();
         // [#134] ApiClient is created lazily and per-server, so the wrap is
         // attempted on every pass and no-ops once it has taken.
         tfaWrapLogoutForRpLogout();

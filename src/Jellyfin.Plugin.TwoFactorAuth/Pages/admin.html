@@ -594,6 +594,13 @@
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="cfgEmailOtp" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_email_otp">Allow email OTP as fallback</span></label>
                             </div>
+                            <!-- [#313]: sign-in codes for apps that can't show the challenge. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgSendSignInCodeToApps" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_send_sign_in_code_to_apps">Send a sign-in code by email and Telegram to apps that can't show the challenge</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.send_sign_in_code_to_apps_help">When an app such as Infuse, Swiftfin or a TV app signs in with the right password and can't show the 2FA challenge, the user also gets an 8-digit code by email and on their linked Telegram chat, then signs in again in that app with the password followed by the code, with no space. The code works once, for a few minutes, only in that app on that device, and only while the password is unchanged. Needs email OTP. The web interface never gets one, nor do the apps listed in AppPasswordRefusedClients. Off by default.</div>
+                                <label style="margin-top:8px;"><input type="checkbox" id="cfgAcceptSignInCodeAlone" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_accept_sign_in_code_alone">Accept the sign-in code alone, in place of the password</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.accept_sign_in_code_alone_help">Only on the app's second attempt, once, and only when the account, device, app, password and client address all match the first attempt. Refused when the plugin can't see the client's own address, as behind a proxy it doesn't trust. Someone who can read the mailbox, shares that address and knows the device ID could still use the code while it is valid, so the security score counts this as an open escape hatch. Off by default.</div>
+                            </div>
                         </div>
 
                         <div class="tfa-section">
@@ -615,6 +622,46 @@
                             </div>
                         </div>
 
+                        <!-- [#298] Sign-in through a trusted reverse proxy. -->
+                        <div class="tfa-section">
+                            <h2 data-i18n-key="tfa.admin.settings.header_heading">Sign in through a trusted proxy</h2>
+                            <div class="tfa-help" data-i18n-key="tfa.admin.settings.header_help">For a reverse proxy that signs people in itself and passes the user on in a header (NetBird, Authelia, oauth2-proxy and the like). The login page then signs that user in by itself. Only an existing, enabled Jellyfin account is signed in; none is ever created. The header is believed only from the proxy addresses below: list the proxy itself, never a whole network, since any machine in a listed range could send the header and sign in as anyone.</div>
+                            <div class="tfa-row" style="margin-top:12px;">
+                                <label><input type="checkbox" id="cfgHeaderSignIn" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_header_signin">Sign in the user the proxy names</span></label>
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label data-i18n-key="tfa.admin.settings.lbl_header_user">User header</label>
+                                <input type="text" id="cfgHeaderUser" class="tfa-input" style="width:240px;" placeholder="X-NetBird-User" autocomplete="off" spellcheck="false" />
+                            </div>
+                            <div style="margin-top:12px;">
+                                <label style="font-size:13px;color:#888;" data-i18n-key="tfa.admin.settings.lbl_header_proxy_cidrs">Proxy addresses (CIDR, one per line)</label>
+                                <textarea id="cfgHeaderProxyCidrs" class="tfa-input" placeholder="172.18.0.5/32"></textarea>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.header_proxy_cidrs_help">The address the proxy connects to Jellyfin from, as Jellyfin sees it: the proxy container's address on a Docker network, or the proxy's NetBird address. A single host is /32. Ranges broader than /8 (IPv6: /16) are ignored. Do not list NetBird's whole 100.64.0.0/10: any peer that can reach Jellyfin directly could then sign in as anyone.</div>
+                            </div>
+                            <div class="tfa-row tfa-row-stack" style="margin-top:12px;">
+                                <label data-i18n-key="tfa.admin.settings.lbl_header_email_domains">Email domains (comma-separated, optional)</label>
+                                <input type="text" id="cfgHeaderEmailDomains" class="tfa-input" style="width:320px;" placeholder="example.com" autocomplete="off" spellcheck="false" />
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.header_email_domains_help">When the header holds an email in one of these domains, the part before the @ is also tried as the Jellyfin username: alice@example.com signs in alice. The email a user saves in this plugin is never used to find the account.</div>
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label data-i18n-key="tfa.admin.settings.lbl_header_groups">Groups header (optional)</label>
+                                <input type="text" id="cfgHeaderGroups" class="tfa-input" style="width:240px;" placeholder="X-NetBird-Groups" autocomplete="off" spellcheck="false" />
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label data-i18n-key="tfa.admin.settings.lbl_header_allowed_groups">Allowed groups (comma-separated, optional)</label>
+                                <input type="text" id="cfgHeaderAllowedGroups" class="tfa-input" style="width:320px;" placeholder="jellyfin-users" autocomplete="off" spellcheck="false" />
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.header_groups_help">When groups are listed, the user must be in at least one of them, as the groups header reports. Groups never grant anything else, administration included.</div>
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgHeaderBypass2fa" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_header_bypass_2fa">Skip this plugin's 2FA for these sign-ins</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.header_bypass_2fa_help">The proxy has already signed the user in, as an identity provider does. Turn this off to also ask users who set up 2FA for their code.</div>
+                            </div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgHeaderAllowAdmins" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_header_allow_admins">Let administrator accounts sign in this way</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.header_allow_admins_help">Off by default, so a misconfigured proxy cannot hand out administration. Administrators can still sign in the usual ways.</div>
+                            </div>
+                        </div>
+
                         <div class="tfa-section">
                             <h2 data-i18n-key="tfa.admin.settings.security_heading">Security</h2>
                             <div class="tfa-row">
@@ -632,7 +679,7 @@
                             </div>
                             <!-- [v2.5.10] (issue #68, CWabbity): block empty-password sign-in. -->
                             <div class="tfa-row tfa-row-stack">
-                                <label><input type="checkbox" id="cfgBlockEmptyPassword" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_block_empty_password">Block sign-in with an empty password</span></label>
+                                <label><input type="checkbox" id="cfgBlockEmptyPassword" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_block_empty_password">Block sign-in with a blank password</span></label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.settings.block_empty_password_help">Rejects any sign-in attempt with a blank password, for every user. Closes the flaw where an account with no stored password hash (some OIDC-provisioned or imported accounts) can be signed into by anyone who knows the username. Leave OFF only if you rely on Jellyfin's passwordless "tap a user tile" kiosk login.</div>
                             </div>
                             <!-- [v2.5.11] (issue #69, ZEROX7): disable password login (OIDC-only). -->
@@ -822,6 +869,11 @@
                                 <input type="text" id="cfgIssuer" class="tfa-input" style="width:240px;" placeholder="Jellyfin" />
                             </div>
                             <p style="font-size:12px;color:#888;margin-top:6px;" data-i18n-key="tfa.admin.settings.issuer_help">Existing enrollments keep their old name. New enrollments will use this. Pick something users will recognize as your server.</p>
+                            <!-- [#312]: the code after the password, for apps that can't show the challenge. -->
+                            <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
+                                <label><input type="checkbox" id="cfgAcceptCodeAfterPassword" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_accept_code_after_password">Accept the authenticator code typed after the password</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.accept_code_after_password_help">For apps that can't show the 2FA challenge (Infuse, Swiftfin, Findroid, most TV apps): the user types the password followed by the current 6-digit code, with no space, for example MyPassword123456. A wrong code counts as a wrong password. Off by default: the code travels through the app together with the password, and an app that saves what was typed can't sign in again with it later, so app passwords remain the better fit for apps that sign in again on their own.</div>
+                            </div>
                         </div>
 
                         <div class="tfa-section">

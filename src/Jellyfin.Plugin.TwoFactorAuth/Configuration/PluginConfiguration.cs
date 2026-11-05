@@ -243,6 +243,43 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public string[] TrustedProxyCidrs { get; set; } = Array.Empty<string>();
 
+    /// <summary>[#298] Sign in the user that a trusted reverse proxy names in
+    /// a header (NetBird's <c>X-NetBird-User</c>, <c>Remote-User</c>, ...).
+    /// Off by default. The proxy is trusted by the raw TCP peer, matched
+    /// against <see cref="HeaderSignInProxyCidrs"/> only: never the
+    /// X-Forwarded-For walk, and never <see cref="TrustedProxyCidrs"/>, which
+    /// is trusted to report a client address, not to assert who it is.</summary>
+    public bool HeaderSignInEnabled { get; set; }
+
+    /// <summary>[#298] Header that carries the user, e.g. <c>X-NetBird-User</c>.
+    /// Empty keeps the feature inert.</summary>
+    public string HeaderSignInUserHeader { get; set; } = string.Empty;
+
+    /// <summary>[#298] Optional header with comma-separated group names, e.g.
+    /// <c>X-NetBird-Groups</c>; only read for <see cref="HeaderSignInAllowedGroups"/>.</summary>
+    public string HeaderSignInGroupsHeader { get; set; } = string.Empty;
+
+    /// <summary>[#298] Comma-separated groups; when set, the user must be in
+    /// at least one (case-insensitive). Groups never grant anything else.</summary>
+    public string HeaderSignInAllowedGroups { get; set; } = string.Empty;
+
+    /// <summary>[#298] Addresses of the proxy itself. An empty list, or an
+    /// entry broader than /8 (IPv4) or /16 (IPv6), trusts nothing.</summary>
+    public string[] HeaderSignInProxyCidrs { get; set; } = Array.Empty<string>();
+
+    /// <summary>[#298] Comma-separated email domains. When the header holds an
+    /// email in one of them, the part before the @ is also tried as the
+    /// Jellyfin username. Empty: only the header value itself is tried.</summary>
+    public string HeaderSignInEmailDomains { get; set; } = string.Empty;
+
+    /// <summary>[#298] Skip this plugin's 2FA for these sign-ins, as OIDC does
+    /// by default: the proxy already authenticated the user.</summary>
+    public bool HeaderSignInBypassPluginTwoFa { get; set; } = true;
+
+    /// <summary>[#298] Let administrator accounts sign in this way. Off by
+    /// default, so a misconfigured proxy cannot hand out administration.</summary>
+    public bool HeaderSignInAllowAdmins { get; set; }
+
     public bool EmailOtpEnabled { get; set; } = true;
 
     /// <summary>v2.4: opt-in Have I Been Pwned password check on successful
@@ -310,6 +347,37 @@ public class PluginConfiguration : BasePluginConfiguration
     /// password. Off by default: an app password keeps working after the
     /// identity provider stops letting that person in, until it is revoked.</summary>
     public bool AllowAppPasswordsWhenPasswordLoginDisabled { get; set; }
+
+    /// <summary>[#312] Accept the current authenticator code typed right after
+    /// the password, with no space ("MyPassword123456"), on
+    /// POST /Users/AuthenticateByName, for apps that can't show the 2FA
+    /// challenge. The part before the last six digits has to be the account's
+    /// password and the six digits its code, with the challenge's replay
+    /// protection and per-account attempt limit; then only the password goes
+    /// on to Jellyfin and the new token isn't held for the challenge. Off by
+    /// default: the code then travels with the password through the app, and
+    /// an app that stores what was typed can't sign in again with it.</summary>
+    public bool AcceptCodeAfterPassword { get; set; }
+
+    /// <summary>[#313] When an app that can't show the 2FA challenge signs in
+    /// with the right password and gets the challenge, also send an 8-digit
+    /// sign-in code to the account's email address and linked Telegram chat.
+    /// The user signs in again in the same app with the password followed by
+    /// the code. The code works once, for a few minutes, only for that
+    /// account, device and app, and only while the password is unchanged.
+    /// Needs <see cref="EmailOtpEnabled"/>; the web interface and the apps in
+    /// <see cref="AppPasswordRefusedClients"/> show the challenge and never
+    /// trigger it. Off by default.</summary>
+    public bool SendSignInCodeToApps { get; set; }
+
+    /// <summary>[#313] With <see cref="SendSignInCodeToApps"/> on, accept the
+    /// code alone in place of the password on the second attempt. Accepted
+    /// once, only when the account, device, app, password and client address
+    /// all match the first attempt, and refused when the plugin can't see the
+    /// client's own address. Off by default: someone who can read the mailbox,
+    /// shares that address and knows the device ID could use the code while it
+    /// is valid, so the security score counts it as an open escape hatch.</summary>
+    public bool AcceptSignInCodeAlone { get; set; }
 
     /// <summary>[#244] Extra client names that may NOT sign in with an app
     /// password, on top of the always-refused "Jellyfin Web". An admin who

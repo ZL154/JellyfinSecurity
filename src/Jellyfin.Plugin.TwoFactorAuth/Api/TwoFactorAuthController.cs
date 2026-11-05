@@ -1479,18 +1479,7 @@ public class TwoFactorAuthController : ControllerBase
         // trusted-proxy chain, which is what the detectors have to compare.
         _signInObserver.Observe(challenge.UserId, challenge.Username, clientIp);
 
-        string? deviceToken = null;
-        if (request.TrustDevice && !string.IsNullOrEmpty(challenge.DeviceId))
-        {
-            var (rawToken, trustedDevice) = _deviceTokenService.CreateDeviceToken(
-                challenge.DeviceId,
-                challenge.DeviceName ?? challenge.DeviceId);
-
-            // Added to the stored record, cap included, as in Authenticate.
-            await _store.MutateAsync(challenge.UserId, ud => UserDataUpdates.AddTrustedDevice(ud, trustedDevice)).ConfigureAwait(false);
-
-            deviceToken = rawToken;
-        }
+        var deviceToken = await CreateChallengeDeviceTokenAsync(challenge, request.TrustDevice).ConfigureAwait(false);
 
         // Return the stashed Jellyfin auth response from the middleware so the
         // client ends up with a valid session identical to a non-2FA login.
@@ -1516,6 +1505,23 @@ public class TwoFactorAuthController : ControllerBase
             AccessToken = string.Empty,
             DeviceToken = deviceToken,
         });
+    }
+
+    private async Task<string?> CreateChallengeDeviceTokenAsync(ChallengeData challenge, bool remember)
+    {
+        if (remember && !string.IsNullOrEmpty(challenge.DeviceId))
+        {
+            var (rawToken, trustedDevice) = _deviceTokenService.CreateDeviceToken(
+                challenge.DeviceId,
+                challenge.DeviceName ?? challenge.DeviceId);
+
+            // Added to the stored record, cap included, as in Authenticate.
+            await _store.MutateAsync(challenge.UserId, ud => UserDataUpdates.AddTrustedDevice(ud, trustedDevice)).ConfigureAwait(false);
+
+            return rawToken;
+        }
+
+        return null;
     }
 
     // Issue #27 ABI shim, now shared with the uninstall restore (#213).
@@ -4190,6 +4196,7 @@ public class TwoFactorAuthController : ControllerBase
         public string ChallengeToken { get; set; } = string.Empty;
         public string Nonce { get; set; } = string.Empty;
         public string Response { get; set; } = string.Empty;
+        public bool TrustDevice { get; set; }
     }
 
     /// <summary>Begin an assertion ceremony to satisfy the 2FA challenge step
@@ -4322,12 +4329,14 @@ public class TwoFactorAuthController : ControllerBase
             return Unauthorized(new { message = "Passkey verification failed" });
         }
 
-        // Consume the challenge — same code path as TOTP-success (controller
-        // already has Verify endpoint for that; we delegate by re-issuing the
-        // stash). Simplest reuse: mark device pre-verified and return the
-        // stashed PendingAuthResponse the way the TOTP Verify does.
+        // A valid passkey completes the sign-in challenge just like a code.
+        // Claim it before clearing attempts or recording device verification.
         if (!_challengeStore.ConsumeChallenge(req.ChallengeToken))
             return BadRequest(new { message = "Challenge already consumed" });
+
+        await _store.ResetFailedAttemptsAsync(challenge.UserId).ConfigureAwait(false);
+        _rateLimiter.Reset("verify_user:" + challenge.UserId.ToString("N"));
+        _rateLimiter.Reset("verify:" + clientIp);
 
         _challengeStore.MarkDevicePreVerified(challenge.UserId, challenge.DeviceId);
         _pendingPairings.Remove(challenge.UserId, challenge.DeviceId ?? string.Empty);
@@ -4350,6 +4359,8 @@ public class TwoFactorAuthController : ControllerBase
         // assertion that reaches here is a completed sign-in.
         _signInObserver.Observe(challenge.UserId, challenge.Username, ip);
 
+        var deviceToken = await CreateChallengeDeviceTokenAsync(challenge, req.TrustDevice).ConfigureAwait(false);
+
         // Return the stashed Jellyfin auth payload verbatim — same shape the
         // standard challenge.html flow consumes (parses out AccessToken etc.).
         var stashed = challenge.PendingAuthResponse;
@@ -4358,6 +4369,10 @@ public class TwoFactorAuthController : ControllerBase
             return Ok(new { message = "Verified, but no stashed auth response — sign in again from the start" });
         }
         UnblockAccessTokenFromPendingAuthResponse(stashed, challenge.Username);
+        if (deviceToken is not null)
+        {
+            Response.Headers.Append("X-TwoFactor-Device-Token", deviceToken);
+        }
         return Content(stashed, "application/json");
     }
 
@@ -5071,13 +5086,46 @@ public class TwoFactorAuthController : ControllerBase
     {
         var cfg = Plugin.Instance?.Configuration ?? new Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration();
         Response.Headers["Cache-Control"] = "no-cache, must-revalidate";
-        return Ok(BuildPublicConfig(cfg, ComputePasswordLoginDisabledForRequest(cfg)));
+        var rawPeer = HeaderSignIn.RawPeer(HttpContext);
+        if (HeaderSignIn.NamedFromUnlistedAddress(cfg, rawPeer, Request.Headers))
+        {
+            LogProxySignInSetupHint(rawPeer);
+        }
+
+        return Ok(BuildPublicConfig(
+            cfg,
+            ComputePasswordLoginDisabledForRequest(cfg),
+            HeaderSignIn.Available(cfg, rawPeer, Request.Headers)));
+    }
+
+    // [#298] When the last setup hint was logged. Anyone can call
+    // public-config with the header, so the hint is written at most once a
+    // minute.
+    private static long _proxySignInHintTicks;
+
+    private void LogProxySignInSetupHint(string? rawPeer)
+    {
+        var now = DateTime.UtcNow.Ticks;
+        var last = System.Threading.Interlocked.Read(ref _proxySignInHintTicks);
+        if (now - last < TimeSpan.TicksPerMinute
+            || System.Threading.Interlocked.CompareExchange(ref _proxySignInHintTicks, now, last) != last)
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            "[2FA] Proxy sign-in: a request carried the user header but came from {Peer}, which is not in the proxy address list. If that is your reverse proxy, add it there.",
+            rawPeer ?? "(unknown)");
     }
 
     /// <summary>[#247] The public-config body, kept apart from the request so
-    /// its fields can be tested. Only passwordLoginDisabled depends on the
-    /// caller (their address), so it arrives already computed.</summary>
-    internal static object BuildPublicConfig(Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration cfg, bool passwordLoginDisabled)
+    /// its fields can be tested. Only passwordLoginDisabled and
+    /// proxySignInAvailable depend on the caller (their address, and the
+    /// headers the proxy sent), so they arrive already computed.</summary>
+    internal static object BuildPublicConfig(
+        Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration cfg,
+        bool passwordLoginDisabled,
+        bool proxySignInAvailable = false)
     {
         return new
         {
@@ -5119,6 +5167,10 @@ public class TwoFactorAuthController : ControllerBase
             // [#247] UI gate: setup.html hides the plugin's own 2FA setup from
             // non-admin users who sign in through a linked identity provider.
             hideTwoFactorSetupForSsoUsers = cfg.HideTwoFactorSetupForSsoUsers,
+            // [#298] UI gate: this request came through the trusted proxy and
+            // it named a user, so the login page signs that user in. A flag
+            // only, never the name: the endpoint decides the account itself.
+            proxySignInAvailable,
         };
     }
 

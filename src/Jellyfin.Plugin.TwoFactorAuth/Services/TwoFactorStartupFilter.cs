@@ -18,10 +18,22 @@ public class TwoFactorStartupFilter : IStartupFilter
         _logger.LogDebug("[2FA] Startup filter invoked — registering middleware");
         return app =>
         {
+            // [#298] First of all, before Jellyfin's forwarded-headers handling
+            // can rewrite it: the address the TCP connection really came from,
+            // the only one the proxy header sign-in will trust.
+            app.Use((context, nextMiddleware) =>
+            {
+                HeaderSignIn.RememberRawPeer(context);
+                return nextMiddleware(context);
+            });
             app.UseMiddleware<IndexHtmlInjectionMiddleware>();
             // [v2.5.10] (#55) emits a recognizable lockout 401 on AuthenticateByName
             // so the login page can show a "temporarily locked" message.
             app.UseMiddleware<LockoutMessageMiddleware>();
+            // [#312] After the lockout middleware, so its gates see what was
+            // typed and it counts the outcome; before the rest, so they all
+            // see the password alone.
+            app.UseMiddleware<CodeAfterPasswordMiddleware>();
             app.UseMiddleware<TrustCookieMiddleware>();
             app.UseMiddleware<TwoFactorEnforcementMiddleware>();
             app.UseMiddleware<RequestBlockerMiddleware>();

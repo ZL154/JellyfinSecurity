@@ -34,6 +34,11 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// </summary>
 public class LockoutMessageMiddleware
 {
+    // "blank", not "empty": OWASP CRS rule 953101 reads "empty password" in a
+    // response body as a leaked PHP error (#320).
+    internal const string BlankSignInRefusalJson =
+        "{\"message\":\"Signing in with a blank password is not allowed. Please enter your password.\",\"emptyPasswordBlocked\":true}";
+
     private readonly RequestDelegate _next;
     private readonly UserTwoFactorStore _store;
     private readonly IUserManager _userManager;
@@ -108,9 +113,7 @@ public class LockoutMessageMiddleware
             _logger.LogWarning("[2FA] Login refused: empty password blocked (BlockEmptyPasswordLogin) for '{User}'.", username ?? "(unknown)");
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(
-                "{\"message\":\"Signing in with an empty password is not allowed. Please enter your password.\",\"emptyPasswordBlocked\":true}")
-                .ConfigureAwait(false);
+            await context.Response.WriteAsync(BlankSignInRefusalJson).ConfigureAwait(false);
             return;
         }
 
@@ -426,8 +429,9 @@ public class LockoutMessageMiddleware
     /// <summary>Read the JSON body's Username + Pw without consuming it for the
     /// downstream pipeline (EnableBuffering + rewind). Returns (null, null) on
     /// any error or an unexpectedly large body — callers treat that as a
-    /// pass-through.</summary>
-    private static async Task<(string? Username, string? Password)> PeekCredentialsAsync(HttpRequest request)
+    /// pass-through. [#312] CodeAfterPasswordMiddleware reads the body with
+    /// this too, so it splits the same password these gates judged.</summary>
+    internal static async Task<(string? Username, string? Password)> PeekCredentialsAsync(HttpRequest request)
     {
         try
         {
@@ -460,7 +464,7 @@ public class LockoutMessageMiddleware
 
             return (
                 GetString(doc.RootElement, "Username", "username", "Name", "name"),
-                GetString(doc.RootElement, "Pw", "Password", "pw", "password"));
+                GetString(doc.RootElement, "Pw", "PW", "Password", "pw", "password"));
         }
         catch
         {

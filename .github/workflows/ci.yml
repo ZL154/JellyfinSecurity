@@ -112,6 +112,16 @@ jobs:
       - name: Test account page JavaScript
         run: node --test tests/sso-account-page.test.mjs
 
+      - name: Test passkey challenge JavaScript
+        run: node --test tests/passkey-challenge.test.mjs
+      - name: Test passkey sign-in JavaScript
+        run: node --test tests/passkey-login.test.mjs
+      - name: Test proxy error message JavaScript
+        run: node --test tests/proxy-error-message.test.mjs
+      - name: Test passkey sign-in JavaScript
+        run: node --test tests/passkey-login.test.mjs
+      - name: Test password reset page JavaScript
+        run: node --test tests/password-reset-page.test.mjs
       - name: Test login page button JavaScript
         run: node --test tests/login-button.test.mjs
 
