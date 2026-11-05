@@ -1734,11 +1734,8 @@ public class TwoFactorAuthController : ControllerBase
         // SelfServiceStepUpMode.Forced a hijacked session could still strip a
         // victim's 2FA with no step-up. Require verification when EITHER the
         // legacy flag is set OR the self-service mode demands it for a user
-        // with any existing factor (TOTP / passkey / OIDC / email).
-        var hasExisting2faForDisable = (userData.TotpEnabled && userData.TotpVerified)
-            || userData.Passkeys.Count > 0
-            || userData.SsoLinks.Count > 0
-            || (config?.EmailOtpEnabled == true && userData.EmailOtpPreferred);
+        // with any existing factor, read from the same list as the step-up gate.
+        var hasExisting2faForDisable = SelfServiceFactors.HasAny(userData, config ?? new Configuration.PluginConfiguration());
         var modeRequiresDisableStepUp = hasExisting2faForDisable && (config?.SelfServiceStepUpMode switch
         {
             Configuration.SelfServiceStepUpMode.Off => false,
@@ -2559,18 +2556,36 @@ public class TwoFactorAuthController : ControllerBase
         var isNewAddress = !string.IsNullOrEmpty(email)
             && !string.Equals(email, previousEmail, StringComparison.OrdinalIgnoreCase);
 
+        // The address receives the sign-in and step-up codes, so changing or
+        // clearing it is a factor change, confirmed like adding a passkey.
+        // Saving the same address again changes nothing and needs no proof.
+        if (!string.Equals(email, previousEmail, StringComparison.OrdinalIgnoreCase))
+        {
+            var stepUp = await EnforceSelfServiceStepUpAsync(userId, req.Code, req.StepUpToken).ConfigureAwait(false);
+            if (stepUp is not null) return stepUp;
+        }
+
         config.SetUserEmail(userId.ToString("N"), string.IsNullOrEmpty(email) ? null : email);
         Plugin.Instance!.SaveConfiguration();
 
         if (isNewAddress && config.WelcomeEmailEnabled)
         {
-            // Fire-and-forget: a dead mail server must not fail the save, and
-            // SendWelcomeEmailAsync already swallows its own errors.
-            var username = _userManager.GetUserById(userId)?.Username ?? string.Empty;
-            _ = _emailOtpService.SendWelcomeEmailAsync(email, username);
+            // At most three welcome emails per account a day, however often
+            // the address changes. The save itself never depends on it.
+            var welcome = _rateLimiter.CheckAndRecord("welcome_email:" + userId.ToString("N"), 3, TimeSpan.FromHours(24));
+            if (welcome.allowed)
+            {
+                // Fire-and-forget: a dead mail server must not fail the save, and
+                // SendWelcomeEmailAsync already swallows its own errors.
+                var username = _userManager.GetUserById(userId)?.Username ?? string.Empty;
+                _ = _emailOtpService.SendWelcomeEmailAsync(email, username);
+            }
+            else
+            {
+                _logger.LogInformation("[2FA] Welcome email not sent for {UserId}: three already went out in the last 24 hours", userId);
+            }
         }
 
-        await Task.CompletedTask.ConfigureAwait(false);
         return Ok(new { message = "Saved." });
     }
 
@@ -2644,6 +2659,12 @@ public class TwoFactorAuthController : ControllerBase
             return BadRequest(new { message = "Telegram is not configured on this server. Ask your administrator to set a bot token." });
         }
 
+        // The linked chat receives the sign-in and step-up codes, so linking
+        // one is a factor change. Confirm does not ask again: step-up tokens
+        // are single use, and a pending link only exists after this check.
+        var stepUp = await EnforceSelfServiceStepUpAsync(userId, req.Code, req.StepUpToken).ConfigureAwait(false);
+        if (stepUp is not null) return stepUp;
+
         // Issue a code BOUND to this chat, then send it there. Reading it back
         // (next call) proves the user controls this chat.
         var code = _emailOtpService.GenerateTelegramLinkCode(userId, chatId);
@@ -2685,9 +2706,15 @@ public class TwoFactorAuthController : ControllerBase
 
     [HttpDelete("Telegram")]
     [Authorize]
-    public async Task<IActionResult> UnlinkTelegram()
+    public async Task<IActionResult> UnlinkTelegram([FromQuery] string? code = null, [FromQuery] string? stepUpToken = null)
     {
         var userId = GetCurrentUserId();
+
+        // Removing the chat is a factor change too. As for a passkey delete,
+        // the proof arrives on the query string because the request has no body.
+        var stepUp = await EnforceSelfServiceStepUpAsync(userId, code, stepUpToken).ConfigureAwait(false);
+        if (stepUp is not null) return stepUp;
+
         await _store.MutateAsync(userId, ud => ud.TelegramChatId = string.Empty).ConfigureAwait(false);
         return Ok(new { linked = false });
     }
