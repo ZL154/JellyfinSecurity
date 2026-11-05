@@ -1,6 +1,8 @@
+using Jellyfin.Data.Events.Users;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Authentication;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -15,6 +17,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddSingleton<UserTwoFactorStore>();
+        serviceCollection.AddSingleton<IEventConsumer<UserPasswordChangedEventArgs>, CredentialChangeLockoutConsumer>();
         // [v2.5.7] (issue #52): persistent verified-token hash store must
         // register BEFORE ChallengeStore so DI can inject it via the ctor.
         serviceCollection.AddSingleton<VerifiedTokenPersistence>();
@@ -64,6 +67,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // SignInObserver is the single place that hands a completed sign-in to
         // the pair, so the wiring cannot go quiet again one path at a time.
         serviceCollection.AddSingleton<SignInObserver>();
+        // [#313] Sign-in codes for apps that can't show the challenge.
+        serviceCollection.AddSingleton<AppSignInCodeService>();
         serviceCollection.AddSingleton<IpAllowlistService>();
         serviceCollection.AddSingleton<OidcLoginTokenStore>();
         // v2.4: HIBP password-breach check. Typed HttpClient gets its own

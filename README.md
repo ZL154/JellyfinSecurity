@@ -172,6 +172,8 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - LAN bypass (configurable CIDR ranges), and a force-2FA-for-all-users mode.
 - **Disable password sign-in** — OIDC / Quick-Connect-only mode with independently toggleable admin / LAN / exempt-CIDR escape hatches, plus an opt-in setting that lets app passwords (never the account password) through for native apps.
 
+A completed password change through the plugin's reset link, Jellyfin's Forgot Password PIN, an administrator setting or resetting a password, or a user changing their password clears the plugin's temporary failed-attempt count and lockout. Requesting a reset, opening a link, or submitting an invalid or expired token does not. The plugin leaves second factors, trusted devices, IP bans, the token blocklist, and Jellyfin's own failed-attempt count and disabled-account status unchanged.
+
 ### Brute-force & anomaly protection
 - **Brute-force IP banning** — auto-bans source IPs that exceed N failed sign-ins in M minutes, persisted across restarts, with an admin list/unban UI.
 - **Impossible-travel detection** — flags consecutive sign-ins that exceed commercial-jet cruise speed, using MaxMind GeoLite2-City for geolocation.
@@ -196,6 +198,9 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - **Device pairing**: passwordless users can pair native clients by approving a pending request from the Setup page. A paired device only skips 2FA while the admin has `BareDeviceIdBypassEnabled` turned on, which is off by default (see [First-time setup](#-first-time-setup)).
 - **Remembering a second-screen approval** (`PairDeviceOnSecondScreenApproval`, off by default): a sign-in someone approved on another screen, the OIDC login QR on a TV or a Quick Connect code, adds that device to the user's paired devices instead of forgetting it. The record is visible and revocable on the Setup page, and it only waives 2FA where the bare device ID bypass is enabled.
 - **Quick Connect pass-through** — a 2FA-verified user approving a Quick Connect code lets the new device inherit verified status, so TVs sign in without a TOTP prompt.
+- **Authenticator code after the password** (`AcceptCodeAfterPassword`, off by default, #312): an app that can't show the challenge signs in with the password followed by the current 6-digit code, with no space (`MyPassword123456`). The plugin checks the password part, then the code, and only the password goes on to Jellyfin. See [Apps that can't show the challenge](#apps-that-cant-show-the-challenge-the-code-after-the-password).
+- **Sign-in codes by email and Telegram for those apps** (`SendSignInCodeToApps`, off by default, #313): the challenge such an app can't show also sends an 8-digit code, and the user signs in again with the password followed by it, or, with `AcceptSignInCodeAlone`, the code alone from the same address. Same section.
+- **Quick Connect approved with an API key**: the approval carries no verified user, so the device is judged on its own request when it fetches its token. The LAN bypass and the other bypasses apply as they do to a password sign-in from that device; otherwise the device gets the 2FA challenge.
 - **Active sessions view** — see every active session with device/IP/last-activity and sign them out individually.
 - **Official Android / mobile hand-off** — preserves Base URLs, returns to the app after verification, and recognises the trusted session on follow-up requests.
 
@@ -372,15 +377,21 @@ New registrations request **ES256**, the WebAuthn-required portable algorithm. T
 
 #### Using a passkey to sign in
 
-1. Visit your Jellyfin URL → enter username + password as usual
-2. At the 2FA challenge page → tap **🔑 Use a passkey instead**
-3. The browser prompts your authenticator → confirm with biometric / hardware key
-4. You're in. No code typed.
+**Instead of the password.** On the Jellyfin login page, click **🔑 Sign in with passkey**:
+
+- **Without typing anything** (#319): leave the username empty. The browser lists the passkeys it holds for this server, you pick yours, confirm with biometric / hardware key, and you are signed in as the account that passkey belongs to. This needs a *discoverable* passkey, one the authenticator stores together with the account.
+- **With the username typed first**: the browser asks only for that account's passkeys. This works with every passkey, discoverable or not.
+
+Both ways go through the same checks: IP bans, rate limits, the account's network allowlist, the failed-attempt lockout, and disabled accounts.
+
+**Which passkeys work without a username.** Since v2.4.1, adding a passkey asks the authenticator for a discoverable one ("resident key: preferred"); v2.4.0 and earlier asked it not to store one. Passkey managers (iCloud Keychain, Google Password Manager, Windows Hello, 1Password, Bitwarden and the like) store every passkey as discoverable anyway. A hardware security key added before v2.4.1, or one with no free slots, usually holds a passkey that is not discoverable, and the plugin cannot tell which kind it stored. If the browser does not offer your passkey with the username empty, type the username first (that keeps working), or remove the passkey on the Setup page and add it again so the authenticator can store it as discoverable.
+
+**As the second factor.** After username + password, at the 2FA challenge page, tap **🔑 Use a passkey instead**, confirm with biometric / hardware key, and you're in. No code typed.
 
 #### What passkeys do NOT do
 
 - **Native apps (Findroid, Streamyfin, Swiftfin, official Jellyfin app) cannot use passkeys.** WebAuthn is a browser-only API; native apps have no hook to call it. For app sign-in use **device pairing** (below) and the **app's own biometric lock** (Findroid → Settings → Biometric authentication, Swiftfin → Settings → Security → Lock with Face ID, etc.).
-- Passkeys do not replace your password — they replace the **2FA code step**. You still enter username + password first.
+- Outside the browser login page, a passkey does not replace the password: it stands in for the **2FA code step** after username + password.
 
 ### Native apps / TVs (Jellyfin for Tizen, Swiftfin, Jellyfin Android, etc.)
 
@@ -401,6 +412,22 @@ This way a TV/console/media-box that can't type a TOTP code still gets its own c
 Use **app passwords**: in Setup → App Passwords → Generate. You get a one-time shown random password. Use it in the app **in place of your Jellyfin password**. The plugin matches it via PBKDF2 hash and bypasses the 2FA prompt. Each app password can be revoked independently. The Jellyfin web interface refuses app passwords (#244): a browser shows the 2FA challenge, so sign in there with your account password.
 
 Any account with TOTP, a passkey or a linked sign-in provider can create one; the Setup page asks the user to confirm with one of those first, so someone who only signs in through SSO confirms with their provider (#248). With **Disable password sign-in** on, app passwords are refused like any other password unless an escape hatch covers the client or **Let app passwords sign in while password sign-in is disabled** is checked. That setting is off by default because an app password keeps working after the identity provider stops letting that person in, until it is revoked, and the security score counts it as an open escape hatch.
+
+### Apps that can't show the challenge: the code after the password
+
+With **Accept the authenticator code typed after the password** checked (Settings → Authenticator App, off by default, #312), an account with an authenticator app can sign in to such an app with the password immediately followed by the current 6-digit code, with no space: `MyPassword123456`. It applies to Jellyfin's `POST /Users/AuthenticateByName`, from any client.
+
+- The part before the last six digits has to be the account's password. When it isn't, the sign-in goes on unchanged, so a password that itself ends in digits keeps working typed alone.
+- The code works once, as on the challenge page, and wrong codes share that page's limit of 15 attempts per 15 minutes per account, which also covers administrators exempt from the lockout. A wrong code gets the same `401` as a wrong password and counts like one, toward the plugin's lockout and toward Jellyfin's own limit of failed sign-ins.
+- The code alone never signs in: an account without a password stays behind **Block sign-in with an empty password**, and **Disable password sign-in** refuses it like any other password sign-in.
+- An app that saves what was typed and signs in again on its own can't do so once the code has changed; use an app password for those. Accounts that sign in through another authentication plugin (LDAP and the like) aren't covered and still get the challenge.
+
+**Codes by email and Telegram** (#313). With **Send a sign-in code by email and Telegram to apps that can't show the challenge** checked (Settings → General, off by default, needs email OTP), an account whose codes come by email or Telegram can do the same. When such an app signs in with the right password, the challenge it can't show also sends an 8-digit code to the account's email address and linked Telegram chat. Sign in again in the same app with the password followed by that code, with no space: `MyPassword12345678`.
+
+- The code works once, while the challenge lasts (5 minutes by default), only in the app on the device that asked for it, and only while the password is unchanged. It is checked like the authenticator code above: the password part first, then the code, with the same attempt limit, and five wrong guesses void it.
+- Sending has its own limits, one code per device a minute and three per account in 15 minutes, apart from the codes the challenge page sends and from step-up codes.
+- The web interface never gets one, nor do the apps listed in `AppPasswordRefusedClients` (#244): they show the challenge. The app name is chosen by the client, so it only decides whether the code goes out, never whether a sign-in succeeds.
+- **Accept the sign-in code alone, in place of the password** (off by default) lets the second attempt carry the code alone, like Jelly2FA's code-only step (discussion #311). It completes the first attempt's challenge, once, and only when the account, device, app, password and client address all match that attempt. It is refused when the plugin can't see the client's own address: behind a proxy it doesn't trust, every client shows up with the proxy's address. Clients behind one NAT, or a port forward that adds no header, share an address too, so there the address only tells networks apart. Someone who can read the mailbox, shares that address and knows the device ID could still use the code while it is valid, so the security score lists the setting as an open escape hatch.
 
 ---
 
@@ -425,6 +452,9 @@ For clients without that browser-capable flow, use the **device pairing** proces
 
 Alternative: generate an **app password** in Setup and use it in place of your real password. Useful for older apps or anything that can't tolerate the pairing-request delay, and it works with the default settings.
 
+Where the admin turned on [the code after the password](#apps-that-cant-show-the-challenge-the-code-after-the-password), you can also type your password followed by the current 6-digit code, with no space, in the app's password field. If your codes come by email or Telegram and the admin turned on sign-in codes for apps, sign in once with your password, then again with your password followed by the 8-digit code you get.
+Where the admin turned on [the code after the password](#apps-that-cant-show-the-challenge-the-code-after-the-password), you can also type your password followed by the current 6-digit code, with no space, in the app's password field.
+
 ### Sonarr / Radarr / Overseerr / Jellyseerr
 
 Use Jellyfin's standard API keys (Dashboard → API Keys) for the connection between these apps and Jellyfin. API key auth bypasses user authentication entirely, so 2FA doesn't apply to that connection.
@@ -435,7 +465,7 @@ Seerr and Jellyseerr also let people sign in with their Jellyfin username and pa
 
 ## 🛠️ Admin guide
 
-The admin dashboard at **Dashboard → Plugins → Two-Factor Authentication** has 5 tabs:
+The admin dashboard at **Dashboard → Plugins → Jellyfin Security** includes these tabs:
 
 ### Users
 Per-user 2FA status: TOTP on/off, trusted device count, recovery codes remaining, email address (for OTP), lockout status.
@@ -453,7 +483,7 @@ Pending TV/native-client pairing requests. Approve or deny each request and show
 Paginated, filterable login attempt history. Tracks success, failures, lockouts, bypasses, and challenge issuances. Choose **Newest first** or **Oldest first**; the selected order remains active while navigating the dashboard.
 
 ### Settings
-- **General** — plugin toggle, force 2FA for all users, email OTP toggle
+- **General**: plugin toggle, **2FA enforcement scope** (Optional, Admins only or All users), Have I Been Pwned password check, email OTP toggle
 - **LAN Bypass** — CIDR ranges, X-Forwarded-For trust, trusted proxies
 - **Security** — failed-attempt threshold, lockout duration, audit log size, and OIDC onboarding password policy (minimum length plus optional uppercase, lowercase, number, and symbol requirements)
 - **SMTP**: host, port, SSL, credentials, from-address (required for email OTP and for alert emails)
@@ -462,6 +492,13 @@ Paginated, filterable login attempt history. Tracks success, failures, lockouts,
 - **Audit chain (v2.5)** — **Rebuild audit chain** button repairs the hash chain after disk corruption / manual edits (step-up gated)
 
 **Telegram and email alerts (#259):** for Telegram, create a bot with @BotFather, paste its token in **Settings → Push Notifications → Telegram bot token** and set **Telegram chat ID** to your user ID, a group or channel ID (negative) or a public channel's @username; the bot must be able to post there, so start a chat with it or add it to the group or channel. The token is sent only to api.telegram.org and is kept out of the server log, and when Telegram refuses a message the test button shows its reason ("Bad Request: chat not found"). For email, every address under **Admin email addresses for security alerts** gets its own copy of each alert over the SMTP settings used for email OTP. **Send test notification** reports each configured channel separately.
+
+### Authentication Provider in Jellyfin's user profile
+Jellyfin's own user page (**Dashboard → Users**, then an account) shows an **Authentication Provider** field whenever more than one sign-in provider is registered. With the plugin loaded it offers **Default**, Jellyfin's own provider, and **Two-Factor Authentication**, the plugin's, which kept the plugin's old name. The field only picks what checks the account's credentials. Whether a sign-in needs 2FA comes from the plugin's settings, which apply to every sign-in on either provider, so nothing needs to change there to enforce 2FA.
+
+The plugin moves an account to **Two-Factor Authentication** by itself when it signs in with a passkey or through SSO, or creates an app password or a one-time device code, because only the plugin's provider can check those credentials. For the account password, that provider hands the check to Jellyfin's own provider, so the same password keeps working. A mix of both providers across accounts is expected; leave each account on the one it is on:
+- Moved to **Two-Factor Authentication** by hand, an account gains no protection, and if the plugin ever fails to load, Jellyfin refuses its sign-ins (see [Sign-in refused after the plugin stopped loading](#sign-in-refused-after-the-plugin-stopped-loading-invalidauthprovider)).
+- Moved back to **Default** after the plugin moved it, an account's app passwords and one-time device codes stop working until it creates another one or signs in with a passkey or SSO, which moves it again.
 
 ---
 
@@ -712,6 +749,8 @@ Every user-visible string in the setup, login, challenge, OIDC onboarding, admin
 
 The injected dashboard entry updates its label live when Jellyfin's language changes and is available in both desktop and mobile navigation.
 
+**Emails and the reset page (#318):** the password reset email and the email with a sign-in or verification code are written in the recipient's language: the account's plugin language preference, else the server-wide `DefaultLanguage`, else English. The language of whoever asked for the email never counts, because anyone can ask for a reset link for any account. The texts come from the same translation files as the pages, and the reset link has a `lang` query parameter, so the reset page opens in the language of the email.
+
 **Native-name picker** — the picker shows each language in its own script ("Deutsch", "日本語", "中文") rather than locale codes, so a user who only reads Japanese can find their language without reading English.
 
 **Implementation notes** (for translators / contributors):
@@ -750,7 +789,7 @@ Closes the stolen-session takeover path. Before v2.5.6, an attacker who hijacked
 - **User choice** — exposes a per-user toggle on the Setup page; each user opts in individually.
 - **Forced** (default) — every user must submit a current factor before adding/replacing any 2FA factor.
 
-**Covered mutations** — adding/replacing TOTP, regenerating recovery codes, creating an app password, adding/removing a passkey, enabling/disabling email OTP. All gated.
+**Covered mutations**: adding/replacing TOTP, regenerating recovery codes, creating an app password, adding/removing a passkey, enabling/disabling email OTP, changing or clearing the email address that receives codes, and linking or unlinking a Telegram chat. All gated. An email address on file counts as an existing factor while email OTP is on, so an account whose only factor is email confirms these changes with an emailed code.
 
 **Proof of factor** — the step-up prompt accepts any of:
 - A current TOTP code from the user's authenticator app
@@ -949,27 +988,31 @@ Two changes in v2.5.21 are worth knowing about:
 
 If you changed or rotated the signing key and sign-in still fails, restart Jellyfin so the JWKS cache picks up the new key. See Authentik's [certificate management](https://docs.goauthentik.io/sys-mgmt/certificates/) and [OAuth2/OIDC provider](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/) documentation.
 
-### Chromium console errors about `Permissions-Policy` and synchronous XHR
+### Behind Jellyfin's nginx example: `Permissions-Policy` and `Content-Security-Policy`
 
-If you deployed the `Permissions-Policy` header from Jellyfin's [official nginx example](https://jellyfin.org/docs/general/post-install/networking/reverse-proxy/nginx#https-config-example), Chromium-based browsers log:
+Jellyfin's [official nginx example](https://jellyfin.org/docs/general/post-install/networking/reverse-proxy/nginx#https-config-example) sends a `Permissions-Policy` and a `Content-Security-Policy` header. Two of their directives get in the plugin's way, each with its own symptom (discussion [#307](https://github.com/ZL154/JellyfinSecurity/discussions/307)):
+
+- **No QR code.** Every QR code the plugin shows (authenticator setup and rotation, scanning on another device, single sign-on) is a `data:` image, and `img-src 'self' https://*` blocks them; the console says the image "violates the following Content Security Policy directive". Add `data:` to `img-src`. A `data:` image can't run script.
+- **Passkeys refused.** `publickey-credentials-get=()` turns passkeys off in Chromium-based browsers: the passkey request fails with `NotAllowedError: The 'publickey-credentials-get' feature is not enabled in this document`, so signing in or confirming a change with a passkey doesn't work. Set it to `(self)`.
+
+With those two changes the rest of the example can stay as it is:
+
+```nginx
+add_header Permissions-Policy "accelerometer=(), bluetooth=(), camera=(), clipboard-read=(), display-capture=(), encrypted-media=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), keyboard-map=(), local-fonts=(), magnetometer=(), microphone=(), payment=(), publickey-credentials-get=(self), serial=(), sync-xhr=(), usb=(), xr-spatial-tracking=()" always;
+
+add_header Content-Security-Policy "default-src https: data: blob: ; img-src 'self' data: https://* ; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.youtube.com blob:; worker-src 'self' blob:; connect-src 'self'; object-src 'none'; font-src 'self'";
+```
+
+That `Permissions-Policy` line also leaves out four features the example still lists. They were removed from the spec, so Chromium warns about them and ignores them:
 
 ```
 Error with Permissions-Policy header: Unrecognized feature: 'ambient-light-sensor'.
 Error with Permissions-Policy header: Unrecognized feature: 'battery'.
 Error with Permissions-Policy header: Unrecognized feature: 'document-domain'.
 Error with Permissions-Policy header: Unrecognized feature: 'interest-cohort'.
-[Violation] Permissions policy violation: Synchronous requests are disabled by permissions policy.
 ```
 
-The first four are harmless: those features were removed from the spec, so Chromium warns and ignores them. Dropping them from the header silences the noise:
-
-```nginx
-add_header Permissions-Policy "accelerometer=(), bluetooth=(), camera=(), clipboard-read=(), display-capture=(), encrypted-media=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), keyboard-map=(), local-fonts=(), magnetometer=(), microphone=(), payment=(), publickey-credentials-get=(), serial=(), sync-xhr=(), usb=(), xr-spatial-tracking=()" always;
-```
-
-**The `sync-xhr` violation does not come from this plugin.** Jellyfin Security issues no synchronous `XMLHttpRequest` anywhere — every request it makes, on every page, uses `fetch()` — so you can keep the strict `sync-xhr=()` baseline. The violation is raised by another plugin's bundled jQuery calling `$.ajax({ async: false })`, and the culprit is named on the line *above* the `inject.js` frame in the stack trace.
-
-Jellyfin Security patched `XMLHttpRequest.prototype.send` globally, which put `inject.js` in the stack of those third-party calls and made it look responsible. As of v2.5.21 the plugin passes synchronous requests straight through untouched, so the stack trace now points at the real caller. If a plugin genuinely needs synchronous XHR, either report it upstream or relax the header to `sync-xhr=(self)` for that deployment.
+**`sync-xhr=()` and plugin settings pages.** Jellyfin's dashboard inserts a plugin's settings page with jQuery, and jQuery fetches each `<script src>` in that page with a synchronous `XMLHttpRequest`, which `sync-xhr=()` refuses. The console shows `Permissions policy violation: Synchronous requests are disabled by permissions policy`, and that settings page stays empty. Older versions of this plugin had the same problem on their own settings page (#307); it now adds its scripts itself and works with `sync-xhr=()`. If another plugin's settings page stays empty with that violation, report it to that plugin, or relax the header to `sync-xhr=(self)`. `inject.js` shows up in the violation's stack because the plugin wraps `XMLHttpRequest.send`, but since v2.5.21 it passes synchronous requests through untouched, so it is never the caller.
 
 ### Plugin breaking your server
 Disable the plugin without uninstalling:
@@ -1038,6 +1081,49 @@ enabled = false
 You lose protection against generic 401-burst attacks on **all** apps behind SWAG (not just Jellyfin), but the other default SWAG jails (`nginx-http-auth`, `nginx-badbots`, `nginx-botsearch`, `nginx-deny`) still cover the common brute-force vectors.
 
 **Why this isn't strictly a plugin bug.** The plugin behaves correctly per HTTP/OAuth (401 on unverified tokens). SWAG's fail2ban behaves correctly per brute-force-protection norms. The collision sits in the gap between the two — fail2ban can't tell a legitimate 2FA enforcement burst from an attack just by reading status codes in the access log. This was resolved at the source in **v2.4.12** ([issue #36](https://github.com/ZL154/JellyfinSecurity/issues/36)): the blocked-request response is now **403**, which the default `nginx-unauthorized` jail does not count, so a normal 2FA login no longer trips it. The jail-threshold tuning above is only needed on older builds or a custom jail that also bans on 403.
+
+### Behind a reverse proxy or WAF: a bare `HTTP 403`, no code prompt, or passkeys refused
+
+Two proxy features get between the plugin's pages and its answers ([#320](https://github.com/ZL154/JellyfinSecurity/issues/320)). When an error page comes from the proxy instead of the plugin, the pages now say so: *"A reverse proxy or firewall replaced the answer from the server (HTTP 403). Check its error interception and its WAF rules for /TwoFactorAuth/."* Older versions show a bare `HTTP 403`.
+
+**Error interception.** The plugin answers errors with JSON that the pages act on: a 403 with `"stepUpRequired": true` opens the code prompt (adding a passkey, changing a factor, admin settings), and a 401 with `"TwoFactorRequired": true` on Jellyfin's `/Users/AuthenticateByName` starts the sign-in challenge. A proxy that swaps 4xx answers for its own error page throws both away. Turn interception off for the whole Jellyfin site, not only `/TwoFactorAuth/`, because the sign-in challenge travels on Jellyfin's own path:
+
+| Proxy | Replaces Jellyfin's answer when | Fix for the Jellyfin site |
+|---|---|---|
+| nginx | `proxy_intercept_errors on` (set in `http`, `server` or `location`) and an `error_page` for that status | `proxy_intercept_errors off;` in the Jellyfin `location` |
+| Apache | `ProxyErrorOverride On`, with or without a status list | `ProxyErrorOverride Off` in the Jellyfin virtual host |
+| Traefik | an `errors` middleware on the Jellyfin router or its entry point | keep the `errors` middleware off both |
+| Caddy | a `handle_response` for 4xx statuses inside `reverse_proxy` (`handle_errors` alone leaves Jellyfin's answers alone) | remove that `handle_response` |
+
+```nginx
+location / {
+    proxy_pass http://jellyfin:8096;
+    proxy_intercept_errors off;  # overrides an "on" inherited from http or server
+}
+```
+
+Put it in every `location` that proxies to Jellyfin, or once in the Jellyfin `server` block when no `location` there turns it back on. Your `error_page` keeps working for errors nginx makes itself, such as a ModSecurity block.
+
+**ModSecurity with the OWASP Core Rule Set.** A passkey's answer from the browser is a JSON document sent as a string field, and its quotes, colons and random base64url text look like SQL injection to CRS. Measured with CRS 4.30 on ModSecurity 3 (nginx), with 300 requests shaped like each of the four passkey answers below (sent to `Passkeys/RegisterFinish`) plus real passkey sign-ups and sign-ins:
+
+- **Paranoia level 1:** no request was blocked.
+- **Paranoia level 2:** every request was blocked. Rules 942200, 942340, 942370 and 942430 fired every time; 942100, 942300, 942330, 942440 and 942520 fired on some requests, depending on the random bytes.
+
+The affected endpoints are `Passkeys/RegisterFinish` (adding a passkey), `Passkey/LoginComplete` (passkey sign-in on the login page), `Verify/Passkey/Finish` (the sign-in challenge) and `StepUp/UserPasskeyVerify` (confirming a change with a passkey), all under `/TwoFactorAuth/`. The rule ids are in the ModSecurity audit log, on entries for those paths, with `ARGS:json.response` (or `ARGS:json.Response`) as the matched variable.
+
+Take that one field out of the SQL injection rules on those four endpoints, in `REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf` (CRS ships it as `REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf.example`; use any rule id that is free in your setup):
+
+```apache
+# Jellyfin Security passkeys: keep the WebAuthn answer out of the SQL injection rules.
+SecRule REQUEST_FILENAME "@rx /TwoFactorAuth/(?:Passkeys/RegisterFinish|Passkey/LoginComplete|Verify/Passkey/Finish|StepUp/UserPasskeyVerify)$" \
+    "id:10320,phase:1,pass,nolog,\
+    ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:json.response,\
+    ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:json.Response"
+```
+
+Both spellings are needed: the target name is case sensitive, and the login page sends `Response`. With this rule, every one of those requests passed at both levels, while SQL injection in the passkey's label and on other Jellyfin paths was still blocked. Every other field and every other rule family still applies to these endpoints, and the field itself is a signed WebAuthn result the plugin verifies and never puts in a query. Removing only the four ids that always fire is not enough (4 to 7% of passkey requests still failed at level 2), and excluding `/TwoFactorAuth/` from whole rule categories gives up far more than this needs.
+
+**Response rules.** With response body inspection on (`SecResponseBodyAccess On`), CRS also reads Jellyfin's answers, but only those whose type is listed in `SecResponseBodyMimeType` (ModSecurity's recommended configuration lists `text/plain text/html text/xml`, so JSON is read only when `application/json` is added) and only when they are not compressed. Before this version, three answers contained the words "empty password", which rule 953101 (PHP information leakage, paranoia level 2) takes for a leaked PHP error: the English translation bundle, the plugin's settings page and the 401 that refuses a blank password sign-in when **Block sign-in with a blank password** is on. On Jellyfin 12.2, requests with a browser's `Accept-Encoding` got the first two compressed, but not the 401. All three now say "blank password", and a test checks every page, script and translation the plugin serves, and the blank password refusal, against rule 953101 (what users type, such as a passkey's name, can still contain anything). With the blocking paranoia level at 2 or higher, one such match is enough to block an answer. On nginx, ModSecurity could not swap those answers for its error page, because they were already being sent: the bundle and the page still arrived, and the 401 was cut off, so the sign-in page could not show why it failed. At paranoia level 2 or higher, rule 950100 matches every 5xx answer, such as Jellyfin's 503 page while it starts and the 502 or 504 the proxy returns while Jellyfin is down. It reports a real server error, so keep it.
 
 ---
 

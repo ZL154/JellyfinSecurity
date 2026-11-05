@@ -7,6 +7,7 @@
 //                                          [data-i18n-title] / [data-i18n-aria-label] descendants
 //   - renderLanguagePicker(host, opts)  — appends a <select> styled for the host page
 //   - getEffectiveLanguage()            — returns the resolved language code (after loadTranslations)
+//   - proxyErrorMessage(response)       - names a proxy's error page in place of a plugin answer, or ''
 //
 // Resolution order (most specific wins): URL ?lang= → per-user preference (if
 //   signed in) → localStorage["tfa.lang"] → a SPECIFIC non-English admin default
@@ -379,6 +380,24 @@
 
     function getEffectiveLanguage() { return _lang; }
 
+    // [#320] Text for a failed call whose answer is not the plugin's. A reverse
+    // proxy or WAF that intercepts errors (nginx proxy_intercept_errors,
+    // ModSecurity) swaps the plugin's JSON for its own HTML page, which hides
+    // the plugin's reason and the step-up prompt it triggers. Jellyfin and the
+    // plugin answer a 4xx with JSON, plain text or an empty body, never HTML.
+    // 5xx stays out: Jellyfin itself serves an HTML 503 while it starts.
+    // Returns '' for every other answer, so callers keep their own text.
+    function proxyErrorMessage(response) {
+        var status = response && response.status;
+        if (!(status >= 400 && status < 500)) return '';
+        var type = '';
+        try { type = String(response.headers.get('Content-Type') || ''); } catch (e) { return ''; }
+        if (!/^\s*(?:text\/html|application\/xhtml\+xml)\s*(?:;|$)/i.test(type)) return '';
+        return tr('tfa.error.proxy_replaced',
+            'A reverse proxy or firewall replaced the answer from the server (HTTP {status}). Check its error interception and its WAF rules for /TwoFactorAuth/.')
+            .replace('{status}', String(status));
+    }
+
     window.tfaUrl = buildUrl;
     window.tfaI18n = {
         tr: tr,
@@ -386,6 +405,7 @@
         applyTranslations: applyTranslations,
         renderLanguagePicker: renderLanguagePicker,
         getEffectiveLanguage: getEffectiveLanguage,
+        proxyErrorMessage: proxyErrorMessage,
         url: buildUrl,
         SUPPORTED: SUPPORTED.slice(),
         LANG_LABELS: LANG_LABELS,

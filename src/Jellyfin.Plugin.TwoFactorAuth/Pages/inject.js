@@ -110,6 +110,11 @@
         } catch (e) { /* ignore */ }
         return fallback;
     }
+    // [#320] Names a reverse proxy's error page standing in for the plugin's
+    // answer, '' otherwise (see tfa-i18n.js, which may still be loading).
+    function proxyError(r) {
+        try { return window.tfaI18n.proxyErrorMessage(r) || ''; } catch (e) { return ''; }
+    }
     // Interpolate "{name}"-style placeholders into a translated template.
     function Tf(key, fallback, vars) {
         var s = T(key, fallback);
@@ -207,6 +212,78 @@
     function clearTfaPending() {
         try { sessionStorage.removeItem(TFA_PENDING_KEY); } catch (e) {}
     }
+    // Jellyfin Web's "Remember Me" box, left unticked once, stores
+    // localStorage['enableAutoLogin'] = 'false', and from then on every page
+    // load drops the stored access token before connecting. The plugin's
+    // sign-in pages (password and code, the challenge, the OIDC bridges) hand
+    // the session over by storing it and loading /web, so with that setting a
+    // valid sign-in always ended on Jellyfin's login page again. Those pages
+    // leave a one-shot marker in this tab naming the session they stored: the
+    // time, the server entry Id, the UserId and the last characters of the
+    // token. This script runs before Jellyfin Web's bundles, so for the load
+    // that follows it answers their enableAutoLogin reads with 'true', until
+    // Jellyfin's login form shows the setting again, and leaves the stored
+    // setting alone: the next full load signs out again, as the user asked.
+    var TFA_HANDOFF_KEY = '__tfa_session_handoff';
+    // Long enough for the OIDC set-password step, which sits between the
+    // hand-off and /web.
+    var TFA_HANDOFF_TTL_MS = 10 * 60 * 1000;
+    // Enough of the token to tell a session stored later from the handed-over
+    // one, without keeping a second usable copy of it in sessionStorage.
+    var TFA_HANDOFF_TOKEN_TAIL = 8;
+    function isWholeNumber(value) {
+        return typeof value === 'number' && isFinite(value) && Math.floor(value) === value;
+    }
+    function isFilledString(value) {
+        return typeof value === 'string' && value !== '';
+    }
+    function honorSessionHandoff(storageProto, local, session, onLoginRoute, now) {
+        try {
+            var raw = session.getItem(TFA_HANDOFF_KEY);
+            session.removeItem(TFA_HANDOFF_KEY);
+            if (raw === null) return false;
+            var mark = JSON.parse(raw);
+            if (!mark || typeof mark !== 'object' || !isWholeNumber(mark.at)) return false;
+            if (!isFilledString(mark.server) || !isFilledString(mark.user) || !isFilledString(mark.tokenTail)) return false;
+            if (!(now - mark.at >= 0 && now - mark.at <= TFA_HANDOFF_TTL_MS)) return false;
+            if (local.getItem('enableAutoLogin') !== 'false') return false;
+            // Jellyfin Web connects to the server entry it accessed last. Keep
+            // it only if it still holds the session the hand-off stored: another
+            // tab of this origin may have stored a different one since.
+            var servers = (JSON.parse(local.getItem('jellyfin_credentials') || '{}') || {}).Servers || [];
+            var last = null;
+            var lastAccessed = -1;
+            for (var i = 0; i < servers.length; i++) {
+                if (!servers[i]) continue;
+                var accessed = servers[i].DateLastAccessed == null ? 0 : servers[i].DateLastAccessed;
+                // With a time that is not a number, which entry Jellyfin Web
+                // picks is not known, so nothing is kept.
+                if (!isWholeNumber(accessed)) return false;
+                if (accessed > lastAccessed) { last = servers[i]; lastAccessed = accessed; }
+            }
+            // A field missing on both sides must not match, so the entry's are
+            // checked the same way as the marker's.
+            if (!last || !isFilledString(last.Id) || !isFilledString(last.UserId) || !isFilledString(last.AccessToken)) return false;
+            if (last.Id !== mark.server || last.UserId !== mark.user
+                || last.AccessToken.slice(-TFA_HANDOFF_TOKEN_TAIL) !== mark.tokenTail) return false;
+            var getItem = storageProto.getItem;
+            var active = true;
+            storageProto.getItem = function (key) {
+                if (active && this === local && key === 'enableAutoLogin') {
+                    // The login form reads this to show the Remember Me box and
+                    // saves it again, so from there on it is the user's own.
+                    if (!onLoginRoute()) return 'true';
+                    active = false;
+                }
+                return getItem.apply(this, arguments);
+            };
+            return true;
+        } catch (e) { return false; }
+    }
+    try {
+        honorSessionHandoff(window.Storage.prototype, window.localStorage, window.sessionStorage,
+            isExplicitLoginRoute, Date.now());
+    } catch (e) { /* storage unavailable: nothing was handed over */ }
     // [v2.5.14] (#99/#98) Escape hatch for the soft-lock. When the pending flag
     // is armed, every non-auth fetch/XHR is short-circuited with a synthetic 403.
     // If the user is NOT actively on a 2FA page completing the challenge, that
@@ -485,6 +562,13 @@
                 // 403 instead of 401 for blocked-token-2FA-pending). Auth paths
                 // still get 401 with the TwoFactorRequired marker.
                 if (resp.status !== 401 && resp.status !== 403) return resp;
+                // [#320] A proxy's page in place of a sign-in answer hides the
+                // 2FA challenge: say so, and leave the answer to Jellyfin.
+                var replaced = isAuthPath(url) ? proxyError(resp) : '';
+                if (replaced) {
+                    showLockoutToast(replaced);
+                    return resp;
+                }
                 var clone = resp.clone();
                 return clone.json().then(function (body) {
                     // Any 2FA-required marker (from any endpoint) sets the flag
@@ -616,6 +700,15 @@
                 // v2.4.12: also recognise 403 (RequestBlockerMiddleware) in
                 // addition to 401 (auth-path challenge response).
                 if (xhr.status !== 401 && xhr.status !== 403) return;
+                // [#320] Same as the fetch path: name a proxy's page.
+                var replaced = proxyError({
+                    status: xhr.status,
+                    headers: { get: function (name) { return xhr.getResponseHeader(name); } }
+                });
+                if (replaced) {
+                    showLockoutToast(replaced);
+                    return;
+                }
                 var body = readJsonBody(xhr);
                 if (!body) return;
                 if (body.twoFactorRequired || body.TwoFactorRequired) {
@@ -1120,8 +1213,11 @@
         var hash = window.location.hash || '';
         return hash.indexOf('login') >= 0 || hash === '' || hash === '#';
     }
+    function findUsernameInput() {
+        return document.querySelector('input#txtManualName, input[name="username"], input#username, .manualLoginForm input[type="text"]:not([type="password"])');
+    }
     function findUsername() {
-        var input = document.querySelector('input#txtManualName, input[name="username"], input#username, .manualLoginForm input[type="text"]:not([type="password"])');
+        var input = findUsernameInput();
         return input && input.value ? input.value.trim() : '';
     }
     // [v2.5.7] (issue #48 feature, Gaarindor): lazy-fetch the anonymous
@@ -1342,8 +1438,13 @@
             addStyles();
             var btn = document.createElement('a');
             btn.id = BUTTON_ID;
-            btn.setAttribute('is', 'emby-linkbutton');
+            // A plain anchor, like the SSO buttons. With is="emby-linkbutton",
+            // jellyfin-web also sends the click to its hash router, which
+            // records /web/#/TwoFactorAuth/Login (a route it does not have) in
+            // the history. Add the classes that upgrade used to add instead.
             btn.className = (signInBtn.className || 'raised block').replace(/button-submit|button-cancel|emby-button/g, '').trim();
+            btn.classList.add('emby-button');
+            if (document.documentElement.classList.contains('layout-tv')) btn.classList.add('show-focus');
             btn.innerHTML = '<span class="tfa-icon">🔐</span><span data-i18n-key="tfa.login.btn_2fa">' + T('tfa.login.btn_2fa', 'Sign in with Two-Factor Authentication') + '</span>';
             btn.href = withLang(serverUrl('TwoFactorAuth/Login'));
             (function () {
@@ -1378,7 +1479,10 @@
     // v2.1: passkey primary login button — sits below the 2FA button. Click
     // takes the username from the form, asks the server for assertion options,
     // runs navigator.credentials.get, posts the signed assertion back, gets a
-    // bridge token, fills it in as the password and submits the form.
+    // bridge token and signs in with it (signInWithBridgeToken).
+    // [#319] With the username field empty, the browser offers the passkeys it
+    // holds for this site and the server names the account of the one picked,
+    // which is then signed in.
     function addPasskeyButton(signInBtn, twoFaBtn) {
         if (document.getElementById('__twofactor_passkey_btn')) return;
         // Only show when WebAuthn is available in a secure context.
@@ -1394,8 +1498,8 @@
         btn.addEventListener('click', async function(e) {
             e.preventDefault();
             var u = findUsername();
-            if (!u) { alert(T('tfa.login.passkey_enter_user', 'Enter your username first, then click Sign in with passkey.')); return; }
             var orig = btn.innerHTML;
+            var verified = false;
             btn.innerHTML = '<span class="tfa-icon">🔑</span>Waiting for authenticator…';
             try {
                 var begin = await fetch(serverUrl('TwoFactorAuth/Passkey/LoginBegin'), {
@@ -1404,7 +1508,7 @@
                 });
                 if (!begin.ok) {
                     var err = await begin.json().catch(function(){return{};});
-                    throw new Error(err.message || ('HTTP ' + begin.status));
+                    throw new Error(err.message || proxyError(begin) || ('HTTP ' + begin.status));
                 }
                 var beginBody = await begin.json();
                 var opts = JSON.parse(beginBody.options);
@@ -1426,25 +1530,100 @@
                 });
                 if (!complete.ok) {
                     var err2 = await complete.json().catch(function(){return{};});
-                    throw new Error(err2.message || 'Passkey verification failed');
+                    throw new Error(err2.message || proxyError(complete) || 'Passkey verification failed');
                 }
                 var data = await complete.json();
-                // Stuff the bridge token into the password field and submit the
-                // standard Jellyfin form — TwoFactorAuthProvider sees the token
-                // prefix and accepts the login with no further challenge.
+                verified = true;
+                var signedIn = signInWithBridgeToken(signInBtn, data.username, data.token);
+                if (signedIn) {
+                    await signedIn;
+                    return;
+                }
+                console.warn('[2FA] Cannot sign in through the Jellyfin Web ApiClient on this page; submitting the login form with the passkey token instead.');
+                // Fallback: stuff the bridge token into the password field and
+                // submit the standard Jellyfin form. TwoFactorAuthProvider sees
+                // the token prefix and accepts the login with no further challenge.
                 var passInput = document.querySelector('input#txtManualPassword, input[name="password"], input#password');
                 if (!passInput) throw new Error('Password field not found');
+                if (!u) {
+                    var nameInput = findUsernameInput();
+                    if (!nameInput) throw new Error('Username field not found');
+                    nameInput.value = data.username;
+                    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
                 passInput.value = data.token;
                 passInput.dispatchEvent(new Event('input', { bubbles: true }));
                 signInBtn.click();
             } catch (err) {
                 btn.innerHTML = orig;
-                alert('Passkey sign-in failed: ' + (err && err.message ? err.message : err));
+                var detail = err && err.message ? err.message : err;
+                // Jellyfin answers 403 after accepting the token when the
+                // account may not sign in from here, which retrying cannot fix.
+                if (err && err.signInRefused) {
+                    alert(T('tfa.login.oidc_refused', 'Jellyfin refused this account here. An administrator can check it under Dashboard > Users: remote connections, a disabled account, allowed hours, allowed devices or the session limit. A reverse proxy in front of Jellyfin can also refuse the request.'));
+                    return;
+                }
+                // A passkey registered without discoverable storage is never
+                // offered here, so point to the username path that still works.
+                alert(u || verified ? 'Passkey sign-in failed: ' + detail
+                    : T('tfa.login.passkey_usernameless_failed', 'Passkey sign-in failed. If your passkey was not offered, type your username first and try again.') + '\n\n' + detail);
             }
         });
         var parent = twoFaBtn.parentNode;
         if (twoFaBtn.nextSibling) parent.insertBefore(btn, twoFaBtn.nextSibling);
         else parent.appendChild(btn);
+    }
+
+    // [#NEW_ISSUE] Sign in with a bridge token the way Jellyfin Web's login
+    // page does once its form has been read, and the way its Quick Connect
+    // button does: ApiClient.authenticateUserByName stores the session, then
+    // Dashboard switches to that client and opens the page the login route was
+    // asked to return to. The token never touches the password field: a
+    // password manager watching that field offered to save each single-use
+    // token as the account's new password. Returns null when this Jellyfin Web
+    // lacks what that needs, so the caller can submit the form instead.
+    function signInWithBridgeToken(signInBtn, username, token) {
+        var apiClient = window.ApiClient;
+        var dashboard = window.Dashboard;
+        if (!apiClient || typeof apiClient.authenticateUserByName !== 'function'
+            || !dashboard || typeof dashboard.onServerChanged !== 'function'
+            || typeof dashboard.navigate !== 'function') return null;
+        // Parsed like Jellyfin Web parses the login route's own parameters:
+        // when a key repeats, the last value wins.
+        var hash = window.location.hash || '';
+        var params = {};
+        new URLSearchParams(hash.indexOf('?') < 0 ? '' : hash.substring(hash.indexOf('?') + 1))
+            .forEach(function (value, key) { params[key] = value; });
+        // A route naming another server signs in through that server's client,
+        // which only Jellyfin Web can reach.
+        var serverId = params.serverid;
+        if (serverId && (typeof apiClient.serverId !== 'function' || apiClient.serverId() !== serverId)) return null;
+        var form = signInBtn.closest ? signInBtn.closest('form') : null;
+        var remember = form ? form.querySelector('.chkRememberLogin') : null;
+        // The form's submit handler saves "Remember me" here, and Jellyfin Web
+        // drops the stored session on its next start when it is off.
+        if (remember) {
+            try { localStorage.setItem('enableAutoLogin', String(!!remember.checked)); } catch (e) { /* storage blocked */ }
+        }
+        var target = '/home';
+        if (params.url) {
+            try { target = decodeURIComponent(params.url); } catch (e) { /* keep /home, as Jellyfin Web does */ }
+        }
+        if (typeof dashboard.showLoadingMsg === 'function') dashboard.showLoadingMsg();
+        function hideLoading() {
+            if (typeof dashboard.hideLoadingMsg === 'function') dashboard.hideLoadingMsg();
+        }
+        return apiClient.authenticateUserByName(username, token).then(function (result) {
+            hideLoading();
+            dashboard.onServerChanged(result.User.Id, result.AccessToken, apiClient);
+            dashboard.navigate(target);
+        }, function (response) {
+            hideLoading();
+            var status = response && response.status;
+            var err = new Error(status ? 'HTTP ' + status : 'Sign-in request failed');
+            err.signInRefused = status === 403;
+            throw err;
+        });
     }
 
     // Base64url ⇔ ArrayBuffer — same helpers as challenge.html.
@@ -1851,6 +2030,10 @@
                     creds.Servers.unshift({ Id: res.ServerId, Name: 'Jellyfin', AccessToken: res.AccessToken, UserId: res.User.Id, Type: 'Server', DateLastAccessed: now, LastConnectionMode: TFA_CONNECTION_MODE_MANUAL, ManualAddress: address });
                 }
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+                try {
+                    var stored = existing || creds.Servers[0];
+                    sessionStorage.setItem(TFA_HANDOFF_KEY, JSON.stringify({ at: Date.now(), server: stored.Id, user: stored.UserId, tokenTail: String(stored.AccessToken).slice(-TFA_HANDOFF_TOKEN_TAIL) }));
+                } catch (e) {}
                 // A stale pending flag would short-circuit the fresh session's
                 // bootstrap calls (#98); this sign-in just succeeded, so none applies.
                 try { clearTfaPending(); } catch (e) {}

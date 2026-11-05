@@ -270,7 +270,12 @@ public class TwoFactorAuthController : ControllerBase
                  && (_stepUp.VerifyUserCode(userData, code!) || _emailOtpService.ValidateStepUpCode(userId, code!));
         if (!ok)
         {
-            await _store.RecordFailedAttemptAsync(userId).ConfigureAwait(false);
+            // The UI first asks whether step-up is needed without submitting proof.
+            // Missing proof or a stale token is not a failed code verification.
+            if (!string.IsNullOrWhiteSpace(code))
+            {
+                await _store.RecordFailedAttemptAsync(userId).ConfigureAwait(false);
+            }
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
                 message = "A current authenticator or recovery code is required to modify two-factor settings.",
@@ -1483,18 +1488,7 @@ public class TwoFactorAuthController : ControllerBase
         // trusted-proxy chain, which is what the detectors have to compare.
         _signInObserver.Observe(challenge.UserId, challenge.Username, clientIp);
 
-        string? deviceToken = null;
-        if (request.TrustDevice && !string.IsNullOrEmpty(challenge.DeviceId))
-        {
-            var (rawToken, trustedDevice) = _deviceTokenService.CreateDeviceToken(
-                challenge.DeviceId,
-                challenge.DeviceName ?? challenge.DeviceId);
-
-            // Added to the stored record, cap included, as in Authenticate.
-            await _store.MutateAsync(challenge.UserId, ud => UserDataUpdates.AddTrustedDevice(ud, trustedDevice)).ConfigureAwait(false);
-
-            deviceToken = rawToken;
-        }
+        var deviceToken = await CreateChallengeDeviceTokenAsync(challenge, request.TrustDevice).ConfigureAwait(false);
 
         // Return the stashed Jellyfin auth response from the middleware so the
         // client ends up with a valid session identical to a non-2FA login.
@@ -1520,6 +1514,23 @@ public class TwoFactorAuthController : ControllerBase
             AccessToken = string.Empty,
             DeviceToken = deviceToken,
         });
+    }
+
+    private async Task<string?> CreateChallengeDeviceTokenAsync(ChallengeData challenge, bool remember)
+    {
+        if (remember && !string.IsNullOrEmpty(challenge.DeviceId))
+        {
+            var (rawToken, trustedDevice) = _deviceTokenService.CreateDeviceToken(
+                challenge.DeviceId,
+                challenge.DeviceName ?? challenge.DeviceId);
+
+            // Added to the stored record, cap included, as in Authenticate.
+            await _store.MutateAsync(challenge.UserId, ud => UserDataUpdates.AddTrustedDevice(ud, trustedDevice)).ConfigureAwait(false);
+
+            return rawToken;
+        }
+
+        return null;
     }
 
     // Issue #27 ABI shim, now shared with the uninstall restore (#213).
@@ -1734,11 +1745,8 @@ public class TwoFactorAuthController : ControllerBase
         // SelfServiceStepUpMode.Forced a hijacked session could still strip a
         // victim's 2FA with no step-up. Require verification when EITHER the
         // legacy flag is set OR the self-service mode demands it for a user
-        // with any existing factor (TOTP / passkey / OIDC / email).
-        var hasExisting2faForDisable = (userData.TotpEnabled && userData.TotpVerified)
-            || userData.Passkeys.Count > 0
-            || userData.SsoLinks.Count > 0
-            || (config?.EmailOtpEnabled == true && userData.EmailOtpPreferred);
+        // with any existing factor, read from the same list as the step-up gate.
+        var hasExisting2faForDisable = SelfServiceFactors.HasAny(userData, config ?? new Configuration.PluginConfiguration());
         var modeRequiresDisableStepUp = hasExisting2faForDisable && (config?.SelfServiceStepUpMode switch
         {
             Configuration.SelfServiceStepUpMode.Off => false,
@@ -2559,18 +2567,36 @@ public class TwoFactorAuthController : ControllerBase
         var isNewAddress = !string.IsNullOrEmpty(email)
             && !string.Equals(email, previousEmail, StringComparison.OrdinalIgnoreCase);
 
+        // The address receives the sign-in and step-up codes, so changing or
+        // clearing it is a factor change, confirmed like adding a passkey.
+        // Saving the same address again changes nothing and needs no proof.
+        if (!string.Equals(email, previousEmail, StringComparison.OrdinalIgnoreCase))
+        {
+            var stepUp = await EnforceSelfServiceStepUpAsync(userId, req.Code, req.StepUpToken).ConfigureAwait(false);
+            if (stepUp is not null) return stepUp;
+        }
+
         config.SetUserEmail(userId.ToString("N"), string.IsNullOrEmpty(email) ? null : email);
         Plugin.Instance!.SaveConfiguration();
 
         if (isNewAddress && config.WelcomeEmailEnabled)
         {
-            // Fire-and-forget: a dead mail server must not fail the save, and
-            // SendWelcomeEmailAsync already swallows its own errors.
-            var username = _userManager.GetUserById(userId)?.Username ?? string.Empty;
-            _ = _emailOtpService.SendWelcomeEmailAsync(email, username);
+            // At most three welcome emails per account a day, however often
+            // the address changes. The save itself never depends on it.
+            var welcome = _rateLimiter.CheckAndRecord("welcome_email:" + userId.ToString("N"), 3, TimeSpan.FromHours(24));
+            if (welcome.allowed)
+            {
+                // Fire-and-forget: a dead mail server must not fail the save, and
+                // SendWelcomeEmailAsync already swallows its own errors.
+                var username = _userManager.GetUserById(userId)?.Username ?? string.Empty;
+                _ = _emailOtpService.SendWelcomeEmailAsync(email, username);
+            }
+            else
+            {
+                _logger.LogInformation("[2FA] Welcome email not sent for {UserId}: three already went out in the last 24 hours", userId);
+            }
         }
 
-        await Task.CompletedTask.ConfigureAwait(false);
         return Ok(new { message = "Saved." });
     }
 
@@ -2644,6 +2670,12 @@ public class TwoFactorAuthController : ControllerBase
             return BadRequest(new { message = "Telegram is not configured on this server. Ask your administrator to set a bot token." });
         }
 
+        // The linked chat receives the sign-in and step-up codes, so linking
+        // one is a factor change. Confirm does not ask again: step-up tokens
+        // are single use, and a pending link only exists after this check.
+        var stepUp = await EnforceSelfServiceStepUpAsync(userId, req.Code, req.StepUpToken).ConfigureAwait(false);
+        if (stepUp is not null) return stepUp;
+
         // Issue a code BOUND to this chat, then send it there. Reading it back
         // (next call) proves the user controls this chat.
         var code = _emailOtpService.GenerateTelegramLinkCode(userId, chatId);
@@ -2685,9 +2717,15 @@ public class TwoFactorAuthController : ControllerBase
 
     [HttpDelete("Telegram")]
     [Authorize]
-    public async Task<IActionResult> UnlinkTelegram()
+    public async Task<IActionResult> UnlinkTelegram([FromQuery] string? code = null, [FromQuery] string? stepUpToken = null)
     {
         var userId = GetCurrentUserId();
+
+        // Removing the chat is a factor change too. As for a passkey delete,
+        // the proof arrives on the query string because the request has no body.
+        var stepUp = await EnforceSelfServiceStepUpAsync(userId, code, stepUpToken).ConfigureAwait(false);
+        if (stepUp is not null) return stepUp;
+
         await _store.MutateAsync(userId, ud => ud.TelegramChatId = string.Empty).ConfigureAwait(false);
         return Ok(new { linked = false });
     }
@@ -4106,6 +4144,7 @@ public class TwoFactorAuthController : ControllerBase
         public string ChallengeToken { get; set; } = string.Empty;
         public string Nonce { get; set; } = string.Empty;
         public string Response { get; set; } = string.Empty;
+        public bool TrustDevice { get; set; }
     }
 
     /// <summary>Begin an assertion ceremony to satisfy the 2FA challenge step
@@ -4238,12 +4277,14 @@ public class TwoFactorAuthController : ControllerBase
             return Unauthorized(new { message = "Passkey verification failed" });
         }
 
-        // Consume the challenge — same code path as TOTP-success (controller
-        // already has Verify endpoint for that; we delegate by re-issuing the
-        // stash). Simplest reuse: mark device pre-verified and return the
-        // stashed PendingAuthResponse the way the TOTP Verify does.
+        // A valid passkey completes the sign-in challenge just like a code.
+        // Claim it before clearing attempts or recording device verification.
         if (!_challengeStore.ConsumeChallenge(req.ChallengeToken))
             return BadRequest(new { message = "Challenge already consumed" });
+
+        await _store.ResetFailedAttemptsAsync(challenge.UserId).ConfigureAwait(false);
+        _rateLimiter.Reset("verify_user:" + challenge.UserId.ToString("N"));
+        _rateLimiter.Reset("verify:" + clientIp);
 
         _challengeStore.MarkDevicePreVerified(challenge.UserId, challenge.DeviceId);
         _pendingPairings.Remove(challenge.UserId, challenge.DeviceId ?? string.Empty);
@@ -4266,6 +4307,8 @@ public class TwoFactorAuthController : ControllerBase
         // assertion that reaches here is a completed sign-in.
         _signInObserver.Observe(challenge.UserId, challenge.Username, ip);
 
+        var deviceToken = await CreateChallengeDeviceTokenAsync(challenge, req.TrustDevice).ConfigureAwait(false);
+
         // Return the stashed Jellyfin auth payload verbatim — same shape the
         // standard challenge.html flow consumes (parses out AccessToken etc.).
         var stashed = challenge.PendingAuthResponse;
@@ -4274,6 +4317,10 @@ public class TwoFactorAuthController : ControllerBase
             return Ok(new { message = "Verified, but no stashed auth response — sign in again from the start" });
         }
         UnblockAccessTokenFromPendingAuthResponse(stashed, challenge.Username);
+        if (deviceToken is not null)
+        {
+            Response.Headers.Append("X-TwoFactor-Device-Token", deviceToken);
+        }
         return Content(stashed, "application/json");
     }
 

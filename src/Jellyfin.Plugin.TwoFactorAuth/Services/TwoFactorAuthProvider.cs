@@ -520,6 +520,15 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             throw new AuthenticationException("Account is temporarily locked due to too many failed attempts");
         }
 
+        // [#312] The authenticator code came after the password, and
+        // CodeAfterPasswordMiddleware checked both for this very request: no
+        // challenge, and the SessionStarted handler approves the session.
+        if (CodeAfterPasswordMiddleware.WasVerifiedFor(_httpContextAccessor.HttpContext, userId))
+        {
+            _ipBans.RecordSuccess(authIp ?? string.Empty);
+            return baseResult;
+        }
+
         // ------------------------------------------------------------------
         // 6. Extract request context (IP, headers, device info).
         // ------------------------------------------------------------------

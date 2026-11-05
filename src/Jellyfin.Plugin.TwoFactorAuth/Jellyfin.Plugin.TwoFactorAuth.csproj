@@ -47,24 +47,28 @@
 
   <ItemGroup>
     <PackageReference Include="Otp.NET" Version="1.4.1" />
-    <PackageReference Include="QRCoder" Version="1.8.0" />
+    <PackageReference Include="QRCoder" Version="1.8.1" />
     <!-- Issue #29: MailKit replaces System.Net.Mail.SmtpClient for SMTP. The
          BCL client only supports STARTTLS (port 587) — it silently fails on
          port 465 (Implicit TLS / SMTPS) because EnableSsl=true sends EHLO in
          plaintext to a server expecting an SSL ClientHello. Microsoft has
          officially deprecated SmtpClient for SMTPS and recommends MailKit. -->
-    <PackageReference Include="MailKit" Version="4.18.1" />
-    <!-- MimeKit 4.18.1 (MailKit's dependency) only asks for
+    <PackageReference Include="MailKit" Version="4.18.2" />
+    <!-- Added in #275: MimeKit 4.18.1 (MailKit's dependency) only asked for
          System.Security.Cryptography.Pkcs 10.0.0, and 10.0.0 to 10.0.12 carry
          two .NET denial-of-service advisories published on 2026-10-13
          (GHSA-846f-f764-76mx, high, and GHSA-2fmv-rv2c-59x7, moderate), both
-         fixed in 10.0.13. The 10.11 zip ships this DLL (NET9_ONLY_ASSEMBLIES in
-         build.sh). NuGet audits transitive packages by default on net10, so
-         without this pin the Jellyfin 12 restore stops at NU1902 and NU1903
-         under TreatWarningsAsErrors. Drop it once MimeKit requires a fixed
-         version itself. -->
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
-    <PackageReference Include="Fido2" Version="4.2.0" />
+         fixed in 10.0.13. MimeKit 4.18.2 asks for 10.0.13 itself, so this
+         reference no longer keeps those out; it stays so each .NET servicing
+         release of Pkcs reaches the plugin through Dependabot instead of
+         waiting for MimeKit to raise its minimum. The 10.11 zip ships this DLL
+         with System.Formats.Asn1 and Microsoft.Bcl.Cryptography at the same
+         version (NET9_ONLY_ASSEMBLIES in build.sh). NuGet audits transitive
+         packages by default on net10, so an advisory against the version in
+         use stops the Jellyfin 12 restore at NU1902 or NU1903 under
+         TreatWarningsAsErrors. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
+    <PackageReference Include="Fido2" Version="4.3.1" />
     <PackageReference Include="MaxMind.Db" Version="5.2.0" />
     <!-- QuestPDF was held at 2026.5.0 after 2026.6.0 produced an invalid
          recovery-codes PDF ("Failed to load PDF document"; Dependabot #77 was
@@ -88,7 +92,7 @@
          DLLs with the build.sh list and sign in through OIDC on a live server. -->
     <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.23.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
-    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.402">
+    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.403">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

@@ -1402,6 +1402,11 @@ public class SecurityController : ControllerBase
             // one device but not another (#98). The OIDC sign-in just succeeded, so
             // there is by definition no pending 2FA challenge to preserve.
             + "try{sessionStorage.removeItem('__tfa_pending');}catch(e){}"
+            // inject.js keeps the next /web load signed in when Jellyfin Web's
+            // "Remember Me" box was left unticked, for the session named here:
+            // entry Id, UserId and the token's last 8 characters (see
+            // TFA_HANDOFF_KEY there).
+            + "try{var stored=existing||creds.Servers[0];sessionStorage.setItem('__tfa_session_handoff',JSON.stringify({at:Date.now(),server:stored.Id,user:stored.UserId,tokenTail:String(stored.AccessToken).slice(-8)}));}catch(e){}"
             + "document.getElementById('msg').textContent='Signed in as '+res.User.Name+' — redirecting…';"
             + "setTimeout(function(){window.location.href=land;},400);"
             + "})"
@@ -1691,6 +1696,7 @@ public class SecurityController : ControllerBase
             + "else{creds.Servers.unshift({Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:2,ManualAddress:ba});}"
             + "localStorage.setItem('jellyfin_credentials',JSON.stringify(creds));"
             + "try{sessionStorage.removeItem('__tfa_pending');}catch(e){}"
+            + "try{var stored=existing||creds.Servers[0];sessionStorage.setItem('__tfa_session_handoff',JSON.stringify({at:Date.now(),server:stored.Id,user:stored.UserId,tokenTail:String(stored.AccessToken).slice(-8)}));}catch(e){}"
             + "st('Signed in as '+res.User.Name+' \\u2014 opening Jellyfin\\u2026');"
             + "setTimeout(function(){window.location.href=su('web/index.html');},400);"
             + "}).catch(function(e){st('Sign-in failed: '+e.message);});"
@@ -1998,10 +2004,12 @@ public class SecurityController : ControllerBase
     // PASSKEY PRIMARY LOGIN (v2.1) — username + passkey, no password prompt
     // =========================================================================
 
-    public class PasskeyLoginBeginRequest { [Required] public string Username { get; set; } = string.Empty; }
+    // [#319] An empty Username starts a sign-in without one: the account comes
+    // from the passkey the person picks in the browser.
+    public class PasskeyLoginBeginRequest { public string? Username { get; set; } }
     public class PasskeyLoginCompleteRequest
     {
-        [Required] public string Username { get; set; } = string.Empty;
+        public string? Username { get; set; }
         [Required] public string Nonce { get; set; } = string.Empty;
         [Required] public string Response { get; set; } = string.Empty;
     }
@@ -2033,6 +2041,16 @@ public class SecurityController : ControllerBase
             {
                 message = $"Too many attempts. Try again in {rl.retryAfterSeconds}s.",
             });
+        }
+
+        // [#319] No username: an empty allowCredentials lets the browser offer
+        // the discoverable passkeys it holds for this site. The nonce belongs
+        // to no user, so only LoginComplete without a username accepts it, and
+        // it learns nothing about which accounts exist.
+        if (string.IsNullOrWhiteSpace(req.Username))
+        {
+            var discoverableOptions = _passkeys.BuildAssertionOptions(HttpContext, Array.Empty<PasskeyCredential>());
+            return Ok(new { options = discoverableOptions, nonce = _passkeyChallenges.Begin(discoverableOptions, null) });
         }
 
         // SECURITY [v2.5.5] (Finding 11): equalize timing for the user-
@@ -2097,10 +2115,39 @@ public class SecurityController : ControllerBase
             });
         }
 
-        var user = _userManager.GetUserByName(req.Username);
+        // [#319] Without a username the nonce is spent and checked before any
+        // account is looked at, and every refusal before the signature check
+        // is the same generic 401: anything else would confirm that a handle
+        // and a credential belong to an account.
+        var usernameless = string.IsNullOrWhiteSpace(req.Username);
+        string? discoverableOptions = null;
+        if (usernameless)
+        {
+            var (ceremonyOptions, ceremonyOwner) = _passkeyChallenges.Consume(req.Nonce);
+            if (ceremonyOptions is null || ceremonyOwner is not null)
+            {
+                _logger.LogWarning("[2FA] Passkey login without a username: unknown, spent or mismatched nonce");
+                _bans.RecordFailure(clientIp);
+                return Unauthorized(new { message = "Passkey verification failed." });
+            }
+
+            discoverableOptions = ceremonyOptions;
+        }
+
+        var user = usernameless
+            ? await FindDiscoverablePasskeyOwnerAsync(req.Response).ConfigureAwait(false)
+            : _userManager.GetUserByName(req.Username!);
         if (user is null)
         {
-            _logger.LogWarning("[2FA] Passkey login: unknown username {User}", req.Username);
+            if (usernameless)
+            {
+                _logger.LogWarning("[2FA] Passkey login without a username: the passkey matches no account");
+            }
+            else
+            {
+                _logger.LogWarning("[2FA] Passkey login: unknown username {User}", req.Username);
+            }
+
             _bans.RecordFailure(clientIp);
             return Unauthorized(new { message = "Passkey verification failed." });
         }
@@ -2108,16 +2155,26 @@ public class SecurityController : ControllerBase
         if (!await _allowlist.IsAllowedAsync(user.Id, clientIp).ConfigureAwait(false))
         {
             _bans.RecordFailure(clientIp);
+            if (usernameless)
+            {
+                _logger.LogWarning("[2FA] Passkey login without a username: refused by the account's network allowlist");
+                return Unauthorized(new { message = "Passkey verification failed." });
+            }
+
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
                 message = "Sign-in is not allowed from this network.",
             });
         }
 
-        var (optionsJson, storedUserId) = _passkeyChallenges.Consume(req.Nonce);
-        if (optionsJson is null || storedUserId != user.Id)
+        // A nonce from LoginBegin with a username names that user. The nonce
+        // of a sign-in without a username was spent and checked above.
+        var (optionsJson, storedUserId) = usernameless
+            ? (discoverableOptions, null)
+            : _passkeyChallenges.Consume(req.Nonce);
+        if (optionsJson is null || storedUserId != (usernameless ? (Guid?)null : user.Id))
         {
-            _logger.LogWarning("[2FA] Passkey login: nonce mismatch for {User}", req.Username);
+            _logger.LogWarning("[2FA] Passkey login: nonce mismatch for {User}", user.Username);
             _bans.RecordFailure(clientIp);
             // SECURITY [v2.5.5] (Finding 15): also record per-user failure
             // so the existing per-user lockout machinery picks this up. An
@@ -2153,7 +2210,7 @@ public class SecurityController : ControllerBase
         // token, the caller submits it as the password to /Users/AuthenticateByName,
         // TwoFactorAuthProvider consumes it and signs the user in with no
         // password + no further 2FA challenge. Same security guarantees as OIDC.
-        var token = _oidcBridge.Mint(user.Id, user.Username ?? req.Username, "passkey");
+        var token = _oidcBridge.Mint(user.Id, user.Username, "passkey");
         await RouteThroughPluginProviderAsync(user, "Passkey login").ConfigureAwait(false);
 
         _logger.LogInformation("[2FA] Passkey primary sign-in for {User}", req.Username);
@@ -2322,6 +2379,25 @@ public class SecurityController : ControllerBase
         {
             _logger.LogWarning(ex, "[2FA] {Flow}: could not reassign AuthenticationProviderId for {User}", flow, user.Username);
         }
+    }
+
+    /// <summary>[#319] The account a sign-in without a username belongs to: the
+    /// user handle must name an existing account AND the credential must be one
+    /// of that account's passkeys. Either alone is not enough. The signature is
+    /// checked later by CompleteAssertionAsync, like in the username flow.</summary>
+    private async Task<Jellyfin.Database.Implementations.Entities.User?> FindDiscoverablePasskeyOwnerAsync(string responseJson)
+    {
+        if (PasskeyService.ReadDiscoverableAssertion(responseJson) is not { } claim)
+        {
+            return null;
+        }
+
+        var user = _userManager.GetUserById(claim.UserId);
+        // The store caches every id it reads, so it never sees an id the caller
+        // made up: an unknown account reads Guid.Empty instead.
+        var data = await _store.GetUserDataAsync(user?.Id ?? Guid.Empty).ConfigureAwait(false);
+        var ownsCredential = data.Passkeys.Any(c => string.Equals(c.CredentialId, claim.CredentialId, StringComparison.Ordinal));
+        return user is not null && ownsCredential ? user : null;
     }
 
     private static bool IsValidCidr(string cidr)
