@@ -175,3 +175,85 @@ test('in-app dialog: the English translation is the text the dialog falls back t
     assert.ok(fallback, 'the dialog must name tfa.login.oidc_refused with an English fallback');
     assert.equal(english['tfa.login.oidc_refused'], fallback);
 });
+
+// [#297] With a provider set to auto-redirect, the login page sends a browser
+// straight to that provider's sign-in. Run the decision exactly as inject.js
+// defines it.
+const autoRule = inject.match(/\n( *)function oidcAutoRedirectTarget\(s\) \{[\s\S]*?\n\1\}/);
+assert(autoRule, 'inject.js must define oidcAutoRedirectTarget(s)');
+const oidcAutoRedirectTarget = runInNewContext(`(${autoRule[0].trim()})`);
+
+const NOW = 1_800_000_000_000;
+const browserOnLoginPage = {
+    providers: [{id: 'authentik', enabled: true, autoRedirect: true}],
+    embeddedApp: false,
+    oidcError: false,
+    returningFromProvider: false,
+    optedOut: false,
+    signedOut: false,
+    lastAutoRedirectAt: 0,
+    now: NOW,
+};
+const autoTarget = changes => oidcAutoRedirectTarget({...browserOnLoginPage, ...changes});
+
+test('auto-redirect: a browser goes to the provider that asks for it', () => {
+    assert.equal(autoTarget({}), 'authentik');
+});
+
+test('auto-redirect: nothing happens while no provider asks for it', () => {
+    assert.equal(autoTarget({providers: [{id: 'authentik', enabled: true, autoRedirect: false}]}), null);
+    assert.equal(autoTarget({providers: []}), null);
+});
+
+test('auto-redirect: the first provider in the list that asks for it wins', () => {
+    assert.equal(autoTarget({providers: [
+        {id: 'google', enabled: true, autoRedirect: false},
+        {id: 'authentik', enabled: true, autoRedirect: true},
+        {id: 'keycloak', enabled: true, autoRedirect: true},
+    ]}), 'authentik');
+});
+
+test('auto-redirect: a disabled provider is never a target', () => {
+    assert.equal(autoTarget({providers: [{id: 'authentik', enabled: false, autoRedirect: true}]}), null);
+});
+
+test('auto-redirect: the Jellyfin apps keep the button', () => {
+    assert.equal(autoTarget({embeddedApp: true}), null);
+});
+
+test('auto-redirect: a failed sign-in stays on the page with its message', () => {
+    assert.equal(autoTarget({oidcError: true}), null);
+});
+
+test('auto-redirect: the return from the provider signs in instead of leaving again', () => {
+    assert.equal(autoTarget({returningFromProvider: true}), null);
+});
+
+test('auto-redirect: oidcAuto=0 keeps the password form reachable', () => {
+    assert.equal(autoTarget({optedOut: true}), null);
+});
+
+test('auto-redirect: signing out does not send the browser straight back in', () => {
+    assert.equal(autoTarget({signedOut: true}), null);
+});
+
+test('auto-redirect: a round trip that ended back here is not repeated for two minutes', () => {
+    assert.equal(autoTarget({lastAutoRedirectAt: NOW - 60_000}), null);
+    assert.equal(autoTarget({lastAutoRedirectAt: NOW - 119_000}), null);
+    assert.equal(autoTarget({lastAutoRedirectAt: NOW - 121_000}), 'authentik');
+});
+
+test('auto-redirect: the admin listing returns the option, so the form shows what was saved', () => {
+    const listing = source.match(/public ActionResult<IReadOnlyList<object>> ListProviders\(\)[\s\S]*?\.ToList<object>\(\);/)?.[0] ?? '';
+    assert.ok(listing, 'ListProviders must project its rows');
+    assert.match(listing, /autoRedirect = p\.AutoRedirect,/);
+});
+
+test('auto-redirect: creating and editing a provider both keep the option', () => {
+    const request = source.match(/public sealed class OidcProviderUpsertRequest[\s\S]*?\n    \}/)?.[0]
+        ?? source.match(/class OidcProviderUpsertRequest[\s\S]*?\n    \}/)?.[0] ?? '';
+    assert.ok(request, 'the upsert request class must exist');
+    assert.match(request, /public bool AutoRedirect \{ get; set; \}/);
+    assert.match(source, /\n\s+AutoRedirect = req\.AutoRedirect,/, 'CreateProvider must copy AutoRedirect');
+    assert.match(source, /existing\.AutoRedirect = req\.AutoRedirect;/, 'UpdateProvider must copy AutoRedirect');
+});

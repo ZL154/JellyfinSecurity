@@ -150,6 +150,8 @@ public class SecurityController : ControllerBase
         public bool Enabled { get; set; } = true;
         // [v2.5.13] (#97) separate "show built-in button" from "provider enabled".
         public bool ShowLoginButton { get; set; } = true;
+        // [#297] send the login page straight to this provider. Default false.
+        public bool AutoRedirect { get; set; }
         // [v2.5.6] (issue #28): default true. Most Jellyfin servers sit behind
         // a TLS-terminating reverse proxy; old default left users with a
         // broken http:// redirect_uri and a confusing IdP error.
@@ -221,11 +223,17 @@ public class SecurityController : ControllerBase
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null) return Ok(Array.Empty<object>());
+        return Ok(PublicProviderRows(config.OidcProviders));
+    }
+
+    /// <summary>The anonymous rows behind <see cref="GetPublicProviders"/>.</summary>
+    internal static IReadOnlyList<object> PublicProviderRows(IEnumerable<OidcProvider> providers)
+    {
         // [v2.5.13] (#97) Only emit a button for providers that are enabled AND
         // configured to show their built-in button. A provider with SSO enabled
         // but ShowLoginButton=false stays fully usable via its URL (custom button)
         // yet renders no button here.
-        var safe = config.OidcProviders.Where(p => p.Enabled && p.ShowLoginButton).Select(p => new
+        return providers.Where(p => p.Enabled && p.ShowLoginButton).Select(p => new
         {
             id = p.Id,
             displayName = p.DisplayName,
@@ -234,8 +242,10 @@ public class SecurityController : ControllerBase
             // the anonymous login page (display label + already-sanitized icon).
             buttonText = p.ButtonText,
             buttonIconUrl = p.ButtonIconUrl,
+            // [#297] A login-page behaviour flag, as public as the button it
+            // reuses: the redirect only ever goes to that button's own URL.
+            autoRedirect = p.AutoRedirect,
         }).ToList<object>();
-        return Ok(safe);
     }
 
     [HttpGet("Oidc/Providers")]
@@ -269,6 +279,7 @@ public class SecurityController : ControllerBase
             bypassPluginTwoFa = p.BypassPluginTwoFa,
             enabled = p.Enabled,
             showLoginButton = p.ShowLoginButton,
+            autoRedirect = p.AutoRedirect,
             forceHttps = p.ForceHttps,
             allowPrivateNetworks = p.AllowPrivateNetworks,
             additionalAllowedCidrs = p.AdditionalAllowedCidrs,
@@ -337,6 +348,7 @@ public class SecurityController : ControllerBase
             BypassPluginTwoFa = req.BypassPluginTwoFa,
             Enabled = req.Enabled,
             ShowLoginButton = req.ShowLoginButton,
+            AutoRedirect = req.AutoRedirect,
             ForceHttps = req.ForceHttps,
             // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
             AllowPrivateNetworks = req.AllowPrivateNetworks,
@@ -399,6 +411,7 @@ public class SecurityController : ControllerBase
         existing.BypassPluginTwoFa = req.BypassPluginTwoFa;
         existing.Enabled = req.Enabled;
         existing.ShowLoginButton = req.ShowLoginButton;
+        existing.AutoRedirect = req.AutoRedirect;
         existing.ForceHttps = req.ForceHttps;
         // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
         existing.AllowPrivateNetworks = req.AllowPrivateNetworks;
@@ -1387,6 +1400,11 @@ public class SecurityController : ControllerBase
             // one device but not another (#98). The OIDC sign-in just succeeded, so
             // there is by definition no pending 2FA challenge to preserve.
             + "try{sessionStorage.removeItem('__tfa_pending');}catch(e){}"
+            // inject.js keeps the next /web load signed in when Jellyfin Web's
+            // "Remember Me" box was left unticked, for the session named here:
+            // entry Id, UserId and the token's last 8 characters (see
+            // TFA_HANDOFF_KEY there).
+            + "try{var stored=existing||creds.Servers[0];sessionStorage.setItem('__tfa_session_handoff',JSON.stringify({at:Date.now(),server:stored.Id,user:stored.UserId,tokenTail:String(stored.AccessToken).slice(-8)}));}catch(e){}"
             + "document.getElementById('msg').textContent='Signed in as '+res.User.Name+' — redirecting…';"
             + "setTimeout(function(){window.location.href=land;},400);"
             + "})"
@@ -1676,6 +1694,7 @@ public class SecurityController : ControllerBase
             + "else{creds.Servers.unshift({Id:res.ServerId,Name:'Jellyfin',AccessToken:res.AccessToken,UserId:res.User.Id,Type:'Server',DateLastAccessed:Date.now(),LastConnectionMode:2,ManualAddress:ba});}"
             + "localStorage.setItem('jellyfin_credentials',JSON.stringify(creds));"
             + "try{sessionStorage.removeItem('__tfa_pending');}catch(e){}"
+            + "try{var stored=existing||creds.Servers[0];sessionStorage.setItem('__tfa_session_handoff',JSON.stringify({at:Date.now(),server:stored.Id,user:stored.UserId,tokenTail:String(stored.AccessToken).slice(-8)}));}catch(e){}"
             + "st('Signed in as '+res.User.Name+' \\u2014 opening Jellyfin\\u2026');"
             + "setTimeout(function(){window.location.href=su('web/index.html');},400);"
             + "}).catch(function(e){st('Sign-in failed: '+e.message);});"
