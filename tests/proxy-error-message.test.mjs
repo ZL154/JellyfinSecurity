@@ -111,7 +111,13 @@ function setupTransport(source) {
         assert(from >= 0 && to > from, 'setup.html section ' + start);
         return source.slice(from, to);
     };
-    return slice('function tfaBasePath()', 'function escapeHtml(') + slice('async function mutateWithStepUp(', '// DELETE-style');
+    // mutateWithStepUp best-effort calls refreshFactors() (added by the
+    // step-up factor-reread work) before the prompt; it re-reads status from
+    // helpers outside this slice. The proxy-error path doesn't depend on it,
+    // so stub it as a resolved no-op to keep the transport self-contained.
+    return 'function refreshFactors() { return Promise.resolve(); }\n'
+        + slice('function tfaBasePath()', 'function escapeHtml(')
+        + slice('async function mutateWithStepUp(', '// DELETE-style');
 }
 
 async function setupPage(answers) {
@@ -363,7 +369,15 @@ function injectInterceptors(source) {
     const from = source.indexOf('(function () {');
     const to = source.indexOf('    var DASHBOARD_NAV_ID');
     assert(from === 0 && to > from, 'inject.js interceptor section');
-    return source.slice(from, to) + '})();\n';
+    // [#297/#299] The interceptor section now calls getQueryParam, which
+    // inject.js declares (hoisted) further down, outside this slice. Include
+    // its definition so the section evaluates standalone, exactly as the
+    // browser sees it (with no location.hash it returns null here).
+    const qpFrom = source.indexOf('    function getQueryParam(');
+    const qpEnd = source.indexOf('\n    }', qpFrom);
+    assert(qpFrom >= 0 && qpEnd > qpFrom, 'inject.js getQueryParam section');
+    const getQueryParam = source.slice(qpFrom, qpEnd) + '\n    }\n';
+    return source.slice(from, to) + getQueryParam + '})();\n';
 }
 
 async function signInPage(answer) {
