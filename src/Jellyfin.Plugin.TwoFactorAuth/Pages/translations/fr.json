@@ -750,6 +750,7 @@
   "tfa.admin.chart.heading_1w": "Activité d'authentification (semaine dernière)",
   "tfa.setup.stepup.title": "Confirmer avec votre code actuel",
   "tfa.setup.stepup.msg": "Saisissez votre code TOTP ou de recuperation actuel pour effectuer ce changement.",
+  "tfa.setup.stepup.msg_no_totp": "Confirmez votre identité avec l'une des options ci-dessous pour effectuer ce changement.",
   "tfa.setup.stepup.ok": "Continuer",
   "tfa.setup.stepup.totp_msg": "Saisissez votre code TOTP ou de recuperation actuel pour demarrer un nouvel enregistrement TOTP.",
   "tfa.setup.stepup.recovery_msg": "Saisissez votre code TOTP ou de recuperation actuel pour regenerer.",

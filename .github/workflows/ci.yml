@@ -100,6 +100,9 @@ jobs:
       - name: Restore
         run: dotnet restore JellyfinSecurity.sln --locked-mode
 
+      - name: Test sign-in hand-off JavaScript
+        run: node --test tests/remember-me-handoff.test.mjs
+
       - name: Test OIDC bridge JavaScript
         run: node --test tests/oidc-bridge.test.mjs
 
@@ -108,6 +111,9 @@ jobs:
 
       - name: Test account page JavaScript
         run: node --test tests/sso-account-page.test.mjs
+
+      - name: Test login page button JavaScript
+        run: node --test tests/login-button.test.mjs
 
       - name: Test with coverage
         run: |

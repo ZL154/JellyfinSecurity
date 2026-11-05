@@ -773,6 +773,7 @@
   "tfa.admin.chart.heading_1w": "Auth activity (last week)",
   "tfa.setup.stepup.title": "Confirm with your current code",
   "tfa.setup.stepup.msg": "Enter your current TOTP or recovery code to make this change.",
+  "tfa.setup.stepup.msg_no_totp": "Confirm it is you with one of the options below to make this change.",
   "tfa.setup.stepup.ok": "Continue",
   "tfa.setup.stepup.totp_msg": "Enter your current TOTP or recovery code to start a new TOTP enrollment.",
   "tfa.setup.stepup.recovery_msg": "Enter your current TOTP or recovery code to regenerate.",

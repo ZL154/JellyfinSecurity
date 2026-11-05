@@ -206,7 +206,7 @@ public class LockoutMessageMiddleware
             {
                 await _store.ResetFailedAttemptsAsync(user.Id).ConfigureAwait(false);
             }
-            else if (status == StatusCodes.Status401Unauthorized)
+            else if (IsFailedSignIn(context))
             {
                 await _store.RecordFailedAttemptAsync(user.Id).ConfigureAwait(false);
             }
@@ -216,6 +216,15 @@ public class LockoutMessageMiddleware
             _logger.LogDebug(ex, "[2FA] lockout record/reset after login failed (non-fatal)");
         }
     }
+
+    /// <summary>A 401 is a failed sign-in, except the 2FA challenge, which
+    /// TwoFactorEnforcementMiddleware only answers with after Jellyfin accepted
+    /// the password. The count stays as it is then, neither raised nor reset:
+    /// completing the challenge resets it, a wrong code raises it, and signing
+    /// in again with the password can't wipe it.</summary>
+    internal static bool IsFailedSignIn(HttpContext context)
+        => context.Response.StatusCode == StatusCodes.Status401Unauthorized
+           && !TwoFactorEnforcementMiddleware.IssuedChallenge(context);
 
     /// <summary>[v2.5.11] (#69) true when password login should still be allowed
     /// for this request despite DisablePasswordLogin — via the admin, LAN, or

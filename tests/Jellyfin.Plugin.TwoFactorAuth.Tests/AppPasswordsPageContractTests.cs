@@ -20,7 +20,11 @@ public class AppPasswordsPageContractTests
     {
         var page = SetupPage();
 
-        Assert.Contains("renderAppPasswords(!!(myStatus && (myStatus.canCreateAppPasswords || myStatus.CanCreateAppPasswords)), r[5]);", page);
+        // [#327] The page load and the factor read after a passkey change
+        // both render the card from the same server answer.
+        Assert.Contains("return !!(myStatus && (myStatus.canCreateAppPasswords || myStatus.CanCreateAppPasswords));", page);
+        Assert.Contains("renderAppPasswords(canCreateAppPasswords(myStatus), r[5]);", page);
+        Assert.Contains("renderAppPasswords(canCreateAppPasswords(r[0]), r[3]);", page);
         Assert.DoesNotContain("renderAppPasswords(totpOn", page);
     }
 
@@ -38,8 +42,10 @@ public class AppPasswordsPageContractTests
     {
         var page = SetupPage();
 
-        Assert.Contains("window.__tfa_userTotpOn = !!totpOn;", page);
-        Assert.Contains("message: window.__tfa_userTotpOn", page);
-        Assert.Contains("_tr('tfa.setup.stepup.app_pw_msg_no_totp',", page);
+        // [#327] The prompt picks the text from what the account has, so both
+        // app password buttons hand it the two texts instead of choosing.
+        Assert.Contains("window.__tfa_userTotpOn = !!(myStatus && (myStatus.totpEnabled || myStatus.TotpEnabled));", page);
+        Assert.Equal(2, page.Split("messageNoTotp: _tr('tfa.setup.stepup.app_pw_msg_no_totp',").Length - 1);
+        Assert.DoesNotContain("message: window.__tfa_userTotpOn", page);
     }
 }
