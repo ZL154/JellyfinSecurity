@@ -16,6 +16,12 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// </summary>
 public class TwoFactorEnforcementMiddleware
 {
+    /// <summary>HttpContext.Items key set when this middleware answers a sign-in
+    /// with the challenge, which it only does after Jellyfin accepted the
+    /// password. The lockout doesn't count that 401 as a failed sign-in
+    /// (LockoutMessageMiddleware.IsFailedSignIn). No client can set it.</summary>
+    internal const string ChallengeIssuedItemKey = "TwoFactorAuth.ChallengeIssued";
+
     private static readonly JsonSerializerOptions ResponseJsonOptions = new()
     {
         PropertyNamingPolicy = null,
@@ -728,6 +734,7 @@ public class TwoFactorEnforcementMiddleware
                 EnrollmentPageUrl = $"/TwoFactorAuth/Challenge?token={Uri.EscapeDataString(challenge.Token)}",
             };
 
+            context.Items[ChallengeIssuedItemKey] = true;
             context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
             context.Response.ContentType = "application/json";
             var responseJson = JsonSerializer.SerializeToUtf8Bytes(response, ResponseJsonOptions);
@@ -806,6 +813,11 @@ public class TwoFactorEnforcementMiddleware
             return null;
         }
     }
+
+    /// <summary>True when this middleware answered the request with the
+    /// challenge (<see cref="ChallengeIssuedItemKey"/>).</summary>
+    internal static bool IssuedChallenge(HttpContext context)
+        => context.Items.TryGetValue(ChallengeIssuedItemKey, out var issued) && issued is true;
 
     /// <summary>SEC v2.4 L5: sanitize a user-supplied label before it's
     /// concatenated into the audit log Method field. Strips colons (the

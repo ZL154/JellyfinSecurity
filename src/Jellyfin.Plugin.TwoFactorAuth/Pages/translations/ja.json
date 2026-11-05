@@ -744,6 +744,7 @@
   "tfa.admin.chart.heading_1w": "認証アクティビティ(過去1週間)",
   "tfa.setup.stepup.title": "現在のコードで確認",
   "tfa.setup.stepup.msg": "現在のTOTPまたはリカバリーコードを入力して、この変更を行います。",
+  "tfa.setup.stepup.msg_no_totp": "この変更を行うには、下のいずれかの方法で本人確認をしてください。",
   "tfa.setup.stepup.ok": "続行",
   "tfa.setup.stepup.totp_msg": "新しいTOTP登録を開始するには、現在のTOTPまたはリカバリーコードを入力してください。",
   "tfa.setup.stepup.recovery_msg": "再生成するには、現在のTOTPまたはリカバリーコードを入力してください。",
