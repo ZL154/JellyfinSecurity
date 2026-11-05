@@ -331,6 +331,8 @@
   "tfa.admin.settings.authenticator_heading": "Application d'authentification",
   "tfa.admin.settings.lbl_issuer": "Nom de l'émetteur affiché dans les applications des utilisateurs",
   "tfa.admin.settings.issuer_help": "Les inscriptions existantes conservent leur ancien nom. Les nouvelles inscriptions utiliseront celui-ci. Choisissez un nom que les utilisateurs reconnaîtront comme votre serveur.",
+  "tfa.admin.settings.opt_accept_code_after_password": "Accepter le code de l'authentificateur saisi après le mot de passe",
+  "tfa.admin.settings.accept_code_after_password_help": "Pour les applications qui ne peuvent pas afficher le défi 2FA (Infuse, Swiftfin, Findroid, la plupart des applications TV) : l'utilisateur saisit le mot de passe suivi du code actuel à 6 chiffres, sans espace, par exemple MonMotDePasse123456. Un code erroné compte comme un mot de passe erroné. Désactivé par défaut : le code transite par l'application avec le mot de passe, et une application qui enregistre ce qui a été saisi ne peut plus se reconnecter avec plus tard ; les mots de passe d'application restent donc le meilleur choix pour les applications qui se reconnectent d'elles-mêmes.",
   "tfa.admin.settings.push_heading": "Notifications push",
   "tfa.admin.settings.lbl_ntfy_url": "URL ntfy (ex. https://ntfy.sh)",
   "tfa.admin.settings.lbl_ntfy_topic": "Sujet ntfy",

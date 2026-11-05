@@ -331,6 +331,8 @@
   "tfa.admin.settings.authenticator_heading": "Authenticator-App",
   "tfa.admin.settings.lbl_issuer": "Aussteller-Name in den Apps der Benutzer",
   "tfa.admin.settings.issuer_help": "Bestehende Registrierungen behalten ihren alten Namen. Neue Registrierungen verwenden diesen. Wählen Sie etwas, das die Benutzer als Ihren Server erkennen.",
+  "tfa.admin.settings.opt_accept_code_after_password": "Authenticator-Code nach dem Passwort akzeptieren",
+  "tfa.admin.settings.accept_code_after_password_help": "Für Apps, die die 2FA-Abfrage nicht anzeigen können (Infuse, Swiftfin, Findroid, die meisten TV-Apps): Der Benutzer gibt das Passwort und direkt danach den aktuellen 6-stelligen Code ohne Leerzeichen ein, zum Beispiel MeinPasswort123456. Ein falscher Code zählt wie ein falsches Passwort. Standardmäßig aus: Der Code läuft zusammen mit dem Passwort durch die App, und eine App, die das Eingegebene speichert, kann sich damit später nicht erneut anmelden. Für Apps, die sich selbst erneut anmelden, bleiben App-Passwörter die bessere Wahl.",
   "tfa.admin.settings.push_heading": "Push-Benachrichtigungen",
   "tfa.admin.settings.lbl_ntfy_url": "ntfy-URL (z. B. https://ntfy.sh)",
   "tfa.admin.settings.lbl_ntfy_topic": "ntfy-Topic",

@@ -334,6 +334,8 @@
   "tfa.admin.settings.authenticator_heading": "Authenticator App",
   "tfa.admin.settings.lbl_issuer": "Issuer name shown in users' apps",
   "tfa.admin.settings.issuer_help": "Existing enrollments keep their old name. New enrollments will use this. Pick something users will recognize as your server.",
+  "tfa.admin.settings.opt_accept_code_after_password": "Accept the authenticator code typed after the password",
+  "tfa.admin.settings.accept_code_after_password_help": "For apps that can't show the 2FA challenge (Infuse, Swiftfin, Findroid, most TV apps): the user types the password followed by the current 6-digit code, with no space, for example MyPassword123456. A wrong code counts as a wrong password. Off by default: the code travels through the app together with the password, and an app that saves what was typed can't sign in again with it later, so app passwords remain the better fit for apps that sign in again on their own.",
   "tfa.admin.settings.push_heading": "Push Notifications",
   "tfa.admin.settings.lbl_ntfy_url": "ntfy URL (e.g. https://ntfy.sh)",
   "tfa.admin.settings.lbl_ntfy_topic": "ntfy Topic",

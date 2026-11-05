@@ -1365,6 +1365,9 @@
                         if (telegramChatLoadEl) telegramChatLoadEl.value = c.TelegramChatId || '';
                         page.querySelector('#cfgEmails').value = (c.NotifyEmailAddresses || []).join('\n');
                         page.querySelector('#cfgIssuer').value = c.TotpIssuerName || 'Jellyfin';
+                        // [#312] Defensive lookup, as for #cfgPairSecondScreen.
+                        var codeAfterPwEl = page.querySelector('#cfgAcceptCodeAfterPassword');
+                        if (codeAfterPwEl) codeAfterPwEl.checked = c.AcceptCodeAfterPassword === true;
                         // v1.4 fields
                         page.querySelector('#cfgWebhookUrl').value = c.WebhookUrl || '';
                         page.querySelector('#cfgWebhookSecret').value = c.WebhookSecret || '';
@@ -1567,6 +1570,8 @@
                         if (telegramChatSaveEl) c.TelegramChatId = telegramChatSaveEl.value.trim();
                         c.NotifyEmailAddresses = page.querySelector('#cfgEmails').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.TotpIssuerName = page.querySelector('#cfgIssuer').value.trim() || 'Jellyfin';
+                        var codeAfterPwSaveEl = page.querySelector('#cfgAcceptCodeAfterPassword');
+                        c.AcceptCodeAfterPassword = codeAfterPwSaveEl ? codeAfterPwSaveEl.checked : (c.AcceptCodeAfterPassword === true);
                         // v1.4 fields
                         c.WebhookUrl = page.querySelector('#cfgWebhookUrl').value.trim();
                         c.WebhookSecret = page.querySelector('#cfgWebhookSecret').value.trim();
