@@ -278,7 +278,7 @@ internal sealed class PreferenceApi : IDisposable
     {
         var paths = TestApplicationPaths.Create();
         Totp = new TotpService(paths, NullLogger<TotpService>.Instance);
-        var codes = new EmailOtpService(NullLogger<EmailOtpService>.Instance);
+        var codes = new EmailOtpService(NullLogger<EmailOtpService>.Instance, Fixture.Store);
         var limiter = new RateLimiter();
         var stepUp = new StepUpService(Totp, Fixture.Challenges, NullLogger<StepUpService>.Instance);
         var termination = new SessionTerminationService(Fixture.Sessions, Fixture.Devices, Fixture.Challenges, NullLogger<SessionTerminationService>.Instance);

@@ -166,7 +166,8 @@ internal sealed class SignInPolicyFixture : IDisposable
                 }));
             }, Store, Challenges, new BypassEvaluator(NullLogger<BypassEvaluator>.Instance), new AppPasswordService(), _pending,
             new RateLimiter(), _bans, new IpAllowlistService(Store, NullLogger<IpAllowlistService>.Instance),
-            new HibpService(_http, NullLogger<HibpService>.Instance), NullLogger<TwoFactorEnforcementMiddleware>.Instance);
+            new HibpService(_http, NullLogger<HibpService>.Instance), AppSignInCodesForTests.Build(TestApplicationPaths.Create(), Store, Users, Substitute.For<IApplicationHost>(), Challenges, () => Config),
+            NullLogger<TwoFactorEnforcementMiddleware>.Instance);
         await middleware.InvokeAsync(context);
         return (context.Response.StatusCode, Encoding.UTF8.GetString(response.ToArray()));
     }
@@ -181,7 +182,7 @@ internal sealed class SignInPolicyFixture : IDisposable
         var task = (Task)process.Invoke(handler, new object?[]
         {
             new SessionInfo(Sessions, NullLogger.Instance) { Id = "session", UserId = User.Id, UserName = User.Username, DeviceId = DeviceId, DeviceName = "Browser", RemoteEndPoint = "203.0.113.10" },
-            null, null, null, null,
+            null, null, null, null, Guid.Empty, CodeAfterPasswordMiddleware.AuditMethod,
         })!;
         await task;
     }
