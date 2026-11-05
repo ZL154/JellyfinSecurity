@@ -170,6 +170,8 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - LAN bypass (configurable CIDR ranges), and a force-2FA-for-all-users mode.
 - **Disable password sign-in** — OIDC / Quick-Connect-only mode with independently toggleable admin / LAN / exempt-CIDR escape hatches, plus an opt-in setting that lets app passwords (never the account password) through for native apps.
 
+A completed password change through the plugin's reset link, Jellyfin's Forgot Password PIN, an administrator setting or resetting a password, or a user changing their password clears the plugin's temporary failed-attempt count and lockout. Requesting a reset, opening a link, or submitting an invalid or expired token does not. The plugin leaves second factors, trusted devices, IP bans, the token blocklist, and Jellyfin's own failed-attempt count and disabled-account status unchanged.
+
 ### Brute-force & anomaly protection
 - **Brute-force IP banning** — auto-bans source IPs that exceed N failed sign-ins in M minutes, persisted across restarts, with an admin list/unban UI.
 - **Impossible-travel detection** — flags consecutive sign-ins that exceed commercial-jet cruise speed, using MaxMind GeoLite2-City for geolocation.
@@ -194,6 +196,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - **Device pairing**: passwordless users can pair native clients by approving a pending request from the Setup page. A paired device only skips 2FA while the admin has `BareDeviceIdBypassEnabled` turned on, which is off by default (see [First-time setup](#-first-time-setup)).
 - **Remembering a second-screen approval** (`PairDeviceOnSecondScreenApproval`, off by default): a sign-in someone approved on another screen, the OIDC login QR on a TV or a Quick Connect code, adds that device to the user's paired devices instead of forgetting it. The record is visible and revocable on the Setup page, and it only waives 2FA where the bare device ID bypass is enabled.
 - **Quick Connect pass-through** — a 2FA-verified user approving a Quick Connect code lets the new device inherit verified status, so TVs sign in without a TOTP prompt.
+- **Quick Connect approved with an API key**: the approval carries no verified user, so the device is judged on its own request when it fetches its token. The LAN bypass and the other bypasses apply as they do to a password sign-in from that device; otherwise the device gets the 2FA challenge.
 - **Active sessions view** — see every active session with device/IP/last-activity and sign them out individually.
 - **Official Android / mobile hand-off** — preserves Base URLs, returns to the app after verification, and recognises the trusted session on follow-up requests.
 
@@ -523,6 +526,7 @@ Implicit email/username linking is refused for administrators, ambiguous matches
 ### Per-provider options
 - **Enable SSO** *(v2.5.13, #97)* — master switch: the provider is active and its sign-in URL works (e.g. for your own custom button). Turn off to fully disable the provider while keeping its config saved.
 - **Show built-in button on login page** *(v2.5.13, #97)* — whether the plugin renders its own "Sign in with X" button. Turn off to keep SSO live (URL still works) but hide the built-in button so you can use your own.
+- **Send the login page straight to this provider** *(#297, opt-in)*: in a web browser, opening Jellyfin's login page goes straight to this provider's sign-in, without a click, for a server where everyone signs in through SSO. It reuses the built-in button, so that has to stay on, and the Jellyfin apps keep the button. The page does not redirect after a sign-out in that tab (a live IdP session would otherwise sign the user straight back in), after a failed sign-in (the error stays on screen), while the provider's answer is being signed in, or within two minutes of the last automatic redirect, so a round trip that ends back on the login page shows the button instead of looping. To reach the password form, open `…/web/#/login?oidcAuto=0`, which holds the redirect back for the rest of that tab. If several providers have it on, the first one in the list wins.
 - **Allowed groups** — sign-in refused unless the IdP's `groups` / `roles` claim contains at least one of these. *(v2.5.17)* **Keycloak** nests roles under `realm_access` / `resource_access` rather than a flat claim — the plugin now reads those too (here, and for Admin groups + role→library mapping); request the built-in `roles` scope on the provider and enable "Add to ID token" on the realm-roles mapper.
 - **Verified-email account linking** *(v2.5.17, #95)* — a first-time OIDC sign-in whose **verified** email (`email_verified: true`) matches a Jellyfin user's configured email is linked to that account instead of creating a duplicate.
 - **Link existing users by matching username** *(v2.5.20, opt-in)* — after stable-subject and verified-email matching, allow an exact username match for one non-admin user without enabling account creation. Off by default. The broader **Auto-create users** permission also allows this pre-existing-user match for upgrade compatibility. Ambiguous matches and subject conflicts are refused instead of guessing.
@@ -726,7 +730,7 @@ Closes the stolen-session takeover path. Before v2.5.6, an attacker who hijacked
 - **User choice** — exposes a per-user toggle on the Setup page; each user opts in individually.
 - **Forced** (default) — every user must submit a current factor before adding/replacing any 2FA factor.
 
-**Covered mutations** — adding/replacing TOTP, regenerating recovery codes, creating an app password, adding/removing a passkey, enabling/disabling email OTP. All gated.
+**Covered mutations**: adding/replacing TOTP, regenerating recovery codes, creating an app password, adding/removing a passkey, enabling/disabling email OTP, changing or clearing the email address that receives codes, and linking or unlinking a Telegram chat. All gated. An email address on file counts as an existing factor while email OTP is on, so an account whose only factor is email confirms these changes with an emailed code.
 
 **Proof of factor** — the step-up prompt accepts any of:
 - A current TOTP code from the user's authenticator app
