@@ -32,6 +32,7 @@ public class PublicConfigTests
             "loginLinksBelowQuickConnect",
             "passwordLoginDisabled",
             "passwordRecoveryEnabled",
+            "proxySignInAvailable",
             "supportedLanguages",
         };
 

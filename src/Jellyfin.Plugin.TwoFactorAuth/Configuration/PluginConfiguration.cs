@@ -243,6 +243,43 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public string[] TrustedProxyCidrs { get; set; } = Array.Empty<string>();
 
+    /// <summary>[#298] Sign in the user that a trusted reverse proxy names in
+    /// a header (NetBird's <c>X-NetBird-User</c>, <c>Remote-User</c>, ...).
+    /// Off by default. The proxy is trusted by the raw TCP peer, matched
+    /// against <see cref="HeaderSignInProxyCidrs"/> only: never the
+    /// X-Forwarded-For walk, and never <see cref="TrustedProxyCidrs"/>, which
+    /// is trusted to report a client address, not to assert who it is.</summary>
+    public bool HeaderSignInEnabled { get; set; }
+
+    /// <summary>[#298] Header that carries the user, e.g. <c>X-NetBird-User</c>.
+    /// Empty keeps the feature inert.</summary>
+    public string HeaderSignInUserHeader { get; set; } = string.Empty;
+
+    /// <summary>[#298] Optional header with comma-separated group names, e.g.
+    /// <c>X-NetBird-Groups</c>; only read for <see cref="HeaderSignInAllowedGroups"/>.</summary>
+    public string HeaderSignInGroupsHeader { get; set; } = string.Empty;
+
+    /// <summary>[#298] Comma-separated groups; when set, the user must be in
+    /// at least one (case-insensitive). Groups never grant anything else.</summary>
+    public string HeaderSignInAllowedGroups { get; set; } = string.Empty;
+
+    /// <summary>[#298] Addresses of the proxy itself. An empty list, or an
+    /// entry broader than /8 (IPv4) or /16 (IPv6), trusts nothing.</summary>
+    public string[] HeaderSignInProxyCidrs { get; set; } = Array.Empty<string>();
+
+    /// <summary>[#298] Comma-separated email domains. When the header holds an
+    /// email in one of them, the part before the @ is also tried as the
+    /// Jellyfin username. Empty: only the header value itself is tried.</summary>
+    public string HeaderSignInEmailDomains { get; set; } = string.Empty;
+
+    /// <summary>[#298] Skip this plugin's 2FA for these sign-ins, as OIDC does
+    /// by default: the proxy already authenticated the user.</summary>
+    public bool HeaderSignInBypassPluginTwoFa { get; set; } = true;
+
+    /// <summary>[#298] Let administrator accounts sign in this way. Off by
+    /// default, so a misconfigured proxy cannot hand out administration.</summary>
+    public bool HeaderSignInAllowAdmins { get; set; }
+
     public bool EmailOtpEnabled { get; set; } = true;
 
     /// <summary>v2.4: opt-in Have I Been Pwned password check on successful
