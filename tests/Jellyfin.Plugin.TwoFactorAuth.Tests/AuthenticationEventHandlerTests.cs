@@ -194,7 +194,7 @@ public class AuthenticationEventHandlerTests
         Assert.Contains("RequestBlockerMiddleware.GetAccessToken(httpContext)", snapshot, StringComparison.Ordinal);
         Assert.Contains("TwoFactorAuthProvider.ResolveDeviceHeaderValue(", snapshot, StringComparison.Ordinal);
         Assert.Contains(
-            "HandleSessionAsync(info, forwardedFor, twoFactorToken, requestToken, requestDeviceId, codeAfterPasswordUser)",
+            "HandleSessionAsync(info, forwardedFor, twoFactorToken, requestToken, requestDeviceId, codeAfterPasswordUser, codeAfterPasswordMethod)",
             Region(handler, "Task.Run(", "private async Task HandleSessionAsync("),
             StringComparison.Ordinal);
         Assert.Matches(

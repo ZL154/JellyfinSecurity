@@ -27,6 +27,9 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Tests;
 public sealed class CodeAfterPasswordTests : IDisposable
 {
     private const string Password = "MyPassword";
+
+    /// <summary>Only the [#312] setting on.</summary>
+    private static readonly PluginConfiguration Totp = new() { AcceptCodeAfterPassword = true };
     private const string DeviceHeader = "MediaBrowser Client=\"Infuse\", Device=\"iPhone\", DeviceId=\"infuse-1\", Version=\"8.1\"";
 
     private readonly string _sandbox;
@@ -58,6 +61,7 @@ public sealed class CodeAfterPasswordTests : IDisposable
             _totp,
             new RateLimiter(),
             new IpBanService(_paths, NullLogger<IpBanService>.Instance),
+            AppSignInCodesForTests.Build(_paths, _store, users, _host, new ChallengeStore(), () => Totp),
             NullLogger<CodeAfterPasswordMiddleware>.Instance);
     }
 
@@ -234,7 +238,7 @@ public sealed class CodeAfterPasswordTests : IDisposable
         await EnrollAsync();
         var context = SignIn(Password + CurrentCode());
 
-        Assert.True(await _middleware.TryAcceptAsync(context));
+        Assert.True(await Accepts(_middleware, context));
 
         Assert.Equal("{\"Username\":\"alice\",\"Pw\":\"MyPassword\"}", await BodyOf(context.Request));
         Assert.True(CodeAfterPasswordMiddleware.WasVerifiedFor(context, _alice.Id));
@@ -248,7 +252,7 @@ public sealed class CodeAfterPasswordTests : IDisposable
         var typed = Password + WrongCode();
         var context = SignIn(typed);
 
-        Assert.False(await _middleware.TryAcceptAsync(context));
+        Assert.False(await Accepts(_middleware, context));
 
         // Unchanged, so Jellyfin refuses it as a wrong password: same 401,
         // and the lockout counts it like any other failed sign-in.
@@ -268,7 +272,7 @@ public sealed class CodeAfterPasswordTests : IDisposable
         var typed = "NotMyPassword" + CurrentCode();
         var context = SignIn(typed);
 
-        Assert.False(await _middleware.TryAcceptAsync(context));
+        Assert.False(await Accepts(_middleware, context));
 
         Assert.Equal(Json(typed), await BodyOf(context.Request));
         Assert.Equal(0, (await _store.GetUserDataAsync(_alice.Id)).LastUsedTotpStep);
@@ -284,7 +288,7 @@ public sealed class CodeAfterPasswordTests : IDisposable
         await EnrollAsync();
         var context = SignIn("summer123456");
 
-        Assert.False(await _middleware.TryAcceptAsync(context));
+        Assert.False(await Accepts(_middleware, context));
 
         Assert.Equal(Json("summer123456"), await BodyOf(context.Request));
     }
@@ -294,11 +298,11 @@ public sealed class CodeAfterPasswordTests : IDisposable
     {
         await EnrollAsync();
         var code = CurrentCode();
-        Assert.True(await _middleware.TryAcceptAsync(SignIn(Password + code)));
+        Assert.True(await Accepts(_middleware, SignIn(Password + code)));
 
         var replay = SignIn(Password + code);
 
-        Assert.False(await _middleware.TryAcceptAsync(replay));
+        Assert.False(await Accepts(_middleware, replay));
         Assert.False(CodeAfterPasswordMiddleware.WasVerifiedFor(replay, _alice.Id));
     }
 
@@ -309,7 +313,7 @@ public sealed class CodeAfterPasswordTests : IDisposable
         // restart; the step written to the account record still refuses it.
         await EnrollAsync();
         var code = CurrentCode();
-        Assert.True(await _middleware.TryAcceptAsync(SignIn(Password + code)));
+        Assert.True(await Accepts(_middleware, SignIn(Password + code)));
 
         var users = Substitute.For<IUserManager>();
         users.GetUserByName("alice").Returns(_alice);
@@ -321,9 +325,10 @@ public sealed class CodeAfterPasswordTests : IDisposable
             new TotpService(_paths, NullLogger<TotpService>.Instance),
             new RateLimiter(),
             new IpBanService(_paths, NullLogger<IpBanService>.Instance),
+            AppSignInCodesForTests.Build(_paths, _store, users, _host, new ChallengeStore(), () => Totp),
             NullLogger<CodeAfterPasswordMiddleware>.Instance);
 
-        Assert.False(await afterRestart.TryAcceptAsync(SignIn(Password + code)));
+        Assert.False(await Accepts(afterRestart, SignIn(Password + code)));
     }
 
     [Fact]
@@ -334,12 +339,12 @@ public sealed class CodeAfterPasswordTests : IDisposable
         await EnrollAsync();
         for (var i = 0; i < 15; i++)
         {
-            Assert.False(await _middleware.TryAcceptAsync(SignIn(Password + WrongCode())));
+            Assert.False(await Accepts(_middleware, SignIn(Password + WrongCode())));
         }
 
         var context = SignIn(Password + CurrentCode());
 
-        Assert.False(await _middleware.TryAcceptAsync(context));
+        Assert.False(await Accepts(_middleware, context));
         Assert.False(CodeAfterPasswordMiddleware.WasVerifiedFor(context, _alice.Id));
     }
 
@@ -348,7 +353,7 @@ public sealed class CodeAfterPasswordTests : IDisposable
     {
         var context = SignIn(Password + "123456");
 
-        Assert.False(await _middleware.TryAcceptAsync(context));
+        Assert.False(await Accepts(_middleware, context));
 
         Assert.Equal(0, _passwords.Checks);
         Assert.Equal(Json(Password + "123456"), await BodyOf(context.Request));
@@ -368,12 +373,13 @@ public sealed class CodeAfterPasswordTests : IDisposable
             _totp,
             new RateLimiter(),
             new IpBanService(TestApplicationPaths.Create(out var otherSandbox), NullLogger<IpBanService>.Instance),
+            AppSignInCodesForTests.Build(_paths, _store, users, _host, new ChallengeStore(), () => Totp),
             NullLogger<CodeAfterPasswordMiddleware>.Instance);
         await EnrollAsync(ldapUser.Id);
 
         try
         {
-            Assert.False(await middleware.TryAcceptAsync(SignIn(Password + CurrentCode())));
+            Assert.False(await Accepts(middleware, SignIn(Password + CurrentCode())));
             Assert.Equal(0, _passwords.Checks);
         }
         finally
@@ -407,7 +413,8 @@ public sealed class CodeAfterPasswordTests : IDisposable
         var honoured = handler.IndexOf("if (codeAfterPasswordUser == info.UserId)", StringComparison.Ordinal);
         var preVerified = handler.IndexOf("if (_challengeStore.IsDevicePreVerified(info.UserId, info.DeviceId))", StringComparison.Ordinal);
         Assert.True(honoured >= 0 && honoured < preVerified);
-        Assert.Contains("Method = CodeAfterPasswordMiddleware.AuditMethod,", handler, StringComparison.Ordinal);
+        Assert.Contains("codeAfterPasswordMethod = CodeAfterPasswordMiddleware.VerifiedMethod(httpContext);", handler, StringComparison.Ordinal);
+        Assert.Contains("Method = codeAfterPasswordMethod,", handler, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -446,7 +453,7 @@ public sealed class CodeAfterPasswordTests : IDisposable
         var middleware = SourceFile("src/Jellyfin.Plugin.TwoFactorAuth/Services/CodeAfterPasswordMiddleware.cs");
 
         Assert.Contains("_rateLimiter.CheckAndRecord(\"verify_user:\" + challenge.UserId.ToString(\"N\"), 15, TimeSpan.FromMinutes(15));", controller, StringComparison.Ordinal);
-        Assert.Contains("var attemptsKey = \"verify_user:\" + user.Id.ToString(\"N\");", middleware, StringComparison.Ordinal);
+        Assert.Contains("attemptsKey = \"verify_user:\" + user.Id.ToString(\"N\");", middleware, StringComparison.Ordinal);
         Assert.Contains("_rateLimiter.CheckAndRecord(attemptsKey, 15, TimeSpan.FromMinutes(15))", middleware, StringComparison.Ordinal);
     }
 
@@ -464,6 +471,9 @@ public sealed class CodeAfterPasswordTests : IDisposable
     }
 
     // ---- Helpers ----------------------------------------------------------------
+
+    private static async Task<bool> Accepts(CodeAfterPasswordMiddleware m, HttpContext context)
+        => await m.TryAcceptAsync(context, Totp) == CodeAfterPasswordMiddleware.Acceptance.PasswordAlone;
 
     private async Task EnrollAsync(Guid? userId = null)
     {

@@ -322,6 +322,26 @@ public class PluginConfiguration : BasePluginConfiguration
     /// an app that stores what was typed can't sign in again with it.</summary>
     public bool AcceptCodeAfterPassword { get; set; }
 
+    /// <summary>[#313] When an app that can't show the 2FA challenge signs in
+    /// with the right password and gets the challenge, also send an 8-digit
+    /// sign-in code to the account's email address and linked Telegram chat.
+    /// The user signs in again in the same app with the password followed by
+    /// the code. The code works once, for a few minutes, only for that
+    /// account, device and app, and only while the password is unchanged.
+    /// Needs <see cref="EmailOtpEnabled"/>; the web interface and the apps in
+    /// <see cref="AppPasswordRefusedClients"/> show the challenge and never
+    /// trigger it. Off by default.</summary>
+    public bool SendSignInCodeToApps { get; set; }
+
+    /// <summary>[#313] With <see cref="SendSignInCodeToApps"/> on, accept the
+    /// code alone in place of the password on the second attempt. Accepted
+    /// once, only when the account, device, app, password and client address
+    /// all match the first attempt, and refused when the plugin can't see the
+    /// client's own address. Off by default: someone who can read the mailbox,
+    /// shares that address and knows the device ID could use the code while it
+    /// is valid, so the security score counts it as an open escape hatch.</summary>
+    public bool AcceptSignInCodeAlone { get; set; }
+
     /// <summary>[#244] Extra client names that may NOT sign in with an app
     /// password, on top of the always-refused "Jellyfin Web". An admin who
     /// wants a stricter posture can list first-party apps that CAN show the 2FA

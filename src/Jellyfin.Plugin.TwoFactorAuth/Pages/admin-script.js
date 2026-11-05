@@ -1297,6 +1297,11 @@
                         page.querySelector('#cfgEnforceScope').value = scope;
                         page.querySelector('#cfgHibpEnabled').checked = !!c.HibpEnabled;
                         page.querySelector('#cfgEmailOtp').checked = !!c.EmailOtpEnabled;
+                        // [#313] Defensive lookups, as for #cfgPairSecondScreen.
+                        var sendCodeEl = page.querySelector('#cfgSendSignInCodeToApps');
+                        if (sendCodeEl) sendCodeEl.checked = c.SendSignInCodeToApps === true;
+                        var codeAloneEl = page.querySelector('#cfgAcceptSignInCodeAlone');
+                        if (codeAloneEl) codeAloneEl.checked = c.AcceptSignInCodeAlone === true;
                         page.querySelector('#cfgLanBypass').checked = !!c.LanBypassEnabled;
                         page.querySelector('#cfgLanCidrs').value = (c.LanBypassCidrs || []).join('\n');
                         page.querySelector('#cfgTrustFwd').checked = !!c.TrustForwardedFor;
@@ -1511,6 +1516,10 @@
                         c.RequireForAllUsers = (scopeVal === 'All');
                         c.HibpEnabled = page.querySelector('#cfgHibpEnabled').checked;
                         c.EmailOtpEnabled = page.querySelector('#cfgEmailOtp').checked;
+                        var sendCodeSaveEl = page.querySelector('#cfgSendSignInCodeToApps');
+                        c.SendSignInCodeToApps = sendCodeSaveEl ? sendCodeSaveEl.checked : (c.SendSignInCodeToApps === true);
+                        var codeAloneSaveEl = page.querySelector('#cfgAcceptSignInCodeAlone');
+                        c.AcceptSignInCodeAlone = codeAloneSaveEl ? codeAloneSaveEl.checked : (c.AcceptSignInCodeAlone === true);
                         c.LanBypassEnabled = page.querySelector('#cfgLanBypass').checked;
                         c.LanBypassCidrs = page.querySelector('#cfgLanCidrs').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.TrustForwardedFor = page.querySelector('#cfgTrustFwd').checked;
