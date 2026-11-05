@@ -1365,6 +1365,13 @@ public class OidcService : IDisposable
         // Copying the template's whole UserPolicy and persisting it via
         // UpdatePolicyAsync is both correct AND simpler than the per-enum loop.
         var templatePolicy = _userManager.GetUserDto(template).Policy;
+        // HARDENING [#243]: never carry the template account's disabled state onto a
+        // freshly auto-created SSO user. If the template happens to be disabled (or an
+        // admin disables it later as a "lock the door" measure), new OIDC logins would
+        // otherwise be born disabled and locked out — and uninstalling the plugin would
+        // not re-enable them, since the flag lives on the Jellyfin user. A user the IdP
+        // just authenticated must start enabled; admins disable individuals explicitly.
+        templatePolicy.IsDisabled = false;
         await _userManager.UpdatePolicyAsync(target.Id, templatePolicy).ConfigureAwait(false);
         _logger.LogInformation("[2FA] OIDC seeded new user {New} permissions from template user {Tpl}",
             target.Username, template.Username);

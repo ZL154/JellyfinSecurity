@@ -1297,6 +1297,11 @@
                         page.querySelector('#cfgEnforceScope').value = scope;
                         page.querySelector('#cfgHibpEnabled').checked = !!c.HibpEnabled;
                         page.querySelector('#cfgEmailOtp').checked = !!c.EmailOtpEnabled;
+                        // [#313] Defensive lookups, as for #cfgPairSecondScreen.
+                        var sendCodeEl = page.querySelector('#cfgSendSignInCodeToApps');
+                        if (sendCodeEl) sendCodeEl.checked = c.SendSignInCodeToApps === true;
+                        var codeAloneEl = page.querySelector('#cfgAcceptSignInCodeAlone');
+                        if (codeAloneEl) codeAloneEl.checked = c.AcceptSignInCodeAlone === true;
                         page.querySelector('#cfgLanBypass').checked = !!c.LanBypassEnabled;
                         page.querySelector('#cfgLanCidrs').value = (c.LanBypassCidrs || []).join('\n');
                         page.querySelector('#cfgTrustFwd').checked = !!c.TrustForwardedFor;
@@ -1365,6 +1370,9 @@
                         if (telegramChatLoadEl) telegramChatLoadEl.value = c.TelegramChatId || '';
                         page.querySelector('#cfgEmails').value = (c.NotifyEmailAddresses || []).join('\n');
                         page.querySelector('#cfgIssuer').value = c.TotpIssuerName || 'Jellyfin';
+                        // [#312] Defensive lookup, as for #cfgPairSecondScreen.
+                        var codeAfterPwEl = page.querySelector('#cfgAcceptCodeAfterPassword');
+                        if (codeAfterPwEl) codeAfterPwEl.checked = c.AcceptCodeAfterPassword === true;
                         // v1.4 fields
                         page.querySelector('#cfgWebhookUrl').value = c.WebhookUrl || '';
                         page.querySelector('#cfgWebhookSecret').value = c.WebhookSecret || '';
@@ -1508,6 +1516,10 @@
                         c.RequireForAllUsers = (scopeVal === 'All');
                         c.HibpEnabled = page.querySelector('#cfgHibpEnabled').checked;
                         c.EmailOtpEnabled = page.querySelector('#cfgEmailOtp').checked;
+                        var sendCodeSaveEl = page.querySelector('#cfgSendSignInCodeToApps');
+                        c.SendSignInCodeToApps = sendCodeSaveEl ? sendCodeSaveEl.checked : (c.SendSignInCodeToApps === true);
+                        var codeAloneSaveEl = page.querySelector('#cfgAcceptSignInCodeAlone');
+                        c.AcceptSignInCodeAlone = codeAloneSaveEl ? codeAloneSaveEl.checked : (c.AcceptSignInCodeAlone === true);
                         c.LanBypassEnabled = page.querySelector('#cfgLanBypass').checked;
                         c.LanBypassCidrs = page.querySelector('#cfgLanCidrs').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.TrustForwardedFor = page.querySelector('#cfgTrustFwd').checked;
@@ -1567,6 +1579,8 @@
                         if (telegramChatSaveEl) c.TelegramChatId = telegramChatSaveEl.value.trim();
                         c.NotifyEmailAddresses = page.querySelector('#cfgEmails').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
                         c.TotpIssuerName = page.querySelector('#cfgIssuer').value.trim() || 'Jellyfin';
+                        var codeAfterPwSaveEl = page.querySelector('#cfgAcceptCodeAfterPassword');
+                        c.AcceptCodeAfterPassword = codeAfterPwSaveEl ? codeAfterPwSaveEl.checked : (c.AcceptCodeAfterPassword === true);
                         // v1.4 fields
                         c.WebhookUrl = page.querySelector('#cfgWebhookUrl').value.trim();
                         c.WebhookSecret = page.querySelector('#cfgWebhookSecret').value.trim();
@@ -1935,6 +1949,9 @@
                     // [v2.5.13] (#97) show built-in button toggle (default on).
                     var showBtnEl = page.querySelector('#ssoShowButton');
                     if (showBtnEl) showBtnEl.checked = prov ? prov.showLoginButton !== false : true;
+                    // [#297] send the login page straight to this provider (default off).
+                    var autoRedirectEl = page.querySelector('#ssoAutoRedirect');
+                    if (autoRedirectEl) autoRedirectEl.checked = prov ? !!prov.autoRedirect : false;
                     page.querySelector('#ssoForceHttps').checked = prov ? !!prov.forceHttps : false;
                     // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
                     var allowPrivEl = page.querySelector('#ssoAllowPrivate');
@@ -2041,6 +2058,8 @@
                         Enabled: page.querySelector('#ssoEnabled').checked,
                         // [v2.5.13] (#97) show built-in button on login page.
                         ShowLoginButton: (page.querySelector('#ssoShowButton') ? page.querySelector('#ssoShowButton').checked : true),
+                        // [#297] send the login page straight to this provider.
+                        AutoRedirect: (page.querySelector('#ssoAutoRedirect') || {}).checked === true,
                         ForceHttps: page.querySelector('#ssoForceHttps').checked,
                         // [v2.5.7] (issue #54): per-provider SSRF-guard opt-out.
                         AllowPrivateNetworks: (page.querySelector('#ssoAllowPrivate') || {}).checked === true,

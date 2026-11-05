@@ -65,6 +65,20 @@
     // few render ticks, rather than looping the toast for the whole poll window.
     var _tfaOidcErrorAttempts = 0;
 
+    // [#297] Auto-redirect state lives in sessionStorage: per tab, and it
+    // survives the round trip through the provider. OFF holds the redirect
+    // back for the rest of the tab ('signout' or 'optout'); AT is when the
+    // last automatic redirect left, for the loop guard.
+    var OIDC_AUTO_OFF_KEY = '__tfa_oidc_auto_off';
+    var OIDC_AUTO_AT_KEY = '__tfa_oidc_auto_at';
+    // Read at load, like the error above, before the router can strip the
+    // hash query. oidcUser/oidcToken are the provider's answer being signed
+    // in; oidcAuto=0 is the opt-out a person types to reach the password form.
+    var _tfaOidcReturning = !!(getQueryParam('oidcUser') && getQueryParam('oidcToken'));
+    if (getQueryParam('oidcAuto') === '0') {
+        try { sessionStorage.setItem(OIDC_AUTO_OFF_KEY, 'optout'); } catch (e) {}
+    }
+
     // ============================================================
     // [v2.5.12] (#79, ZEROX7) i18n for the login page.
     //   The injected login UI (SSO buttons, 2FA/passkey buttons, the
@@ -193,6 +207,78 @@
     function clearTfaPending() {
         try { sessionStorage.removeItem(TFA_PENDING_KEY); } catch (e) {}
     }
+    // Jellyfin Web's "Remember Me" box, left unticked once, stores
+    // localStorage['enableAutoLogin'] = 'false', and from then on every page
+    // load drops the stored access token before connecting. The plugin's
+    // sign-in pages (password and code, the challenge, the OIDC bridges) hand
+    // the session over by storing it and loading /web, so with that setting a
+    // valid sign-in always ended on Jellyfin's login page again. Those pages
+    // leave a one-shot marker in this tab naming the session they stored: the
+    // time, the server entry Id, the UserId and the last characters of the
+    // token. This script runs before Jellyfin Web's bundles, so for the load
+    // that follows it answers their enableAutoLogin reads with 'true', until
+    // Jellyfin's login form shows the setting again, and leaves the stored
+    // setting alone: the next full load signs out again, as the user asked.
+    var TFA_HANDOFF_KEY = '__tfa_session_handoff';
+    // Long enough for the OIDC set-password step, which sits between the
+    // hand-off and /web.
+    var TFA_HANDOFF_TTL_MS = 10 * 60 * 1000;
+    // Enough of the token to tell a session stored later from the handed-over
+    // one, without keeping a second usable copy of it in sessionStorage.
+    var TFA_HANDOFF_TOKEN_TAIL = 8;
+    function isWholeNumber(value) {
+        return typeof value === 'number' && isFinite(value) && Math.floor(value) === value;
+    }
+    function isFilledString(value) {
+        return typeof value === 'string' && value !== '';
+    }
+    function honorSessionHandoff(storageProto, local, session, onLoginRoute, now) {
+        try {
+            var raw = session.getItem(TFA_HANDOFF_KEY);
+            session.removeItem(TFA_HANDOFF_KEY);
+            if (raw === null) return false;
+            var mark = JSON.parse(raw);
+            if (!mark || typeof mark !== 'object' || !isWholeNumber(mark.at)) return false;
+            if (!isFilledString(mark.server) || !isFilledString(mark.user) || !isFilledString(mark.tokenTail)) return false;
+            if (!(now - mark.at >= 0 && now - mark.at <= TFA_HANDOFF_TTL_MS)) return false;
+            if (local.getItem('enableAutoLogin') !== 'false') return false;
+            // Jellyfin Web connects to the server entry it accessed last. Keep
+            // it only if it still holds the session the hand-off stored: another
+            // tab of this origin may have stored a different one since.
+            var servers = (JSON.parse(local.getItem('jellyfin_credentials') || '{}') || {}).Servers || [];
+            var last = null;
+            var lastAccessed = -1;
+            for (var i = 0; i < servers.length; i++) {
+                if (!servers[i]) continue;
+                var accessed = servers[i].DateLastAccessed == null ? 0 : servers[i].DateLastAccessed;
+                // With a time that is not a number, which entry Jellyfin Web
+                // picks is not known, so nothing is kept.
+                if (!isWholeNumber(accessed)) return false;
+                if (accessed > lastAccessed) { last = servers[i]; lastAccessed = accessed; }
+            }
+            // A field missing on both sides must not match, so the entry's are
+            // checked the same way as the marker's.
+            if (!last || !isFilledString(last.Id) || !isFilledString(last.UserId) || !isFilledString(last.AccessToken)) return false;
+            if (last.Id !== mark.server || last.UserId !== mark.user
+                || last.AccessToken.slice(-TFA_HANDOFF_TOKEN_TAIL) !== mark.tokenTail) return false;
+            var getItem = storageProto.getItem;
+            var active = true;
+            storageProto.getItem = function (key) {
+                if (active && this === local && key === 'enableAutoLogin') {
+                    // The login form reads this to show the Remember Me box and
+                    // saves it again, so from there on it is the user's own.
+                    if (!onLoginRoute()) return 'true';
+                    active = false;
+                }
+                return getItem.apply(this, arguments);
+            };
+            return true;
+        } catch (e) { return false; }
+    }
+    try {
+        honorSessionHandoff(window.Storage.prototype, window.localStorage, window.sessionStorage,
+            isExplicitLoginRoute, Date.now());
+    } catch (e) { /* storage unavailable: nothing was handed over */ }
     // [v2.5.14] (#99/#98) Escape hatch for the soft-lock. When the pending flag
     // is armed, every non-auth fetch/XHR is short-circuited with a synthetic 403.
     // If the user is NOT actively on a 2FA page completing the challenge, that
@@ -1331,8 +1417,13 @@
             addStyles();
             var btn = document.createElement('a');
             btn.id = BUTTON_ID;
-            btn.setAttribute('is', 'emby-linkbutton');
+            // A plain anchor, like the SSO buttons. With is="emby-linkbutton",
+            // jellyfin-web also sends the click to its hash router, which
+            // records /web/#/TwoFactorAuth/Login (a route it does not have) in
+            // the history. Add the classes that upgrade used to add instead.
             btn.className = (signInBtn.className || 'raised block').replace(/button-submit|button-cancel|emby-button/g, '').trim();
+            btn.classList.add('emby-button');
+            if (document.documentElement.classList.contains('layout-tv')) btn.classList.add('show-focus');
             btn.innerHTML = '<span class="tfa-icon">🔐</span><span data-i18n-key="tfa.login.btn_2fa">' + T('tfa.login.btn_2fa', 'Sign in with Two-Factor Authentication') + '</span>';
             btn.href = withLang(serverUrl('TwoFactorAuth/Login'));
             (function () {
@@ -1476,6 +1567,57 @@
             if (decodeURIComponent(p[0]) === name) return decodeURIComponent((p[1] || '').replace(/\+/g, ' '));
         }
         return null;
+    }
+
+    // [#297] Which provider, if any, the login page sends this browser to
+    // without a click. Pure, so tests/oidc-bridge.test.mjs runs the rules as
+    // written. The first enabled provider set to auto-redirect wins, and
+    // nothing redirects:
+    //   - inside the Jellyfin apps, where the button opens the in-app flow;
+    //   - while the page shows a failed sign-in, or signs the provider's
+    //     answer in;
+    //   - after oidcAuto=0 or a sign-out in this tab;
+    //   - within two minutes of the last automatic redirect, so a round trip
+    //     that ends back here shows the button instead of looping.
+    function oidcAutoRedirectTarget(s) {
+        var LOOP_GUARD_MS = 120000;
+        if (s.embeddedApp || s.oidcError || s.returningFromProvider) return null;
+        if (s.optedOut || s.signedOut) return null;
+        if (s.lastAutoRedirectAt && s.now - s.lastAutoRedirectAt < LOOP_GUARD_MS) return null;
+        var list = s.providers || [];
+        for (var i = 0; i < list.length; i++) {
+            var p = list[i];
+            if (p && p.enabled && p.autoRedirect && p.id) return String(p.id);
+        }
+        return null;
+    }
+
+    // [#297] Decided once per page load: tryInject re-renders the login page
+    // many times, and the browser leaves at most once. It goes to the button's
+    // own URL, and replace() keeps Back from landing on a login page that
+    // would leave again.
+    var _tfaOidcAutoDecided = false;
+    function maybeAutoRedirectToOidc(rows) {
+        if (_tfaOidcAutoDecided) return;
+        _tfaOidcAutoDecided = true;
+        var off, lastAt;
+        try {
+            off = sessionStorage.getItem(OIDC_AUTO_OFF_KEY);
+            lastAt = parseInt(sessionStorage.getItem(OIDC_AUTO_AT_KEY) || '0', 10) || 0;
+        } catch (e) { return; } // no sessionStorage means no loop guard: keep the button
+        var id = oidcAutoRedirectTarget({
+            providers: rows,
+            embeddedApp: inEmbeddedWebView(),
+            oidcError: !!_tfaOidcError,
+            returningFromProvider: _tfaOidcReturning || !!window[OIDC_AUTOSUBMIT_FLAG],
+            optedOut: off === 'optout',
+            signedOut: off === 'signout',
+            lastAutoRedirectAt: lastAt,
+            now: Date.now()
+        });
+        if (!id) return;
+        try { sessionStorage.setItem(OIDC_AUTO_AT_KEY, String(Date.now())); } catch (e) { return; }
+        window.location.replace(serverUrl('TwoFactorAuth/Oidc/Login/' + encodeURIComponent(id)));
     }
 
     // ---------------------------------------------------------------------
@@ -1670,6 +1812,10 @@
                     creds.Servers.unshift({ Id: res.ServerId, Name: 'Jellyfin', AccessToken: res.AccessToken, UserId: res.User.Id, Type: 'Server', DateLastAccessed: now, LastConnectionMode: TFA_CONNECTION_MODE_MANUAL, ManualAddress: address });
                 }
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+                try {
+                    var stored = existing || creds.Servers[0];
+                    sessionStorage.setItem(TFA_HANDOFF_KEY, JSON.stringify({ at: Date.now(), server: stored.Id, user: stored.UserId, tokenTail: String(stored.AccessToken).slice(-TFA_HANDOFF_TOKEN_TAIL) }));
+                } catch (e) {}
                 // A stale pending flag would short-circuit the fresh session's
                 // bootstrap calls (#98); this sign-in just succeeded, so none applies.
                 try { clearTfaPending(); } catch (e) {}
@@ -1795,6 +1941,8 @@
                 })(p.id, p.displayName || p.id);
                 container.appendChild(btn);
             });
+            // [#297] Only now: the redirect reuses one of these buttons.
+            maybeAutoRedirectToOidc(rows || []);
         }).catch(function() { /* silent */ });
     }
 
@@ -1955,6 +2103,14 @@
 
     function tfaSuppressRpLogout() { __tfaRpLogoutSuppressed = true; }
 
+    // [#297] A sign-out the user asked for holds the OIDC auto-redirect back
+    // for this tab; otherwise the login page would send them straight back
+    // into the provider's still-open session.
+    function tfaRememberSignOut() {
+        if (__tfaRpLogoutSuppressed) return;
+        try { sessionStorage.setItem(OIDC_AUTO_OFF_KEY, 'signout'); } catch (e) {}
+    }
+
     function tfaTakeRpLogoutProvider() {
         try {
             var id = window.localStorage.getItem(__tfaRpLogoutKey);
@@ -1975,6 +2131,7 @@
 
             var origLogout = api.logout;
             api.logout = function () {
+                tfaRememberSignOut();
                 var providerId = tfaTakeRpLogoutProvider();
                 var result = origLogout.apply(this, arguments);
                 if (!providerId) return result;

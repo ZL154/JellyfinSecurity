@@ -1,0 +1,4 @@
+# Temporary: run the JF12 bench against the existing (JF12-era) lab data.
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:12.0
