@@ -464,7 +464,7 @@ public class LockoutMessageMiddleware
 
             return (
                 GetString(doc.RootElement, "Username", "username", "Name", "name"),
-                GetString(doc.RootElement, "Pw", "Password", "pw", "password"));
+                GetString(doc.RootElement, "Pw", "PW", "Password", "pw", "password"));
         }
         catch
         {
