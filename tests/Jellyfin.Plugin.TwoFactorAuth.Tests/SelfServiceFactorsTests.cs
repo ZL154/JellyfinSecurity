@@ -62,4 +62,26 @@ public class SelfServiceFactorsTests
 
         Assert.Equal(expected, SelfServiceFactors.HasAny(data, new PluginConfiguration { EmailOtpEnabled = emailOtpEnabled }));
     }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void An_email_address_on_file_counts_while_the_server_sends_email_codes(bool emailOtpEnabled, bool expected)
+    {
+        var data = new UserTwoFactorData { UserId = Guid.NewGuid() };
+        var config = new PluginConfiguration { EmailOtpEnabled = emailOtpEnabled };
+        config.SetUserEmail(data.UserId.ToString("N"), "alice@example.test");
+
+        Assert.Equal(expected, SelfServiceFactors.HasAny(data, config));
+    }
+
+    [Fact]
+    public void Another_accounts_email_address_does_not_count()
+    {
+        var data = new UserTwoFactorData { UserId = Guid.NewGuid() };
+        var config = new PluginConfiguration { EmailOtpEnabled = true };
+        config.SetUserEmail(Guid.NewGuid().ToString("N"), "bob@example.test");
+
+        Assert.False(SelfServiceFactors.HasAny(data, config));
+    }
 }
