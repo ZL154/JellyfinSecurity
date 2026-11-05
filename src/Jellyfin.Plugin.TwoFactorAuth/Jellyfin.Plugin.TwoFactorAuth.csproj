@@ -63,7 +63,7 @@
          without this pin the Jellyfin 12 restore stops at NU1902 and NU1903
          under TreatWarningsAsErrors. Drop it once MimeKit requires a fixed
          version itself. -->
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
     <PackageReference Include="Fido2" Version="4.2.0" />
     <PackageReference Include="MaxMind.Db" Version="5.2.0" />
     <!-- QuestPDF was held at 2026.5.0 after 2026.6.0 produced an invalid
