@@ -592,9 +592,11 @@
                 return await api(method, path, baseBody);
             } catch (e) {
                 if (!(e && e.status === 403 && e.body && (e.body.stepUpRequired || e.body.twoFactorRequired))) throw e;
+                await refreshFactors().catch(function() {});
                 var step = await tfaPromptForCode({
                     title: opts.title,
-                    message: opts.message || e.body.message
+                    message: opts.message || e.body.message,
+                    messageNoTotp: opts.messageNoTotp
                 });
                 if (!step) { var err = new Error('cancelled'); err.cancelled = true; throw err; }
                 var body2 = Object.assign({}, baseBody || {}, step);
@@ -609,9 +611,11 @@
                 return await api(method, urlBase);
             } catch (e) {
                 if (!(e && e.status === 403 && e.body && (e.body.stepUpRequired || e.body.twoFactorRequired))) throw e;
+                await refreshFactors().catch(function() {});
                 var step = await tfaPromptForCode({
                     title: opts.title,
-                    message: opts.message || e.body.message
+                    message: opts.message || e.body.message,
+                    messageNoTotp: opts.messageNoTotp
                 });
                 if (!step) { var err = new Error('cancelled'); err.cancelled = true; throw err; }
                 var sep = urlBase.indexOf('?') >= 0 ? '&' : '?';
@@ -640,10 +644,16 @@
         // actually has passkeys enrolled (window.__tfa_userPasskeyCount > 0).
         // OIDC re-auth as a step-up factor isn't supported here yet because
         // it requires a redirect that doesn't fit cleanly in a modal.
+        //
+        // [#327] Without an authenticator app there is no TOTP or recovery
+        // code to type, so the text points at the other options the prompt
+        // shows. With none to show, the code field is all it offers.
+        function stepUpPromptMessage(s) {
+            return s.totpOn || !s.hasAlternative ? s.message : s.messageNoTotp;
+        }
         function tfaPromptForCode(opts) {
             opts = opts || {};
             var title = opts.title || _tr('tfa.setup.stepup.title', 'Confirm with your current code');
-            var message = opts.message || _tr('tfa.setup.stepup.msg', 'Enter your current TOTP or recovery code to make this change.');
             var confirmText = opts.confirmText || _tr('tfa.setup.stepup.ok', 'Continue');
             var cancelText = _tr('tfa.admin.common.cancel', 'Cancel');
             var passkeyText = _tr('tfa.setup.stepup.use_passkey', 'Use a passkey instead');
@@ -659,6 +669,12 @@
             // success handoff.
             var oidcLinks = Array.isArray(window.__tfa_userOidcLinks) ? window.__tfa_userOidcLinks : [];
             var hasOidc = oidcLinks.length > 0;
+            var message = stepUpPromptMessage({
+                totpOn: window.__tfa_userTotpOn === true,
+                hasAlternative: hasPasskey || hasEmail || hasOidc,
+                message: opts.message || _tr('tfa.setup.stepup.msg', 'Enter your current TOTP or recovery code to make this change.'),
+                messageNoTotp: opts.messageNoTotp || _tr('tfa.setup.stepup.msg_no_totp', 'Confirm it is you with one of the options below to make this change.'),
+            });
             return new Promise(function(resolve) {
                 var ov = document.createElement('div');
                 ov.setAttribute('role', 'dialog');
@@ -866,6 +882,60 @@
         var _myUserId = null;
 
         // ============ STATUS ============
+        // The factor flags the step-up prompt reads (which buttons it renders
+        // and which text it shows), set from MyStatus, the email row and the
+        // linked providers.
+        function applyFactorFlags(myStatus, emailRow, oidcLinks) {
+            // [v2.5.6] (round-5c): expose passkey count to tfaPromptForCode
+            // so it can decide whether to render the "Use a passkey" button.
+            window.__tfa_userPasskeyCount = (myStatus && (myStatus.passkeyCount || myStatus.PasskeyCount)) || 0;
+            // [#248] The app password prompt words itself for accounts
+            // that confirm with a passkey or their provider, not a code.
+            window.__tfa_userTotpOn = !!(myStatus && (myStatus.totpEnabled || myStatus.TotpEnabled));
+            // [v2.5.7] OIDC step-up: expose linked-provider list to the
+            // step-up modal so it can render per-provider "Sign in with X"
+            // buttons. Each entry has { providerId, providerDisplay, ... }.
+            window.__tfa_userOidcLinks = Array.isArray(oidcLinks) ? oidcLinks : [];
+            // [v2.5.6] (round-5d): expose email + email-OTP-enabled so the
+            // prompt can offer "Send code by email" as a step-up factor.
+            var row = emailRow || {};
+            window.__tfa_userHasEmail = !!(row.email || row.Email)
+                && ((window._tfaPublicConfig || {}).emailOtpEnabled !== false);
+        }
+        function canCreateAppPasswords(myStatus) {
+            // [#248] The server decides who may create app passwords (any
+            // factor the step-up can verify, not only TOTP).
+            return !!(myStatus && (myStatus.canCreateAppPasswords || myStatus.CanCreateAppPasswords));
+        }
+        // [#327] Every read of the factors takes a number, and a read older
+        // than the last one applied is dropped, so an answer that arrives late
+        // cannot bring back a passkey that was just removed, or hide one just
+        // added. A newer read that fails does not hold back an older one.
+        var _factorReadSeq = 0, _factorAppliedSeq = 0;
+        function takeFactorRead(seq) {
+            if (seq < _factorAppliedSeq) return false;
+            _factorAppliedSeq = seq;
+            return true;
+        }
+        // [#327] Rereads the factors and the app password card, which a
+        // passkey added or removed changes, without redrawing the rest of the
+        // page (that would reset what the user typed in its forms). The
+        // step-up helpers call it before every prompt, so the prompt offers
+        // what the server knows the account has at that moment. A failed read
+        // rejects and leaves the flags as they were.
+        function refreshFactors() {
+            var seq = ++_factorReadSeq;
+            return Promise.all([
+                api('GET', 'TwoFactorAuth/MyStatus'),
+                api('GET', 'TwoFactorAuth/Email'),
+                api('GET', 'TwoFactorAuth/Oidc/MyLinks'),
+                api('GET', 'TwoFactorAuth/AppPasswords'),
+            ]).then(function(r) {
+                if (!takeFactorRead(seq)) return;
+                applyFactorFlags(r[0], r[1], r[2]);
+                renderAppPasswords(canCreateAppPasswords(r[0]), r[3]);
+            });
+        }
         function loadAll() {
             var token = getToken();
             if (!token) {
@@ -873,6 +943,7 @@
                     '<p style="color:#ef5350;">' + _tr('tfa.setup.status.need_signin_prefix', 'You need to be signed in.') + ' <a href="../web/index.html">' + _tr('tfa.setup.status.sign_in_link', 'Sign in →') + '</a></p>';
                 return;
             }
+            var factorRead = ++_factorReadSeq;
             Promise.all([
                 api('GET', 'TwoFactorAuth/MyStatus').catch(function() { return null; }),
                 api('GET', 'Users/Me').catch(function() { return null; }),
@@ -912,23 +983,9 @@
                 // UserChoice) requires the prompt. Off → never prompt;
                 // UserChoice → only when user opted in; Forced → always.
                 var passkeyCount = (myStatus && (myStatus.passkeyCount || myStatus.PasskeyCount)) || 0;
-                // [v2.5.6] (round-5c): expose passkey count to tfaPromptForCode
-                // so it can decide whether to render the "Use a passkey" button.
-                window.__tfa_userPasskeyCount = passkeyCount;
-                // [#248] The app password prompt words itself for accounts
-                // that confirm with a passkey or their provider, not a code.
-                window.__tfa_userTotpOn = !!totpOn;
-                // [v2.5.7] OIDC step-up: expose linked-provider list to the
-                // step-up modal so it can render per-provider "Sign in with X"
-                // buttons. Each entry has { providerId, providerDisplay, ... }.
-                window.__tfa_userOidcLinks = Array.isArray(r[9]) ? r[9] : [];
-                // [v2.5.6] (round-5d): expose email + email-OTP-enabled so the
-                // prompt can offer "Send code by email" as a step-up factor.
-                var emailRow = r[4] || {};
-                var userEmail = emailRow.email || emailRow.Email || '';
+                var current = takeFactorRead(factorRead);
+                if (current) applyFactorFlags(myStatus, r[4], r[9]);
                 var publicCfg = window._tfaPublicConfig || {};
-                window.__tfa_userHasEmail = !!userEmail
-                    && (publicCfg.emailOtpEnabled !== false);
                 var hasFactor = !!totpOn || passkeyCount > 0;
                 var stepUpMode = (myStatus && (myStatus.selfServiceStepUpMode || myStatus.SelfServiceStepUpMode)) || 'Forced';
                 var userOptedIn = !!(myStatus && (myStatus.requireStepUpForChanges || myStatus.RequireStepUpForChanges));
@@ -956,7 +1013,7 @@
                 renderPaired(totpOn, r[6]);
                 // [#248] The server decides who may create app passwords (any
                 // factor the step-up can verify, not only TOTP).
-                renderAppPasswords(!!(myStatus && (myStatus.canCreateAppPasswords || myStatus.CanCreateAppPasswords)), r[5]);
+                if (current) renderAppPasswords(canCreateAppPasswords(myStatus), r[5]);
                 renderTrusted(r[2]);
                 renderSessions(r[8]);
                 document.getElementById('cardDisable').style.display = totpOn ? 'block' : 'none';
@@ -1741,11 +1798,8 @@
             var r;
             try {
                 r = await mutateWithStepUp('POST', 'TwoFactorAuth/AppPasswords', { label: label }, {
-                    // [#248] Without TOTP there is no code to type; point at the
-                    // passkey or provider buttons the prompt shows instead.
-                    message: window.__tfa_userTotpOn
-                        ? _tr('tfa.setup.stepup.app_pw_msg', 'Enter your current TOTP or recovery code to create an app password.')
-                        : _tr('tfa.setup.stepup.app_pw_msg_no_totp', 'Confirm it is you with one of the options below to create an app password.')
+                    message: _tr('tfa.setup.stepup.app_pw_msg', 'Enter your current TOTP or recovery code to create an app password.'),
+                    messageNoTotp: _tr('tfa.setup.stepup.app_pw_msg_no_totp', 'Confirm it is you with one of the options below to create an app password.')
                 });
             } catch (e) {
                 if (e && e.cancelled) return;
@@ -1772,9 +1826,8 @@
             var r;
             try {
                 r = await mutateWithStepUp('POST', 'TwoFactorAuth/AppPasswords/OneTime', {}, {
-                    message: window.__tfa_userTotpOn
-                        ? _tr('tfa.setup.stepup.app_pw_msg', 'Enter your current TOTP or recovery code to create an app password.')
-                        : _tr('tfa.setup.stepup.app_pw_msg_no_totp', 'Confirm it is you with one of the options below to create an app password.')
+                    message: _tr('tfa.setup.stepup.app_pw_msg', 'Enter your current TOTP or recovery code to create an app password.'),
+                    messageNoTotp: _tr('tfa.setup.stepup.app_pw_msg_no_totp', 'Confirm it is you with one of the options below to create an app password.')
                 });
             } catch (e) {
                 if (e && e.cancelled) return;
@@ -1948,6 +2001,7 @@
                                 message: _tr('tfa.setup.stepup.passkey_del_msg', 'Enter your current TOTP or recovery code to remove this passkey.')
                             });
                             loadPasskeys();
+                            refreshFactors().catch(function() {});
                         } catch (e) {
                             if (e && e.cancelled) return;
                             if (e && e.status === 403 && e.body && (e.body.stepUpRequired || e.body.twoFactorRequired)) {
@@ -2013,6 +2067,7 @@
                 ok.textContent = _tr('tfa.setup.passkeys.added', 'Passkey added.'); ok.classList.add('show');
                 document.getElementById('passkeyLabel').value = '';
                 loadPasskeys();
+                refreshFactors().catch(function() {});
             } catch (e) {
                 // [v2.5.6] (round-5d): user-cancelled the step-up prompt is
                 // a normal flow, not an error.
