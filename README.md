@@ -433,7 +433,7 @@ Seerr and Jellyseerr also let people sign in with their Jellyfin username and pa
 
 ## 🛠️ Admin guide
 
-The admin dashboard at **Dashboard → Plugins → Two-Factor Authentication** has 5 tabs:
+The admin dashboard at **Dashboard → Plugins → Jellyfin Security** includes these tabs:
 
 ### Users
 Per-user 2FA status: TOTP on/off, trusted device count, recovery codes remaining, email address (for OTP), lockout status.
@@ -451,7 +451,7 @@ Pending TV/native-client pairing requests. Approve or deny each request and show
 Paginated, filterable login attempt history. Tracks success, failures, lockouts, bypasses, and challenge issuances. Choose **Newest first** or **Oldest first**; the selected order remains active while navigating the dashboard.
 
 ### Settings
-- **General** — plugin toggle, force 2FA for all users, email OTP toggle
+- **General**: plugin toggle, **2FA enforcement scope** (Optional, Admins only or All users), Have I Been Pwned password check, email OTP toggle
 - **LAN Bypass** — CIDR ranges, X-Forwarded-For trust, trusted proxies
 - **Security** — failed-attempt threshold, lockout duration, audit log size, and OIDC onboarding password policy (minimum length plus optional uppercase, lowercase, number, and symbol requirements)
 - **SMTP**: host, port, SSL, credentials, from-address (required for email OTP and for alert emails)
@@ -460,6 +460,13 @@ Paginated, filterable login attempt history. Tracks success, failures, lockouts,
 - **Audit chain (v2.5)** — **Rebuild audit chain** button repairs the hash chain after disk corruption / manual edits (step-up gated)
 
 **Telegram and email alerts (#259):** for Telegram, create a bot with @BotFather, paste its token in **Settings → Push Notifications → Telegram bot token** and set **Telegram chat ID** to your user ID, a group or channel ID (negative) or a public channel's @username; the bot must be able to post there, so start a chat with it or add it to the group or channel. The token is sent only to api.telegram.org and is kept out of the server log, and when Telegram refuses a message the test button shows its reason ("Bad Request: chat not found"). For email, every address under **Admin email addresses for security alerts** gets its own copy of each alert over the SMTP settings used for email OTP. **Send test notification** reports each configured channel separately.
+
+### Authentication Provider in Jellyfin's user profile
+Jellyfin's own user page (**Dashboard → Users**, then an account) shows an **Authentication Provider** field whenever more than one sign-in provider is registered. With the plugin loaded it offers **Default**, Jellyfin's own provider, and **Two-Factor Authentication**, the plugin's, which kept the plugin's old name. The field only picks what checks the account's credentials. Whether a sign-in needs 2FA comes from the plugin's settings, which apply to every sign-in on either provider, so nothing needs to change there to enforce 2FA.
+
+The plugin moves an account to **Two-Factor Authentication** by itself when it signs in with a passkey or through SSO, or creates an app password or a one-time device code, because only the plugin's provider can check those credentials. For the account password, that provider hands the check to Jellyfin's own provider, so the same password keeps working. A mix of both providers across accounts is expected; leave each account on the one it is on:
+- Moved to **Two-Factor Authentication** by hand, an account gains no protection, and if the plugin ever fails to load, Jellyfin refuses its sign-ins (see [Sign-in refused after the plugin stopped loading](#sign-in-refused-after-the-plugin-stopped-loading-invalidauthprovider)).
+- Moved back to **Default** after the plugin moved it, an account's app passwords and one-time device codes stop working until it creates another one or signs in with a passkey or SSO, which moves it again.
 
 ---
 
