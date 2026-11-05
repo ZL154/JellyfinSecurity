@@ -713,6 +713,8 @@ Every user-visible string in the setup, login, challenge, OIDC onboarding, admin
 
 The injected dashboard entry updates its label live when Jellyfin's language changes and is available in both desktop and mobile navigation.
 
+**Emails and the reset page (#318):** the password reset email and the email with a sign-in or verification code are written in the recipient's language: the account's plugin language preference, else the server-wide `DefaultLanguage`, else English. The language of whoever asked for the email never counts, because anyone can ask for a reset link for any account. The texts come from the same translation files as the pages, and the reset link has a `lang` query parameter, so the reset page opens in the language of the email.
+
 **Native-name picker** — the picker shows each language in its own script ("Deutsch", "日本語", "中文") rather than locale codes, so a user who only reads Japanese can find their language without reading English.
 
 **Implementation notes** (for translators / contributors):
