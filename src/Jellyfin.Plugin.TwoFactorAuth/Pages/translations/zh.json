@@ -110,6 +110,7 @@
   "tfa.error.unknown": "出现问题。请检查服务器日志。",
   "tfa.error.unauthorized": "未授权。",
   "tfa.error.forbidden": "禁止访问。",
+  "tfa.error.proxy_replaced": "反向代理或防火墙替换了服务器的响应（HTTP {status}）。请检查它的错误拦截设置，以及针对 /TwoFactorAuth/ 的 WAF 规则。",
   "tfa.admin.common.api_keys_note": "Sonarr/Radarr 等服务集成使用标准的 Jellyfin API 密钥,这些密钥已经绕过用户认证 — 无需插件配置。",
   "tfa.admin.common.loading": "加载中…",
   "tfa.admin.common.refresh": "刷新",

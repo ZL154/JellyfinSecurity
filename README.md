@@ -1052,6 +1052,49 @@ You lose protection against generic 401-burst attacks on **all** apps behind SWA
 
 **Why this isn't strictly a plugin bug.** The plugin behaves correctly per HTTP/OAuth (401 on unverified tokens). SWAG's fail2ban behaves correctly per brute-force-protection norms. The collision sits in the gap between the two — fail2ban can't tell a legitimate 2FA enforcement burst from an attack just by reading status codes in the access log. This was resolved at the source in **v2.4.12** ([issue #36](https://github.com/ZL154/JellyfinSecurity/issues/36)): the blocked-request response is now **403**, which the default `nginx-unauthorized` jail does not count, so a normal 2FA login no longer trips it. The jail-threshold tuning above is only needed on older builds or a custom jail that also bans on 403.
 
+### Behind a reverse proxy or WAF: a bare `HTTP 403`, no code prompt, or passkeys refused
+
+Two proxy features get between the plugin's pages and its answers ([#320](https://github.com/ZL154/JellyfinSecurity/issues/320)). When an error page comes from the proxy instead of the plugin, the pages now say so: *"A reverse proxy or firewall replaced the answer from the server (HTTP 403). Check its error interception and its WAF rules for /TwoFactorAuth/."* Older versions show a bare `HTTP 403`.
+
+**Error interception.** The plugin answers errors with JSON that the pages act on: a 403 with `"stepUpRequired": true` opens the code prompt (adding a passkey, changing a factor, admin settings), and a 401 with `"TwoFactorRequired": true` on Jellyfin's `/Users/AuthenticateByName` starts the sign-in challenge. A proxy that swaps 4xx answers for its own error page throws both away. Turn interception off for the whole Jellyfin site, not only `/TwoFactorAuth/`, because the sign-in challenge travels on Jellyfin's own path:
+
+| Proxy | Replaces Jellyfin's answer when | Fix for the Jellyfin site |
+|---|---|---|
+| nginx | `proxy_intercept_errors on` (set in `http`, `server` or `location`) and an `error_page` for that status | `proxy_intercept_errors off;` in the Jellyfin `location` |
+| Apache | `ProxyErrorOverride On`, with or without a status list | `ProxyErrorOverride Off` in the Jellyfin virtual host |
+| Traefik | an `errors` middleware on the Jellyfin router or its entry point | keep the `errors` middleware off both |
+| Caddy | a `handle_response` for 4xx statuses inside `reverse_proxy` (`handle_errors` alone leaves Jellyfin's answers alone) | remove that `handle_response` |
+
+```nginx
+location / {
+    proxy_pass http://jellyfin:8096;
+    proxy_intercept_errors off;  # overrides an "on" inherited from http or server
+}
+```
+
+Put it in every `location` that proxies to Jellyfin, or once in the Jellyfin `server` block when no `location` there turns it back on. Your `error_page` keeps working for errors nginx makes itself, such as a ModSecurity block.
+
+**ModSecurity with the OWASP Core Rule Set.** A passkey's answer from the browser is a JSON document sent as a string field, and its quotes, colons and random base64url text look like SQL injection to CRS. Measured with CRS 4.30 on ModSecurity 3 (nginx), with 300 requests shaped like each of the four passkey answers below (sent to `Passkeys/RegisterFinish`) plus real passkey sign-ups and sign-ins:
+
+- **Paranoia level 1:** no request was blocked.
+- **Paranoia level 2:** every request was blocked. Rules 942200, 942340, 942370 and 942430 fired every time; 942100, 942300, 942330, 942440 and 942520 fired on some requests, depending on the random bytes.
+
+The affected endpoints are `Passkeys/RegisterFinish` (adding a passkey), `Passkey/LoginComplete` (passkey sign-in on the login page), `Verify/Passkey/Finish` (the sign-in challenge) and `StepUp/UserPasskeyVerify` (confirming a change with a passkey), all under `/TwoFactorAuth/`. The rule ids are in the ModSecurity audit log, on entries for those paths, with `ARGS:json.response` (or `ARGS:json.Response`) as the matched variable.
+
+Take that one field out of the SQL injection rules on those four endpoints, in `REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf` (CRS ships it as `REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf.example`; use any rule id that is free in your setup):
+
+```apache
+# Jellyfin Security passkeys: keep the WebAuthn answer out of the SQL injection rules.
+SecRule REQUEST_FILENAME "@rx /TwoFactorAuth/(?:Passkeys/RegisterFinish|Passkey/LoginComplete|Verify/Passkey/Finish|StepUp/UserPasskeyVerify)$" \
+    "id:10320,phase:1,pass,nolog,\
+    ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:json.response,\
+    ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:json.Response"
+```
+
+Both spellings are needed: the target name is case sensitive, and the login page sends `Response`. With this rule, every one of those requests passed at both levels, while SQL injection in the passkey's label and on other Jellyfin paths was still blocked. Every other field and every other rule family still applies to these endpoints, and the field itself is a signed WebAuthn result the plugin verifies and never puts in a query. Removing only the four ids that always fire is not enough (4 to 7% of passkey requests still failed at level 2), and excluding `/TwoFactorAuth/` from whole rule categories gives up far more than this needs.
+
+**Response rules.** With response body inspection on (`SecResponseBodyAccess On`), CRS also reads Jellyfin's answers, but only those whose type is listed in `SecResponseBodyMimeType` (ModSecurity's recommended configuration lists `text/plain text/html text/xml`, so JSON is read only when `application/json` is added) and only when they are not compressed. Before this version, three answers contained the words "empty password", which rule 953101 (PHP information leakage, paranoia level 2) takes for a leaked PHP error: the English translation bundle, the plugin's settings page and the 401 that refuses a blank password sign-in when **Block sign-in with a blank password** is on. On Jellyfin 12.2, requests with a browser's `Accept-Encoding` got the first two compressed, but not the 401. All three now say "blank password", and a test checks every page, script and translation the plugin serves, and the blank password refusal, against rule 953101 (what users type, such as a passkey's name, can still contain anything). With the blocking paranoia level at 2 or higher, one such match is enough to block an answer. On nginx, ModSecurity could not swap those answers for its error page, because they were already being sent: the bundle and the page still arrived, and the 401 was cut off, so the sign-in page could not show why it failed. At paranoia level 2 or higher, rule 950100 matches every 5xx answer, such as Jellyfin's 503 page while it starts and the 502 or 504 the proxy returns while Jellyfin is down. It reports a real server error, so keep it.
+
 ---
 
 ## 🏗️ Architecture

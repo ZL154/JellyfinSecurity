@@ -110,6 +110,7 @@
   "tfa.error.unknown": "問題が発生しました。サーバーログを確認してください。",
   "tfa.error.unauthorized": "認証されていません。",
   "tfa.error.forbidden": "禁止されています。",
+  "tfa.error.proxy_replaced": "リバースプロキシまたはファイアウォールがサーバーの応答を置き換えました（HTTP {status}）。そのエラー応答の差し替え設定と、/TwoFactorAuth/ に対する WAF ルールを確認してください。",
   "tfa.admin.common.api_keys_note": "Sonarr/Radarrのようなサービス統合は標準のJellyfin APIキーを使用し、すでにユーザー認証をバイパスします — プラグイン設定は不要です。",
   "tfa.admin.common.loading": "読み込み中…",
   "tfa.admin.common.refresh": "更新",
