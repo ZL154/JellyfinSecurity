@@ -106,8 +106,10 @@ public class PasswordResetService
             _tokens[Hash(raw)] = new Entry { UserId = user.Id, ExpiresAt = DateTime.UtcNow.AddMinutes(TokenTtlMinutes) };
             PruneExpired();
 
-            var link = origin.TrimEnd('/') + "/TwoFactorAuth/PasswordReset?token=" + Uri.EscapeDataString(raw);
-            await _email.SendPasswordResetAsync(email!, user.Username, link, TokenTtlMinutes).ConfigureAwait(false);
+            // [#318] The email and the page it links to are in the account
+            // owner's language, whoever asked for the reset.
+            var language = await _email.ResolveRecipientLanguageAsync(user.Id).ConfigureAwait(false);
+            await _email.SendPasswordResetAsync(email!, user.Username, BuildResetLink(origin, raw, language), TokenTtlMinutes, language).ConfigureAwait(false);
             _logger.LogInformation("[2FA] Password-reset link emailed for {User}", user.Username);
         }
         catch (Exception ex)
@@ -115,6 +117,12 @@ public class PasswordResetService
             _logger.LogError(ex, "[2FA] Password-reset request failed");
         }
     }
+
+    /// <summary>[#318] The link in the reset email. <paramref name="language"/>
+    /// is a bundled language code, which the reset page reads from ?lang=.</summary>
+    internal static string BuildResetLink(string origin, string rawToken, string language)
+        => origin.TrimEnd('/') + "/TwoFactorAuth/PasswordReset?token=" + Uri.EscapeDataString(rawToken)
+            + "&lang=" + Uri.EscapeDataString(language);
 
     /// <summary>Validate a token without consuming it (the reset page GET uses
     /// this to decide whether to show the form or an "expired link" message).</summary>
