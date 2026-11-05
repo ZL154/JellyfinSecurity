@@ -744,6 +744,7 @@
   "tfa.admin.chart.heading_1w": "Anmelde-Aktivität (letzte Woche)",
   "tfa.setup.stepup.title": "Mit aktuellem Code bestaetigen",
   "tfa.setup.stepup.msg": "Geben Sie Ihren aktuellen TOTP- oder Wiederherstellungscode ein, um diese Aenderung vorzunehmen.",
+  "tfa.setup.stepup.msg_no_totp": "Bestätigen Sie mit einer der Optionen unten, dass Sie es sind, um diese Änderung vorzunehmen.",
   "tfa.setup.stepup.ok": "Weiter",
   "tfa.setup.stepup.totp_msg": "Geben Sie Ihren aktuellen TOTP- oder Wiederherstellungscode ein, um eine neue TOTP-Registrierung zu starten.",
   "tfa.setup.stepup.recovery_msg": "Geben Sie Ihren aktuellen TOTP- oder Wiederherstellungscode ein, um neu zu generieren.",
