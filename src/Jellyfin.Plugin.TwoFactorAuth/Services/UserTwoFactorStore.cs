@@ -268,6 +268,14 @@ public class UserTwoFactorStore : IDisposable
         // Use MutateAsync so cache + file stay consistent.
         await MutateAsync(userId, ud =>
         {
+            // A lockout that has run out starts a new count. Kept, the old count
+            // locked the account again on its very next failure.
+            if (ud.LockoutEnd is { } lockoutEnd && lockoutEnd <= DateTime.UtcNow)
+            {
+                ud.FailedAttemptCount = 0;
+                ud.LockoutEnd = null;
+            }
+
             ud.FailedAttemptCount++;
             if (exempt)
             {

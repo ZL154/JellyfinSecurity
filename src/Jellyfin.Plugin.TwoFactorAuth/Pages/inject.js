@@ -1400,8 +1400,13 @@
             addStyles();
             var btn = document.createElement('a');
             btn.id = BUTTON_ID;
-            btn.setAttribute('is', 'emby-linkbutton');
+            // A plain anchor, like the SSO buttons. With is="emby-linkbutton",
+            // jellyfin-web also sends the click to its hash router, which
+            // records /web/#/TwoFactorAuth/Login (a route it does not have) in
+            // the history. Add the classes that upgrade used to add instead.
             btn.className = (signInBtn.className || 'raised block').replace(/button-submit|button-cancel|emby-button/g, '').trim();
+            btn.classList.add('emby-button');
+            if (document.documentElement.classList.contains('layout-tv')) btn.classList.add('show-focus');
             btn.innerHTML = '<span class="tfa-icon">🔐</span><span data-i18n-key="tfa.login.btn_2fa">' + T('tfa.login.btn_2fa', 'Sign in with Two-Factor Authentication') + '</span>';
             btn.href = withLang(serverUrl('TwoFactorAuth/Login'));
             (function () {

@@ -744,6 +744,7 @@
   "tfa.admin.chart.heading_1w": "认证活动(过去1周)",
   "tfa.setup.stepup.title": "使用当前代码确认",
   "tfa.setup.stepup.msg": "输入您当前的TOTP或恢复代码以进行此更改。",
+  "tfa.setup.stepup.msg_no_totp": "请使用下方任一方式确认身份，以进行此更改。",
   "tfa.setup.stepup.ok": "继续",
   "tfa.setup.stepup.totp_msg": "输入您当前的TOTP或恢复代码以开始新的TOTP注册。",
   "tfa.setup.stepup.recovery_msg": "输入您当前的TOTP或恢复代码以重新生成。",

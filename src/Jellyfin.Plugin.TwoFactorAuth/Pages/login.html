@@ -131,7 +131,7 @@
 
         <p class="hint">
             <span data-i18n-key="tfa.login.hint_no_2fa">Don't have 2FA yet?</span> <a href="Setup" data-i18n-key="tfa.login.hint_setup_link">Set it up here</a><br>
-            <span data-i18n-key="tfa.login.hint_standard_prefix">Or use the</span> <a href="../web/index.html" data-i18n-key="tfa.login.hint_standard_link">standard login page</a>.
+            <span data-i18n-key="tfa.login.hint_standard_prefix">Or use the</span> <a id="standardLoginLink" href="../web/index.html#/login" data-i18n-key="tfa.login.hint_standard_link">standard login page</a>.
         </p>
     </div>
 
@@ -155,6 +155,35 @@
         } else {
             _initTfaLangPicker();
         }
+
+        // [#295] "Standard login page" must escape the redirect loop. A browser
+        // holding a token that RequestBlockerMiddleware blocks (e.g. issued
+        // while the plugin was disabled, then re-enabled) auto-signs-in with it
+        // on /web, gets a twoFactorRequired 403, and inject.js sends it right
+        // back here. So before leaving, drop the stored access token for this
+        // origin (login.html is same-origin as /web, so it shares
+        // localStorage['jellyfin_credentials']); /web then shows its own login
+        // screen — with the SSO button — instead of re-using the blocked token.
+        // We edit localStorage directly rather than call ApiClient.logout, so no
+        // RP-initiated logout fires and the user's IdP session is left intact.
+        (function () {
+            var link = document.getElementById('standardLoginLink');
+            if (!link) return;
+            link.addEventListener('click', function (e) {
+                e.preventDefault();
+                try {
+                    var creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}');
+                    if (creds && Array.isArray(creds.Servers)) {
+                        creds.Servers.forEach(function (s) {
+                            if (s) { s.AccessToken = ''; s.UserId = ''; }
+                        });
+                        localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
+                    }
+                } catch (err) { /* best effort — navigate regardless */ }
+                try { sessionStorage.removeItem('__tfa_pending'); } catch (err) {}
+                window.location.href = link.getAttribute('href') || '../web/index.html#/login';
+            });
+        })();
 
         // v2.5.0: small helper — translate with English fallback if the i18n
         // helper hasn't loaded yet (e.g. on slow first-paint or offline).
