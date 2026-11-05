@@ -1479,10 +1479,10 @@
     // v2.1: passkey primary login button — sits below the 2FA button. Click
     // takes the username from the form, asks the server for assertion options,
     // runs navigator.credentials.get, posts the signed assertion back, gets a
-    // bridge token, fills it in as the password and submits the form.
+    // bridge token and signs in with it (signInWithBridgeToken).
     // [#319] With the username field empty, the browser offers the passkeys it
     // holds for this site and the server names the account of the one picked,
-    // which is then filled in as the username.
+    // which is then signed in.
     function addPasskeyButton(signInBtn, twoFaBtn) {
         if (document.getElementById('__twofactor_passkey_btn')) return;
         // Only show when WebAuthn is available in a secure context.
@@ -1499,6 +1499,7 @@
             e.preventDefault();
             var u = findUsername();
             var orig = btn.innerHTML;
+            var verified = false;
             btn.innerHTML = '<span class="tfa-icon">🔑</span>Waiting for authenticator…';
             try {
                 var begin = await fetch(serverUrl('TwoFactorAuth/Passkey/LoginBegin'), {
@@ -1532,9 +1533,16 @@
                     throw new Error(err2.message || proxyError(complete) || 'Passkey verification failed');
                 }
                 var data = await complete.json();
-                // Stuff the bridge token into the password field and submit the
-                // standard Jellyfin form — TwoFactorAuthProvider sees the token
-                // prefix and accepts the login with no further challenge.
+                verified = true;
+                var signedIn = signInWithBridgeToken(signInBtn, data.username, data.token);
+                if (signedIn) {
+                    await signedIn;
+                    return;
+                }
+                console.warn('[2FA] Cannot sign in through the Jellyfin Web ApiClient on this page; submitting the login form with the passkey token instead.');
+                // Fallback: stuff the bridge token into the password field and
+                // submit the standard Jellyfin form. TwoFactorAuthProvider sees
+                // the token prefix and accepts the login with no further challenge.
                 var passInput = document.querySelector('input#txtManualPassword, input[name="password"], input#password');
                 if (!passInput) throw new Error('Password field not found');
                 if (!u) {
@@ -1549,15 +1557,73 @@
             } catch (err) {
                 btn.innerHTML = orig;
                 var detail = err && err.message ? err.message : err;
+                // Jellyfin answers 403 after accepting the token when the
+                // account may not sign in from here, which retrying cannot fix.
+                if (err && err.signInRefused) {
+                    alert(T('tfa.login.oidc_refused', 'Jellyfin refused this account here. An administrator can check it under Dashboard > Users: remote connections, a disabled account, allowed hours, allowed devices or the session limit. A reverse proxy in front of Jellyfin can also refuse the request.'));
+                    return;
+                }
                 // A passkey registered without discoverable storage is never
                 // offered here, so point to the username path that still works.
-                alert(u ? 'Passkey sign-in failed: ' + detail
+                alert(u || verified ? 'Passkey sign-in failed: ' + detail
                     : T('tfa.login.passkey_usernameless_failed', 'Passkey sign-in failed. If your passkey was not offered, type your username first and try again.') + '\n\n' + detail);
             }
         });
         var parent = twoFaBtn.parentNode;
         if (twoFaBtn.nextSibling) parent.insertBefore(btn, twoFaBtn.nextSibling);
         else parent.appendChild(btn);
+    }
+
+    // [#NEW_ISSUE] Sign in with a bridge token the way Jellyfin Web's login
+    // page does once its form has been read, and the way its Quick Connect
+    // button does: ApiClient.authenticateUserByName stores the session, then
+    // Dashboard switches to that client and opens the page the login route was
+    // asked to return to. The token never touches the password field: a
+    // password manager watching that field offered to save each single-use
+    // token as the account's new password. Returns null when this Jellyfin Web
+    // lacks what that needs, so the caller can submit the form instead.
+    function signInWithBridgeToken(signInBtn, username, token) {
+        var apiClient = window.ApiClient;
+        var dashboard = window.Dashboard;
+        if (!apiClient || typeof apiClient.authenticateUserByName !== 'function'
+            || !dashboard || typeof dashboard.onServerChanged !== 'function'
+            || typeof dashboard.navigate !== 'function') return null;
+        // Parsed like Jellyfin Web parses the login route's own parameters:
+        // when a key repeats, the last value wins.
+        var hash = window.location.hash || '';
+        var params = {};
+        new URLSearchParams(hash.indexOf('?') < 0 ? '' : hash.substring(hash.indexOf('?') + 1))
+            .forEach(function (value, key) { params[key] = value; });
+        // A route naming another server signs in through that server's client,
+        // which only Jellyfin Web can reach.
+        var serverId = params.serverid;
+        if (serverId && (typeof apiClient.serverId !== 'function' || apiClient.serverId() !== serverId)) return null;
+        var form = signInBtn.closest ? signInBtn.closest('form') : null;
+        var remember = form ? form.querySelector('.chkRememberLogin') : null;
+        // The form's submit handler saves "Remember me" here, and Jellyfin Web
+        // drops the stored session on its next start when it is off.
+        if (remember) {
+            try { localStorage.setItem('enableAutoLogin', String(!!remember.checked)); } catch (e) { /* storage blocked */ }
+        }
+        var target = '/home';
+        if (params.url) {
+            try { target = decodeURIComponent(params.url); } catch (e) { /* keep /home, as Jellyfin Web does */ }
+        }
+        if (typeof dashboard.showLoadingMsg === 'function') dashboard.showLoadingMsg();
+        function hideLoading() {
+            if (typeof dashboard.hideLoadingMsg === 'function') dashboard.hideLoadingMsg();
+        }
+        return apiClient.authenticateUserByName(username, token).then(function (result) {
+            hideLoading();
+            dashboard.onServerChanged(result.User.Id, result.AccessToken, apiClient);
+            dashboard.navigate(target);
+        }, function (response) {
+            hideLoading();
+            var status = response && response.status;
+            var err = new Error(status ? 'HTTP ' + status : 'Sign-in request failed');
+            err.signInRefused = status === 403;
+            throw err;
+        });
     }
 
     // Base64url ⇔ ArrayBuffer — same helpers as challenge.html.
