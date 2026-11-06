@@ -210,11 +210,14 @@ public class TwoFactorAuthController : ControllerBase
     ///   * Forced → always enforce when user has existing 2FA.
     /// Users with no existing 2FA are exempt under every mode — first-time
     /// enrollment has no prior factor to step up from.
+    /// Reducing sign-in protection sets requireProof to enforce fresh proof
+    /// regardless of mode or the current factor inventory.
     /// Returns null when allowed, or a 403 ActionResult to short-circuit.</summary>
-    private async Task<ActionResult?> EnforceSelfServiceStepUpAsync(Guid userId, string? code, string? stepUpToken = null)
+    private async Task<ActionResult?> EnforceSelfServiceStepUpAsync(Guid userId, string? code, string? stepUpToken = null, bool requireProof = false)
     {
         var config = Plugin.Instance?.Configuration;
-        if (config is null) return null;
+        if (config is null && !requireProof) return null;
+        config ??= new Configuration.PluginConfiguration();
 
         var userData = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
         // SECURITY [v2.5.9]: "existing 2FA" must count EVERY factor that
@@ -225,7 +228,7 @@ public class TwoFactorAuthController : ControllerBase
         // (SSO/OIDC links and email OTP included) lives in
         // SelfServiceFactors.HasAny [#248], which app password creation
         // shares.
-        if (!SelfServiceFactors.HasAny(userData, config)) return null;
+        if (!requireProof && !SelfServiceFactors.HasAny(userData, config)) return null;
 
         var modeRequiresStepUp = config.SelfServiceStepUpMode switch
         {
@@ -234,7 +237,7 @@ public class TwoFactorAuthController : ControllerBase
             Configuration.SelfServiceStepUpMode.Forced => true,
             _ => true,
         };
-        if (!modeRequiresStepUp) return null;
+        if (!requireProof && !modeRequiresStepUp) return null;
 
         // [v2.5.6] (round-5c): single-use step-up token path. The UI calls
         // /StepUp/UserCodeVerify or /StepUp/UserPasskeyVerify to exchange a
@@ -705,6 +708,8 @@ public class TwoFactorAuthController : ControllerBase
             var hasPasskey = userData.Passkeys.Count > 0;
             var isAdmin = user.HasPermission(PermissionKind.IsAdministrator);
             var config = Plugin.Instance?.Configuration;
+            var needsChallenge = SignInChallengePolicy.RequiresChallenge(
+                userData, config ?? new Configuration.PluginConfiguration(), isAdmin);
             var deviceId = HttpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
                 ?? Guid.NewGuid().ToString("N");
             var deviceName = HttpContext.Request.Headers["X-Emby-Device-Name"].FirstOrDefault()
@@ -731,15 +736,9 @@ public class TwoFactorAuthController : ControllerBase
             var trustedByCookie = _challengeStore.IsDevicePreVerified(user.Id, deviceId);
             var trustedDeviceBypass = trustedByToken || trustedByCookie;
 
-            // SECURITY [v2.5.6]: passkey-only users (passkey enrolled, no
-            // TOTP) cannot sign in via this endpoint with just a password.
-            // The endpoint only verifies TOTP / recovery / email-OTP as the
-            // second factor; passkey assertions go through
-            // /TwoFactorAuth/Passkey/LoginBegin + /LoginComplete. Without
-            // this guard, a passkey-only account was bypassable with just a
-            // password — the prior `requiresPostPasswordChallenge` formula
-            // treated "no TOTP" as "no 2FA" and skipped the challenge.
-            if (!trustedDeviceBypass && !totpEnabled && hasPasskey)
+            // This endpoint accepts codes; a required passkey assertion uses
+            // the dedicated passkey flow. Enrollment alone need not require it.
+            if (needsChallenge && !trustedDeviceBypass && !totpEnabled && hasPasskey)
             {
                 _ipBans.RecordFailure(clientIp);
                 return Unauthorized(new
@@ -748,15 +747,7 @@ public class TwoFactorAuthController : ControllerBase
                 });
             }
 
-            // SECURITY [v2.5.6]: use the modern `ShouldEnforceFor(isAdmin)`
-            // helper which honours both the legacy `RequireForAllUsers`
-            // (true ⇒ All) AND the v2.4+ `EnforcementScope` (Admins / All).
-            // Prior code only checked the legacy flag, leaving a bypass for
-            // installations that opted into the per-role policy with the
-            // legacy flag unset.
-            var requiresPostPasswordChallenge = !trustedDeviceBypass
-                && !totpEnabled
-                && (config?.ShouldEnforceFor(isAdmin) == true);
+            var requiresPostPasswordChallenge = needsChallenge && !trustedDeviceBypass && !totpEnabled;
 
             var codeConsumedRecoveryIndex = -1;
 
@@ -2425,6 +2416,8 @@ public class TwoFactorAuthController : ControllerBase
         var jellyfinUser = _userManager.GetUserById(userId);
         var isLockedOut = await _store.IsLockedOutAsync(userId).ConfigureAwait(false);
         var cfg = Plugin.Instance?.Configuration;
+        var signInReason = SignInChallengePolicy.GetReason(data, cfg ?? new Configuration.PluginConfiguration(),
+            jellyfinUser is null || jellyfinUser.HasPermission(PermissionKind.IsAdministrator));
         return Ok(new UserTwoFactorStatus
         {
             UserId = userId,
@@ -2435,6 +2428,9 @@ public class TwoFactorAuthController : ControllerBase
             RecoveryCodesRemaining = data.RecoveryCodes.Count(c => !c.Used),
             IsLockedOut = isLockedOut,
             PasskeyCount = data.Passkeys.Count,
+            PasskeyRequiresSecondFactor = data.PasskeyRequiresSecondFactor,
+            PasswordSignInRequiresSecondFactor = signInReason != "none",
+            PasswordSignInSecondFactorReason = signInReason,
             // [v2.5.6] (round-5 fix D): surface the admin's mode + per-user
             // opt-in so the Setup page can render the toggle and decide
             // whether to prompt for the current code on each mutation.
@@ -2468,6 +2464,7 @@ public class TwoFactorAuthController : ControllerBase
         var jellyfinUsers = EnumerateAllUsers().ToList();
         var result = new List<UserTwoFactorStatus>(jellyfinUsers.Count);
 
+        var cfg = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
         foreach (var ju in jellyfinUsers)
         {
             if (ju.Id == Guid.Empty) continue;
@@ -2499,6 +2496,7 @@ public class TwoFactorAuthController : ControllerBase
                 isLockedOut = false;
             }
 
+            var signInReason = SignInChallengePolicy.GetReason(data, cfg, ju.HasPermission(PermissionKind.IsAdministrator));
             result.Add(new UserTwoFactorStatus
             {
                 UserId = ju.Id,
@@ -2509,6 +2507,9 @@ public class TwoFactorAuthController : ControllerBase
                 RecoveryCodesRemaining = data.RecoveryCodes.Count(c => !c.Used),
                 IsLockedOut = isLockedOut,
                 PasskeyCount = data.Passkeys.Count,
+                PasskeyRequiresSecondFactor = data.PasskeyRequiresSecondFactor,
+                PasswordSignInRequiresSecondFactor = signInReason != "none",
+                PasswordSignInSecondFactorReason = signInReason,
             });
         }
 
@@ -2749,6 +2750,57 @@ public class TwoFactorAuthController : ControllerBase
         public string? Code { get; set; }
         // [v2.5.6] (round-5c): step-up token alternative — see StepUpCodeRequest.
         public string? StepUpToken { get; set; }
+    }
+
+    /// <summary>Changes only the caller's passkey challenge preference. Reducing
+    /// sign-in protection always needs fresh proof, independent of step-up mode.</summary>
+    [HttpPost("MyPasskeySecondFactorPreference")]
+    [Authorize]
+    public async Task<ActionResult<UserTwoFactorStatus>> SetMyPasskeySecondFactorPreference(
+        [FromBody, Required] PasskeySecondFactorRequest req)
+    {
+        var userId = GetCurrentUserId();
+        if (_userManager.GetUserById(userId) is null) return Unauthorized();
+        if (req.Enabled is not bool enabled)
+            return BadRequest(new { message = "Specify whether the second factor is required." });
+
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (data.Passkeys.Count == 0)
+            return BadRequest(new { message = "Register a passkey before changing this preference." });
+
+        if (!enabled)
+        {
+            var stepUp = await EnforceSelfServiceStepUpAsync(userId, req.Code, req.StepUpToken, requireProof: true).ConfigureAwait(false);
+            if (stepUp is not null) return stepUp;
+        }
+
+        var hasPasskey = false;
+        var changed = false;
+        await _store.MutateAsync(userId, current =>
+        {
+            // A concurrent removal must not turn this into a write for a user
+            // without a passkey. Preserve every other setting under the lock.
+            hasPasskey = current.Passkeys.Count > 0;
+            if (hasPasskey && current.PasskeyRequiresSecondFactor != enabled)
+            {
+                current.PasskeyRequiresSecondFactor = enabled;
+                changed = true;
+            }
+        }).ConfigureAwait(false);
+        if (!hasPasskey)
+            return BadRequest(new { message = "Register a passkey before changing this preference." });
+
+        if (changed)
+        {
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = userId,
+                Result = AuditResult.ConfigChanged,
+                Method = enabled ? "passkey_second_factor_on" : "passkey_second_factor_off",
+            }).ConfigureAwait(false);
+        }
+        return await GetMyStatus().ConfigureAwait(false);
     }
 
     [HttpPost("MyStepUpPreference")]
@@ -4445,6 +4497,7 @@ public class TwoFactorAuthController : ControllerBase
         var user = _userManager.GetUserById(userId);
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
 
+        var rearmed = false;
         // Wipe persisted bypass routes so no stale device sneaks back in.
         await _store.MutateAsync(userId, ud =>
         {
@@ -4452,10 +4505,27 @@ public class TwoFactorAuthController : ControllerBase
             ud.PairedDevices.Clear();
             ud.RegisteredDeviceIds.Clear();
             ud.ForceRecoveryOnNextLogin = true;
+            // Emergency recovery must still challenge an opted-out passkey user.
+            if (ud.Passkeys.Count > 0 && !ud.PasskeyRequiresSecondFactor)
+            {
+                ud.PasskeyRequiresSecondFactor = true;
+                rearmed = true;
+            }
             // The new secret of an unfinished rotation may sit on the lost
             // phone; it must not be confirmable after the lockout.
             TotpRotation.Clear(ud);
         }).ConfigureAwait(false);
+
+        if (rearmed)
+        {
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = userId,
+                Result = AuditResult.ConfigChanged,
+                Method = "passkey_second_factor_on",
+            }).ConfigureAwait(false);
+        }
 
         var killed = await _sessionTerm.LogoutAllForUserAsync(userId).ConfigureAwait(false);
 

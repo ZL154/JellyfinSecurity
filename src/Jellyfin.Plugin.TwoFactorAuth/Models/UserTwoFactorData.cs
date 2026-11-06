@@ -67,6 +67,11 @@ public class UserTwoFactorData
     /// a public-key credential whose CredentialId is presented during sign-in.</summary>
     public List<PasskeyCredential> Passkeys { get; set; } = new();
 
+    /// <summary>Whether passkey enrollment also requires a second factor after
+    /// local sign-in. Scope enforcement and verified TOTP take precedence.
+    /// Defaults to true so existing records retain their protection.</summary>
+    public bool PasskeyRequiresSecondFactor { get; set; } = true;
+
     /// <summary>Set by emergency self-service lockout. While true, the user's next
     /// sign-in must consume a recovery code or email OTP — TOTP and passkey are
     /// stripped from the available methods list. Cleared on successful recovery.</summary>

@@ -396,12 +396,10 @@ public class TwoFactorEnforcementMiddleware
             // satisfy. Rescues any pre-existing half-enrolled rows from
             // v2.4.0 too: they now pass through to no-2FA if policy allows.
             var isAdmin = authResult.User.Policy?.IsAdministrator ?? false;
-            var hasRealTwoFactor = (userData.TotpEnabled && userData.TotpVerified)
-                || userData.Passkeys.Count > 0;
-            if (!hasRealTwoFactor && !config.ShouldEnforceFor(isAdmin))
+            if (!SignInChallengePolicy.RequiresChallenge(userData, config, isAdmin))
             {
                 _logger.LogDebug(
-                    "[2FA] User {Name} has no 2FA and policy scope ({Scope}) does not require it — passing through",
+                    "[2FA] User {Name} does not require a sign-in challenge under scope ({Scope}), passing through",
                     authResult.User.Name, config.EnforcementScope);
                 _ipBans.RecordSuccess(remoteIp ?? string.Empty);
                 await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);

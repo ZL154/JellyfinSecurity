@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Jellyfin.Plugin.TwoFactorAuth.Models;
 
 /// <summary>v2.5.0: payload for the admin Settings → Localization picker
@@ -189,4 +191,15 @@ public class ImportConfigRequest
 public class UpdatePreferencesRequest
 {
     public string? Language { get; set; }
+}
+
+/// <summary>Caller-owned preference with fresh proof required when disabling.</summary>
+public class PasskeySecondFactorRequest
+{
+    [Required]
+    public bool? Enabled { get; set; }
+
+    public string? Code { get; set; }
+
+    public string? StepUpToken { get; set; }
 }

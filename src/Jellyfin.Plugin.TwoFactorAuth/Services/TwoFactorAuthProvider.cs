@@ -487,9 +487,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         var providerUserEntity = UserManager.GetUserById(jellyfinUser.Id);
         var providerIsAdmin = providerUserEntity is not null
             && providerUserEntity.HasPermission(PermissionKind.IsAdministrator);
-        bool hasRealTwoFactor = (userData.TotpEnabled && userData.TotpVerified)
-            || userData.Passkeys.Count > 0;
-        bool userNeeds2Fa = hasRealTwoFactor || config.ShouldEnforceFor(providerIsAdmin);
+        bool userNeeds2Fa = SignInChallengePolicy.RequiresChallenge(userData, config, providerIsAdmin);
 
         if (!userNeeds2Fa)
         {

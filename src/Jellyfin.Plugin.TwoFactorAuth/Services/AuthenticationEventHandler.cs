@@ -212,43 +212,16 @@ public class AuthenticationEventHandler : IHostedService
         _logger.LogDebug("[2FA] User {Name} TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
             info.UserName, userData.TotpEnabled, userData.TotpVerified, config.RequireForAllUsers);
 
-        // SECURITY [v2.5.6]: align fail-safe gate with the modern policy.
-        // Prior version only checked TotpEnabled + the legacy
-        // RequireForAllUsers flag, ignoring (a) passkey enrolment and (b)
-        // the v2.4+ EnforcementScope (Admins / All). A passkey-only user
-        // signing in via Jellyfin's native /Users/AuthenticateByName would
-        // hit this handler with TotpEnabled=false and (under modern
-        // EnforcementScope.All but legacy flag false) get an early-return,
-        // bypassing 2FA on the SessionStarted fail-safe.
-        //
-        // [v2.5.12] (#81, cpb34): resolve whether THIS user is actually required
-        // to do 2FA, honouring admin status. Earlier this couldn't check isAdmin,
-        // so under EnforcementScope.Admins it conservatively did NOT early-return
-        // for non-admins either — their session then fell through to the block
-        // path and hung ("Server Unavailable") even though Admins-only 2FA
-        // shouldn't touch them. Now we look up admin status (IUserManager) and
-        // exempt non-admins under Admins scope. FAIL SAFE: if the user can't be
-        // resolved, treat as required so a real admin can never be exempted.
-        var hasPasskey = userData.Passkeys.Count > 0;
-        var has2fa = userData.TotpEnabled || hasPasskey;
-        bool requiredByScope;
-        if (config.RequireForAllUsers || config.EnforcementScope == Configuration.EnforcementScope.All)
-        {
-            requiredByScope = true;
-        }
-        else if (config.EnforcementScope == Configuration.EnforcementScope.Admins)
+        // Resolve the role only when scope needs it. An unresolved user remains
+        // subject to Admins enforcement, preserving the session fail-safe.
+        var isAdmin = false;
+        if (!config.RequireForAllUsers && config.EnforcementScope == Configuration.EnforcementScope.Admins)
         {
             var u = _userManager.GetUserById(info.UserId);
-            requiredByScope = u is null || u.HasPermission(PermissionKind.IsAdministrator);
+            isAdmin = u is null || u.HasPermission(PermissionKind.IsAdministrator);
         }
-        else
+        if (!SignInChallengePolicy.RequiresChallenge(userData, config, isAdmin))
         {
-            requiredByScope = false; // Optional
-        }
-        if (!has2fa && !requiredByScope)
-        {
-            // No enrolled factor AND not required by policy for this user → 2FA
-            // doesn't apply; let the session proceed untouched.
             return;
         }
 

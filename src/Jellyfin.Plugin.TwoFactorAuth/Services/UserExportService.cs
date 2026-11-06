@@ -1,6 +1,8 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Library;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -78,6 +80,9 @@ public class UserExportService
         var auditForUser = audit.Where(e => e.UserId == userId).ToList();
         var email = Plugin.Instance?.Configuration?.GetUserEmail(userId.ToString("N"));
 
+        var signInReason = SignInChallengePolicy.GetReason(data,
+            Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration(),
+            user is null || user.HasPermission(PermissionKind.IsAdministrator));
         return new
         {
             schemaVersion = 1,
@@ -89,6 +94,9 @@ public class UserExportService
             {
                 totpEnabled = data.TotpEnabled,
                 totpVerified = data.TotpVerified,
+                passkeyRequiresSecondFactor = data.PasskeyRequiresSecondFactor,
+                passwordSignInRequiresSecondFactor = signInReason != "none",
+                passwordSignInSecondFactorReason = signInReason,
                 emailOtpPreferred = data.EmailOtpPreferred,
                 recoveryCodes = new
                 {

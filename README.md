@@ -375,6 +375,24 @@ New registrations request **ES256**, the WebAuthn-required portable algorithm. T
 - "No passkey provider available" → Settings → Passwords & accounts → Passwords → enable Google Password Manager, or set Bitwarden / 1Password as your default credential provider.
 - Samsung Internet sometimes hides the passkey button — use **Chrome** instead.
 
+#### How a passkey interacts with password sign-in
+
+A passkey signs in without a password through **🔑 Sign in with passkey** on the login page. Registering one also changes password sign-in: by default, once an account has a passkey, signing in with the username and password asks for a second factor, as it does for an account with a verified authenticator app. An email address or a linked SSO provider alone does not do that (#339).
+
+Each user can change this on the Setup page. While the account has a passkey, the **Passkeys** card shows **Ask for a second factor after password sign-in**:
+
+- **On** (the default, which every existing account keeps after updating): password sign-in asks for a second factor, and the passkey can answer it.
+- **Off**: the passkey is only for **Sign in with passkey**, and anyone who has the password can sign in with the password alone. Turning it off asks the user to confirm with the passkey or another factor first, even when **Hardened security for users (factor changes)** is Off. Turning it back on asks for nothing.
+
+Two things take precedence, and while either applies the card shows the switch disabled with the reason:
+
+- the **2FA enforcement scope**: an account it covers (every account with **All users**, administrators with **Admins only**) always gets a second factor after password sign-in;
+- a verified **authenticator app** on the account keeps password sign-in asking for a second factor.
+
+The **Emergency lockout** on the **I lost my phone** card turns the switch back on, so the next password sign-in asks for a second factor again.
+
+For sign-in through an SSO provider, that provider's **Skip plugin 2FA** option (on by default, see [Per-provider options](#per-provider-options)) keeps the plugin from asking for its own second factor after the provider's sign-in.
+
 #### Using a passkey to sign in
 
 **Instead of the password.** On the Jellyfin login page, click **🔑 Sign in with passkey**:
