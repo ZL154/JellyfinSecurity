@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Type-Plugin-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/System-Security%20Suite-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
   <!-- Static version badge — bump on each release. Switched from img.shields.io/github/v/release because that endpoint periodically returns 'unable to select next GitHub token from pool'. -->
-  <img src="https://img.shields.io/badge/Version-v2.6.5-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
+  <img src="https://img.shields.io/badge/Version-v2.7.0-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc" />
   <img src="https://img.shields.io/badge/License-MIT-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b" />
 </p>
 
@@ -24,7 +24,7 @@
   <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/ci.yml?branch=main&style=for-the-badge&labelColor=000000&label=CI&logo=github&logoColor=white" alt="CI" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZL154/JellyfinSecurity/codeql.yml?branch=main&style=for-the-badge&labelColor=000000&label=CodeQL&logo=github&logoColor=white" alt="CodeQL" /></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity"><img src="https://img.shields.io/ossf-scorecard/github.com/ZL154/JellyfinSecurity?style=for-the-badge&labelColor=000000&label=OSSF%20Score&color=00a4dc" alt="OpenSSF Scorecard" /></a>
-  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-597%20passing-00a4dc?style=for-the-badge&labelColor=000000&logo=xunit&logoColor=white" alt="Tests" /></a>
+  <a href="https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-1211%20passing-00a4dc?style=for-the-badge&labelColor=000000&logo=xunit&logoColor=white" alt="Tests" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/blob/main/SECURITY.md"><img src="https://img.shields.io/badge/Security-Policy-0b0b0b?style=for-the-badge&labelColor=000000&color=2b2b2b&logo=gitbook&logoColor=white" alt="Security policy" /></a>
   <a href="https://github.com/ZL154/JellyfinSecurity/wiki"><img src="https://img.shields.io/badge/Docs-Wiki-00a4dc?style=for-the-badge&labelColor=000000&color=00a4dc&logo=gitbook&logoColor=white" alt="Wiki" /></a>
 </p>
@@ -51,7 +51,7 @@ Comprehensive authentication and hardening for Jellyfin: TOTP, passkeys, email O
 You don't have to take my word for it. Every signal below is automated and
 visible to anyone, including you:
 
-- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (787 tests covering crypto, parsers, authentication flows, translations, and middleware). Green = tests pass.
+- **[CI badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — every push and PR builds and runs the full xUnit test suite (1211 tests covering crypto, parsers, authentication flows, translations, and middleware). Green = tests pass.
 - **[CodeQL badge](https://github.com/ZL154/JellyfinSecurity/actions/workflows/codeql.yml)** — GitHub's static security scanner runs the `security-extended` + `security-and-quality` C# query packs on every push, PR, and weekly. Green = no security findings.
 - **[OpenSSF Scorecard](https://securityscorecards.dev/viewer/?uri=github.com/ZL154/JellyfinSecurity)** — the Linux Foundation's automated security-posture rating (0–10). Scores branch protection, CodeQL, dependency updates, pinned actions, signed releases, security policy, token permissions, and more. Click the badge to see the per-check breakdown.
 - **[Test suite](https://github.com/ZL154/JellyfinSecurity/actions/workflows/ci.yml)** — 597 xUnit tests covering the security-critical code paths (cookie HMAC, TOTP replay protection, recovery-code PBKDF2, CIDR parser, X-Forwarded-For trust-walk, refuse-LAN-bypass-when-XFF-missing guard, device-token binding, AES-GCM v2 AAD, HIBP k-anonymity hashing, atomic challenge consumption, OIDC redirect_uri proxy-header resolution, OIDC userinfo claim merge, SMTP port 465 socket-option mapping, step-up code verification, step-up action classification, ChallengeStore step-up tokens). Runs on every PR + push.
@@ -66,21 +66,24 @@ visible trust signals is treated as a high-priority bug.
 
 ---
 
-## 🆕 What's new in v2.6.5
+## 🆕 What's new in v2.7.0
 
-**Signing in on TVs and streaming boxes, and codes that reach you when email is down.** For clients that can't show the 2FA challenge, a single-use device code generated from your phone and delivered to email and Telegram; your own Telegram chat as a code channel; an OIDC avatar fix; and a failed-login alert. In-place upgrade from any 2.5.x or 2.6.x, no schema migration or config reset.
+**Sign-in for the clients and proxies that can't show a challenge, usernameless passkeys, and a batch of login/lockout/passkey fixes.** A large release built mostly from contributor pull requests by @camarigor, with fixes from @cterence and @Samalbert977. Every new sign-in feature is opt-in and off by default. In-place upgrade from any 2.5.x or 2.6.x, no schema migration or config reset.
 
-**v2.6.5**
+**v2.7.0**
 
-- **📺 One-time device codes** *(#270, p1zzm1ssile; #216, Heldenkrieger01)* — a Fire TV, a TV app that can't render the challenge, or a client with no Quick Connect can be signed in with a single-use code you generate from your phone. It's shown on the setup page and sent to your email and linked Telegram, works once, and expires in 30 minutes.
-- **💬 Sign-in codes over Telegram** *(#285, p1zzm1ssile)* — link your own Telegram chat (never a shared admin chat) and get login and step-up codes there as well as by email, so a dead mail provider doesn't lock you out.
-- **🖼️ OIDC avatars refresh at an unchanged URL** *(#286, cydy; follows #66)* — providers like Pocket ID serve an updated picture at the same URL; sync now revalidates by ETag/content hash and recovers a missing local avatar.
-- **📣 Admin alert on a failed sign-in** *(#272, p1zzm1ssile)* — a wrong code notifies your channels (email, Telegram, ntfy, webhook) with the running attempt count. Plus a one-off welcome email when an MFA email is set (#271), which also catches a mistyped address.
-- **🔑 Optionally refuse app passwords for more clients** *(#244, AmperageOverspend)* — the web interface is always refused; an admin can now also list first-party apps that can show the challenge. Default unchanged.
-- **🧹 Fixed the second-screen-pairing toggle overlapping the admin Settings rows.**
-- **787 passing tests, 911 translation keys in 8 languages.** Sigstore-signed and SLSA build-provenance attested.
+- **➡️ Straight to your SSO provider** *(#297, camarigor; opt-in)* — an SSO-only server can open the provider's sign-in without a click, with loop guards and an `?oidcAuto=0` escape.
+- **🏠 Sign in through a trusted reverse proxy** *(#298, camarigor; opt-in, off by default)* — header sign-in for NetBird / Authelia / oauth2-proxy, believed only from a trusted-proxy CIDR checked against the raw peer, same-origin `Sec-Fetch-Site`, a single clean header, a rate limit, and an admin refusal unless allowed.
+- **🔢 Code after the password, or sent to the app** *(#312 / #313, camarigor; opt-in)* — an app that can't show the challenge signs in with the password followed by the 6-digit code (`MyPassword123456`), or the challenge emails/Telegrams an 8-digit code to re-enter.
+- **🔑 Usernameless passkey sign-in** *(#319, camarigor)* — leave the username empty and pick a passkey; the server names the account. The bridge token no longer lands in the password field (#332), and a passkey registered only for passwordless sign-in no longer forces a 2FA challenge after a password (#339, on by default).
+- **🛡️ Step-up to change where codes go** *(#305, camarigor)* — the Email / Telegram link/unlink endpoints are gated like other factor changes, closing a gap where a hijacked session could redirect your one-time codes.
+- **🧹 Login/lockout correctness** — a 2FA challenge no longer counts as a failed sign-in and an expired lockout self-clears (#329); a password change clears the plugin's temporary lockout; approved Quick Connect tokens are no longer blocked (#304); the standard-login redirect loop is fixed (#295, Samalbert977); `PW` is accepted as the password field for go-jellyfin clients (#316, cterence).
+- **🔒 OIDC auto-created users never inherit a disabled state** *(#243)* — the template-policy copy no longer carries `IsDisabled`.
+- **🌍 Localized reset and sign-in-code emails** *(#318, camarigor)*, and the settings page loads behind nginx's `sync-xhr=()` example (#309).
+- **📦 Fido2 4.3.1, QRCoder 1.8.1, MailKit 4.18.2, Pkcs 10.0.14** *(#301)*; Jellyfin runtime refs stay pinned.
+- **1211 passing tests, 911 translation keys in 8 languages.** Sigstore-signed and SLSA build-provenance attested.
 
-> Earlier highlights (app passwords for SSO/passkey #248, admin alerts #259, SSO-only setup page #247, dependency pins lifted #262) are in the [Changelog](#-changelog) below.
+> Earlier highlights (one-time device codes #270, Telegram codes #285, OIDC avatar refresh #286, failed-login alerts #272) are in the [Changelog](#-changelog) below.
 
 > Full version history is in the [Changelog](#-changelog) below and on [GitHub Releases](https://github.com/ZL154/JellyfinSecurity/releases).
 
@@ -1240,6 +1243,19 @@ POST   /TwoFactorAuth/Sessions/{id}/Revoke               — revoke an active se
 ---
 
 ## 📝 Changelog
+
+### 2.7.0
+
+- Added opt-in auto-redirect to a single configured OIDC provider for SSO-only servers, with loop guards and an `?oidcAuto=0` escape (#297).
+- Added opt-in header sign-in through a trusted reverse proxy (NetBird, Authelia, oauth2-proxy), gated on a trusted-proxy CIDR checked against the raw peer, a same-origin `Sec-Fetch-Site`, a single clean header value, a rate limit, and an admin refusal unless allowed; off by default (#298).
+- Added opt-in sign-in for clients that can't show the challenge: the authenticator code typed immediately after the password (#312), and an 8-digit code emailed/Telegrammed and re-entered with the password or alone (#313).
+- Added usernameless passkey sign-in (#319), kept the bridge token out of the password field (#332), and made a passwordless-only passkey not force a 2FA challenge after a password sign-in (on by default, #339); a passkey challenge now clears failure state and honours Trust-this-device, and a new passkey appears in the step-up prompt without a reload (#327).
+- Required step-up to change where one-time codes are delivered — the Email and Telegram link/unlink endpoints (#305).
+- Stopped counting a 2FA challenge as a failed sign-in and made an expired lockout self-clear (#329); cleared the plugin's temporary lockout after a password change; stopped blocking Quick Connect tokens the plugin already approved (#304); stopped counting a step-up proof request as a failed attempt.
+- Fixed the standard-login-page redirect loop so a blocked browser can reach Jellyfin's own login again (#295, Samalbert977), and accepted `PW` as the password field for go-jellyfin clients such as Supersonic (#316, cterence).
+- Stopped OIDC auto-created users from inheriting a disabled state from the template user (#243).
+- Localized the reset and sign-in-code emails and the reset page (#318), and made the settings page load behind nginx's `sync-xhr=()` example (#309); a proxy/WAF that replaces the plugin's answer is now named in the error (#320).
+- Bumped Fido2 to 4.3.1, QRCoder 1.8.1, MailKit 4.18.2, and System.Security.Cryptography.Pkcs 10.0.14, with analyzer and CI action bumps; Jellyfin runtime references stay pinned (#301).
 
 ### 2.6.5
 
