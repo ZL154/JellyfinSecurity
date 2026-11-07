@@ -129,17 +129,29 @@
                 var stepUpEmailBtn = document.getElementById('tfa-stepup-email');
                 var _stepUpFactorsPromise = null;
 
-                // Read once: passkeys from MyStatus, email OTP from the plugin
-                // configuration. A failed read only hides the buttons.
+                // Read once: the saved passkeys from MyStatus, and from the plugin
+                // configuration whether email codes and passkeys are allowed. A
+                // failed read hides the email button. [#345] A saved passkey is
+                // offered only while the server allows passkeys: a configuration
+                // without the field allows them, and a failed configuration read
+                // leaves it to the saved count, since the server refuses a
+                // passkey while they are off anyway. A Settings save that
+                // succeeds drops this cache, so the next prompt reads again.
                 function loadStepUpFactors() {
                     if (_stepUpFactorsPromise) return _stepUpFactorsPromise;
                     var passkeys = apiGet('TwoFactorAuth/MyStatus')
                         .then(function(s) { return (s && (s.passkeyCount || s.PasskeyCount)) || 0; })
                         .catch(function() { return 0; });
-                    var email = (window.ApiClient && typeof ApiClient.getPluginConfiguration === 'function')
-                        ? ApiClient.getPluginConfiguration(pluginId).then(function(c) { return !!(c && c.EmailOtpEnabled); }).catch(function() { return false; })
-                        : Promise.resolve(false);
-                    _stepUpFactorsPromise = Promise.all([passkeys, email]).then(function(r) { return { passkeys: r[0], email: r[1] }; });
+                    var config = (window.ApiClient && typeof ApiClient.getPluginConfiguration === 'function')
+                        ? ApiClient.getPluginConfiguration(pluginId).catch(function() { return null; })
+                        : Promise.resolve(null);
+                    _stepUpFactorsPromise = Promise.all([passkeys, config]).then(function(r) {
+                        var c = r[1];
+                        return {
+                            passkey: r[0] > 0 && !(c && c.PasskeysEnabled === false),
+                            email: !!(c && c.EmailOtpEnabled),
+                        };
+                    });
                     return _stepUpFactorsPromise;
                 }
 
@@ -154,7 +166,7 @@
                         stepUpEmailBtn.disabled = false;
                         stepUpEmailBtn.textContent = _tr('tfa.admin.modal.send_email', 'Send code by email');
                         loadStepUpFactors().then(function(f) {
-                            stepUpPasskeyBtn.style.display = f.passkeys > 0 ? '' : 'none';
+                            stepUpPasskeyBtn.style.display = f.passkey ? '' : 'none';
                             stepUpEmailBtn.style.display = f.email ? '' : 'none';
                         });
                         stepUpOverlay.classList.add('active');
@@ -1221,6 +1233,26 @@
                         body: JSON.stringify(c),
                     });
                 }
+                // [#345] A save that would turn passkeys off while some users have
+                // no other way to verify their sign-in is refused with 409 and
+                // those users. The page names them in the admin's language, as
+                // text, never as markup; a 409 without them shows the server's
+                // message. Resolves with '' for any other answer, which keeps the
+                // usual status line.
+                function refusedSaveText(r) {
+                    if (r.status !== 409 || proxyError(r)) return Promise.resolve('');
+                    return r.json().catch(function() { return null; }).then(function(body) {
+                        var names = ((body && Array.isArray(body.users)) ? body.users : [])
+                            .map(function(u) { return u && u.name ? String(u.name) : ''; })
+                            .filter(Boolean)
+                            .join(', ');
+                        if (names) {
+                            return _tr('tfa.admin.settings.passkeys_off_refused', 'Nothing was saved. These users have no other way to verify their sign-in: {users}. Have them add an authenticator app while passkeys still work, or use "Reset 2FA (full wipe)" in the Users tab.')
+                                .split('{users}').join(names);
+                        }
+                        return (body && body.message) ? String(body.message) : '';
+                    });
+                }
                 // v1.4: notification test — auto-save the form first because users
                 // get confused when the test button uses last-saved settings
                 // instead of what they just typed in.
@@ -1312,6 +1344,10 @@
                         page.querySelector('#cfgEnforceScope').value = scope;
                         page.querySelector('#cfgHibpEnabled').checked = !!c.HibpEnabled;
                         page.querySelector('#cfgEmailOtp').checked = !!c.EmailOtpEnabled;
+                        // [#345] Defensive lookup, as for #cfgPairSecondScreen. A
+                        // configuration without the field allows passkeys.
+                        var passkeysEl = page.querySelector('#cfgPasskeysEnabled');
+                        if (passkeysEl) passkeysEl.checked = c.PasskeysEnabled !== false;
                         // [#313] Defensive lookups, as for #cfgPairSecondScreen.
                         var sendCodeEl = page.querySelector('#cfgSendSignInCodeToApps');
                         if (sendCodeEl) sendCodeEl.checked = c.SendSignInCodeToApps === true;
@@ -1532,6 +1568,9 @@
                     });
                 });
                 page.querySelector('#btnSaveSettings').addEventListener('click', function() {
+                    // [#345] A refusal shown by an earlier Save goes away now.
+                    var refusalBox = page.querySelector('#saveRefusal');
+                    if (refusalBox) { refusalBox.textContent = ''; refusalBox.style.display = 'none'; }
                     ApiClient.getPluginConfiguration(pluginId).then(function(c) {
                         c.Enabled = page.querySelector('#cfgEnabled').checked;
                         // v2.4: write EnforcementScope + keep legacy RequireForAllUsers
@@ -1541,6 +1580,8 @@
                         c.RequireForAllUsers = (scopeVal === 'All');
                         c.HibpEnabled = page.querySelector('#cfgHibpEnabled').checked;
                         c.EmailOtpEnabled = page.querySelector('#cfgEmailOtp').checked;
+                        var passkeysSaveEl = page.querySelector('#cfgPasskeysEnabled');
+                        c.PasskeysEnabled = passkeysSaveEl ? passkeysSaveEl.checked : (c.PasskeysEnabled !== false);
                         var sendCodeSaveEl = page.querySelector('#cfgSendSignInCodeToApps');
                         c.SendSignInCodeToApps = sendCodeSaveEl ? sendCodeSaveEl.checked : (c.SendSignInCodeToApps === true);
                         var codeAloneSaveEl = page.querySelector('#cfgAcceptSignInCodeAlone');
@@ -1690,15 +1731,31 @@
                         // Jellyfin's ApiClient would; the filter installed on
                         // that route fires identically.
                         return savePluginConfig(c).then(function(r) {
-                            if (!r.ok) {
+                            if (r.ok) {
+                                // [#345] The step-up modal caches whether passkeys
+                                // are allowed, and this save may have changed it.
+                                _stepUpFactorsPromise = null;
+                                return true;
+                            }
+                            // Nothing was saved, and the form keeps what the
+                            // admin set: no reload, no box put back.
+                            return refusedSaveText(r).then(function(refusal) {
+                                if (refusal && refusalBox) {
+                                    refusalBox.textContent = refusal;
+                                    refusalBox.style.display = '';
+                                    return false;
+                                }
                                 var s = page.querySelector('#saveStatus');
                                 s.style.color = '#f44336';
-                                s.textContent = '✗ ' + (proxyError(r) || (_tr('tfa.admin.settings.save_failed', 'Save failed (HTTP ') + r.status + ')'));
+                                s.textContent = '✗ ' + (refusal || proxyError(r) || (_tr('tfa.admin.settings.save_failed', 'Save failed (HTTP ') + r.status + ')'));
                                 setTimeout(function() { s.style.color = ''; s.textContent = ''; }, 5000);
-                                throw new Error('updatePluginConfiguration failed: ' + r.status);
-                            }
+                                return false;
+                            });
                         });
-                    }).then(function() {
+                    }).then(function(saved) {
+                        // A refused save is on screen; the hardening fields wait
+                        // for a save that goes through.
+                        if (!saved) return;
                         // v2.5.0: also persist hardening fields via the gated endpoint.
                         // This lets the server enforce a step-up gate on these specific fields.
                         var indefEl = page.querySelector('#cfgAllowIndefiniteTrust');
