@@ -5164,6 +5164,7 @@ public class TwoFactorAuthController : ControllerBase
             // was never sent, so "Send code by email" was offered (and failed)
             // with email OTP turned off.
             emailOtpEnabled = cfg.EmailOtpEnabled,
+            passkeysEnabled = cfg.PasskeysEnabled,
             // [#247] UI gate: setup.html hides the plugin's own 2FA setup from
             // non-admin users who sign in through a linked identity provider.
             hideTwoFactorSetupForSsoUsers = cfg.HideTwoFactorSetupForSsoUsers,

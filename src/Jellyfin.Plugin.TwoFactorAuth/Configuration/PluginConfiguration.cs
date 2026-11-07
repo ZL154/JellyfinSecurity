@@ -282,6 +282,10 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public bool EmailOtpEnabled { get; set; } = true;
 
+    /// <summary>[#345] Enable passkey registration and authentication. Stored
+    /// credentials remain available if passkeys are enabled again.</summary>
+    public bool PasskeysEnabled { get; set; } = true;
+
     /// <summary>v2.4: opt-in Have I Been Pwned password check on successful
     /// sign-in. Uses the public api.pwnedpasswords.com k-anonymity range API
     /// — only the first 5 hex chars of SHA-1(password) leave the server.
