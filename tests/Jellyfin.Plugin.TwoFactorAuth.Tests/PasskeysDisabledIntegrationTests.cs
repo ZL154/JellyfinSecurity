@@ -110,7 +110,9 @@ public class PasskeysDisabledIntegrationTests
         fixture.Config.PasskeysEnabled = enabled;
         await fixture.Store.SaveUserDataAsync(new UserTwoFactorData
         {
-            UserId = fixture.User.Id, TotpEnabled = true, TotpVerified = true,
+            UserId = fixture.User.Id,
+            TotpEnabled = true,
+            TotpVerified = true,
             Passkeys = { new PasskeyCredential { Id = "saved-key" } },
         });
         var (status, body) = await fixture.SignInAsync();
@@ -215,7 +217,8 @@ internal sealed class DisabledPasskeyApi : IDisposable
 
     internal Task SeedAsync() => Fixture.Store.SaveUserDataAsync(new UserTwoFactorData
     {
-        UserId = Fixture.User.Id, PasskeyRequiresSecondFactor = false,
+        UserId = Fixture.User.Id,
+        PasskeyRequiresSecondFactor = false,
         Passkeys = { new PasskeyCredential { Id = "saved-key", CredentialId = "credential" } },
     });
 

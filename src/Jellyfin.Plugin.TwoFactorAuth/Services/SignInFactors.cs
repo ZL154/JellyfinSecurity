@@ -5,9 +5,13 @@ using Jellyfin.Plugin.TwoFactorAuth.Models;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
-/// <summary>[#345] Methods that can answer a local sign-in challenge. Enrollment
-/// and the passkey turn-off guard use this same inventory. Linked providers and
-/// device bypasses cannot answer a local challenge and do not belong here.</summary>
+/// <summary>[#345] Methods that can answer a local sign-in challenge. With
+/// passkeys off, the provider, the middleware and the portal all offer
+/// <see cref="GetMethods"/>, the same inventory the passkey turn-off guard
+/// checks, so an account the guard let through can always answer. With passkeys
+/// on, each entry point keeps the offers it had before this setting existed
+/// (<c>LegacyChallenge</c>). Linked providers and device bypasses cannot answer
+/// a local challenge and do not belong here.</summary>
 internal static class SignInFactors
 {
     internal enum Entry { Provider, Middleware, Portal }
@@ -29,7 +33,7 @@ internal static class SignInFactors
     private static List<string> LegacyChallenge(
         UserTwoFactorData data, PluginConfiguration config, Entry entry, bool enforced, out bool enrollmentRequired)
     {
-        var hasPasskey = PasskeyPolicy.HasEnrolled(data, config);
+        var hasPasskey = PasskeyPolicy.HasUsable(data, config);
         var hasDelivery = config.EmailOtpEnabled
             && !string.IsNullOrEmpty(config.GetUserEmail(data.UserId.ToString("N")));
         enrollmentRequired = entry == Entry.Portal
@@ -73,7 +77,7 @@ internal static class SignInFactors
         if (!data.ForceRecoveryOnNextLogin)
         {
             if (data.TotpEnabled && data.TotpVerified) methods.Add("totp");
-            if (PasskeyPolicy.HasEnrolled(data, config)) methods.Add("passkey");
+            if (PasskeyPolicy.HasUsable(data, config)) methods.Add("passkey");
         }
         if (config.EmailOtpEnabled
             && (!string.IsNullOrEmpty(config.GetUserEmail(data.UserId.ToString("N")))

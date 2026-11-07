@@ -47,7 +47,7 @@ public class StatsService
         var data = await _store.GetAllUsersAsync().ConfigureAwait(false);
 
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        var enrolled = data.Count(d => d.TotpEnabled || PasskeyPolicy.HasEnrolled(d, config));
+        var enrolled = data.Count(d => d.TotpEnabled || PasskeyPolicy.HasUsable(d, config));
         double pct = totalUsers > 0 ? Math.Round(100.0 * enrolled / totalUsers, 1) : 0;
 
         var since7 = DateTime.UtcNow.AddDays(-7);
@@ -78,7 +78,7 @@ public class StatsService
         {
             // Past the deadline — list users who STILL aren't enrolled.
             var enrolledIds = new HashSet<Guid>(data
-                .Where(d => d.TotpEnabled || PasskeyPolicy.HasEnrolled(d, config))
+                .Where(d => d.TotpEnabled || PasskeyPolicy.HasUsable(d, config))
                 .Select(d => d.UserId));
             behind = jfUsers
                 .Where(u => !enrolledIds.Contains(u.Id))

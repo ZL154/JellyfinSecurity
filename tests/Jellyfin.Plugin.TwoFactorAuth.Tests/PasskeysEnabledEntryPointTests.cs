@@ -40,7 +40,9 @@ public class PasskeysEnabledEntryPointTests
         api.Fixture.Config.PasskeysEnabled = enabled;
         await api.Fixture.Store.SaveUserDataAsync(new UserTwoFactorData
         {
-            UserId = api.Fixture.User.Id, TotpEnabled = true, TotpVerified = true,
+            UserId = api.Fixture.User.Id,
+            TotpEnabled = true,
+            TotpVerified = true,
             Passkeys = { new PasskeyCredential { Id = "saved-key" } },
         });
         var app = Substitute.For<IApplicationHost>();

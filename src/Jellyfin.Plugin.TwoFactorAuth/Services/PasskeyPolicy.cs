@@ -8,6 +8,9 @@ internal static class PasskeyPolicy
 {
     internal const string DisabledMessage = "Passkeys are disabled on this server.";
 
-    internal static bool HasEnrolled(UserTwoFactorData data, PluginConfiguration config)
+    /// <summary>True only while the server allows passkeys and the user has at
+    /// least one stored. With <see cref="PluginConfiguration.PasskeysEnabled"/>
+    /// off, a stored passkey is kept but answers nothing and protects nothing.</summary>
+    internal static bool HasUsable(UserTwoFactorData data, PluginConfiguration config)
         => config.PasskeysEnabled && data.Passkeys.Count > 0;
 }

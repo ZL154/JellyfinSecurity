@@ -38,13 +38,13 @@ public class PasskeysEnabledTests
     public static IEnumerable<object[]> Matrix()
     {
         foreach (var enabled in new[] { false, true })
-        foreach (var totp in new[] { false, true })
-        foreach (var emailEnabled in new[] { false, true })
-        foreach (var address in new[] { false, true })
-        foreach (var scope in Enum.GetValues<EnforcementScope>())
-        foreach (var admin in new[] { false, true })
-        foreach (var preference in new[] { false, true })
-            yield return new object[] { enabled, totp, emailEnabled, address, scope, admin, preference };
+            foreach (var totp in new[] { false, true })
+                foreach (var emailEnabled in new[] { false, true })
+                    foreach (var address in new[] { false, true })
+                        foreach (var scope in Enum.GetValues<EnforcementScope>())
+                            foreach (var admin in new[] { false, true })
+                                foreach (var preference in new[] { false, true })
+                                    yield return new object[] { enabled, totp, emailEnabled, address, scope, admin, preference };
     }
 
     [Theory]
@@ -57,7 +57,9 @@ public class PasskeysEnabledTests
         SetEnabled(config, enabled);
         var data = new UserTwoFactorData
         {
-            UserId = Guid.NewGuid(), TotpEnabled = totp, TotpVerified = totp,
+            UserId = Guid.NewGuid(),
+            TotpEnabled = totp,
+            TotpVerified = totp,
             PasskeyRequiresSecondFactor = preference,
             Passkeys = { new PasskeyCredential { Id = "saved-key", CredentialId = "credential" } },
         };

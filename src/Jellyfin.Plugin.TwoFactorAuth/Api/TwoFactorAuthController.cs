@@ -393,7 +393,7 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         var userData = await _store.GetUserDataAsync(challenge.UserId).ConfigureAwait(false);
-        if (userData.TotpVerified || PasskeyPolicy.HasEnrolled(userData, Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration()))
+        if (userData.TotpVerified || PasskeyPolicy.HasUsable(userData, Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration()))
         {
             return BadRequest(new { message = "This account already has a second factor." });
         }
@@ -704,10 +704,10 @@ public class TwoFactorAuthController : ControllerBase
                 });
             }
 
-            var totpEnabled = userData.TotpEnabled && userData.TotpVerified;
-            var hasPasskey = PasskeyPolicy.HasEnrolled(userData, Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration());
-            var isAdmin = user.HasPermission(PermissionKind.IsAdministrator);
             var config = Plugin.Instance?.Configuration;
+            var totpEnabled = userData.TotpEnabled && userData.TotpVerified;
+            var hasPasskey = PasskeyPolicy.HasUsable(userData, config ?? new Configuration.PluginConfiguration());
+            var isAdmin = user.HasPermission(PermissionKind.IsAdministrator);
             var needsChallenge = SignInChallengePolicy.RequiresChallenge(
                 userData, config ?? new Configuration.PluginConfiguration(), isAdmin);
             var deviceId = HttpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
@@ -4503,7 +4503,9 @@ public class TwoFactorAuthController : ControllerBase
             ud.RegisteredDeviceIds.Clear();
             ud.ForceRecoveryOnNextLogin = true;
             // Emergency recovery must still challenge an opted-out passkey user.
-            if (PasskeyPolicy.HasEnrolled(ud, Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration()) && !ud.PasskeyRequiresSecondFactor)
+            // [#345] Stored credentials, not the server switch: rearming only adds
+            // protection, and it must hold when passkeys are turned back on.
+            if (ud.Passkeys.Count > 0 && !ud.PasskeyRequiresSecondFactor)
             {
                 ud.PasskeyRequiresSecondFactor = true;
                 rearmed = true;
@@ -4897,7 +4899,7 @@ public class TwoFactorAuthController : ControllerBase
         // Enrollment-by-role
         var users = await _store.GetAllUsersAsync().ConfigureAwait(false);
         var enrolledIds = new HashSet<Guid>(users
-            .Where(d => d.TotpEnabled || PasskeyPolicy.HasEnrolled(d, config))
+            .Where(d => d.TotpEnabled || PasskeyPolicy.HasUsable(d, config))
             .Select(d => d.UserId));
         int adminsTotal = 0, adminsEnrolled = 0, regularTotal = 0, regularEnrolled = 0;
         // v2.5.0 fix #2: HasPermission is an EXTENSION METHOD on User, not an instance
@@ -5164,6 +5166,9 @@ public class TwoFactorAuthController : ControllerBase
             // was never sent, so "Send code by email" was offered (and failed)
             // with email OTP turned off.
             emailOtpEnabled = cfg.EmailOtpEnabled,
+            // [#345] UI gate for the passkey login button, the Setup page and
+            // the step-up prompts. The server refuses the passkey routes while
+            // this is off, whatever a page offers.
             passkeysEnabled = cfg.PasskeysEnabled,
             // [#247] UI gate: setup.html hides the plugin's own 2FA setup from
             // non-admin users who sign in through a linked identity provider.

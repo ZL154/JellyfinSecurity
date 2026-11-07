@@ -189,7 +189,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>[v2.5.7] (issue #48 feature request, Gaarindor): when true,
     /// inject.js skips injecting the "Sign in with passkey" button on the
     /// main login page. Set both this and HideBuiltInTwoFactorButton to true
-    /// for OIDC-only mode where only IdP provider buttons remain.</summary>
+    /// for OIDC-only mode where only IdP provider buttons remain. It only hides
+    /// the button: passkeys stay usable. To turn them off, use
+    /// <see cref="PasskeysEnabled"/>.</summary>
     public bool HideBuiltInPasskeyButton { get; set; }
 
     /// <summary>[#247] OIDC-only mode for the account page: setup.html hides
@@ -282,8 +284,17 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public bool EmailOtpEnabled { get; set; } = true;
 
-    /// <summary>[#345] Enable passkey registration and authentication. Stored
-    /// credentials remain available if passkeys are enabled again.</summary>
+    /// <summary>[#345] Whether passkeys can be used on this server. On by
+    /// default, so upgrading changes nothing. When off, the server refuses
+    /// passkey registration, passwordless passkey sign-in, the passkey answer
+    /// to the sign-in challenge and passkey step-up, and a stored passkey no
+    /// longer counts as a factor anywhere (challenge, enrollment, step-up, score).
+    /// Turning it off is refused while a user would be left with no other way
+    /// to answer the sign-in challenge, so nobody silently drops to password
+    /// only or to an enrollment that whoever holds the password could complete.
+    /// Stored passkeys and each user's PasskeyRequiresSecondFactor are kept,
+    /// so turning it back on restores them as they were. Unlike
+    /// <see cref="HideBuiltInPasskeyButton"/>, this is enforced by the server.</summary>
     public bool PasskeysEnabled { get; set; } = true;
 
     /// <summary>v2.4: opt-in Have I Been Pwned password check on successful

@@ -113,7 +113,7 @@ public class SecurityScoreService : IDisposable
         // matter how many real users actually enrolled. Fall back to the stored
         // list only on the test seam (no IUserManager) to preserve test semantics.
         var enrolledIds = new HashSet<Guid>(users
-            .Where(u => u.TotpEnabled || PasskeyPolicy.HasEnrolled(u, cfg))
+            .Where(u => u.TotpEnabled || PasskeyPolicy.HasUsable(u, cfg))
             .Select(u => u.UserId));
         var liveUserIds = _userManager is null
             ? users.Select(u => u.UserId).ToList()
@@ -475,7 +475,7 @@ public class SecurityScoreService : IDisposable
         if (_userManager is null) return true;
         var config = _configAccessor();
         var enrolledIds = new HashSet<Guid>(data
-            .Where(d => d.TotpEnabled || PasskeyPolicy.HasEnrolled(d, config))
+            .Where(d => d.TotpEnabled || PasskeyPolicy.HasUsable(d, config))
             .Select(d => d.UserId));
         // v2.5.2 fix (issue #37): direct `_userManager.Users` access threw
         // System.MissingMethodException on Jellyfin 10.11.9+ because get_Users()'s

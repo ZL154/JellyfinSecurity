@@ -90,8 +90,10 @@ internal sealed class PasskeyDisableSaveApi : IDisposable
         Users.GetUserById(user.Id).Returns(user);
         var data = new UserTwoFactorData
         {
-            UserId = user.Id, PasskeyRequiresSecondFactor = false,
-            TotpEnabled = other is "totp" or "unverified", TotpVerified = other == "totp",
+            UserId = user.Id,
+            PasskeyRequiresSecondFactor = false,
+            TotpEnabled = other is "totp" or "unverified",
+            TotpVerified = other == "totp",
             Passkeys = { new PasskeyCredential { Id = "saved-key" } },
         };
         if (other is "recovery" or "spent-recovery") data.RecoveryCodes.Add(new RecoveryCode { Hash = "saved-code", Used = other == "spent-recovery" });
