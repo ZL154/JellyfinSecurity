@@ -341,6 +341,8 @@ From this point, every login from a new browser prompts for a code:
 
 Passkeys replace the 6-digit code with a biometric or hardware tap. They are phishing-resistant (the credential is bound to your exact domain) and require no typing.
 
+An administrator can turn passkeys off for the whole server with **Allow passkeys**; see [Turning passkeys off](#turning-passkeys-off-345).
+
 **Important — server config first.** Passkeys require HTTPS AND the WebAuthn Relying Party ID + origin to match the URL the browser is on. In **Dashboard → Plugins → Two-Factor Authentication → Settings → WebAuthn / passkeys**:
 
 - **Relying Party ID**: enter your public hostname only — `jellyfin.example.com`. No `https://`, no port, no path.
@@ -504,7 +506,7 @@ Pending TV/native-client pairing requests. Approve or deny each request and show
 Paginated, filterable login attempt history. Tracks success, failures, lockouts, bypasses, and challenge issuances. Choose **Newest first** or **Oldest first**; the selected order remains active while navigating the dashboard.
 
 ### Settings
-- **General**: plugin toggle, **2FA enforcement scope** (Optional, Admins only or All users), Have I Been Pwned password check, email OTP toggle
+- **General**: plugin toggle, **2FA enforcement scope** (Optional, Admins only or All users), Have I Been Pwned password check, email OTP toggle, **Allow passkeys** (see [Turning passkeys off](#turning-passkeys-off-345))
 - **LAN Bypass** — CIDR ranges, X-Forwarded-For trust, trusted proxies
 - **Security** — failed-attempt threshold, lockout duration, audit log size, and OIDC onboarding password policy (minimum length plus optional uppercase, lowercase, number, and symbol requirements)
 - **SMTP**: host, port, SSL, credentials, from-address (required for email OTP and for alert emails)
@@ -513,6 +515,19 @@ Paginated, filterable login attempt history. Tracks success, failures, lockouts,
 - **Audit chain (v2.5)** — **Rebuild audit chain** button repairs the hash chain after disk corruption / manual edits (step-up gated)
 
 **Telegram and email alerts (#259):** for Telegram, create a bot with @BotFather, paste its token in **Settings → Push Notifications → Telegram bot token** and set **Telegram chat ID** to your user ID, a group or channel ID (negative) or a public channel's @username; the bot must be able to post there, so start a chat with it or add it to the group or channel. The token is sent only to api.telegram.org and is kept out of the server log, and when Telegram refuses a message the test button shows its reason ("Bad Request: chat not found"). For email, every address under **Admin email addresses for security alerts** gets its own copy of each alert over the SMTP settings used for email OTP. **Send test notification** reports each configured channel separately.
+
+#### Turning passkeys off (#345)
+
+**Settings → General → Allow passkeys** (`PasskeysEnabled`) is on by default, so updating changes nothing. Turn it off when nobody should use passkeys on this server, for example to keep the authenticator app as the only second factor (turn **Allow email OTP as fallback** off too for that). While it is off:
+
+- the server refuses every passkey ceremony with "Passkeys are disabled on this server.": registering a passkey, **Sign in with passkey** (with or without a username), the passkey answer to the 2FA challenge, and a passkey in a step-up prompt, the admin's included;
+- a saved passkey no longer counts as a factor anywhere: it does not make password sign-in ask for a second factor, it cannot answer the challenge, it does not let the account create app passwords, and the security score and the enrollment numbers leave it out;
+- the login page has no passkey button, the challenge and the step-up prompts do not offer a passkey, and the Setup page has no way to add one. Saved passkeys stay listed on the Setup page, with a note that says why they no longer work, so users can still remove them;
+- saved passkeys and each user's **Ask for a second factor after password sign-in** choice are kept, so turning the setting back on brings them back as they were.
+
+Turning it off is refused, and nothing in that save is applied, while a user has a saved passkey and no other way to answer the sign-in challenge: a verified authenticator app, an unused recovery code, or email codes (with **Allow email OTP as fallback** on and an email address or a linked Telegram chat to send them to), counted with the settings that same save would apply. Without the refusal, the switch would quietly take that user's second factor away: their password alone would sign them in or, where the enforcement scope covers them, would be enough to enroll a new authenticator. The settings page names those users, and there are two ways forward: have them add an authenticator app on their Setup page while passkeys still work, or reset their 2FA with **Reset 2FA (full wipe)** in the **Users** tab. Then save again. A configuration import that would turn passkeys off is refused the same way, with the same names. Sessions that are already signed in stay signed in.
+
+This is not the same as **Hide the "Sign in with passkey" button** (see [Hide built-in 2FA / Passkey login buttons](#-hide-built-in-2fa--passkey-login-buttons-v257)), which only removes that button from the login page: while passkeys are allowed, they keep working at the challenge, in step-up prompts and for any client that calls the passkey sign-in endpoints.
 
 ### Authentication Provider in Jellyfin's user profile
 Jellyfin's own user page (**Dashboard → Users**, then an account) shows an **Authentication Provider** field whenever more than one sign-in provider is registered. With the plugin loaded it offers **Default**, Jellyfin's own provider, and **Two-Factor Authentication**, the plugin's, which kept the plugin's old name. The field only picks what checks the account's credentials. Whether a sign-in needs 2FA comes from the plugin's settings, which apply to every sign-in on either provider, so nothing needs to change there to enforce 2FA.
@@ -853,6 +868,8 @@ For OIDC-only deployments where every user signs in through your IdP and the plu
 - **Hide the "Sign in with passkey" button** — removes the passkey shortcut.
 
 Each is independent — pick any combination. Configured OIDC provider buttons stay visible regardless of these flags.
+
+Hiding the passkey button does not turn passkeys off: they keep working at the 2FA challenge, in step-up prompts and through the passkey sign-in endpoints. To turn them off for the server, see [Turning passkeys off](#turning-passkeys-off-345).
 
 **Login-link placement & Forgot-password (v2.5.16, #79, ZEROX7):** an opt-in **Settings → Hardening → "Show the SSO / 2FA / passkey links below the Use Quick Connect button"** toggle (default off) moves the injected links beneath Quick Connect instead of directly under Sign In. Separately, the native "Forgot password" link is now hidden automatically when there's no visible password field (e.g. OIDC-only login), since there'd be nothing to recover.
 
