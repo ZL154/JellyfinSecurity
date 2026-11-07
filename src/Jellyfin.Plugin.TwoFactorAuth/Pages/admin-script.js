@@ -1233,9 +1233,9 @@
                         body: JSON.stringify(c),
                     });
                 }
-                // [#345] A save that would turn passkeys off while some users have
-                // no other way to verify their sign-in is refused with 409 and
-                // those users. The page names them in the admin's language, as
+                // [#345] A save that would turn passkeys off while some users
+                // rely on a passkey for their second factor is refused with 409
+                // and those users. The page names them in the admin's language, as
                 // text, never as markup; a 409 without them shows the server's
                 // message. Resolves with '' for any other answer, which keeps the
                 // usual status line.
@@ -1247,7 +1247,7 @@
                             .filter(Boolean)
                             .join(', ');
                         if (names) {
-                            return _tr('tfa.admin.settings.passkeys_off_refused', 'Nothing was saved. These users have no other way to verify their sign-in: {users}. Have them add an authenticator app while passkeys still work, or use "Reset 2FA (full wipe)" in the Users tab.')
+                            return _tr('tfa.admin.settings.passkeys_off_refused', 'Nothing was saved. These users rely on a passkey for their second factor: {users}. Have them add an authenticator app while passkeys still work, or use "Reset 2FA (full wipe)" in the Users tab.')
                                 .split('{users}').join(names);
                         }
                         return (body && body.message) ? String(body.message) : '';

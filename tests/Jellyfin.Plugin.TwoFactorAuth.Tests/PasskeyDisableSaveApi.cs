@@ -1,6 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions.Json;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
@@ -84,14 +86,15 @@ internal sealed class PasskeyDisableSaveApi : IDisposable
     internal Task<HttpResponseMessage> SaveAsync(PluginConfiguration config)
         => Client.PostAsJsonAsync(SavePath, config, JsonDefaults.Options);
 
-    internal async Task<Guid> AddAsync(string name, string other = "none")
+    internal async Task<Guid> AddAsync(string name, string other = "none", bool secondFactor = false, bool admin = false)
     {
         var user = new User(name, "provider", "reset");
+        if (admin) user.SetPermission(PermissionKind.IsAdministrator, true);
         Users.GetUserById(user.Id).Returns(user);
         var data = new UserTwoFactorData
         {
             UserId = user.Id,
-            PasskeyRequiresSecondFactor = false,
+            PasskeyRequiresSecondFactor = secondFactor,
             TotpEnabled = other is "totp" or "unverified",
             TotpVerified = other == "totp",
             Passkeys = { new PasskeyCredential { Id = "saved-key" } },

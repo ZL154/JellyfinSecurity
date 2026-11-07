@@ -44,8 +44,9 @@ public class ConfigExportService
         _logger = logger;
         _configAccessor = configAccessor;
         // The isolated configuration test seam has no Jellyfin user manager.
-        // Keep its guard conservative by identifying any stored user by GUID.
-        _passkeyDisableGuard = passkeyDisableGuard ?? new PasskeyDisableGuard(store, id => id.ToString("N"));
+        // Keep its guard conservative: every stored user counts, named by GUID,
+        // and none is taken for an administrator, which can only list more users.
+        _passkeyDisableGuard = passkeyDisableGuard ?? new PasskeyDisableGuard(store, id => new PasskeyAccount(id.ToString("N"), false));
     }
 
     public async Task<ExportEnvelope> BuildConfigOnlyExportAsync()

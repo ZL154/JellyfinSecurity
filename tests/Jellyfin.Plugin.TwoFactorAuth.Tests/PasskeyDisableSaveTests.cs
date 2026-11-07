@@ -2,10 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Extensions.Json;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using NSubstitute;
+using NSubstitute.ReturnsExtensions;
 using Xunit;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Tests;
@@ -39,15 +39,19 @@ public class PasskeyDisableSaveTests
         Assert.Empty(await api.Store.GetAuditLogAsync());
     }
 
+    // Opted-out passkeys (PasskeyRequiresSecondFactor false), so only the
+    // challenge inventory and the self-service factors decide. A recovery code
+    // or a Telegram chat answers the challenge but is not a factor the Setup
+    // page step-up asks for, so the switch would drop that step-up: refused.
     [Theory]
     [InlineData("totp", false, true)]
     [InlineData("unverified", false, false)]
     [InlineData("address", true, true)]
     [InlineData("address", false, false)]
     [InlineData("none", true, false)]
-    [InlineData("recovery", false, true)]
+    [InlineData("recovery", false, false)]
     [InlineData("spent-recovery", false, false)]
-    [InlineData("telegram", true, true)]
+    [InlineData("telegram", true, false)]
     [InlineData("telegram", false, false)]
     [InlineData("sso", false, false)]
     public async Task The_guard_reads_the_new_configuration_and_the_challenge_inventory(string other, bool deliveryEnabled, bool allowed)
@@ -62,10 +66,38 @@ public class PasskeyDisableSaveTests
         using var response = await api.SaveAsync(incoming);
         Assert.Equal(allowed ? HttpStatusCode.NoContent : HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal(!allowed, api.Config.PasskeysEnabled);
-        Assert.Equal(allowed ? deliveryEnabled : true, api.Config.EmailOtpEnabled);
+        Assert.Equal(!allowed || deliveryEnabled, api.Config.EmailOtpEnabled);
         var stored = await api.Store.GetUserDataAsync(id);
         Assert.Single(stored.Passkeys);
         Assert.False(stored.PasskeyRequiresSecondFactor);
+    }
+
+    // The email code answers the challenge but never asks for it: with the
+    // passkey as the only reason, turning passkeys off would leave password
+    // sign-in with no second factor, unless the enforcement scope covers the
+    // user.
+    [Theory]
+    [InlineData(EnforcementScope.Optional, false, false)]
+    [InlineData(EnforcementScope.Admins, false, false)]
+    [InlineData(EnforcementScope.Admins, true, true)]
+    [InlineData(EnforcementScope.All, false, true)]
+    public async Task A_passkey_that_alone_makes_password_sign_in_ask_for_a_second_factor_refuses_the_switch(
+        EnforcementScope scope, bool admin, bool allowed)
+    {
+        using var api = new PasskeyDisableSaveApi();
+        var id = await api.AddAsync("alice", "address", secondFactor: true, admin: admin);
+        api.Config.EmailOtpEnabled = true;
+        api.Config.SetUserEmail(id.ToString("N"), "alice@example.test");
+        api.Config.EnforcementScope = scope;
+        var incoming = api.Copy();
+        incoming.PasskeysEnabled = false;
+        using var response = await api.SaveAsync(incoming);
+        Assert.Equal(allowed ? HttpStatusCode.NoContent : HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(!allowed, api.Config.PasskeysEnabled);
+        if (allowed) return;
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("alice", Assert.Single(body.RootElement.GetProperty("users").EnumerateArray()).GetProperty("name").GetString());
+        Assert.Contains("rely on a passkey for their second factor", body.RootElement.GetProperty("message").GetString());
     }
 
     [Fact]
@@ -94,7 +126,7 @@ public class PasskeyDisableSaveTests
     {
         using var api = new PasskeyDisableSaveApi();
         var id = await api.AddAsync("deleted-user");
-        api.Users.GetUserById(id).Returns((User?)null);
+        api.Users.GetUserById(id).ReturnsNull();
         var incoming = api.Copy();
         incoming.PasskeysEnabled = false;
         using var response = await api.SaveAsync(incoming);

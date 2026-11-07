@@ -168,7 +168,7 @@ test('the refusal is built in the page language', async () => {
 });
 
 test('a 409 without users shows the server message', async () => {
-    const message = 'Passkeys cannot be disabled because these users have no other sign-in verification method: alice.';
+    const message = 'Passkeys cannot be disabled because these users rely on a passkey for their second factor: alice.';
     const p = adminPage({config: {PasskeysEnabled: true}, saveAnswers: [{status: 409, body: {message}}]});
     p.el('#cfgPasskeysEnabled').checked = false;
     await p.save();
