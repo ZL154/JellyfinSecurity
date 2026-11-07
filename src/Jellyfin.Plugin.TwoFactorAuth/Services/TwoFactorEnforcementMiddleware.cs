@@ -673,7 +673,8 @@ public class TwoFactorEnforcementMiddleware
 
             _logger.LogInformation("[2FA] Issuing challenge for {Name} from {Ip}", authResult.User.Name, remoteIp);
 
-            var methods = SignInFactors.ForChallenge(userData, config, out var enrollmentRequired);
+            var methods = SignInFactors.ForChallenge(userData, config, SignInFactors.Entry.Middleware,
+                config.ShouldEnforceFor(isAdmin), out var enrollmentRequired);
 
             var challenge = _challengeStore.CreateChallenge(
                 userGuid,

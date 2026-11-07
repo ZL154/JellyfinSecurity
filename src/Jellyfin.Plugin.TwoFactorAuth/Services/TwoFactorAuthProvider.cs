@@ -653,7 +653,8 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // 8. 2FA is required and no bypass applies — build the available
         //    methods list and issue a challenge token.
         // ------------------------------------------------------------------
-        var methods = SignInFactors.ForChallenge(userData, config, out var enrollmentRequired);
+        var methods = SignInFactors.ForChallenge(userData, config, SignInFactors.Entry.Provider,
+            config.ShouldEnforceFor(providerIsAdmin), out var enrollmentRequired);
 
         var challenge = _challengeStore.CreateChallenge(
             userId,

@@ -944,7 +944,8 @@ public class TwoFactorAuthController : ControllerBase
 
             if (requiresPostPasswordChallenge)
             {
-                var methods = SignInFactors.ForChallenge(userData, config ?? new Configuration.PluginConfiguration(), out var enrollmentRequired);
+                var methods = SignInFactors.ForChallenge(userData, config ?? new Configuration.PluginConfiguration(),
+                    SignInFactors.Entry.Portal, false, out var enrollmentRequired);
 
                 var challenge = _challengeStore.CreateChallenge(
                     user.Id,

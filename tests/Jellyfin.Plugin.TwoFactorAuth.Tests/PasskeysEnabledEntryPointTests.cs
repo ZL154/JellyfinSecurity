@@ -34,7 +34,7 @@ public class PasskeysEnabledEntryPointTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task The_authentication_provider_issues_the_same_effective_method_inventory(bool enabled)
+    public async Task The_provider_preserves_legacy_offers_and_omits_disabled_passkeys(bool enabled)
     {
         using var api = new DisabledPasskeyApi();
         api.Fixture.Config.PasskeysEnabled = enabled;
@@ -61,6 +61,28 @@ public class PasskeysEnabledEntryPointTests
 
         Assert.Equal("local-user", (await provider.Authenticate("local-user", "sample-secret")).Username);
         var entry = Assert.Single(await api.Fixture.Store.GetAuditLogAsync(), e => e.Result == AuditResult.ChallengeIssued);
-        Assert.Equal(enabled ? "totp,passkey" : "totp", entry.Method);
+        Assert.Equal("totp", entry.Method);
+    }
+
+    [Theory]
+    [InlineData(true, false, "totp,passkey,email")]
+    [InlineData(false, false, "totp")]
+    [InlineData(true, true, "enroll")]
+    [InlineData(false, true, "recovery")]
+    public async Task Enabled_servers_keep_existing_challenge_offers_and_disabled_servers_use_usable_methods(
+        bool enabled, bool recoveryOnly, string expected)
+    {
+        using var fixture = new SignInPolicyFixture();
+        fixture.Config.PasskeysEnabled = enabled;
+        fixture.Config.EmailOtpEnabled = !recoveryOnly;
+        fixture.Config.EnforcementScope = Configuration.EnforcementScope.All;
+        var data = new UserTwoFactorData { UserId = fixture.User.Id, TotpEnabled = !recoveryOnly, TotpVerified = !recoveryOnly };
+        if (recoveryOnly) data.RecoveryCodes.Add(new RecoveryCode { Hash = "saved-code" });
+        else data.Passkeys.Add(new PasskeyCredential { Id = "saved-key" });
+        await fixture.Store.SaveUserDataAsync(data);
+        var (status, body) = await fixture.SignInAsync();
+        Assert.Equal(401, status);
+        using var result = System.Text.Json.JsonDocument.Parse(body);
+        Assert.Equal(expected.Split(','), result.RootElement.GetProperty("Methods").EnumerateArray().Select(x => x.GetString()));
     }
 }
