@@ -169,6 +169,8 @@
                          so they can choose passkey / email / OIDC instead of being
                          funneled into TOTP. -->
                     <p class="muted" style="font-size:13px;margin-top:14px;line-height:1.6;" data-i18n-key="tfa.setup.enroll.alt_factors">Prefer something else? You can use a passkey (Face ID / Windows Hello / hardware key), an email-only code (set your email below), or sign in with a linked OIDC account — see the cards further down this page.</p>
+                    <!-- [#345] The same pointer while the server has passkeys turned off. -->
+                    <p class="muted" id="enrollAltFactorsNoPasskey" style="display:none;font-size:13px;margin-top:14px;line-height:1.6;" data-i18n-key="tfa.setup.enroll.alt_factors_no_passkey">Prefer something else? You can use an email-only code (set your email below) or sign in with a linked OIDC account. See the cards further down this page.</p>
                 </div>
                 <div id="enrollStep2" style="display:none;">
                     <p class="muted" data-i18n-key="tfa.setup.scan_qr">1. Scan this QR code in your authenticator app:</p>
@@ -194,12 +196,14 @@
                         <div class="desc" data-i18n-key="tfa.setup.passkeys.desc">Sign in with Face ID, Windows Hello, or a hardware security key. Phishing-resistant alternative to typing codes.</div>
                     </div>
                 </div>
+                <!-- [#345] Shown while the server has passkeys turned off. -->
+                <div class="alert warn" id="passkeysOffNotice" data-i18n-key="tfa.setup.passkeys.off_notice">Passkeys are turned off on this server. Your saved passkeys are kept but cannot be used. You can remove them.</div>
                 <div id="passkeyList" class="muted" data-i18n-key="tfa.admin.common.loading">Loading…</div>
                 <details id="passkeyDiagWrap" style="margin-top:8px;display:none;">
                     <summary style="cursor:pointer;font-size:12px;color:#666;" data-i18n-key="tfa.setup.passkeys.diag_summary">Show advanced diagnostics</summary>
                     <div id="passkeyDiag" style="font-family:monospace;font-size:11px;color:#888;background:rgba(0,0,0,0.3);padding:8px;border-radius:4px;margin-top:8px;"></div>
                 </details>
-                <div class="row" style="margin-top:10px;">
+                <div class="row" id="passkeyRegister" style="margin-top:10px;">
                     <input type="text" id="passkeyLabel" data-i18n-placeholder="tfa.setup.passkeys.label_placeholder" placeholder='Label (e.g. "MacBook Touch ID")' style="flex:1;" />
                     <button class="btn-primary" id="btnAddPasskey" data-i18n-key="tfa.setup.passkeys.btn_add">Add a passkey</button>
                 </div>
@@ -665,6 +669,7 @@
         // body — server-side EnforceSelfServiceStepUpAsync accepts either
         // field. The passkey button is only rendered when the current user
         // actually has passkeys enrolled (window.__tfa_userPasskeyCount > 0).
+        // [#345] And only while the server allows passkeys (passkeysEnabled).
         // OIDC re-auth as a step-up factor isn't supported here yet because
         // it requires a redirect that doesn't fit cleanly in a modal.
         //
@@ -684,7 +689,7 @@
             var emailText = _tr('tfa.setup.stepup.send_email', 'Send code by email');
             var emailSent = _tr('tfa.setup.stepup.email_sent', 'Email sent — check your inbox and enter the code above.');
             var emailFailed = _tr('tfa.setup.stepup.email_failed', 'Failed to send email. Check SMTP / your account email.');
-            var hasPasskey = (window.__tfa_userPasskeyCount || 0) > 0;
+            var hasPasskey = passkeysEnabled() && (window.__tfa_userPasskeyCount || 0) > 0;
             var hasEmail = window.__tfa_userHasEmail === true;
             // [v2.5.7] OIDC step-up: list of linked providers from
             // /Oidc/MyLinks, each renders a "Sign in with X" button that
@@ -1009,7 +1014,7 @@
                 var current = takeFactorRead(factorRead);
                 if (current) applyFactorFlags(myStatus, r[4], r[9]);
                 var publicCfg = window._tfaPublicConfig || {};
-                var hasFactor = !!totpOn || passkeyCount > 0;
+                var hasFactor = !!totpOn || (passkeysEnabled() && passkeyCount > 0);
                 var stepUpMode = (myStatus && (myStatus.selfServiceStepUpMode || myStatus.SelfServiceStepUpMode)) || 'Forced';
                 var userOptedIn = !!(myStatus && (myStatus.requireStepUpForChanges || myStatus.RequireStepUpForChanges));
                 window.__tfa_stepUpMode = stepUpMode;
@@ -1028,6 +1033,8 @@
                     passwordRecoveryEnabled: publicCfg.passwordRecoveryEnabled === true,
                 });
                 applySsoOnlyPage(ssoPage);
+                // [#345] After the SSO rules, which may show the card again.
+                renderPasskeyAvailability(myStatus);
                 // [#339] The switch on the Passkeys card, from the same status.
                 renderPasskeySecondFactor(myStatus);
                 renderStatus(me, totpOn, ssoPage.ssoStatus ? window.__tfa_userOidcLinks : null);
@@ -2117,6 +2124,32 @@
             }
         });
 
+        // ============ [#345] PASSKEYS TURNED OFF ON THE SERVER ============
+        // Whether the server lets passkeys be registered and used. The page
+        // reads public-config before its first render; a missing field (an
+        // older server, or public-config not read) reads as on. The server
+        // refuses the passkey routes while they are off, whatever this page
+        // offers.
+        function passkeysEnabled() {
+            return (window._tfaPublicConfig || {}).passkeysEnabled !== false;
+        }
+        // With passkeys off, the Passkeys card keeps only what still works:
+        // the saved passkeys, each with its Remove button, under a note that
+        // says they are kept but cannot be used. Nothing on the page offers to
+        // add one, and with none saved the card goes away. With passkeys on,
+        // loadAll and the SSO page rules decide whether the card shows.
+        function renderPasskeyAvailability(status) {
+            var on = passkeysEnabled();
+            var notice = document.getElementById('passkeysOffNotice');
+            if (on) notice.classList.remove('show'); else notice.classList.add('show');
+            document.getElementById('passkeyRegister').style.display = on ? '' : 'none';
+            document.querySelector('[data-i18n-key="tfa.setup.enroll.alt_factors"]').style.display = on ? '' : 'none';
+            document.getElementById('enrollAltFactorsNoPasskey').style.display = on ? 'none' : '';
+            if (on) return;
+            var saved = (status && (status.passkeyCount || status.PasskeyCount)) || 0;
+            document.getElementById('cardPasskeys').style.display = saved > 0 ? '' : 'none';
+        }
+
         // ============ [#339] PASSKEY AND PASSWORD SIGN-IN ============
         // Whether a password sign-in also asks for a second factor while the
         // account has a passkey. The switch shows the stored choice: a missing
@@ -2125,8 +2158,10 @@
         // scope or a verified authenticator app makes password sign-in ask
         // anyway, so the switch is then disabled and the card says why. Pure,
         // so tests/passkey-second-factor-page.test.mjs can run it.
-        function passkeySecondFactorView(s) {
-            if (!s || !((s.passkeyCount || s.PasskeyCount) > 0)) return { show: false };
+        // [#345] enabled is whether the server allows passkeys; while it does
+        // not, a saved passkey changes nothing, so there is no switch.
+        function passkeySecondFactorView(s, enabled) {
+            if (enabled === false || !s || !((s.passkeyCount || s.PasskeyCount) > 0)) return { show: false };
             var stored = typeof s.passkeyRequiresSecondFactor === 'boolean' ? s.passkeyRequiresSecondFactor : s.PasskeyRequiresSecondFactor;
             var asked = typeof s.passwordSignInRequiresSecondFactor === 'boolean' ? s.passwordSignInRequiresSecondFactor : s.PasswordSignInRequiresSecondFactor;
             var reason = s.passwordSignInSecondFactorReason || s.PasswordSignInSecondFactorReason;
@@ -2141,7 +2176,7 @@
             };
         }
         function renderPasskeySecondFactor(status) {
-            var view = passkeySecondFactorView(status);
+            var view = passkeySecondFactorView(status, passkeysEnabled());
             document.getElementById('passkeySecondFactor').style.display = view.show ? '' : 'none';
             if (!view.show) return;
             var toggle = document.getElementById('passkeySecondFactorToggle');
@@ -2167,10 +2202,12 @@
         }
         // A passkey added or removed decides whether the switch shows, and the
         // step-up prompt offers the passkey from the count loadAll keeps, so
-        // both are reread from the server after either change.
+        // both are reread from the server after either change. [#345] With
+        // passkeys off, removing the last one also takes the card away.
         function refreshPasskeySecondFactor() {
             return api('GET', 'TwoFactorAuth/MyStatus').then(function(status) {
                 window.__tfa_userPasskeyCount = (status && (status.passkeyCount || status.PasskeyCount)) || 0;
+                renderPasskeyAvailability(status);
                 renderPasskeySecondFactor(status);
             });
         }

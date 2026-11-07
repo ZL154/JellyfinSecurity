@@ -16,7 +16,7 @@ internal static class SignInChallengePolicy
     {
         if (config.ShouldEnforceFor(isAdmin)) return "scope";
         if (data.TotpEnabled && data.TotpVerified) return "authenticator";
-        if (data.Passkeys.Count > 0 && data.PasskeyRequiresSecondFactor) return "passkey";
+        if (PasskeyPolicy.HasUsable(data, config) && data.PasskeyRequiresSecondFactor) return "passkey";
         return "none";
     }
 }

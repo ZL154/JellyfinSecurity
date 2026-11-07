@@ -17,7 +17,7 @@ internal static class SelfServiceFactors
 {
     internal static bool HasAny(UserTwoFactorData data, PluginConfiguration config)
         => (data.TotpEnabled && data.TotpVerified)
-           || data.Passkeys.Count > 0
+           || PasskeyPolicy.HasUsable(data, config)
            || data.SsoLinks.Count > 0
            || (config.EmailOtpEnabled
                && (data.EmailOtpPreferred || !string.IsNullOrEmpty(config.GetUserEmail(data.UserId.ToString("N")))));

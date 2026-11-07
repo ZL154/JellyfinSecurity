@@ -24,6 +24,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ChallengeStore>();
         serviceCollection.AddSingleton<StepUpService>();
         serviceCollection.AddSingleton<SecurityScoreService>();
+        serviceCollection.AddSingleton<PasskeyDisableGuard>();
         serviceCollection.AddSingleton<ConfigExportService>();
         serviceCollection.AddSingleton<TotpService>();
         serviceCollection.AddSingleton<EmailOtpService>();

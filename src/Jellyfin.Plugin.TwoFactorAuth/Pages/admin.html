@@ -594,6 +594,11 @@
                             <div class="tfa-row">
                                 <label><input type="checkbox" id="cfgEmailOtp" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_email_otp">Allow email OTP as fallback</span></label>
                             </div>
+                            <!-- [#345]: passkeys for the whole server, on by default. -->
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgPasskeysEnabled" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_passkeys_enabled">Allow passkeys</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.passkeys_enabled_help">Users cannot register or use passkeys while this is off. Saved passkeys are kept and come back when it is turned on again. Turning it off is refused while some users rely on a passkey for their second factor, and the page lists them.</div>
+                            </div>
                             <!-- [#313]: sign-in codes for apps that can't show the challenge. -->
                             <div class="tfa-row tfa-row-stack">
                                 <label><input type="checkbox" id="cfgSendSignInCodeToApps" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_send_sign_in_code_to_apps">Send a sign-in code by email and Telegram to apps that can't show the challenge</span></label>
@@ -801,7 +806,7 @@
                                     <input type="checkbox" id="cfgHideBuiltInPasskeyButton" is="emby-checkbox" />
                                     <span data-i18n-key="tfa.admin.hardening.hide_builtin_passkey_label">Hide the "Sign in with passkey" button on the Jellyfin login page</span>
                                 </label>
-                                <div class="tfa-help" data-i18n-key="tfa.admin.hardening.hide_builtin_passkey_help">Hides only the passkey shortcut button. Combine with the 2FA toggle above for full OIDC-only mode where only your configured IdP buttons remain visible.</div>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.hardening.hide_builtin_passkey_help">Hides only the passkey shortcut button. Combine with the 2FA toggle above for full OIDC-only mode where only your configured IdP buttons remain visible. Passkeys themselves stay usable; to turn them off, clear "Allow passkeys" under General.</div>
                             </div>
                             <!-- [#247]: OIDC-only account page. -->
                             <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
@@ -1059,6 +1064,8 @@
 
                         <button type="button" class="tfa-btn tfa-btn-primary" id="btnSaveSettings" style="margin-top:8px;padding:11px 32px;font-size:15px;" data-i18n-key="tfa.admin.settings.btn_save">Save Settings</button>
                         <span id="saveStatus" style="margin-left:14px;color:#4caf50;font-size:13px;"></span>
+                        <!-- [#345] Why a save was refused, kept until the next Save. -->
+                        <div id="saveRefusal" role="alert" style="display:none;margin-top:10px;max-width:760px;color:#f44336;font-size:13px;line-height:1.45;"></div>
 
                         <!-- [v2.5.6] (round-5g): extra breathing room between the
                              Save Settings button and the Backup & Restore section

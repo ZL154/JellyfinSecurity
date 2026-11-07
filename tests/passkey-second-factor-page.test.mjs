@@ -9,7 +9,9 @@ const read = name => readFileSync(new URL(name, pages), 'utf8');
 const setup = read('setup.html');
 
 // [#339] Run the switch on the Passkeys card exactly as setup.html defines
-// it, together with the page's own request helper and step-up retry.
+// it, together with the page's own request helper and step-up retry. [#345]
+// The page reads public-config to know whether the server allows passkeys;
+// none is given here, which reads as on.
 function pageFunction(name) {
     const found = setup.match(new RegExp(`\\n( *)(?:async )?function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\1\\}`));
     assert(found, `setup.html must define ${name}`);
@@ -17,8 +19,8 @@ function pageFunction(name) {
 }
 let script;
 const pageScript = () => script ??= [
-    'api', 'mutateWithStepUp', 'passkeySecondFactorView', 'renderPasskeySecondFactor',
-    'refreshPasskeySecondFactor', 'changePasskeySecondFactor',
+    'api', 'mutateWithStepUp', 'passkeysEnabled', 'renderPasskeyAvailability', 'passkeySecondFactorView',
+    'renderPasskeySecondFactor', 'refreshPasskeySecondFactor', 'changePasskeySecondFactor',
 ].map(pageFunction).join('\n');
 
 const PREFERENCE = '/jf/TwoFactorAuth/MyPasskeySecondFactorPreference';
@@ -66,6 +68,10 @@ function page({responses = [], proof = null} = {}) {
             getElementById(id) {
                 if (!elements.has(id)) elements.set(id, fakeElement());
                 return elements.get(id);
+            },
+            querySelector(selector) {
+                if (!elements.has(selector)) elements.set(selector, fakeElement());
+                return elements.get(selector);
             },
         },
         apiUrl: path => '/jf/' + path,

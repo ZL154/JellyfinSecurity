@@ -68,6 +68,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         if (configuration is PluginConfiguration incoming)
         {
+            // [#345] Inspect the exact object Jellyfin materialized, before secrets
+            // or live configuration are changed. No competing parse of the body.
+            if (Configuration.PasskeysEnabled && !incoming.PasskeysEnabled)
+            {
+                _appHost.Resolve<PasskeyDisableGuard>()
+                    .EnsureCanApplyAsync(Configuration, incoming).GetAwaiter().GetResult();
+            }
             ConfigSecrets.KeepSaved(incoming, Configuration);
         }
 
