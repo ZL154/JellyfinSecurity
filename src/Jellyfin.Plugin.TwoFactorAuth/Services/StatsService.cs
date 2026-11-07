@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using MediaBrowser.Controller.Library;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -45,7 +46,8 @@ public class StatsService
         var totalUsers = jfUsers.Count;
         var data = await _store.GetAllUsersAsync().ConfigureAwait(false);
 
-        var enrolled = data.Count(d => d.TotpEnabled || d.Passkeys.Count > 0);
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var enrolled = data.Count(d => d.TotpEnabled || PasskeyPolicy.HasEnrolled(d, config));
         double pct = totalUsers > 0 ? Math.Round(100.0 * enrolled / totalUsers, 1) : 0;
 
         var since7 = DateTime.UtcNow.AddDays(-7);
@@ -76,7 +78,7 @@ public class StatsService
         {
             // Past the deadline — list users who STILL aren't enrolled.
             var enrolledIds = new HashSet<Guid>(data
-                .Where(d => d.TotpEnabled || d.Passkeys.Count > 0)
+                .Where(d => d.TotpEnabled || PasskeyPolicy.HasEnrolled(d, config))
                 .Select(d => d.UserId));
             behind = jfUsers
                 .Where(u => !enrolledIds.Contains(u.Id))

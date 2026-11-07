@@ -393,7 +393,7 @@ public class TwoFactorAuthController : ControllerBase
         }
 
         var userData = await _store.GetUserDataAsync(challenge.UserId).ConfigureAwait(false);
-        if (userData.TotpVerified || userData.Passkeys.Count > 0)
+        if (userData.TotpVerified || PasskeyPolicy.HasEnrolled(userData, Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration()))
         {
             return BadRequest(new { message = "This account already has a second factor." });
         }
@@ -705,7 +705,7 @@ public class TwoFactorAuthController : ControllerBase
             }
 
             var totpEnabled = userData.TotpEnabled && userData.TotpVerified;
-            var hasPasskey = userData.Passkeys.Count > 0;
+            var hasPasskey = PasskeyPolicy.HasEnrolled(userData, Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration());
             var isAdmin = user.HasPermission(PermissionKind.IsAdministrator);
             var config = Plugin.Instance?.Configuration;
             var needsChallenge = SignInChallengePolicy.RequiresChallenge(
@@ -944,29 +944,7 @@ public class TwoFactorAuthController : ControllerBase
 
             if (requiresPostPasswordChallenge)
             {
-                // [v2.5.6] (round-5 fix B): treat a configured email + email
-                // OTP globally enabled as a valid sole 2FA factor. Lets users
-                // who never want TOTP and don't have a passkey complete
-                // sign-in via email OTP instead of being forced into TOTP
-                // enrollment.
-                var hasEmailFactor = config?.EmailOtpEnabled == true
-                    && !string.IsNullOrEmpty(config?.GetUserEmail(user.Id.ToString("N")));
-                var enrollmentRequired = userData.Passkeys.Count == 0 && !hasEmailFactor;
-                var methods = new List<string>();
-                if (enrollmentRequired)
-                {
-                    methods.Add("enroll");
-                }
-                else
-                {
-                    if (userData.Passkeys.Count > 0) methods.Add("passkey");
-                    if (config?.EmailOtpEnabled == true) methods.Add("email");
-                    if (methods.Count == 0)
-                    {
-                        methods.Add("enroll");
-                        enrollmentRequired = true;
-                    }
-                }
+                var methods = SignInFactors.ForChallenge(userData, config ?? new Configuration.PluginConfiguration(), out var enrollmentRequired);
 
                 var challenge = _challengeStore.CreateChallenge(
                     user.Id,
@@ -4044,6 +4022,9 @@ public class TwoFactorAuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> PasskeyRegisterBegin([FromBody] StepUpCodeRequest? request = null)
     {
+        if (Plugin.Instance?.Configuration.PasskeysEnabled == false)
+            return BadRequest(new { message = PasskeyPolicy.DisabledMessage });
+
         var userId = GetCurrentUserId();
         var user = _userManager.GetUserById(userId);
         if (user is null) return Unauthorized();
@@ -4080,6 +4061,9 @@ public class TwoFactorAuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> PasskeyRegisterFinish([FromBody, Required] PasskeyRegisterFinishRequest req)
     {
+        if (Plugin.Instance?.Configuration.PasskeysEnabled == false)
+            return BadRequest(new { message = PasskeyPolicy.DisabledMessage });
+
         var userId = GetCurrentUserId();
         var (optionsJson, ownerId) = _passkeyChallenges.Consume(req.Nonce);
         if (optionsJson is null || ownerId != userId)
@@ -4206,6 +4190,9 @@ public class TwoFactorAuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> PasskeyAssertBegin([FromBody, Required] PasskeyAssertBeginRequest req)
     {
+        if (Plugin.Instance?.Configuration.PasskeysEnabled == false)
+            return BadRequest(new { message = PasskeyPolicy.DisabledMessage });
+
         var ip = RateLimiter.ClientKey(HttpContext);
         var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
         if (_ipBans.CheckBanned(clientIp) is { } ban)
@@ -4270,6 +4257,9 @@ public class TwoFactorAuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> PasskeyAssertFinish([FromBody, Required] PasskeyAssertFinishRequest req)
     {
+        if (Plugin.Instance?.Configuration.PasskeysEnabled == false)
+            return BadRequest(new { message = PasskeyPolicy.DisabledMessage });
+
         var requestIp = RateLimiter.ClientKey(HttpContext);
         var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? requestIp;
         if (_ipBans.CheckBanned(clientIp) is { } ban)
@@ -4389,6 +4379,9 @@ public class TwoFactorAuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> UserStepUpPasskeyBegin()
     {
+        if (Plugin.Instance?.Configuration.PasskeysEnabled == false)
+            return BadRequest(new { message = PasskeyPolicy.DisabledMessage });
+
         var userId = GetCurrentUserId();
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
         if (data.Passkeys.Count == 0)
@@ -4402,6 +4395,9 @@ public class TwoFactorAuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> UserStepUpPasskeyVerify([FromBody, Required] PasskeyAssertFinishRequest req)
     {
+        if (Plugin.Instance?.Configuration.PasskeysEnabled == false)
+            return BadRequest(new { message = PasskeyPolicy.DisabledMessage });
+
         var userId = GetCurrentUserId();
         var (optionsJson, ownerId) = _passkeyChallenges.Consume(req.Nonce);
         if (optionsJson is null || ownerId != userId)
@@ -4506,7 +4502,7 @@ public class TwoFactorAuthController : ControllerBase
             ud.RegisteredDeviceIds.Clear();
             ud.ForceRecoveryOnNextLogin = true;
             // Emergency recovery must still challenge an opted-out passkey user.
-            if (ud.Passkeys.Count > 0 && !ud.PasskeyRequiresSecondFactor)
+            if (PasskeyPolicy.HasEnrolled(ud, Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration()) && !ud.PasskeyRequiresSecondFactor)
             {
                 ud.PasskeyRequiresSecondFactor = true;
                 rearmed = true;
@@ -4874,6 +4870,9 @@ public class TwoFactorAuthController : ControllerBase
             "1m" or "5m" or "1h" or "24h" or "7d" or "30d" => preNormalizedRange,
             _ => "1m",
         };
+        var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
+        // [#345] A saved switch must not reuse coverage calculated while passkeys were enabled.
+        cacheKey += config.PasskeysEnabled ? ":passkeys-on" : ":passkeys-off";
         lock (_overviewCacheLock)
         {
             if (_overviewCache.TryGetValue(cacheKey, out var entry) &&
@@ -4897,7 +4896,7 @@ public class TwoFactorAuthController : ControllerBase
         // Enrollment-by-role
         var users = await _store.GetAllUsersAsync().ConfigureAwait(false);
         var enrolledIds = new HashSet<Guid>(users
-            .Where(d => d.TotpEnabled || d.Passkeys.Count > 0)
+            .Where(d => d.TotpEnabled || PasskeyPolicy.HasEnrolled(d, config))
             .Select(d => d.UserId));
         int adminsTotal = 0, adminsEnrolled = 0, regularTotal = 0, regularEnrolled = 0;
         // v2.5.0 fix #2: HasPermission is an EXTENSION METHOD on User, not an instance
