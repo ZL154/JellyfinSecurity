@@ -673,50 +673,8 @@ public class TwoFactorEnforcementMiddleware
 
             _logger.LogInformation("[2FA] Issuing challenge for {Name} from {Ip}", authResult.User.Name, remoteIp);
 
-            // v2.4: ShouldEnforceFor honors both the new EnforcementScope
-            // (Optional / Admins / All) and the legacy RequireForAllUsers
-            // flag. isAdmin was extracted from authResult.User.Policy above.
-            //
-            // [v2.5.6] (round-5 fix B): a configured email + globally-enabled
-            // email OTP counts as a valid sole factor. Users who never want
-            // TOTP/passkey can complete sign-in via email OTP without being
-            // forced into TOTP enrollment.
-            var hasEmailFactor = config.EmailOtpEnabled
-                && !string.IsNullOrEmpty(config.GetUserEmail(userGuid.ToString("N")));
-            var enrollmentRequired = config.ShouldEnforceFor(isAdmin)
-                && !userData.TotpVerified
-                && userData.Passkeys.Count == 0
-                && !hasEmailFactor;
-            var methods = new List<string>();
-            // v1.4: emergency lockout sets ForceRecoveryOnNextLogin to true.
-            // Strip TOTP and passkey from the available methods until the user
-            // consumes a recovery code OR an email OTP — that's the contract
-            // the user-facing button promises ("recovery code required to sign
-            // in"). The flag is cleared in the controller's Verify path on
-            // successful recovery.
-            if (enrollmentRequired)
-            {
-                methods.Add("enroll");
-            }
-            else if (userData.ForceRecoveryOnNextLogin)
-            {
-                methods.Add("recovery");
-                if (config.EmailOtpEnabled) methods.Add("email");
-            }
-            else
-            {
-                if (userData.TotpVerified) methods.Add("totp");
-                if (userData.Passkeys.Count > 0) methods.Add("passkey");
-                if (config.EmailOtpEnabled) methods.Add("email");
-                // [v2.5.18] Offer recovery codes on the "verify your identity"
-                // challenge when the user has unused ones. Previously recovery was
-                // only surfaced on lockout (ForceRecoveryOnNextLogin above), so a
-                // user who lost their authenticator couldn't reach the Recovery tab
-                // here even though the full login portal (login.html) always offers
-                // it — leaving valid recovery codes unusable mid-session.
-                if (userData.RecoveryCodes.Any(rc => !rc.Used)) methods.Add("recovery");
-            }
-            if (methods.Count == 0) methods.Add("email");
+            var methods = SignInFactors.ForChallenge(userData, config, SignInFactors.Entry.Middleware,
+                config.ShouldEnforceFor(isAdmin), out var enrollmentRequired);
 
             var challenge = _challengeStore.CreateChallenge(
                 userGuid,

@@ -239,6 +239,24 @@ public class PasskeySecondFactorPreferenceTests
     }
 
     [Fact]
+    public async Task Emergency_lockout_rearms_a_stored_passkey_while_passkeys_are_off()
+    {
+        using var api = new PreferenceApi();
+        await api.EnrollAsync(false);
+        api.Fixture.Config.PasskeysEnabled = false;
+        using var emergency = await api.Client.PostAsJsonAsync("/TwoFactorAuth/Setup/EmergencyLockout", new { });
+        Assert.Equal(HttpStatusCode.OK, emergency.StatusCode);
+        var data = await api.Fixture.Store.GetUserDataAsync(api.Fixture.User.Id);
+        Assert.True(data.ForceRecoveryOnNextLogin);
+        // [#345] The switch keeps the passkey out of sign-in, but turning it back
+        // on must not bring back an opted-out passkey that skips the challenge.
+        Assert.True(data.PasskeyRequiresSecondFactor);
+        var audit = await api.Fixture.Store.GetAuditLogAsync();
+        Assert.Single(audit, entry => entry.Method == "emergency_lockout");
+        Assert.Single(audit, entry => entry.Method == "passkey_second_factor_on");
+    }
+
+    [Fact]
     public async Task Emergency_lockout_without_a_passkey_does_not_change_the_preference()
     {
         using var api = new PreferenceApi();

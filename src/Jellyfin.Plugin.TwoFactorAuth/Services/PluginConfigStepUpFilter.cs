@@ -86,7 +86,14 @@ public class PluginConfigStepUpFilter : IAsyncActionFilter
             return;
         }
 
-        await next().ConfigureAwait(false);
+        var executed = await next().ConfigureAwait(false);
+        // [#345] The save path checks Jellyfin's already-deserialized configuration.
+        // Translate its refusal here, after step-up, while the response is unwritten.
+        if (executed.Exception is PasskeyDisableException refusal)
+        {
+            executed.ExceptionHandled = true;
+            executed.Result = new ConflictObjectResult(refusal.ToResponse());
+        }
     }
 
     private static bool ShouldGate(HttpContext ctx)
