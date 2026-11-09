@@ -915,9 +915,9 @@ public class TwoFactorAuthController : ControllerBase
                 {
                     _ipBans.RecordFailure(clientIp);
                     // SECURITY [v2.5.9] (audit low): identical message for every
-                // auth failure (bad user / bad password / bad code) so the
-                // response can't be used as a 2FA-code-validity oracle.
-                return Unauthorized(new { message = "Invalid username, password, or verification code." });
+                    // auth failure (bad user / bad password / bad code) so the
+                    // response can't be used as a 2FA-code-validity oracle.
+                    return Unauthorized(new { message = "Invalid username, password, or verification code." });
                 }
                 catch (MediaBrowser.Controller.Net.SecurityException ex)
                 {
