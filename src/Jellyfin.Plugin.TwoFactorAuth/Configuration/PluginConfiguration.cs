@@ -409,6 +409,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// default false keeps the existing layout for everyone else.</summary>
     public bool LoginLinksBelowQuickConnect { get; set; }
 
+    /// <summary>[#348] When true, the plugin's six standalone pages (sign-in,
+    /// challenge, Setup, pairing confirmation, password reset and set
+    /// password) also get the server's custom CSS from Dashboard, Branding.
+    /// They never load Jellyfin's index.html, so that CSS did not reach them
+    /// before. Opt-in: CSS written for Jellyfin's own pages can style elements
+    /// such as body, input or button on these pages too.</summary>
+    public bool ApplyBrandingCss { get; set; }
+
     public int AuditLogMaxEntries { get; set; } = 1000;
 
     public string NtfyUrl { get; set; } = string.Empty;

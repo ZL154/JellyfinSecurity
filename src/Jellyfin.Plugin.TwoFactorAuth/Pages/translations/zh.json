@@ -832,6 +832,8 @@
   "tfa.admin.hardening.hide_setup_for_sso_help": "适用于纯 OIDC 服务器。已关联身份提供方且不是管理员的用户，将不再在账户页面看到认证器应用、通行密钥、「我丢失了我的手机」和已关联的登录方式这些卡片；除非启用了通过邮件找回密码，邮件卡片也会隐藏。用户已设置的因素会保持可见，以便将其移除。管理员始终能看到完整页面。此选项只改变页面，不会关闭任何因素。请与「禁用密码登录」一起使用，让这些账户只能通过身份提供方登录。",
   "tfa.admin.hardening.links_below_qc_label": "在“使用快速连接”按钮下方显示 SSO/2FA/通行密钥链接",
   "tfa.admin.hardening.links_below_qc_help": "将插件注入的登录链接移动到 Jellyfin 的快速连接按钮下方，而不是直接位于“登录”下方。纯外观调整；保持关闭以使用默认位置。",
+  "tfa.admin.hardening.apply_branding_css_label": "将服务器在控制台中设置的“自定义 CSS 代码”也应用到本插件自己的页面",
+  "tfa.admin.hardening.apply_branding_css_help": "登录、身份验证、设置、配对和密码页面由本插件直接提供，不会加载 Jellyfin 的 Web 客户端，因此这段 CSS 以前从未作用于它们。开启后，它会添加在这些页面自身的样式之后。针对 body、input、button 等元素的规则也会作用于这些页面；如果只想为这些页面设置样式，请让选择器以 body.tfa-page 开头（参见 README）。",
   "tfa.admin.settings.proxy_cidrs_help": "此处仅填写你实际反向代理主机的 IP——例如同主机 nginx 填 127.0.0.1/32 + ::1/128，或单独代理主机的具体 LAN IP。请勿填写像 10.0.0.0/8 或 192.168.0.0/16 这样的大范围：当某个 LAN 客户端的 IP 落入这些 CIDR 之一、且请求未携带 X-Forwarded-For 头时，插件会保守地拒绝 LAN 旁路（它无法区分直连的 LAN 客户端和丢失了 XFF 的代理）。问题 #56 就是这种配置错误。如果 Jellyfin 前面没有反向代理，请留空。",
   "tfa.admin.settings.header_heading": "通过受信任的代理登录",
   "tfa.admin.settings.header_help": "适用于自行完成用户登录并通过请求头传递用户的反向代理（NetBird、Authelia、oauth2-proxy 等）。登录页面随后会自动让该用户登录。只会登录已存在且已启用的 Jellyfin 账户，绝不会创建账户。只有来自下方代理地址的请求头才会被信任：请填写代理本身，不要填写整个网络，因为所列范围内的任何机器都可以发送该请求头，并以任何人的身份登录。",

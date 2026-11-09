@@ -14,9 +14,11 @@ using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.TwoFactorAuth.Helpers;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
+using MediaBrowser.Model.Branding;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -915,9 +917,9 @@ public class TwoFactorAuthController : ControllerBase
                 {
                     _ipBans.RecordFailure(clientIp);
                     // SECURITY [v2.5.9] (audit low): identical message for every
-                // auth failure (bad user / bad password / bad code) so the
-                // response can't be used as a 2FA-code-validity oracle.
-                return Unauthorized(new { message = "Invalid username, password, or verification code." });
+                    // auth failure (bad user / bad password / bad code) so the
+                    // response can't be used as a 2FA-code-validity oracle.
+                    return Unauthorized(new { message = "Invalid username, password, or verification code." });
                 }
                 catch (MediaBrowser.Controller.Net.SecurityException ex)
                 {
@@ -1192,6 +1194,11 @@ public class TwoFactorAuthController : ControllerBase
         using var reader = new System.IO.StreamReader(stream);
         var html = reader.ReadToEnd();
 
+        if (Plugin.Instance?.Configuration.ApplyBrandingCss == true)
+        {
+            html = BrandingCss.AddToPage(html, ReadBrandingCss(HttpContext));
+        }
+
         // Anti-framing: /Setup reveals recovery codes and QR secret on screen;
         // /Challenge has a "Trust this device" click target. Both are prime
         // clickjacking targets. frame-ancestors 'none' is the modern equivalent
@@ -1202,6 +1209,14 @@ public class TwoFactorAuthController : ControllerBase
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         Response.Headers["Referrer-Policy"] = "no-referrer";
         return Content(html, "text/html; charset=utf-8");
+    }
+
+    /// <summary>[#348] The custom CSS of the server's branding configuration,
+    /// the text Jellyfin Web adds to its own pages.</summary>
+    private static string? ReadBrandingCss(HttpContext ctx)
+    {
+        var config = ctx.RequestServices.GetService(typeof(IServerConfigurationManager)) as IServerConfigurationManager;
+        return (config?.GetConfiguration("branding") as BrandingOptions)?.CustomCss;
     }
 
     // -------------------------------------------------------------------------

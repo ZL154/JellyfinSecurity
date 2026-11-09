@@ -1361,6 +1361,9 @@
                         // [v2.5.16] (#79) place injected login links below Quick Connect (opt-in).
                         var lbqc = page.querySelector('#cfgLoginLinksBelowQuickConnect');
                         if (lbqc) lbqc.checked = c.LoginLinksBelowQuickConnect === true;
+                        // [#348] the server's Branding CSS on the plugin's own pages (opt-in).
+                        var applyBrandingCssEl = page.querySelector('#cfgApplyBrandingCss');
+                        if (applyBrandingCssEl) applyBrandingCssEl.checked = c.ApplyBrandingCss === true;
                         // [v2.5.14] (#100) OIDC onboarding password policy.
                         var obLen = page.querySelector('#cfgOnboardingPwMinLen');
                         if (obLen) obLen.value = c.OnboardingPasswordMinLength || 16;
@@ -1585,6 +1588,9 @@
                         if (page.querySelector('#cfgLoginLinksBelowQuickConnect')) {
                             c.LoginLinksBelowQuickConnect = page.querySelector('#cfgLoginLinksBelowQuickConnect').checked;
                         }
+                        // [#348] An older cached admin.html without the box keeps the saved value.
+                        var applyBrandingCssSaveEl = page.querySelector('#cfgApplyBrandingCss');
+                        if (applyBrandingCssSaveEl) c.ApplyBrandingCss = applyBrandingCssSaveEl.checked;
                         // [v2.5.14] (#100) OIDC onboarding password policy.
                         if (page.querySelector('#cfgOnboardingPwMinLen')) {
                             var obLenV = parseInt(page.querySelector('#cfgOnboardingPwMinLen').value, 10);

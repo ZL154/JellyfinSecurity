@@ -843,6 +843,8 @@
   "tfa.admin.hardening.hide_setup_for_sso_help": "For OIDC-only servers. Users who have a linked identity provider and are not administrators stop seeing the authenticator app, passkey, \"I lost my phone\" and linked sign-in cards on their account page, and the email card too unless password recovery by email is on; a factor they already set up stays visible so they can remove it. Administrators always see the full page. This only changes the page and turns no factor off. Pair it with \"Disable password sign-in\" so these accounts sign in only through the identity provider.",
   "tfa.admin.hardening.links_below_qc_label": "Show the SSO / 2FA / passkey links below the “Use Quick Connect” button",
   "tfa.admin.hardening.links_below_qc_help": "Moves the plugin's injected login links beneath Jellyfin's Quick Connect button instead of directly under Sign In. Purely cosmetic; leave off to keep the default placement.",
+  "tfa.admin.hardening.apply_branding_css_label": "Apply the server's custom CSS (Dashboard → Branding) to this plugin's own pages",
+  "tfa.admin.hardening.apply_branding_css_help": "The sign-in, challenge, Setup, pairing and password pages are served by this plugin and don't load Jellyfin's web client, so that CSS never reached them. When on, it is added after their own styles. Rules for elements such as body, input or button then apply here too; to style only these pages, start your selectors with body.tfa-page (see the README).",
   "tfa.setup.stepup.use_oidc": "Verify with",
   "tfa.setup.stepup.opening": "Opening sign-in window…",
   "tfa.setup.stepup.oidc_failed": "OIDC sign-in failed. Try again or use another method.",
