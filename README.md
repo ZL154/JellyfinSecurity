@@ -111,6 +111,7 @@ visible trust signals is treated as a high-priority bug.
 - [Hardened self-service factor changes (v2.5.6)](#-hardened-self-service-factor-changes-v256)
 - [OIDC step-up factor for users (v2.5.7)](#-oidc-step-up-factor-for-users-v257)
 - [Hide built-in 2FA / Passkey login buttons (v2.5.7)](#-hide-built-in-2fa--passkey-login-buttons-v257)
+- [Custom CSS on the plugin's pages (#348)](#-custom-css-on-the-plugins-pages-348)
 - [OIDC private / VPN / LAN endpoints (v2.5.7)](#-oidc-private--vpn--lan-endpoints-v257)
 - [Verified-token persistence (v2.5.7)](#-verified-token-persistence-v257)
 - [SMTP setup (email OTP)](#-smtp-setup-email-otp)
@@ -217,6 +218,7 @@ A completed password change through the plugin's reset link, Jellyfin's Forgot P
 - Polished login page with lockout countdown and low-recovery-code warning; a unified Setup page (TOTP, recovery codes, email backup, pending device approvals, paired devices, app passwords, trusted browsers, active sessions).
 - Admin dashboard with users, devices, sortable audit log, and settings with a Test SMTP button; injected "Sign in with 2FA" button and a "Two-Factor Auth" navigation entry (desktop/mobile sidebar, and on Jellyfin 12's layout the avatar menu below Profile and the preferences list).
 - **8 languages** (English, German, Spanish, French, Italian, Japanese, Portuguese, Chinese) at full key parity, following Jellyfin's own display language automatically and served on cache-immune paths.
+- **Your server's look on the plugin's own pages** (#348): an opt-in setting adds the custom CSS from Dashboard → Branding to the plugin's six standalone pages (sign-in, challenge, Setup and the rest), which also carry `body.tfa-page` classes for themes to target ([details](#-custom-css-on-the-plugins-pages-348)).
 
 ### Notifications
 - Push notifications for login events via **ntfy**, **Gotify**, **Telegram** (a bot token and a chat ID), generic **webhooks** (HMAC-signed, with custom headers), or **email** to the admin alert addresses over the SMTP settings, with authentication for each channel (#259).
@@ -859,6 +861,43 @@ Each is independent — pick any combination. Configured OIDC provider buttons s
 **Account page for SSO users (#247):** **Settings → Hardening → "Hide this plugin's 2FA setup from users who sign in with SSO"** (default off) does the same for the account page users open from the user menu. For a user who has a linked identity provider and is not an administrator, the page stops offering the authenticator app, passkeys, the email code, "I lost my phone" and the linked sign-in methods, and the status card names the provider they sign in through. Administrators always see the full page, because they can still sign in with a password and that path needs the plugin's 2FA. A factor the user already has stays visible so it can be removed, and the email card stays while password recovery by email is on, since it holds the recovery address. The App Passwords card does not depend on this setting: it shows to anyone allowed to create app passwords (see [app passwords](#native-apps-that-cant-do-the-pairing-flow-scripts-older-tools)). The setting only changes the page: no factor is turned off and the endpoints keep working. Pair it with **Disable password sign-in** so these accounts sign in only through the identity provider.
 
 ⚠ **The `/TwoFactorAuth/Login` page still works directly** even when both toggles are on. Admins/fallback users can always reach it by URL, so you don't lock yourself out of the plugin's login flow if your IdP becomes unreachable.
+
+---
+
+## 🎨 Custom CSS on the plugin's pages (#348)
+
+Six of the plugin's pages are standalone: the sign-in page (`/TwoFactorAuth/Login`), the challenge, Setup, device pairing confirmation, password reset and set password pages. They don't load Jellyfin's web client (`index.html`), so the custom CSS from **Dashboard → Branding** never reached them, and neither did anything a theme injects into `index.html`.
+
+**Settings → Hardening → "Apply the server's custom CSS (Dashboard → Branding) to this plugin's own pages"** (default off) adds that CSS to the six pages the way Jellyfin Web applies it: a script adds a `<style>` element with the Branding text to the page, after the page's own styles, so a custom rule wins over a built-in rule of the same specificity. The Branding text travels inside the page, with no second request, so a proxy or CDN can't serve an old copy of it. A theme that loads its file with `@import` from another site behaves as it does in Jellyfin Web: the page doesn't wait for that file, so if the site is slow or unreachable the page still works, with the rules written in the Branding CSS itself, and the imported rules apply when the file arrives.
+
+Every one of these pages names itself on its `<body>`: `tfa-page` on all six, plus one of `tfa-page-login`, `tfa-page-challenge`, `tfa-page-setup`, `tfa-page-pair-confirm`, `tfa-page-password-reset` and `tfa-page-set-password`. The Branding CSS also runs on every Jellyfin page, and Jellyfin has its own `.card` and `h1`, so start the rules meant for these pages with `body.tfa-page`:
+
+```css
+body.tfa-page {
+    background: #0f1724;
+}
+
+body.tfa-page .card {
+    background: #16213a;
+    border-radius: 16px;
+}
+
+body.tfa-page-login .logo {
+    color: #e5a00d;
+}
+```
+
+The body classes are the hook meant to stay. The names inside the pages (`.card`, `.logo`, `.code-input`, `#tfaLangHost` and the rest) follow each page's layout and can change when a page changes.
+
+Before you turn it on:
+
+- **Rules for plain elements apply here too.** CSS that styles `body`, `input`, `button` or `h1` for Jellyfin's pages styles them on these pages as well, which is why the setting is off by default. Look at the pages after turning it on.
+- **Some elements have inline `style` attributes or `!important` rules** (most of them on Setup, a few on the challenge, sign-in and pairing pages), which a stylesheet overrides only with `!important`.
+- **Write `url()` paths absolute** (`/web/assets/...`) or as full URLs. A relative path resolves against the page, so `assets/img/x.png` points to `/TwoFactorAuth/assets/img/x.png` here and to `/web/assets/img/x.png` in Jellyfin Web.
+- **Per-user CSS settings don't apply.** Jellyfin Web's "Disable server-provided custom CSS code" and a user's own "Custom CSS code" are saved per user in each browser, and the sign-in pages run before anyone signs in, so these pages show the server's CSS to everyone.
+- **Only apply CSS you trust.** It can restyle or hide anything on these pages, including the challenge and the recovery codes on Setup, and with attribute selectors and `url()` it can send attribute values, such as the setup QR code, to the sites it loads from. A stylesheet imported from another site is also fetched by every visitor's browser. The same CSS already runs on all of Jellyfin's own pages.
+
+The plugin's settings page already runs inside Jellyfin Web and gets the Branding CSS without this setting. The OIDC hand-off pages (the bridge that finishes an SSO sign-in, the popups that close themselves, the in-app browser breakout and the return-to-app page) are not covered: they are built in code, most show only for a moment, and some hold a sign-in token, so they stay as they are.
 
 ---
 
