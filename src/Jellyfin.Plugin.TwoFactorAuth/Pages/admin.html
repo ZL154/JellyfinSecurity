@@ -819,6 +819,14 @@
                                 </label>
                                 <div class="tfa-help" data-i18n-key="tfa.admin.hardening.links_below_qc_help">Moves the plugin's injected login links beneath Jellyfin's Quick Connect button instead of directly under Sign In. Purely cosmetic; leave off to keep the default placement.</div>
                             </div>
+                            <!-- [#348]: the server's Branding CSS on the plugin's own pages. -->
+                            <div class="tfa-row tfa-row-stack" style="margin-top:10px;">
+                                <label class="tfa-check-label">
+                                    <input type="checkbox" id="cfgApplyBrandingCss" is="emby-checkbox" />
+                                    <span data-i18n-key="tfa.admin.hardening.apply_branding_css_label">Apply the server's custom CSS (Dashboard → Branding) to this plugin's own pages</span>
+                                </label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.hardening.apply_branding_css_help">The sign-in, challenge, Setup, pairing and password pages are served by this plugin and don't load Jellyfin's web client, so that CSS never reached them. When on, it is added after their own styles. Rules for elements such as body, input or button then apply here too; to style only these pages, start your selectors with body.tfa-page (see the README).</div>
+                            </div>
                         </div>
 
                         <div class="tfa-section">
