@@ -101,6 +101,7 @@ visible trust signals is treated as a high-priority bug.
 - [SSO / OIDC sign-in (v2.0)](#-sso--oidc-sign-in-v20)
 - [Sign-in through a trusted proxy (#298)](#-sign-in-through-a-trusted-proxy-298)
 - [Brute-force IP banning (v2.0)](#-brute-force-ip-banning-v20)
+- [GeoIP databases (#351)](#-geoip-databases-351)
 - [Impossible-travel detection (v2.0)](#-impossible-travel-detection-v20)
 - [Per-user IP allowlist (v2.0)](#-per-user-ip-allowlist-v20)
 - [Step-up authentication (v2.5)](#-step-up-authentication-v25)
@@ -179,8 +180,8 @@ A completed password change through the plugin's reset link, Jellyfin's Forgot P
 
 ### Brute-force & anomaly protection
 - **Brute-force IP banning** — auto-bans source IPs that exceed N failed sign-ins in M minutes, persisted across restarts, with an admin list/unban UI.
-- **Impossible-travel detection** — flags consecutive sign-ins that exceed commercial-jet cruise speed, using MaxMind GeoLite2-City for geolocation.
-- **Suspicious-login alerts**: a notification the first time a user signs in from a network (ASN) and country pair the plugin has not seen for them, using a MaxMind GeoLite2-ASN database, a GeoLite2-Country database, or both. Its **Enable** box in **Settings → Suspicious-login detection** turns it off and keeps the database paths (#258). Impossible-travel alerts go out as the same notification ("Sign-in from a new location", webhook event `suspicious_login`), so they keep arriving while impossible-travel detection is on.
+- **Impossible-travel detection**: flags consecutive sign-ins that exceed commercial-jet cruise speed. It needs a City database, either DB-IP City Lite, downloaded and kept current by the plugin, or a MaxMind GeoLite2-City file you provide (#351).
+- **Suspicious-login alerts**: a notification the first time a user signs in from a network (ASN) and country pair the plugin has not seen for them, using an ASN database, a Country database, or both: DB-IP Lite, downloaded and kept current by the plugin, or MaxMind GeoLite2 files you provide (#351). Its **Enable** box in **Settings → Suspicious-login detection** turns it off and keeps the database paths (#258). Impossible-travel alerts go out as the same notification ("Sign-in from a new location", webhook event `suspicious_login`), so they keep arriving while impossible-travel detection is on.
 - **Per-user IP allowlist** — pin high-value accounts (e.g. admin) to specific CIDRs so sign-in is refused from everywhere else.
 
 ### Step-up authentication
@@ -211,7 +212,7 @@ A completed password change through the plugin's reset link, Jellyfin's Forgot P
 - **12-factor security score** with an auth-activity overview chart (1w / 1m / 1y range, hover tooltips, server-side bucket backfill).
 - **Audit log** of every 2FA-related event — paginated, filterable, sortable, hash-chained, and rebuildable after disk corruption (1000 entries default, 90-day prune).
 - **Encrypted configuration exports** — passphrase-protected (AES-256-GCM, PBKDF2-SHA256 600k) envelopes for back-up and migration.
-- **Self-diagnostics** — keys, auth-provider wiring, inject middleware, audit-chain integrity, and a GeoIP check that retries, falls back to an in-memory open, and reports per-database *why* a database failed to load instead of a blank "Fail".
+- **Self-diagnostics**: keys, auth-provider wiring, inject middleware, audit-chain integrity, and a GeoIP check that retries, falls back to an in-memory open, and reports per-database *why* a database failed to load instead of a blank "Fail"; with automatic GeoIP updates on, one more row gives the release of each database on disk and how the last download went (#351).
 
 ### UI & internationalization
 - Polished login page with lockout countdown and low-recovery-code warning; a unified Setup page (TOTP, recovery codes, email backup, pending device approvals, paired devices, app passwords, trusted browsers, active sessions).
@@ -639,17 +640,37 @@ Bans persist across restarts via `<config>/plugins/configurations/TwoFactorAuth/
 
 ---
 
+## 🌍 GeoIP databases (#351)
+
+Suspicious-login alerts and impossible-travel detection look sign-in addresses up in IP databases in MaxMind DB format (`.mmdb`). The plugin bundles none. **Settings → GeoIP databases** offers two ways to get them.
+
+**Automatic updates (DB-IP Lite, no account).** Tick **"Download and update the databases automatically"** (default off). The plugin then downloads DB-IP's free Lite databases into its data folder, `plugins/configurations/TwoFactorAuth/geoip`, next to its other files, where a plugin update leaves them alone:
+
+- Only what the detectors you have on read: ASN and Country for suspicious-login alerts (about 18 MB), City for impossible travel (about 127 MB).
+- Through the scheduled task **Dashboard → Scheduled Tasks → Update GeoIP databases**, which runs at startup, every 24 hours, and right away when a save turns the box on, or turns a detector on while the box is ticked.
+- One file per month (`dbip-city-lite-2026-11.mmdb`). A run asks DB-IP for the current month and keeps the previous one until DB-IP publishes it; with the current month already on disk it makes no request at all.
+- Each file is checked before it is used: at most 512 MB unpacked, the expected database type, and the fields the detectors read. A failed download leaves the release already on disk in use, and the task shows as failed with the reason.
+- An older release is deleted once a newer one is in place.
+
+While the box is ticked, the three path fields are greyed out and not read; they keep their values for when you untick it. The Diagnostics tab gets a **GeoIP automatic update** row with the release of each database on disk and how the last run went.
+
+DB-IP Lite is licensed under [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/): [IP Geolocation by DB-IP](https://db-ip.com). The settings page shows the same credit.
+
+**Your own files (MaxMind GeoLite2, or any MaxMind DB file).** Leave the box unticked and set the paths in **Settings → Suspicious-login detection** and **Settings → Impossible-Travel Detection**. GeoLite2 needs a [free MaxMind account](https://www.maxmind.com/en/geolite2/signup). To keep the files current, run MaxMind's [geoipupdate](https://github.com/maxmind/geoipupdate), or any job that writes the new file and renames it over the old one. When the plugin next reads a database (a sign-in, a Diagnostics run), at most every 30 seconds, it checks whether the file was replaced and reopens it without a restart; a replacement that does not open leaves the previous copy in use.
+
+---
+
 ## ✈️ Impossible-travel detection (v2.0)
 
 Flags sign-ins where the geographic distance vs. elapsed time exceeds commercial-jet cruise speed. London → Tokyo in 30 minutes ≈ Mach 20: notification fires.
 
-**Requires:** MaxMind GeoLite2-City.mmdb. [Free account](https://www.maxmind.com/en/geolite2/signup), download the City DB, drop it in `/config/geoip/`, paste the path in **Settings → Impossible-Travel Detection**. The path must be the one the Jellyfin process sees (inside the container, for Docker) and readable by the user Jellyfin runs as; the Diagnostics tab tells you which of those is not the case.
+**Requires:** a City database. Either tick **Settings → GeoIP databases → "Download and update the databases automatically"** and the plugin downloads DB-IP City Lite (see [GeoIP databases](#-geoip-databases-351)), or use MaxMind GeoLite2-City.mmdb: [free account](https://www.maxmind.com/en/geolite2/signup), download the City DB, drop it in `/config/geoip/`, paste the path in **Settings → Impossible-Travel Detection**. The path must be the one the Jellyfin process sees (inside the container, for Docker) and readable by the user Jellyfin runs as; the Diagnostics tab tells you which of those is not the case.
 
 **Signal path:** Triggers the same Notification channels the plugin already uses (ntfy, Gotify, Telegram, webhook, admin emails). Includes distance, duration, inferred speed, and country hop in the message.
 
-The **Enable** box is on by default, but the detector does nothing until the city DB is in place and its path is set.
+The **Enable** box is on by default, but the detector does nothing until a City database is in place: automatic GeoIP updates on, or the city DB path set.
 
-**Geographic checks done outside the plugin (#258):** if a WAF, CrowdSec, a firewall or another layer in front of Jellyfin already covers this, tick **Settings → Impossible-Travel Detection → "Geographic checks are done outside this plugin"** (default off). While impossible-travel detection is off or has no city DB path set, the security score then leaves the impossible-travel factor out of the total instead of counting it as failed, and its card reads "Not counted". The score reads these two settings and does not check that the City database loads. The plugin cannot see that outside protection, so the factor earns no points for it, and a detector that is enabled with a city DB path set keeps its 7 points whatever the setting says. The setting does not turn either detector on or off.
+**Geographic checks done outside the plugin (#258):** if a WAF, CrowdSec, a firewall or another layer in front of Jellyfin already covers this, tick **Settings → Impossible-Travel Detection → "Geographic checks are done outside this plugin"** (default off). While impossible-travel detection is off or has no City database (no city DB path set and automatic GeoIP updates off), the security score then leaves the impossible-travel factor out of the total instead of counting it as failed, and its card reads "Not counted". The score reads these settings and does not check that the City database loads. The plugin cannot see that outside protection, so the factor earns no points for it, and a detector that is enabled with a City database (a path set, or automatic GeoIP updates on) keeps its 7 points whatever the setting says. The setting does not turn either detector on or off.
 
 ---
 
@@ -725,7 +746,7 @@ In v2.5.20, posture checks initialise independently on Jellyfin 10.11.11. A fail
 | Enforcement | 15 | `RequireForAll` is on |
 | Audit chain | 10 | Hash chain is intact (no breakage) |
 | IP ban | 8 | Brute-force banning enabled with sane threshold |
-| Impossible travel | 7 | Impossible-travel detection enabled with `GeoIpCityDbPath` set (the path, not whether the file loads). Left out of the total, instead of failed, when it is not and "Geographic checks are done outside this plugin" is on (#258) |
+| Impossible travel | 7 | Impossible-travel detection enabled with `GeoIpCityDbPath` set or automatic GeoIP updates on (the settings, not whether the file loads). Left out of the total, instead of failed, when it is not and "Geographic checks are done outside this plugin" is on (#258) |
 | HIBP | 5 | Have-I-Been-Pwned password check enabled |
 | Clean 7-day audit | 5 | No failed admin sign-ins in the last 7 days |
 | Require-to-disable | 8 | `RequireTwoFactorToDisable` is on |

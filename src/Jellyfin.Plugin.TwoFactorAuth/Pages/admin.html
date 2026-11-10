@@ -34,6 +34,8 @@
                absorbed the overflow. */
             #TwoFactorAuth .tfa-input { background: #1a1a1a; border: 1px solid #444; color: #e0e0e0; padding: 7px 10px; border-radius: 4px; font-size: 14px; font-family: inherit; box-sizing: border-box; }
             #TwoFactorAuth .tfa-input:focus { border-color: #00a4dc; outline: none; }
+            /* [#351] The GeoIP path fields while automatic updates are on. */
+            #TwoFactorAuth .tfa-input:disabled { opacity: 0.45; cursor: not-allowed; }
             #TwoFactorAuth textarea.tfa-input { width: 100%; min-height: 70px; resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
             #TwoFactorAuth .tfa-tabs { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; padding: 6px; background: rgba(0,0,0,0.25); border-radius: 10px; border: 1px solid rgba(255,255,255,0.06); }
             #TwoFactorAuth .tfa-tab { padding: 8px 14px; cursor: pointer; color: #bbb; font-size: 13px; font-weight: 500; border-radius: 6px; transition: all 0.12s ease; user-select: none; white-space: nowrap; }
@@ -945,6 +947,17 @@
                             </div>
                         </div>
 
+                        <!-- [#351] Automatic GeoIP downloads for the two detectors below. While on, the path fields are greyed out and not read. -->
+                        <div class="tfa-section">
+                            <h2 data-i18n-key="tfa.admin.settings.geoip_heading">GeoIP databases</h2>
+                            <div class="tfa-note" data-i18n-key="tfa.admin.settings.geoip_note">Suspicious-login and impossible-travel detection look sign-in addresses up in IP databases (.mmdb files). Turn on automatic updates to let the plugin download the free DB-IP Lite databases and keep them current, or leave them off and set the paths of your own files in the two sections below, for example MaxMind GeoLite2 kept current by MaxMind's geoipupdate (the plugin picks up a replaced file without a restart).</div>
+                            <div class="tfa-row tfa-row-stack">
+                                <label><input type="checkbox" id="cfgGeoAutoUpdate" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_geo_auto_update">Download and update the databases automatically (DB-IP Lite, no account needed)</span></label>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.geo_auto_update_help">Off by default. On, the plugin downloads only what the detectors you have on read: ASN and Country for suspicious-login detection (about 18 MB), City for impossible travel (about 127 MB). It checks at startup and every 24 hours, takes each monthly release once DB-IP publishes it, and keeps the files in its data folder (plugins/configurations/TwoFactorAuth/geoip). Saving with this on starts the first download right away. While it is on, the path fields below are kept but not used. To update now: Dashboard, Scheduled Tasks, Update GeoIP databases.</div>
+                                <div class="tfa-help"><a href="https://db-ip.com" target="_blank" rel="noopener" style="color:#00a4dc;">IP Geolocation by DB-IP</a> (Creative Commons Attribution 4.0)</div>
+                            </div>
+                        </div>
+
                         <div class="tfa-section">
                             <h2 data-i18n-key="tfa.admin.settings.suspicious_heading">Suspicious-login detection (v1.4)</h2>
                             <div class="tfa-note" data-i18n-key="tfa.admin.settings.suspicious_note">Resolve sign-in IPs to ASN + country via MaxMind GeoLite2 .mmdb files. Sign in once with a free MaxMind account, download GeoLite2-ASN and GeoLite2-Country, place the .mmdb files inside Jellyfin's config directory, and paste the absolute paths below. Without these the plugin still works — just no first-seen alerts.</div>
@@ -1004,7 +1017,7 @@
                             <!-- [#258] For servers whose geographic checks run outside the plugin. -->
                             <div class="tfa-row tfa-row-stack">
                                 <label><input type="checkbox" id="cfgGeoExternal" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.settings.opt_geo_external">Geographic checks are done outside this plugin (a WAF, CrowdSec, a firewall)</span></label>
-                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.geo_external_help">Off by default. When on, and impossible-travel detection is off or its GeoLite2-City.mmdb path is empty, the security score leaves that factor out of the total instead of counting it as failed. The plugin cannot see that protection, so it gives no points for it, and this setting does not turn any detector on or off.</div>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.settings.geo_external_help">Off by default. When on, and impossible-travel detection is off or has no City database (its GeoLite2-City.mmdb path is empty and automatic GeoIP updates are off), the security score leaves that factor out of the total instead of counting it as failed. The plugin cannot see that protection, so it gives no points for it, and this setting does not turn any detector on or off.</div>
                             </div>
                         </div>
 

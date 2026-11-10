@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Microsoft.Extensions.Logging;
 
@@ -15,7 +16,8 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 ///  - London ↔ Paris, 4h apart → ~85 km/h, fine
 ///  - London ↔ Tokyo, 30min apart → ~19000 km/h, IMPOSSIBLE → alert
 ///
-/// Requires GeoLite2-City.mmdb to resolve lat/lon. Falls back to skipping
+/// Requires a City database (MaxMind GeoLite2-City, or [#351] DB-IP City Lite
+/// downloaded by automatic updates) to resolve lat/lon. Falls back to skipping
 /// when only ASN/Country dbs are available (handled by SuspiciousLoginDetector
 /// instead).</summary>
 public class ImpossibleTravelDetector : IDisposable
@@ -23,14 +25,30 @@ public class ImpossibleTravelDetector : IDisposable
     private readonly UserTwoFactorStore _store;
     private readonly NotificationService _notifications;
     private readonly ILogger<ImpossibleTravelDetector> _logger;
+    private readonly Func<PluginConfiguration?> _configAccessor;
+    private readonly Func<string?> _downloadDirectoryAccessor;
     private readonly GeoIpDatabase _city;
     private bool _disposed;
 
     public ImpossibleTravelDetector(UserTwoFactorStore store, NotificationService notifications, ILogger<ImpossibleTravelDetector> logger)
+        : this(store, notifications, logger, () => Plugin.Instance?.Configuration, () => Plugin.Instance?.GeoIpDownloadDirectory)
+    {
+    }
+
+    // [#351] Test seam, as in GeoIpService: tests hand in the configuration
+    // and the download folder without the Plugin singleton.
+    internal ImpossibleTravelDetector(
+        UserTwoFactorStore store,
+        NotificationService notifications,
+        ILogger<ImpossibleTravelDetector> logger,
+        Func<PluginConfiguration?> configAccessor,
+        Func<string?> downloadDirectoryAccessor)
     {
         _store = store;
         _notifications = notifications;
         _logger = logger;
+        _configAccessor = configAccessor;
+        _downloadDirectoryAccessor = downloadDirectoryAccessor;
         _city = new GeoIpDatabase("GeoLite2-City", logger);
     }
 
@@ -50,7 +68,7 @@ public class ImpossibleTravelDetector : IDisposable
     public async Task ObserveAsync(Guid userId, string username, string ip)
     {
         if (userId == Guid.Empty) return;
-        var config = Plugin.Instance?.Configuration;
+        var config = _configAccessor();
         if (config is null || !config.ImpossibleTravelEnabled) return;
 
         Sync(force: false);
@@ -141,9 +159,12 @@ public class ImpossibleTravelDetector : IDisposable
     // [#51] a failed load is retried and reported instead of pinned.
     private void Sync(bool force)
     {
-        var config = Plugin.Instance?.Configuration;
+        var config = _configAccessor();
         if (config is null) return;
-        _city.Sync(config.GeoIpCityDbPath, DateTime.UtcNow, force);
+
+        // [#351] The admin's path, or with automatic updates on, the newest
+        // downloaded City release.
+        _city.Sync(GeoIpDownloadService.ResolvePath(config, GeoIpEdition.City, _downloadDirectoryAccessor()), DateTime.UtcNow, force);
     }
 
     /// <summary>Great-circle distance in kilometres between two coords.</summary>

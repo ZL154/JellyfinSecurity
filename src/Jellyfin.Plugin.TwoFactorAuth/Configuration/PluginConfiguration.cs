@@ -664,11 +664,24 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>[#258] The server's geographic checks are done outside this
     /// plugin (a WAF, CrowdSec, a firewall). Off by default. On, the security
     /// score leaves impossible-travel detection out of the total while it is
-    /// off or has no GeoIpCityDbPath, instead of counting it as failed. It
-    /// never removes the credit the factor earns when the detector is enabled
-    /// with a city database path, and it does not turn either detector on or
-    /// off.</summary>
+    /// off or has no city database (no GeoIpCityDbPath, and [#351]
+    /// <see cref="GeoIpAutoUpdate"/> off), instead of counting it as failed.
+    /// It never removes the credit the factor earns when the detector is
+    /// enabled with a city database, and it does not turn either detector on
+    /// or off.</summary>
     public bool GeoProtectionHandledExternally { get; set; }
+
+    /// <summary>[#351] Download the GeoIP databases instead of reading the
+    /// paths above. Off by default. On, the "Update GeoIP databases" scheduled
+    /// task fetches DB-IP's free Lite databases (Creative Commons Attribution
+    /// 4.0, no account needed) into the plugin's data folder: ASN and Country
+    /// while suspicious-login detection is on, City while impossible-travel
+    /// detection is on. It runs at startup, every 24 hours and right after
+    /// this is switched on, and it takes each monthly release once DB-IP
+    /// publishes it. While this is on, <see cref="GeoIpAsnDbPath"/>,
+    /// <see cref="GeoIpCountryDbPath"/> and <see cref="GeoIpCityDbPath"/> are
+    /// kept but not read.</summary>
+    public bool GeoIpAutoUpdate { get; set; }
 
     /// <summary>Optional Ed25519 private key (PEM) for signing webhook bodies
     /// asymmetrically. Receivers verify with the matching public key. Empty =

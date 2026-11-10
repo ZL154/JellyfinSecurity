@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using MaxMind.Db;
@@ -27,6 +29,14 @@ public sealed record GeoIpDatabaseStatus(
 /// with its reason, a failed load is retried (every <see cref="RetryInterval"/>,
 /// or at once when asked), and an open that memory mapping refuses falls back
 /// to reading the file into memory.
+///
+/// [#351] A file replaced under the same path (MaxMind's geoipupdate, a cron
+/// job) is reopened. The reader used to keep the copy it opened until
+/// Jellyfin restarted. The file's size and modification time are now
+/// compared once per <see cref="RetryInterval"/>, and a changed file is
+/// opened before the old reader closes, so lookups never go without a
+/// database and a replacement that does not open leaves the last good copy
+/// in use.
 /// </summary>
 public sealed class GeoIpDatabase : IDisposable
 {
@@ -46,6 +56,9 @@ public sealed class GeoIpDatabase : IDisposable
     private DateTime? _lastAttemptAt;
     private string? _failure;
     private string? _lastLoggedFailure;
+    private FileStamp? _openedStamp;
+    private DateTime? _lastChangeCheckAt;
+    private string? _lastLoggedReload;
     private bool _disposed;
 
     public GeoIpDatabase(string name, ILogger logger)
@@ -72,10 +85,11 @@ public sealed class GeoIpDatabase : IDisposable
         }
     }
 
-    /// <summary>Bring the reader in line with the configured path. A no-op
-    /// while the path is unchanged and the reader is open; a failed load is
-    /// retried after <see cref="RetryInterval"/>, or right away when
-    /// <paramref name="force"/> is set (the Diagnostics tab does that).</summary>
+    /// <summary>Bring the reader in line with the configured path. While the
+    /// path is unchanged and the reader is open, it only checks whether the
+    /// file was replaced, once per <see cref="RetryInterval"/>; a failed load
+    /// is retried after the same interval. <paramref name="force"/> does
+    /// either right away (the Diagnostics tab sets it).</summary>
     public void Sync(string? configuredPath, DateTime utcNow, bool force = false)
     {
         var path = (configuredPath ?? string.Empty).Trim();
@@ -91,6 +105,9 @@ public sealed class GeoIpDatabase : IDisposable
                 _lastAttemptAt = null;
                 _failure = null;
                 _lastLoggedFailure = null;
+                _openedStamp = null;
+                _lastChangeCheckAt = null;
+                _lastLoggedReload = null;
                 _configuredPath = path;
             }
 
@@ -100,7 +117,13 @@ public sealed class GeoIpDatabase : IDisposable
                 return;
             }
 
-            if (!ShouldRetry(_reader is not null, _lastAttemptAt, utcNow, force)) return;
+            if (_reader is not null)
+            {
+                ReloadIfReplaced(path, utcNow, force);
+                return;
+            }
+
+            if (!ShouldRetry(false, _lastAttemptAt, utcNow, force)) return;
             Attempt(path, utcNow);
         }
     }
@@ -146,45 +169,120 @@ public sealed class GeoIpDatabase : IDisposable
         _lastAttemptAt = utcNow;
         _failure = null;
 
+        // Taken before the open: a file replaced in between is then seen as
+        // changed on the next look and opened again, never missed.
+        var stamp = Stamp(path);
+        if (!TryOpen(path, out var reader, out var failure))
+        {
+            Fail(failure);
+            return;
+        }
+
+        _reader = reader;
+        _openedStamp = stamp;
+        _lastChangeCheckAt = utcNow;
+        _loadedAt = utcNow;
+        _lastLoggedFailure = null;
+        _lastLoggedReload = null;
+        _logger.LogInformation("[2FA] Loaded {Name} from {Path}", _name, path);
+    }
+
+    /// <summary>[#351] Reopen the file when something replaced it under the
+    /// same path, looked at once per <see cref="RetryInterval"/> or when
+    /// forced. A file that is gone keeps the open copy, which still reads; a
+    /// replacement that does not open keeps it too, and the next look tries
+    /// again, so an updater that is still writing is picked up once it is
+    /// done.</summary>
+    private void ReloadIfReplaced(string path, DateTime utcNow, bool force)
+    {
+        if (!force && _lastChangeCheckAt is { } checkedAt && utcNow - checkedAt < RetryInterval) return;
+        _lastChangeCheckAt = utcNow;
+
+        var stamp = Stamp(path);
+        if (stamp is null || stamp == _openedStamp) return;
+
+        if (!TryOpen(path, out var fresh, out var failure))
+        {
+            var loadedAt = _loadedAt?.ToString("u", CultureInfo.InvariantCulture) ?? "an unknown time";
+            var note = $"{path} changed on disk but did not open ({failure}); still using the copy loaded at {loadedAt}";
+            if (!string.Equals(note, _lastLoggedReload, StringComparison.Ordinal))
+            {
+                _lastLoggedReload = note;
+                _logger.LogWarning("[2FA] GeoIP {Name}: {Note}", _name, note);
+            }
+
+            return;
+        }
+
+        var stale = _reader;
+        _reader = fresh;
+        _openedStamp = stamp;
+        _loadedAt = utcNow;
+        _lastLoggedReload = null;
+        stale?.Dispose();
+        _logger.LogInformation("[2FA] Reloaded {Name} from {Path}: the file changed on disk", _name, path);
+    }
+
+    /// <summary>The checks and the open shared by the first load and a reload:
+    /// the path rules, whether the Jellyfin process sees the file (and as
+    /// which user), and memory mapping with an in-memory fallback.</summary>
+    private bool TryOpen(string path, [NotNullWhen(true)] out Reader? reader, [NotNullWhen(false)] out string? failure)
+    {
+        reader = null;
         if (!GeoIpService.TryValidatePath(path, out var reason))
         {
-            Fail($"rejected ({reason}): {path}");
-            return;
+            failure = $"rejected ({reason}): {path}";
+            return false;
         }
 
         if (!File.Exists(path))
         {
             var dir = Path.GetDirectoryName(path);
             var dirVisible = !string.IsNullOrEmpty(dir) && Directory.Exists(dir);
-            Fail(dirVisible
+            failure = dirVisible
                 ? $"not found at {path} (the directory is visible, the file is not; checked as user {ProcessUser})"
-                : $"not found at {path} (its directory is not visible to the Jellyfin process; checked as user {ProcessUser})");
-            return;
+                : $"not found at {path} (its directory is not visible to the Jellyfin process; checked as user {ProcessUser})";
+            return false;
         }
 
         try
         {
-            _reader = new Reader(path);
+            reader = new Reader(path);
         }
         catch (Exception mapped)
         {
             try
             {
-                _reader = new Reader(path, FileAccessMode.Memory);
+                reader = new Reader(path, FileAccessMode.Memory);
                 _logger.LogInformation(
                     "[2FA] {Name}: memory mapping {Path} failed ({Reason}); opened it in memory instead",
                     _name, path, mapped.Message);
             }
             catch (Exception ex)
             {
-                Fail($"open failed at {path}: {ex.Message}");
-                return;
+                failure = $"open failed at {path}: {ex.Message}";
+                return false;
             }
         }
 
-        _loadedAt = utcNow;
-        _lastLoggedFailure = null;
-        _logger.LogInformation("[2FA] Loaded {Name} from {Path}", _name, path);
+        failure = null;
+        return true;
+    }
+
+    // Size and modification time, which an updater that writes a new file
+    // and renames it over the old one always changes. Null when the file is
+    // not there or cannot be read.
+    private static FileStamp? Stamp(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? new FileStamp(info.LastWriteTimeUtc, info.Length) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Record a failure; the log gets a warning the first time a
@@ -248,4 +346,6 @@ public sealed class GeoIpDatabase : IDisposable
             _reader = null;
         }
     }
+
+    private readonly record struct FileStamp(DateTime WriteTimeUtc, long Length);
 }

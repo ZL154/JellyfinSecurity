@@ -8,6 +8,7 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth;
@@ -44,6 +45,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public static Plugin? Instance { get; private set; }
 
+    /// <summary>[#351] Where automatic GeoIP updates keep the downloaded
+    /// databases: the "geoip" folder inside the plugin's data folder.</summary>
+    public string GeoIpDownloadDirectory => GeoIpDownloadService.DirectoryFor(ApplicationPaths);
+
     /// <summary>
     /// [#213] Jellyfin calls this before it removes the plugin, while the server
     /// is still running. Accounts moved onto this plugin's sign-in provider are
@@ -66,12 +71,36 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     public override void UpdateConfiguration(BasePluginConfiguration configuration)
     {
+        var before = Configuration;
         if (configuration is PluginConfiguration incoming)
         {
             ConfigSecrets.KeepSaved(incoming, Configuration);
         }
 
         base.UpdateConfiguration(configuration);
+
+        // [#351] Turning automatic GeoIP updates on, or a detector on while
+        // they are on, downloads what is missing now instead of at the next
+        // scheduled run.
+        if (configuration is PluginConfiguration saved && GeoIpDownloadService.ShouldRunAfterSave(before, saved))
+        {
+            QueueGeoIpUpdate();
+        }
+    }
+
+    // Resolved when needed, like the user manager in OnUninstalling, so
+    // building the plugin does not pull in the task manager. A failure to
+    // queue never fails the save: the task still runs on its schedule.
+    private void QueueGeoIpUpdate()
+    {
+        try
+        {
+            _appHost.Resolve<ITaskManager>().QueueScheduledTask<GeoIpUpdateTask>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Could not start the GeoIP update now; it runs at its next scheduled time");
+        }
     }
 
     public override string Name => "Jellyfin Security";
