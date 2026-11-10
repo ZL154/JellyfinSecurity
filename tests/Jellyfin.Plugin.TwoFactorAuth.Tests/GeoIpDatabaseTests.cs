@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -168,5 +171,165 @@ public class GeoIpDatabaseTests
     {
         DateTime? last = secondsAgo < 0 ? null : T0.AddSeconds(-secondsAgo);
         Assert.Equal(expected, GeoIpDatabase.ShouldRetry(loaded, last, T0, force));
+    }
+
+    // [#351] A file replaced under the same path is reopened. MaxMind's
+    // geoipupdate, a cron job or any other updater writes the new release over
+    // the old one, and the open reader kept the old copy until Jellyfin
+    // restarted. Linux and macOS let a mapped file be replaced or deleted;
+    // Windows refuses (which is why GeoIpDownloadService gives every release
+    // its own name), so these cases only run off Windows.
+
+    [Fact]
+    public void A_database_replaced_on_disk_is_reopened_after_the_retry_interval()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var dir = TempDir();
+        try
+        {
+            var path = Path.Combine(dir, "GeoLite2-ASN.mmdb");
+            File.WriteAllBytes(path, TestMmdb.Build("GeoLite2-ASN", TestMmdb.AsnRecord(64500, "First AS")));
+            using var db = new GeoIpDatabase("GeoLite2-ASN", NullLogger.Instance);
+            db.Sync(path, T0);
+            Assert.Equal(64500L, AsnOf(db));
+
+            Replace(path, TestMmdb.Build("GeoLite2-ASN", TestMmdb.AsnRecord(64501, "Second AS")));
+
+            // Inside the interval the open copy keeps answering, without a
+            // look at the file on every lookup.
+            db.Sync(path, T0.AddSeconds(10));
+            Assert.Equal(64500L, AsnOf(db));
+            Assert.Equal(T0, db.Status.LoadedAt);
+
+            db.Sync(path, T0.AddSeconds(31));
+            Assert.Equal(64501L, AsnOf(db));
+            Assert.True(db.Status.Loaded);
+            Assert.Equal(T0.AddSeconds(31), db.Status.LoadedAt);
+            Assert.Null(db.Status.Failure);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void An_unchanged_file_is_not_reopened()
+    {
+        var dir = TempDir();
+        try
+        {
+            var path = Path.Combine(dir, "GeoLite2-ASN.mmdb");
+            File.WriteAllBytes(path, TestMmdb.Build("GeoLite2-ASN", TestMmdb.AsnRecord()));
+            using var db = new GeoIpDatabase("GeoLite2-ASN", NullLogger.Instance);
+            db.Sync(path, T0);
+
+            db.Sync(path, T0.AddSeconds(31));
+            db.Sync(path, T0.AddSeconds(62), force: true);
+
+            Assert.Equal(T0, db.Status.LoadedAt);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_forced_sync_reopens_a_replaced_database_at_once()
+    {
+        // The Diagnostics tab forces its sync, so a re-run shows the new file.
+        if (OperatingSystem.IsWindows()) return;
+        var dir = TempDir();
+        try
+        {
+            var path = Path.Combine(dir, "GeoLite2-ASN.mmdb");
+            File.WriteAllBytes(path, TestMmdb.Build("GeoLite2-ASN", TestMmdb.AsnRecord(64500, "First AS")));
+            using var db = new GeoIpDatabase("GeoLite2-ASN", NullLogger.Instance);
+            db.Sync(path, T0);
+
+            Replace(path, TestMmdb.Build("GeoLite2-ASN", TestMmdb.AsnRecord(64501, "Second AS")));
+            db.Sync(path, T0.AddSeconds(1), force: true);
+
+            Assert.Equal(64501L, AsnOf(db));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_replacement_that_does_not_open_keeps_the_copy_already_loaded()
+    {
+        // An updater still writing, or a broken file: the detectors keep the
+        // last good copy, and the next check takes the finished file.
+        if (OperatingSystem.IsWindows()) return;
+        var dir = TempDir();
+        try
+        {
+            var path = Path.Combine(dir, "GeoLite2-ASN.mmdb");
+            File.WriteAllBytes(path, TestMmdb.Build("GeoLite2-ASN", TestMmdb.AsnRecord(64500, "First AS")));
+            using var db = new GeoIpDatabase("GeoLite2-ASN", NullLogger.Instance);
+            db.Sync(path, T0);
+
+            Replace(path, System.Text.Encoding.ASCII.GetBytes("not a MaxMind database"));
+            db.Sync(path, T0.AddSeconds(31));
+
+            Assert.True(db.Status.Loaded);
+            Assert.Equal(64500L, AsnOf(db));
+            Assert.Equal(T0, db.Status.LoadedAt);
+
+            Replace(path, TestMmdb.Build("GeoLite2-ASN", TestMmdb.AsnRecord(64502, "Third AS")));
+            db.Sync(path, T0.AddSeconds(62));
+
+            Assert.Equal(64502L, AsnOf(db));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_deleted_file_keeps_the_copy_already_loaded()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var dir = TempDir();
+        try
+        {
+            var path = Path.Combine(dir, "GeoLite2-ASN.mmdb");
+            File.WriteAllBytes(path, TestMmdb.Build("GeoLite2-ASN", TestMmdb.AsnRecord(64500, "First AS")));
+            using var db = new GeoIpDatabase("GeoLite2-ASN", NullLogger.Instance);
+            db.Sync(path, T0);
+
+            File.Delete(path);
+            db.Sync(path, T0.AddSeconds(31));
+
+            Assert.True(db.Status.Loaded);
+            Assert.Equal(64500L, AsnOf(db));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    private static long AsnOf(GeoIpDatabase db)
+    {
+        var record = db.Find<Dictionary<string, object>>(IPAddress.Parse("203.0.113.7"));
+        Assert.NotNull(record);
+        return Convert.ToInt64(record["autonomous_system_number"], CultureInfo.InvariantCulture);
+    }
+
+    // What geoipupdate does: write the new file next to the old one and
+    // rename it over the old one. The timestamp moves on, as with a release
+    // published days later.
+    private static void Replace(string path, byte[] contents)
+    {
+        var temp = path + ".tmp";
+        File.WriteAllBytes(temp, contents);
+        File.SetLastWriteTimeUtc(temp, File.GetLastWriteTimeUtc(path).AddMinutes(5));
+        File.Move(temp, path, overwrite: true);
     }
 }

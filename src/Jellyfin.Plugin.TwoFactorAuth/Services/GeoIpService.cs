@@ -8,9 +8,11 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 
 /// <summary>
-/// Resolves IPs to ASN + country via MaxMind GeoLite2 .mmdb files. Both
-/// databases are admin-supplied (we don't bundle them — MaxMind requires
-/// a free account + license key + manual download). When neither is set,
+/// Resolves IPs to ASN + country via MaxMind DB (.mmdb) files, MaxMind
+/// GeoLite2 or DB-IP Lite. The plugin bundles neither: the admin places the
+/// files and sets their paths (GeoLite2 needs a free MaxMind account), or
+/// [#351] turns on automatic updates and the plugin downloads DB-IP Lite
+/// (<see cref="GeoIpDownloadService"/>). When neither database is available,
 /// every lookup returns Unknown and the suspicious-login detector silently
 /// disables itself.
 ///
@@ -31,28 +33,33 @@ public class GeoIpService : IDisposable
 
     private readonly ILogger<GeoIpService> _logger;
     private readonly Func<PluginConfiguration?> _configAccessor;
+    private readonly Func<string?> _downloadDirectoryAccessor;
     private readonly GeoIpDatabase _asn;
     private readonly GeoIpDatabase _country;
     private bool _disposed;
 
     public GeoIpService(ILogger<GeoIpService> logger)
-        : this(logger, () => Plugin.Instance?.Configuration)
+        : this(logger, () => Plugin.Instance?.Configuration, () => Plugin.Instance?.GeoIpDownloadDirectory)
     {
     }
 
     // [#258] Test seam, as in SecurityScoreService: tests hand in the
-    // database paths without spinning up the Plugin singleton.
-    internal GeoIpService(ILogger<GeoIpService> logger, Func<PluginConfiguration?> configAccessor)
+    // database paths without spinning up the Plugin singleton, and [#351] the
+    // folder automatic updates download into.
+    internal GeoIpService(ILogger<GeoIpService> logger, Func<PluginConfiguration?> configAccessor, Func<string?>? downloadDirectoryAccessor = null)
     {
         _logger = logger;
         _configAccessor = configAccessor;
+        _downloadDirectoryAccessor = downloadDirectoryAccessor ?? (() => null);
         _asn = new GeoIpDatabase("GeoLite2-ASN", logger);
         _country = new GeoIpDatabase("GeoLite2-Country", logger);
     }
 
     // [v2.5.7] (issue #51): availability getters trigger the load, so the
     // Diagnostics tab and the suspicious-login detector see a real answer
-    // before the first Resolve() call. Sync is a no-op in steady state.
+    // before the first Resolve() call. In steady state Sync opens nothing; it
+    // looks at the file once per GeoIpDatabase.RetryInterval and, [#351] with
+    // automatic updates on, lists the few files of the download folder.
     public bool AsnAvailable { get { Sync(force: false); return _asn.Loaded; } }
     public bool CountryAvailable { get { Sync(force: false); return _country.Loaded; } }
 
@@ -119,8 +126,13 @@ public class GeoIpService : IDisposable
         var config = _configAccessor();
         if (config is null) return;
         var now = DateTime.UtcNow;
-        _asn.Sync(config.GeoIpAsnDbPath, now, force);
-        _country.Sync(config.GeoIpCountryDbPath, now, force);
+
+        // [#351] The admin's paths, or with automatic updates on, the newest
+        // downloaded release; a new release has a new name, so the database
+        // reopens on the path change.
+        var downloads = _downloadDirectoryAccessor();
+        _asn.Sync(GeoIpDownloadService.ResolvePath(config, GeoIpEdition.Asn, downloads), now, force);
+        _country.Sync(GeoIpDownloadService.ResolvePath(config, GeoIpEdition.Country, downloads), now, force);
     }
 
     // SECURITY [v2.5.5]: an admin-supplied path is opened by the server

@@ -392,6 +392,52 @@ public class AdminPageContractTests
     }
 
     [Fact]
+    public void Automatic_geoip_updates_reach_the_admin_page()
+    {
+        var page = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.admin.html");
+        var script = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.admin-script.js");
+
+        Assert.NotNull(page);
+        Assert.NotNull(script);
+        // #351: the box exists with its help text and DB-IP's attribution
+        // (Creative Commons Attribution 4.0), is read and saved through
+        // lookups that keep the server's value when an older cached
+        // admin.html lacks it, and greys out the three path fields it
+        // overrides while it is on.
+        Assert.Contains("id=\"cfgGeoAutoUpdate\"", page);
+        Assert.Contains("data-i18n-key=\"tfa.admin.settings.geo_auto_update_help\"", page);
+        Assert.Contains("<a href=\"https://db-ip.com\" target=\"_blank\" rel=\"noopener\" style=\"color:#00a4dc;\">IP Geolocation by DB-IP</a>", page);
+        Assert.Contains("#TwoFactorAuth .tfa-input:disabled {", page);
+        Assert.True(
+            page.IndexOf("id=\"cfgGeoAutoUpdate\"", StringComparison.Ordinal) < page.IndexOf("id=\"cfgGeoAsn\"", StringComparison.Ordinal),
+            "the automatic update box sits above the path fields it overrides");
+        Assert.Contains("geoAutoEl.checked = c.GeoIpAutoUpdate === true;", script);
+        Assert.Contains(": (c.GeoIpAutoUpdate === true);", script);
+        Assert.Contains("['#cfgGeoAsn', '#cfgGeoCountry', '#cfgGeoCity']", script);
+        Assert.Contains("if (input) input.disabled = geoAutoEl.checked;", script);
+
+        foreach (var language in new[] { "en", "de", "es", "fr", "it", "ja", "pt", "zh" })
+        {
+            var strings = ResourceReader.ReadEmbeddedText(
+                $"Jellyfin.Plugin.TwoFactorAuth.Pages.translations.{language}.json");
+            Assert.NotNull(strings);
+            foreach (var key in new[] { "tfa.admin.settings.geoip_heading", "tfa.admin.settings.geoip_note", "tfa.admin.settings.opt_geo_auto_update", "tfa.admin.settings.geo_auto_update_help" })
+            {
+                Assert.True(strings.Contains("\"" + key + "\"", StringComparison.Ordinal), $"{language}.json has no {key}");
+            }
+        }
+
+        // The score's advice names the new way to get a City database, in
+        // the page's English as on the server.
+        var english = ResourceReader.ReadEmbeddedText(
+            "Jellyfin.Plugin.TwoFactorAuth.Pages.translations.en.json");
+        Assert.NotNull(english);
+        Assert.Contains("\"tfa.factor.travel.action\": \"Enable impossible-travel detection, and turn on automatic GeoIP updates or set the GeoIP city DB path.\"", english);
+    }
+
+    [Fact]
     public void The_settings_page_has_no_script_tag_that_needs_a_synchronous_request()
     {
         // #307: Jellyfin's dashboard inserts this page with jQuery, which fetches

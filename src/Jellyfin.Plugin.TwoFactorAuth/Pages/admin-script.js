@@ -1434,6 +1434,23 @@
                         page.querySelector('#cfgTravelEnabled').checked = c.ImpossibleTravelEnabled !== false;
                         page.querySelector('#cfgTravelKmh').value = c.ImpossibleTravelMaxKmh || 900;
                         page.querySelector('#cfgGeoCity').value = c.GeoIpCityDbPath || '';
+                        // [#351] Automatic GeoIP updates. While they are on the
+                        // plugin reads the databases it downloads, so the three
+                        // path fields are greyed out; they keep their values for
+                        // when the box goes off again. Defensive lookup, as for
+                        // #cfgSuspiciousEnabled.
+                        var geoAutoEl = page.querySelector('#cfgGeoAutoUpdate');
+                        if (geoAutoEl) {
+                            geoAutoEl.checked = c.GeoIpAutoUpdate === true;
+                            var syncGeoPaths = function () {
+                                ['#cfgGeoAsn', '#cfgGeoCountry', '#cfgGeoCity'].forEach(function (sel) {
+                                    var input = page.querySelector(sel);
+                                    if (input) input.disabled = geoAutoEl.checked;
+                                });
+                            };
+                            syncGeoPaths();
+                            if (!geoAutoEl.__tfaBound) { geoAutoEl.addEventListener('change', syncGeoPaths); geoAutoEl.__tfaBound = true; }
+                        }
                         // v2.5.0 hardening fields
                         page.querySelector('#cfgRequire2faToDisable').checked = !!c.RequireTwoFactorToDisable;
                         // [v2.5.8] (bug found during #57 smoke test): Jellyfin's
@@ -1656,6 +1673,12 @@
                         c.ImpossibleTravelEnabled = page.querySelector('#cfgTravelEnabled').checked;
                         c.ImpossibleTravelMaxKmh = Math.max(100, parseInt(page.querySelector('#cfgTravelKmh').value) || 900);
                         c.GeoIpCityDbPath = page.querySelector('#cfgGeoCity').value.trim();
+                        // [#351] A cached older admin.html has no box: keep the
+                        // server's value.
+                        var geoAutoSaveEl = page.querySelector('#cfgGeoAutoUpdate');
+                        c.GeoIpAutoUpdate = geoAutoSaveEl
+                            ? geoAutoSaveEl.checked
+                            : (c.GeoIpAutoUpdate === true);
                         // [v2.5.6] (round-5 fix D): persist the tri-state
                         // SelfServiceStepUpMode. Server defaults to "Forced"
                         // for safety when missing, so we explicitly send the

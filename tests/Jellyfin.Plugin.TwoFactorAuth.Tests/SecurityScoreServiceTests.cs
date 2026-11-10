@@ -397,6 +397,45 @@ public class SecurityScoreComputeTests
     }
 
     [Fact]
+    public async Task TravelFactor_EarnsItsCreditWithAutomaticGeoIpUpdatesAndNoCityPath()
+    {
+        // [#351] Automatic updates download the City database while the
+        // detector is on, so the path field can stay empty. Like the path, the
+        // setting is read, not whether the download worked.
+        var svc = Build(out _, out var cfg);
+        cfg.ImpossibleTravelEnabled = true;
+        cfg.GeoIpCityDbPath = string.Empty;
+        cfg.GeoIpAutoUpdate = true;
+
+        var travel = Travel(await svc.ComputeAsync());
+
+        Assert.Equal("ok", travel.Status);
+        Assert.Equal(7, travel.Earned);
+        Assert.Equal(7, travel.Possible);
+        Assert.Null(travel.NextAction);
+
+        // Control: the same server without automatic updates has no City
+        // database for the detector.
+        cfg.GeoIpAutoUpdate = false;
+        Assert.Equal("fail", Travel(await svc.ComputeAsync()).Status);
+    }
+
+    [Fact]
+    public async Task TravelFactor_WithAutomaticGeoIpUpdatesStillNeedsTheDetector()
+    {
+        var svc = Build(out _, out var cfg);
+        cfg.ImpossibleTravelEnabled = false;
+        cfg.GeoIpAutoUpdate = true;
+
+        var travel = Travel(await svc.ComputeAsync());
+
+        Assert.Equal("fail", travel.Status);
+        Assert.Equal(0, travel.Earned);
+        Assert.Equal("tfa.factor.travel.action", travel.NextActionKey);
+        Assert.Contains("automatic GeoIP updates", travel.NextAction);
+    }
+
+    [Fact]
     public async Task TravelFactor_KeepsItsCreditWhenTheDetectorRunsHere()
     {
         // The setting only waives the penalty; it never takes away points.

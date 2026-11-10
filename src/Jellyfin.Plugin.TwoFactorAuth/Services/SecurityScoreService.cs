@@ -207,12 +207,16 @@ public class SecurityScoreService : IDisposable
         // score full credit without ever configuring the GeoLite2-City.mmdb
         // database that the detector actually needs. Require BOTH the toggle
         // AND a non-empty city-DB path so the factor reflects real coverage.
-        var travelEnabled = cfg.ImpossibleTravelEnabled && !string.IsNullOrWhiteSpace(cfg.GeoIpCityDbPath);
+        // [#351] Automatic GeoIP updates count as the city database: they
+        // download it while the detector is on, and the path field is then
+        // not read.
+        var travelEnabled = cfg.ImpossibleTravelEnabled
+            && (cfg.GeoIpAutoUpdate || !string.IsNullOrWhiteSpace(cfg.GeoIpCityDbPath));
         // [#258] A server whose geographic checks run outside the plugin (a
         // WAF, CrowdSec, a firewall) can leave this factor out of the total
         // instead of failing it. The plugin cannot see that protection, so the
         // factor is not counted rather than credited, and a detector that is
-        // enabled with a city DB path keeps its 7 points. Like travelEnabled,
+        // enabled with a city database keeps its 7 points. Like travelEnabled,
         // this reads the settings; it does not check that the database loads.
         var travelNotCounted = !travelEnabled && cfg.GeoProtectionHandledExternally;
         factors.Add(new ScoreFactor
@@ -223,7 +227,7 @@ public class SecurityScoreService : IDisposable
             Earned = travelEnabled ? 7 : 0,
             Possible = travelNotCounted ? 0 : 7,
             Status = travelEnabled ? "ok" : (travelNotCounted ? "na" : "fail"),
-            NextAction = travelEnabled || travelNotCounted ? null : "Enable impossible-travel detection AND configure the GeoIP city DB path.",
+            NextAction = travelEnabled || travelNotCounted ? null : "Enable impossible-travel detection, and turn on automatic GeoIP updates or set the GeoIP city DB path.",
             NextActionKey = travelEnabled || travelNotCounted ? null : "tfa.factor.travel.action",
             Note = travelNotCounted ? "Not counted: geographic checks are done outside this plugin." : null,
             NoteKey = travelNotCounted ? "tfa.factor.travel.not_counted" : null,

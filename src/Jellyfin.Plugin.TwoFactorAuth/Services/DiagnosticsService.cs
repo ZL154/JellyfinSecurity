@@ -27,6 +27,7 @@ public class DiagnosticsService
     private readonly GeoIpService _geo;
     private readonly ImpossibleTravelDetector _travel;
     private readonly SignInObserver _signIns;
+    private readonly GeoIpDownloadService _geoDownloads;
     private readonly ILogger<DiagnosticsService> _logger;
 
     public DiagnosticsService(
@@ -36,6 +37,7 @@ public class DiagnosticsService
         GeoIpService geo,
         ImpossibleTravelDetector travel,
         SignInObserver signIns,
+        GeoIpDownloadService geoDownloads,
         ILogger<DiagnosticsService> logger)
     {
         _store = store;
@@ -44,6 +46,7 @@ public class DiagnosticsService
         _geo = geo;
         _travel = travel;
         _signIns = signIns;
+        _geoDownloads = geoDownloads;
         _logger = logger;
     }
 
@@ -127,6 +130,19 @@ public class DiagnosticsService
         _travel.Refresh();
         var geoStatuses = new List<GeoIpDatabaseStatus>(_geo.Statuses) { _travel.CityStatus };
         results.AddRange(GeoIpChecks(geoStatuses, _paths.ProgramDataPath));
+
+        // [#351] With automatic updates on, one more row for the downloads:
+        // the release of each database on disk and how the last run went.
+        // Before the first download the rows above are left out (there is no
+        // path yet), and this row says why.
+        var config = Plugin.Instance?.Configuration;
+        if (config is { GeoIpAutoUpdate: true })
+        {
+            results.Add(GeoIpUpdateCheck(
+                config,
+                _geoDownloads.LastRun,
+                edition => GeoIpDownloadService.InstalledRelease(_geoDownloads.DownloadDirectory, edition)));
+        }
 
         // [#215] Whether sign-ins actually reach those databases. The detectors
         // spent every release until now wired to nothing, and the symptom was
@@ -219,6 +235,45 @@ public class DiagnosticsService
             }
             yield return new DiagnosticCheck(id, $"GeoIP {status.Name} database", status.Loaded ? CheckStatus.Ok : CheckStatus.Fail, detail);
         }
+    }
+
+    /// <summary>
+    /// [#351] The automatic update row: the release on disk of each database
+    /// the enabled detectors read, the last run since the server started and
+    /// any database it failed to update. Fail when a database a detector
+    /// needs is missing after a failed run (that detector is not working),
+    /// Warn when one is still missing before any run, or when the last run
+    /// failed while an older release is still in use, and Ok otherwise.
+    /// </summary>
+    internal static DiagnosticCheck GeoIpUpdateCheck(Configuration.PluginConfiguration config, GeoIpDownloadRun? lastRun, Func<GeoIpEdition, string?> installedRelease)
+    {
+        var needed = GeoIpDownloadService.EditionsFor(config);
+        var onDisk = needed.Select(edition => (Edition: edition, Release: installedRelease(edition))).ToList();
+        var parts = new List<string>
+        {
+            onDisk.Count == 0
+                ? "no detector that reads a GeoIP database is on"
+                : "DB-IP Lite on disk: " + string.Join(", ", onDisk.Select(d => $"{GeoIpDownloadService.Label(d.Edition)} {d.Release ?? "none"}")),
+        };
+
+        if (lastRun is null)
+        {
+            parts.Add("no update run since the server started (it runs at startup and every 24 hours; to run it now: Dashboard, Scheduled Tasks, Update GeoIP databases)");
+        }
+        else
+        {
+            parts.Add("last run " + lastRun.FinishedAt.ToString("u", System.Globalization.CultureInfo.InvariantCulture));
+            parts.AddRange(lastRun.Editions
+                .Where(e => e.Outcome == GeoIpDownloadOutcome.Failed)
+                .Select(e => $"{GeoIpDownloadService.Label(e.Edition)} failed: {e.Failure}"));
+        }
+
+        var missing = onDisk.Exists(d => d.Release is null);
+        var failed = lastRun is { Failed: true };
+        var status = missing
+            ? (failed ? CheckStatus.Fail : CheckStatus.Warn)
+            : (failed ? CheckStatus.Warn : CheckStatus.Ok);
+        return new DiagnosticCheck("geoip_update", "GeoIP automatic update", status, string.Join("; ", parts));
     }
 
     private static int VerifyAuditChain(IReadOnlyList<Models.AuditEntry> entries)

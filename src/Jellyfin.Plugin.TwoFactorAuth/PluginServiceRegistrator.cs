@@ -42,6 +42,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<PasskeyChallengeStore>();
         serviceCollection.AddSingleton<PasskeyService>();
         serviceCollection.AddSingleton<GeoIpService>();
+        // [#351] Downloads DB-IP's Lite databases for a server that turns on
+        // automatic GeoIP updates. The "Update GeoIP databases" scheduled task
+        // (GeoIpUpdateTask, which Jellyfin finds in this assembly) runs it.
+        serviceCollection.AddSingleton<GeoIpDownloadService>();
         serviceCollection.AddSingleton<SuspiciousLoginDetector>();
         serviceCollection.AddSingleton<DiagnosticsService>();
         serviceCollection.AddSingleton<StatsService>();
