@@ -68,7 +68,7 @@
          use stops the Jellyfin 12 restore at NU1902 or NU1903 under
          TreatWarningsAsErrors. -->
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
-    <PackageReference Include="Fido2" Version="4.3.1" />
+    <PackageReference Include="Fido2" Version="4.3.3" />
     <PackageReference Include="MaxMind.Db" Version="5.2.0" />
     <!-- QuestPDF was held at 2026.5.0 after 2026.6.0 produced an invalid
          recovery-codes PDF ("Failed to load PDF document"; Dependabot #77 was
