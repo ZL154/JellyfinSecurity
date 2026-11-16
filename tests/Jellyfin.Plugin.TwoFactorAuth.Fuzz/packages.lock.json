@@ -462,8 +462,8 @@
       },
       "QuestPDF": {
         "type": "Transitive",
-        "resolved": "2026.9.1",
-        "contentHash": "i2BT/v+Ui6Hg9+BZbOci/VfsyvmtY8nlQqAOmFt8iOZ4Hm9aKZZRgZZ+LfrKWYXAHRb3l1EjDcMVfjRaZTt+Cw=="
+        "resolved": "2026.9.2",
+        "contentHash": "Nc7nvV/CmL/lonuw1mTQbiETfU7EZoM2kZ9YRgdbC5VivVjxsMHPJ18g4t5FMx/jUGh6XpJXFfW1rFWvAYOeTg=="
       },
       "SharpFuzz.Common": {
         "type": "Transitive",
@@ -552,7 +552,7 @@
           "Microsoft.IdentityModel.Tokens": "[8.23.0, )",
           "Otp.NET": "[1.4.1, )",
           "QRCoder": "[1.8.1, )",
-          "QuestPDF": "[2026.9.1, )",
+          "QuestPDF": "[2026.9.2, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )",
           "System.Security.Cryptography.Pkcs": "[10.0.14, )"
         }
