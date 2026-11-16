@@ -81,20 +81,20 @@
       },
       "Fido2": {
         "type": "Transitive",
-        "resolved": "4.3.1",
-        "contentHash": "maWrkMwX1YUfKF9lsNRT3fVW6QaTjsTLYi7vN01wYGj3hE8jQsbeC0iQAbKMc8etVLAQg7Ui3S8wiaOe/mWJLA==",
+        "resolved": "4.3.3",
+        "contentHash": "++G8ohXlhp9AH49FXIvYqziXUAEpuCtT+z5HBevX6+Pl6sYz9zfDHGTgvne6t3UEhM0hudesgMudyNG7RlpaEA==",
         "dependencies": {
-          "Fido2.Models": "4.3.1",
+          "Fido2.Models": "4.3.3",
           "Microsoft.Extensions.Http": "9.0.0",
           "Microsoft.IdentityModel.JsonWebTokens": "8.2.0",
           "NSec.Cryptography": "25.4.0",
-          "System.Formats.Cbor": "9.0.0"
+          "System.Formats.Cbor": "9.0.24"
         }
       },
       "Fido2.Models": {
         "type": "Transitive",
-        "resolved": "4.3.1",
-        "contentHash": "dshL6l+3yTE3H0XLhzBfUNSC8h2y92ud4ezdgwYg/GJWjKF7m1gosZVuCCz4IYxOlARg2O+w0I+ZKSYrgmSl5w==",
+        "resolved": "4.3.3",
+        "contentHash": "G/Q8MYgptOwMrbWgDoGsy90u3J5GTdNAHub8aZRg/mQrUETzB5CqFzstGdTXE9UhL0qD6sRynOoPUnqCwKRnMw==",
         "dependencies": {
           "Microsoft.Bcl.Memory": "9.0.14"
         }
@@ -544,8 +544,8 @@
       },
       "System.Formats.Cbor": {
         "type": "Transitive",
-        "resolved": "9.0.0",
-        "contentHash": "v8LmGrvD0thxFBn5/SaMc5Y0AecfOeoKlAcek1X0fIta8Eb0+fZA3kGelUNE9HhOAe1J1h/tDKjKxh88DWBMjA=="
+        "resolved": "9.0.24",
+        "contentHash": "SEfEvHu6qXcXoDsDKagddLDf8A9iHIhHUD0hGemdmwlP206KLLCI5ksskOpeXMgNpQCs2diB0fOBKcnjySHFUQ=="
       },
       "System.Globalization": {
         "type": "Transitive",
@@ -637,7 +637,7 @@
       "jellyfin.plugin.twofactorauth": {
         "type": "Project",
         "dependencies": {
-          "Fido2": "[4.3.1, )",
+          "Fido2": "[4.3.3, )",
           "IdentityModel.OidcClient": "[6.0.0, )",
           "Jellyfin.Controller": "[10.11.9, )",
           "Jellyfin.Model": "[10.11.9, )",
