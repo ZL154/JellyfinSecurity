@@ -77,7 +77,7 @@
          TwoFactorAuth/RecoveryCodes/Pdf returns a valid one-page PDF with the
          Lato fonts embedded and the same text as 2026.5.0's. Render a PDF on a
          live server again before the next QuestPDF bump. -->
-    <PackageReference Include="QuestPDF" Version="2026.9.1" />
+    <PackageReference Include="QuestPDF" Version="2026.9.2" />
     <PackageReference Include="IdentityModel.OidcClient" Version="6.0.0" />
     <!-- [v2.5.10] Dependabot #62's bump to 8.19.1 was reverted: OIDC id_token
          validation failed with IDX10511 and Google sign-in dead-ended back to
