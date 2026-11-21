@@ -109,17 +109,42 @@ public class OidcLinkIssuerMatchingTests
         => Assert.Equal(expected, OidcService.CanonicalDiscoveryUrl(input));
 
     [Fact]
-    public void A_retired_row_stays_inert_after_a_rollback_drops_its_marker()
+    public void A_retired_row_stays_retired_after_a_rollback_rewrites_it()
     {
         var data = new UserTwoFactorData { SsoLinks = { new SsoLink { ProviderId = "corp", Subject = "42", Issuer = Issuer } } };
         OidcLinkRetirement.Retire(data, new HashSet<string> { "corp" }, "test", DateTime.UtcNow);
 
-        // An older version reads the row without RetiredAt and rewrites it.
-        var link = data.SsoLinks[0];
-        link.RetiredAt = null;
+        // v2.7.0 knows none of the new fields: it drops them when it rewrites
+        // the file, and this version then reads the row back.
+        var node = System.Text.Json.Nodes.JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(data))!;
+        foreach (var row in node["SsoLinks"]!.AsArray())
+        {
+            foreach (var field in new[] { "Id", "Issuer", "RetiredAt", "RetiredReason", "RenamedFrom", "RenamedWithDiscoveryUrl" })
+            {
+                row!.AsObject().Remove(field);
+            }
+        }
 
+        var reread = System.Text.Json.JsonSerializer.Deserialize<UserTwoFactorData>(node.ToJsonString())!;
+        var link = Assert.Single(reread.SsoLinks);
+        Assert.Null(link.RetiredAt);
+        Assert.Empty(link.Issuer);
+        Assert.True(link.IsRetired);
         Assert.False(OidcService.LinkMatches(link, "corp", Issuer, "42"));
-        Assert.True(OidcService.HasConflictingProviderLink(data, "corp", Issuer, "42"));
+        Assert.True(OidcService.HasConflictingProviderLink(reread, "corp", Issuer, "42"));
+        Assert.False(SelfServiceFactors.HasAny(reread, new PluginConfiguration()));
+        Assert.Equal("42", OidcLinkRetirement.DisplaySubject(link));
+    }
+
+    [Fact]
+    public void A_row_retired_without_the_prefix_gets_it_when_read()
+    {
+        var data = new UserTwoFactorData { SsoLinks = { new SsoLink { ProviderId = "corp", Subject = "42", RetiredAt = DateTime.UtcNow } } };
+
+        OidcLinkRetirement.NormalizeRetired(data);
+        OidcLinkRetirement.NormalizeRetired(data);
+
+        Assert.Equal(SsoLink.RetiredSubjectPrefix + "42", data.SsoLinks[0].Subject);
     }
 
     [Fact]
@@ -350,6 +375,71 @@ public sealed class OidcLinkIssuerSignInTests : IDisposable
         Assert.False(result.Success);
         Assert.Empty((await _store.GetUserDataAsync(_alice.Id)).SsoLinks);
     }
+
+    [Fact]
+    public async Task A_sign_in_does_not_link_when_the_provider_was_disabled_meanwhile()
+    {
+        _provider.LinkExistingUsersByUsername = true;
+        var disabled = new OidcProvider { Id = ProviderId, DiscoveryUrl = _provider.DiscoveryUrl, Enabled = false };
+        _oidc.CurrentProviderLookup = _ => disabled;
+
+        var result = await _oidc.ExchangeIdTokenAsync(_provider, IdToken("42", username: "alice"), accessToken: null);
+
+        Assert.False(result.Success);
+        Assert.Empty((await _store.GetUserDataAsync(_alice.Id)).SsoLinks);
+    }
+
+    [Fact]
+    public async Task A_token_whose_subject_carries_the_retired_prefix_is_refused()
+    {
+        _provider.LinkExistingUsersByUsername = true;
+
+        var result = await _oidc.ExchangeIdTokenAsync(_provider, IdToken(SsoLink.RetiredSubjectPrefix + "42", username: "alice"), accessToken: null);
+
+        Assert.False(result.Success);
+        Assert.Empty((await _store.GetUserDataAsync(_alice.Id)).SsoLinks);
+    }
+
+    [Fact]
+    public async Task A_discovery_fetch_that_spans_an_edit_is_cached_under_the_url_it_read()
+    {
+        const string oldUrl = "https://old-idp.example/.well-known/openid-configuration";
+        const string newUrl = "https://new-idp.example/.well-known/openid-configuration";
+        var editable = new OidcProvider { Id = "edited", DiscoveryUrl = oldUrl, Enabled = true };
+        var fetched = new List<string>();
+        var held = new TaskCompletionSource<System.Text.Json.JsonElement>();
+        _oidc.OutboundCheck = (_, _, _) => Task.CompletedTask;
+        _oidc.DiscoveryFetcher = url =>
+        {
+            fetched.Add(url);
+            var doc = DiscoveryDocument("https://" + new Uri(url).Host);
+            if (fetched.Count > 1) return Task.FromResult(doc);
+            return held.Task;
+        };
+
+        var inFlight = _oidc.GetDiscoveryForTestAsync(editable);
+        editable.DiscoveryUrl = newUrl;
+        held.SetResult(DiscoveryDocument("https://old-idp.example"));
+        Assert.Equal(("https://old-idp.example", oldUrl), await inFlight);
+
+        // The old document is not served for the new URL...
+        Assert.Equal(("https://new-idp.example", newUrl), await _oidc.GetDiscoveryForTestAsync(editable));
+        Assert.Equal(new[] { oldUrl, newUrl }, fetched);
+
+        // ...and stays where it was read from.
+        editable.DiscoveryUrl = oldUrl;
+        Assert.Equal(("https://old-idp.example", oldUrl), await _oidc.GetDiscoveryForTestAsync(editable));
+        Assert.Equal(2, fetched.Count);
+    }
+
+    private static System.Text.Json.JsonElement DiscoveryDocument(string issuer)
+        => System.Text.Json.JsonSerializer.SerializeToElement(new Dictionary<string, string>
+        {
+            ["issuer"] = issuer,
+            ["authorization_endpoint"] = issuer + "/authorize",
+            ["token_endpoint"] = issuer + "/token",
+            ["jwks_uri"] = issuer + "/jwks",
+        });
 
     [Fact]
     public async Task Cached_metadata_is_not_reused_once_the_discovery_url_changes()
@@ -607,6 +697,22 @@ public sealed class OidcProviderLinkRetirementTests : IDisposable
     }
 
     [Fact]
+    public async Task The_old_unlink_route_refuses_a_subject_shown_by_a_retired_and_an_active_row()
+    {
+        // Retire the corp row, then link the same subject again.
+        await _store.MutateAsync(_alice.Id, d =>
+        {
+            OidcLinkRetirement.Retire(d, new HashSet<string> { "corp" }, "test", DateTime.UtcNow);
+            d.SsoLinks.Add(new SsoLink { ProviderId = "corp", Subject = "a-1", Issuer = "https://new-idp.example" });
+        });
+        var listed = await ListAliceLinksAsync();
+        Assert.Equal(2, listed.Count(l => l.GetProperty("subject").GetString() == "a-1"));
+
+        Assert.IsType<ConflictObjectResult>(await _controller.UnlinkMine("corp", "a-1"));
+        Assert.Equal(3, (await _store.GetUserDataAsync(_alice.Id)).SsoLinks.Count);
+    }
+
+    [Fact]
     public async Task Listing_links_gives_every_row_a_stable_id_and_marks_retired_ones()
     {
         await _store.MutateAsync(_alice.Id, d => d.SsoLinks[0].RetiredAt = DateTime.UtcNow);
@@ -665,6 +771,32 @@ public sealed class OidcProviderLinkRetirementTests : IDisposable
         Assert.Equal(new[] { "corp-new:active" }, await LinksAsync(_bob));
     }
 
+    [Fact]
+    public async Task A_retried_rename_with_another_discovery_url_retires_the_rows_it_moved()
+    {
+        var request = Request(DiscoveryUrl);
+        request.CallbackSlug = "corp-new";
+        Assert.IsType<OkObjectResult>(await _controller.UpdateProvider("corp", request));
+        _plugin.Configuration.OidcProviders.Single().Id = "corp";
+
+        // The admin revises the lost edit and points it at another IdP.
+        var revised = Request("https://other-idp.example");
+        revised.CallbackSlug = "corp-new";
+        Assert.IsType<OkObjectResult>(await _controller.UpdateProvider("corp", revised));
+
+        Assert.Equal(new[] { "corp-new:retired" }, await LinksAsync(_bob));
+        Assert.True((await _store.GetUserDataAsync(_alice.Id)).SsoLinks.Single(l => l.RenamedFrom == "corp").IsRetired);
+    }
+
+    [Fact]
+    public async Task A_row_retired_without_the_prefix_is_converted_when_the_store_restarts()
+    {
+        await _store.MutateAsync(_bob.Id, d => d.SsoLinks[0].RetiredAt = DateTime.UtcNow);
+
+        using var restarted = new UserTwoFactorStore(_paths, Substitute.For<IServiceProvider>());
+        Assert.Equal(SsoLink.RetiredSubjectPrefix + "b-1", Assert.Single((await restarted.GetUserDataAsync(_bob.Id)).SsoLinks).Subject);
+    }
+
     private static SecurityController.OidcProviderUpsertRequest Request(string discoveryUrl) => new()
     {
         DisplayName = "Corp",
@@ -686,7 +818,7 @@ public sealed class OidcProviderLinkRetirementTests : IDisposable
 
     private async Task<string[]> LinksAsync(User user)
         => (await _store.GetUserDataAsync(user.Id)).SsoLinks
-            .Select(l => l.ProviderId + (l.RetiredAt is null ? ":active" : ":retired"))
+            .Select(l => l.ProviderId + (l.IsRetired ? ":retired" : ":active"))
             .OrderBy(x => x, StringComparer.Ordinal)
             .ToArray();
 }

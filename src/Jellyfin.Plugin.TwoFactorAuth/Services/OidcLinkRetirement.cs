@@ -46,7 +46,7 @@ internal static class OidcLinkRetirement
         var users = await store.GetAllUsersAsync().ConfigureAwait(false);
         foreach (var u in users)
         {
-            if (!u.SsoLinks.Any(l => l.RetiredAt is null && ids.Contains(l.ProviderId) && spare?.Invoke(l) != true))
+            if (!u.SsoLinks.Any(l => !l.IsRetired && ids.Contains(l.ProviderId) && spare?.Invoke(l) != true))
             {
                 continue;
             }
@@ -64,15 +64,13 @@ internal static class OidcLinkRetirement
         var count = 0;
         foreach (var link in data.SsoLinks)
         {
-            if (link.RetiredAt is null && providerIds.Contains(link.ProviderId) && spare?.Invoke(link) != true)
+            if (!link.IsRetired && providerIds.Contains(link.ProviderId) && spare?.Invoke(link) != true)
             {
                 link.RetiredAt = now;
                 link.RetiredReason = reason;
-                if (!link.Subject.StartsWith(SsoLink.RetiredSubjectPrefix, StringComparison.Ordinal))
-                {
-                    link.Subject = SsoLink.RetiredSubjectPrefix + link.Subject;
-                }
-
+                // An active link never carries the prefix (tokens with such a
+                // sub are refused), so this always marks the row.
+                link.Subject = SsoLink.RetiredSubjectPrefix + link.Subject;
                 count++;
             }
         }
@@ -99,9 +97,25 @@ internal static class OidcLinkRetirement
 
     internal static string NewLinkId() => Guid.NewGuid().ToString("N");
 
+    /// <summary>Bring retired rows to one form when a file is read: a row
+    /// with a retirement time gets the subject prefix (rows retired by an
+    /// earlier build of this change lacked it), so the marker survives a
+    /// rewrite by a version that drops <see cref="SsoLink.RetiredAt"/>.</summary>
+    internal static void NormalizeRetired(UserTwoFactorData data)
+    {
+        foreach (var link in data.SsoLinks)
+        {
+            if (link.RetiredAt is not null
+                && !link.Subject.StartsWith(SsoLink.RetiredSubjectPrefix, StringComparison.Ordinal))
+            {
+                link.Subject = SsoLink.RetiredSubjectPrefix + link.Subject;
+            }
+        }
+    }
+
     /// <summary>The subject as the IdP issued it, without the retired prefix.</summary>
     internal static string DisplaySubject(SsoLink link)
-        => link.RetiredAt is not null && link.Subject.StartsWith(SsoLink.RetiredSubjectPrefix, StringComparison.Ordinal)
+        => link.Subject.StartsWith(SsoLink.RetiredSubjectPrefix, StringComparison.Ordinal)
             ? link.Subject[SsoLink.RetiredSubjectPrefix.Length..]
             : link.Subject;
 }

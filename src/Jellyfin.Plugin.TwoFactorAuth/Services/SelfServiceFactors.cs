@@ -20,7 +20,7 @@ internal static class SelfServiceFactors
         => (data.TotpEnabled && data.TotpVerified)
            || data.Passkeys.Count > 0
            // A retired link can no longer re-authenticate the user.
-           || data.SsoLinks.Any(l => l.RetiredAt is null)
+           || data.SsoLinks.Any(l => !l.IsRetired)
            || (config.EmailOtpEnabled
                && (data.EmailOtpPreferred || !string.IsNullOrEmpty(config.GetUserEmail(data.UserId.ToString("N")))));
 }

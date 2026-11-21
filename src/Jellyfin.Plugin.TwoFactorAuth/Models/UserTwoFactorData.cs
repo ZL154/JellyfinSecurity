@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Models;
 
@@ -180,6 +181,14 @@ public class SsoLink
     /// before the field existed; those are accepted once and then filled in.</summary>
     public string Issuer { get; set; } = string.Empty;
 
+    /// <summary>Whether this link is retired. The subject prefix is the
+    /// authoritative marker: it is the one part of a retired row that every
+    /// version keeps, and the plugin refuses tokens whose <c>sub</c> carries
+    /// it, so no live link can have it.</summary>
+    [JsonIgnore]
+    public bool IsRetired => RetiredAt is not null
+        || Subject.StartsWith(RetiredSubjectPrefix, StringComparison.Ordinal);
+
     /// <summary>Set when the provider slug stopped pointing at the identity
     /// provider this link was made with (discovery URL changed, provider
     /// deleted or replaced, configuration imported). A retired link never
@@ -201,6 +210,10 @@ public class SsoLink
     /// A retried rename then tells the rows it moved from stale rows that were
     /// already under the destination slug.</summary>
     public string RenamedFrom { get; set; } = string.Empty;
+
+    /// <summary>The discovery URL the rename that moved this link was saved
+    /// with. A retried rename spares the row only if it still points there.</summary>
+    public string RenamedWithDiscoveryUrl { get; set; } = string.Empty;
 
     public string Email { get; set; } = string.Empty;
 

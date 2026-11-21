@@ -639,8 +639,10 @@ public class UserTwoFactorStore : IDisposable
 
         try
         {
-            return JsonSerializer.Deserialize<UserTwoFactorData>(json, JsonOptions)
+            var data = JsonSerializer.Deserialize<UserTwoFactorData>(json, JsonOptions)
                    ?? throw new JsonException("Deserializer returned null for non-empty 2FA data.");
+            OidcLinkRetirement.NormalizeRetired(data);
+            return data;
         }
         catch (JsonException ex)
         {

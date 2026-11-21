@@ -446,13 +446,14 @@ public class SecurityController : ControllerBase
             var oldId = existing.Id;
             // Links left under the new slug by an earlier provider belong to
             // that provider, not this one.
-            // Rows this rename already moved (a retry after an interrupted
-            // save) are spared.
+            // Rows this same rename already moved (a retry after an
+            // interrupted save, with the same discovery URL) are spared.
             await RetireProviderLinksAsync(
                 new[] { newId },
                 "a renamed provider took over the slug",
-                l => string.Equals(l.RenamedFrom, oldId, StringComparison.Ordinal)).ConfigureAwait(false);
-            var migrated = await MigrateSsoLinkProviderIdAsync(oldId, newId).ConfigureAwait(false);
+                l => string.Equals(l.RenamedFrom, oldId, StringComparison.Ordinal)
+                    && OidcService.SameDiscoveryUrl(l.RenamedWithDiscoveryUrl, req.DiscoveryUrl)).ConfigureAwait(false);
+            var migrated = await MigrateSsoLinkProviderIdAsync(oldId, newId, req.DiscoveryUrl).ConfigureAwait(false);
             existing.Id = newId;
             _oidc.InvalidateCache(oldId);
             renamedTo = newId;
@@ -519,7 +520,7 @@ public class SecurityController : ControllerBase
     /// <summary>[v2.5.14] (#94) Re-point every user's SSO link from an old provider
     /// slug to a new one after a callback-slug rename, so already-linked accounts
     /// keep working. Returns the number of users whose links were migrated.</summary>
-    private async Task<int> MigrateSsoLinkProviderIdAsync(string oldId, string newId)
+    private async Task<int> MigrateSsoLinkProviderIdAsync(string oldId, string newId, string discoveryUrl)
     {
         var users = await _store.GetAllUsersAsync().ConfigureAwait(false);
         var count = 0;
@@ -538,6 +539,7 @@ public class SecurityController : ControllerBase
                     {
                         l.ProviderId = newId;
                         l.RenamedFrom = oldId;
+                        l.RenamedWithDiscoveryUrl = discoveryUrl;
                     }
                 }
             }).ConfigureAwait(false);
@@ -1961,7 +1963,7 @@ public class SecurityController : ControllerBase
             email = l.Email,
             linkedAt = l.LinkedAt,
             lastUsedAt = l.LastUsedAt,
-            retired = l.RetiredAt is not null,
+            retired = l.IsRetired,
         }).ToList<object>();
         return Ok(safe);
     }
@@ -1981,8 +1983,9 @@ public class SecurityController : ControllerBase
         return removed ? Ok() : NotFound();
     }
 
-    /// <summary>Older clients name a link by provider and subject. That only
-    /// works while it names exactly one row; otherwise nothing is removed.</summary>
+    /// <summary>Older clients name a link by provider and subject, as the list
+    /// shows it (a retired row shows the subject without its prefix). That
+    /// only works while it names exactly one row; otherwise nothing is removed.</summary>
     [HttpDelete("Oidc/MyLinks/{providerId}/{subject}")]
     [Authorize]
     public async Task<ActionResult> UnlinkMine([FromRoute] string providerId, [FromRoute] string subject)
@@ -1991,8 +1994,10 @@ public class SecurityController : ControllerBase
         var matches = 0;
         await _store.MutateAsync(userId, ud =>
         {
-            matches = ud.SsoLinks.Count(l => l.ProviderId == providerId && l.Subject == subject);
-            if (matches == 1) ud.SsoLinks.RemoveAll(l => l.ProviderId == providerId && l.Subject == subject);
+            bool Named(SsoLink l) => l.ProviderId == providerId
+                && (l.Subject == subject || OidcLinkRetirement.DisplaySubject(l) == subject);
+            matches = ud.SsoLinks.Count(Named);
+            if (matches == 1) ud.SsoLinks.RemoveAll(Named);
         }).ConfigureAwait(false);
         return matches switch
         {

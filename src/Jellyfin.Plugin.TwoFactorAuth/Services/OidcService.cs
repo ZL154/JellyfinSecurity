@@ -51,7 +51,10 @@ public class OidcService : IDisposable
         string EndSessionEndpoint = "",
         // The provider's configured discovery URL this document was read for,
         // so a sign-in can tell the provider was re-pointed meanwhile.
-        string SourceDiscoveryUrl = "");
+        string SourceDiscoveryUrl = "",
+        // The cache slot this document was read for, taken before any await.
+        // Signing keys fetched for it go in the same slot.
+        string CacheKey = "");
 
     private record PendingFlow(
         string ProviderId,
@@ -174,6 +177,7 @@ public class OidcService : IDisposable
         _serverConfig = serverConfig;
         _libraryManager = libraryManager;
         _cleanupTimer = new Timer(_ => SweepPending(), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+        OutboundCheck = EnsureSafeOutboundAsync;
     }
 
     public void Dispose()
@@ -1084,7 +1088,9 @@ public class OidcService : IDisposable
                 disc.Issuer,
                 claims.Subject,
                 resolvedViaLink,
-                providerUnchanged: current is not null && SameDiscoveryUrl(current.DiscoveryUrl, disc.SourceDiscoveryUrl));
+                providerUnchanged: current is not null
+                    && current.Enabled
+                    && SameDiscoveryUrl(current.DiscoveryUrl, disc.SourceDiscoveryUrl));
             switch (commit)
             {
                 case LinkCommit.Update:
@@ -1840,10 +1846,10 @@ public class OidcService : IDisposable
     /// id is an editable slug, so the issuer has to agree as well. Links stored
     /// before the issuer was recorded have none; they are accepted so existing
     /// users keep signing in, and the caller records the issuer on that match.
-    /// A retired link (<see cref="SsoLink.RetiredAt"/>) never matches.
+    /// A retired link (<see cref="SsoLink.IsRetired"/>) never matches.
     /// </summary>
     internal static bool LinkMatches(SsoLink link, string providerId, string issuer, string subject)
-        => link.RetiredAt is null
+        => !link.IsRetired
             && string.Equals(link.ProviderId, providerId, StringComparison.Ordinal)
             && string.Equals(link.Subject, subject, StringComparison.Ordinal)
             && (string.IsNullOrEmpty(link.Issuer)
@@ -1860,6 +1866,22 @@ public class OidcService : IDisposable
     /// must not depend on the process-wide <see cref="Plugin.Instance"/>.</summary>
     internal Func<string, OidcProvider?> CurrentProviderLookup { get; set; } =
         id => Plugin.Instance?.Configuration.OidcProviders.FirstOrDefault(p => p.Id == id);
+
+    /// <summary>Network seams for the metadata fetches; tests replace them.</summary>
+    internal Func<string, Task<JsonElement>> DiscoveryFetcher { get; set; } =
+        url => _http.GetFromJsonAsync<JsonElement>(url);
+
+    internal Func<string, Task<string>> JwksFetcher { get; set; } =
+        url => _http.GetStringAsync(url);
+
+    internal Func<string, bool, string?, Task> OutboundCheck { get; set; }
+
+    /// <summary>Test hook: the discovery document as the sign-in path reads it.</summary>
+    internal async Task<(string Issuer, string SourceDiscoveryUrl)> GetDiscoveryForTestAsync(OidcProvider provider)
+    {
+        var d = await GetDiscoveryAsync(provider).ConfigureAwait(false);
+        return (d.Issuer, d.SourceDiscoveryUrl);
+    }
 
     internal enum LinkCommit
     {
@@ -2246,6 +2268,13 @@ public class OidcService : IDisposable
         }
 
         var sub = jwt.Subject;
+        // Retired links are marked by this prefix on the stored subject, so a
+        // live identity can never carry it.
+        if (sub.StartsWith(SsoLink.RetiredSubjectPrefix, StringComparison.Ordinal))
+        {
+            throw new SecurityTokenException("Unsupported subject");
+        }
+
         // [v2.5.11] (#70) honor the provider's configured email claim name,
         // falling back to the standard OIDC `email` claim.
         var emailClaimName = string.IsNullOrWhiteSpace(provider.EmailClaim) ? "email" : provider.EmailClaim;
@@ -2469,7 +2498,14 @@ public class OidcService : IDisposable
 
     private async Task<Discovery> GetDiscoveryAsync(OidcProvider provider)
     {
-        if (_discoveryCache.TryGetValue(MetadataCacheKey(provider), out var cached)
+        // The editor updates the provider object in place. Read everything the
+        // fetch depends on once, so a document fetched across an edit is
+        // stored under the URL it was fetched from, never the new one.
+        var cacheKey = MetadataCacheKey(provider);
+        var configuredDiscoveryUrl = provider.DiscoveryUrl;
+        var allowPrivate = provider.AllowPrivateNetworks;
+        var allowedCidrs = provider.AdditionalAllowedCidrs;
+        if (_discoveryCache.TryGetValue(cacheKey, out var cached)
             && (DateTime.UtcNow - cached.CachedAt) < _discoveryTtl)
         {
             return cached;
@@ -2480,11 +2516,10 @@ public class OidcService : IDisposable
         // DiscoveryUrl at http://169.254.169.254/latest/meta-data (AWS IMDS)
         // or http://10.0.0.1:8080/internal-api or file:// and exfiltrate
         // those targets via the Discovery response shape.
-        await EnsureSafeOutboundAsync(provider.DiscoveryUrl, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
+        await OutboundCheck(configuredDiscoveryUrl, allowPrivate, allowedCidrs).ConfigureAwait(false);
 
-        var configuredDiscoveryUrl = provider.DiscoveryUrl;
         var discoveryUrl = configuredDiscoveryUrl;
-        var resp = await _http.GetFromJsonAsync<JsonElement>(discoveryUrl).ConfigureAwait(false);
+        var resp = await DiscoveryFetcher(discoveryUrl).ConfigureAwait(false);
 
         // [#120] Admins commonly paste the issuer / realm root (e.g. Keycloak
         // ".../realms/master") instead of the discovery document. That returns
@@ -2495,10 +2530,10 @@ public class OidcService : IDisposable
         if (NeedsStandardDiscoveryRetry(resp, discoveryUrl))
         {
             var normalized = BuildStandardDiscoveryUrl(discoveryUrl);
-            await EnsureSafeOutboundAsync(normalized, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
+            await OutboundCheck(normalized, allowPrivate, allowedCidrs).ConfigureAwait(false);
             try
             {
-                var retry = await _http.GetFromJsonAsync<JsonElement>(normalized).ConfigureAwait(false);
+                var retry = await DiscoveryFetcher(normalized).ConfigureAwait(false);
                 if (retry.ValueKind == JsonValueKind.Object && retry.TryGetProperty("authorization_endpoint", out _))
                 {
                     _logger.LogInformation(
@@ -2528,22 +2563,23 @@ public class OidcService : IDisposable
             // omits it simply cannot do RP-initiated logout, which is not an
             // error and must not fail discovery for every other flow.
             resp.TryGetProperty("end_session_endpoint", out var es) ? es.GetString() ?? "" : "",
-            configuredDiscoveryUrl);
+            configuredDiscoveryUrl,
+            cacheKey);
 
         // Also validate the IdP-supplied endpoint URLs from the discovery
         // response. The DiscoveryUrl could be a perfectly fine public IdP
         // (e.g. accounts.google.com/.well-known/openid-configuration) but
         // a malicious or compromised IdP could still return jwks_uri /
         // token_endpoint pointing at private IPs to pivot SSRF.
-        await EnsureSafeOutboundAsync(disc.AuthorizationEndpoint, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
-        await EnsureSafeOutboundAsync(disc.TokenEndpoint, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
-        await EnsureSafeOutboundAsync(disc.JwksUri, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
+        await OutboundCheck(disc.AuthorizationEndpoint, allowPrivate, allowedCidrs).ConfigureAwait(false);
+        await OutboundCheck(disc.TokenEndpoint, allowPrivate, allowedCidrs).ConfigureAwait(false);
+        await OutboundCheck(disc.JwksUri, allowPrivate, allowedCidrs).ConfigureAwait(false);
         if (!string.IsNullOrEmpty(disc.UserInfoEndpoint))
         {
-            await EnsureSafeOutboundAsync(disc.UserInfoEndpoint, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
+            await OutboundCheck(disc.UserInfoEndpoint, allowPrivate, allowedCidrs).ConfigureAwait(false);
         }
 
-        _discoveryCache[MetadataCacheKey(provider)] = disc;
+        _discoveryCache[cacheKey] = disc;
         return disc;
     }
 
@@ -2859,7 +2895,12 @@ public class OidcService : IDisposable
         // issued a token signed with a kid we don't know, force a refresh
         // — without this, post-rotation tokens fail validation forever
         // until a manual InvalidateCache call or process restart.
-        if (_jwksCache.TryGetValue(MetadataCacheKey(provider), out var cached)
+        // Keys belong to the discovery document they were fetched for, not to
+        // whatever the provider points at by the time the fetch returns.
+        var cacheKey = string.IsNullOrEmpty(disc.CacheKey) ? MetadataCacheKey(provider) : disc.CacheKey;
+        var allowPrivate = provider.AllowPrivateNetworks;
+        var allowedCidrs = provider.AdditionalAllowedCidrs;
+        if (_jwksCache.TryGetValue(cacheKey, out var cached)
             && (DateTime.UtcNow - cached.FetchedAt) < _jwksTtl
             && (requiredKid is null || HasKid(cached.Keys, requiredKid)))
         {
@@ -2868,10 +2909,10 @@ public class OidcService : IDisposable
         // SECURITY [v2.5.5] (Finding 3): re-validate even though Discovery
         // also validated — DNS could have changed between cache populate
         // and now, and the cache TTL on Discovery (1h) is independent.
-        await EnsureSafeOutboundAsync(disc.JwksUri, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
-        var json = await _http.GetStringAsync(disc.JwksUri).ConfigureAwait(false);
+        await OutboundCheck(disc.JwksUri, allowPrivate, allowedCidrs).ConfigureAwait(false);
+        var json = await JwksFetcher(disc.JwksUri).ConfigureAwait(false);
         var jwks = new JsonWebKeySet(json);
-        _jwksCache[MetadataCacheKey(provider)] = new JwksCacheEntry(jwks, DateTime.UtcNow);
+        _jwksCache[cacheKey] = new JwksCacheEntry(jwks, DateTime.UtcNow);
         return jwks;
     }
 
@@ -2887,7 +2928,7 @@ public class OidcService : IDisposable
     /// <summary>Discovery and signing keys are cached per slug AND discovery
     /// URL, so a provider re-pointed by any path (editor, import, generic
     /// settings save) never reuses the previous IdP's metadata.</summary>
-    private static string MetadataCacheKey(OidcProvider provider)
+    internal static string MetadataCacheKey(OidcProvider provider)
         => provider.Id + "\n" + (provider.DiscoveryUrl ?? string.Empty).Trim();
 
     public void InvalidateCache(string providerId)
@@ -2916,7 +2957,8 @@ public class OidcService : IDisposable
             "https://idp.invalid/jwks",
             issuer,
             DateTime.UtcNow,
-            SourceDiscoveryUrl: provider.DiscoveryUrl);
+            SourceDiscoveryUrl: provider.DiscoveryUrl,
+            CacheKey: MetadataCacheKey(provider));
         _jwksCache[MetadataCacheKey(provider)] = new JwksCacheEntry(keys, DateTime.UtcNow);
     }
 
