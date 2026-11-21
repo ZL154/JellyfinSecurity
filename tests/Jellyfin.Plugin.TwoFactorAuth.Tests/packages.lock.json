@@ -544,8 +544,8 @@
       },
       "System.Formats.Cbor": {
         "type": "Transitive",
-        "resolved": "9.0.0",
-        "contentHash": "v8LmGrvD0thxFBn5/SaMc5Y0AecfOeoKlAcek1X0fIta8Eb0+fZA3kGelUNE9HhOAe1J1h/tDKjKxh88DWBMjA=="
+        "resolved": "9.0.24",
+        "contentHash": "SEfEvHu6qXcXoDsDKagddLDf8A9iHIhHUD0hGemdmwlP206KLLCI5ksskOpeXMgNpQCs2diB0fOBKcnjySHFUQ=="
       },
       "System.Globalization": {
         "type": "Transitive",
@@ -647,6 +647,7 @@
           "Otp.NET": "[1.4.1, )",
           "QRCoder": "[1.8.1, )",
           "QuestPDF": "[2026.9.1, )",
+          "System.Formats.Cbor": "[9.0.24, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )",
           "System.Security.Cryptography.Pkcs": "[10.0.14, )"
         }

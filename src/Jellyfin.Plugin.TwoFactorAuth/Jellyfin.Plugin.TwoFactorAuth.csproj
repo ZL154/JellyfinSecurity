@@ -69,6 +69,16 @@
          TreatWarningsAsErrors. -->
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
     <PackageReference Include="Fido2" Version="4.3.1" />
+    <!-- Fido2 4.3.1 only asks for System.Formats.Cbor 9.0.0, which carries
+         CVE-2026-118747 (GHSA-vmv3-wvjp-wqpj, fixed in 9.0.24 and 10.0.15).
+         This reference raises it to the patched 9.0.x for both builds. The
+         10.11 zip ships this DLL (NET9_ONLY_ASSEMBLIES in build.sh). On net10
+         the ASP.NET Core shared framework's System.Formats.Cbor (assembly
+         10.0.0.0) wins over this 9.0.x one, so the Jellyfin 12 zip still
+         ships none and uses the host's copy; the reference there only keeps
+         the restore off the vulnerable package, which NuGet audits as a
+         transitive on net10 and fails at NU1902 under TreatWarningsAsErrors. -->
+    <PackageReference Include="System.Formats.Cbor" Version="9.0.24" />
     <PackageReference Include="MaxMind.Db" Version="5.2.0" />
     <!-- QuestPDF was held at 2026.5.0 after 2026.6.0 produced an invalid
          recovery-codes PDF ("Failed to load PDF document"; Dependabot #77 was
