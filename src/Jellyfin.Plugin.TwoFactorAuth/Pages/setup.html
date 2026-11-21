@@ -918,7 +918,9 @@
             // [v2.5.7] OIDC step-up: expose linked-provider list to the
             // step-up modal so it can render per-provider "Sign in with X"
             // buttons. Each entry has { providerId, providerDisplay, ... }.
-            window.__tfa_userOidcLinks = Array.isArray(oidcLinks) ? oidcLinks : [];
+            // Retired links (the provider now points elsewhere) cannot sign in
+            // or confirm a change, so only active ones count here.
+            window.__tfa_userOidcLinks = (Array.isArray(oidcLinks) ? oidcLinks : []).filter(function(l) { return !l.retired; });
             // [v2.5.6] (round-5d): expose email + email-OTP-enabled so the
             // prompt can offer "Send code by email" as a step-up factor.
             var row = emailRow || {};
@@ -1070,21 +1072,23 @@
                     listBox.innerHTML = links.map(function(l) {
                         return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);">'
                             + '<div><strong>' + escapeHtml(l.providerDisplay || l.providerId) + '</strong>'
-                            + '<div style="font-size:12px;color:#888;">' + escapeHtml(l.email || l.subject) + '</div></div>'
-                            + '<button class="btn-ghost btn-sm tfa-danger-link" data-unlink-prov="' + escapeHtml(l.providerId) + '" data-unlink-sub="' + escapeHtml(l.subject) + '">' + _tr('tfa.setup.sso.btn_unlink', 'Unlink') + '</button>'
+                            + '<div style="font-size:12px;color:#888;">' + escapeHtml(l.email || l.subject)
+                            + (l.retired ? ' · ' + _tr('tfa.setup.sso.retired', 'No longer valid: the provider changed. Link again, then remove this row.') : '')
+                            + '</div></div>'
+                            + '<button class="btn-ghost btn-sm tfa-danger-link" data-unlink-id="' + escapeHtml(l.id || '') + '" data-unlink-prov="' + escapeHtml(l.providerId) + '" data-unlink-sub="' + escapeHtml(l.subject) + '">' + _tr('tfa.setup.sso.btn_unlink', 'Unlink') + '</button>'
                             + '</div>';
                     }).join('');
                     listBox.querySelectorAll('[data-unlink-prov]').forEach(function(btn) {
                         btn.addEventListener('click', async function() {
                             if (!(await tfaConfirm(_tr('tfa.setup.sso.confirm_unlink', 'Unlink this account?')))) return;
-                            api('DELETE', 'TwoFactorAuth/Oidc/MyLinks/'
-                                + encodeURIComponent(btn.dataset.unlinkProv) + '/'
-                                + encodeURIComponent(btn.dataset.unlinkSub)).then(loadSsoLinks);
+                            api('DELETE', 'TwoFactorAuth/Oidc/MyLinks/' + (btn.dataset.unlinkId
+                                ? encodeURIComponent(btn.dataset.unlinkId)
+                                : encodeURIComponent(btn.dataset.unlinkProv) + '/' + encodeURIComponent(btn.dataset.unlinkSub))).then(loadSsoLinks);
                         });
                     });
                 }
                 var avail = document.getElementById('ssoAvailable');
-                var linkedIds = links.map(function(l) { return l.providerId; });
+                var linkedIds = links.filter(function(l) { return !l.retired; }).map(function(l) { return l.providerId; });
                 var canLink = providers.filter(function(p) { return linkedIds.indexOf(p.id) < 0; });
                 if (!canLink.length) {
                     avail.innerHTML = '';

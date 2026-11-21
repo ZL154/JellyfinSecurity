@@ -1,3 +1,4 @@
+using System.Linq;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 
@@ -18,7 +19,8 @@ internal static class SelfServiceFactors
     internal static bool HasAny(UserTwoFactorData data, PluginConfiguration config)
         => (data.TotpEnabled && data.TotpVerified)
            || data.Passkeys.Count > 0
-           || data.SsoLinks.Count > 0
+           // A retired link can no longer re-authenticate the user.
+           || data.SsoLinks.Any(l => l.RetiredAt is null)
            || (config.EmailOtpEnabled
                && (data.EmailOtpPreferred || !string.IsNullOrEmpty(config.GetUserEmail(data.UserId.ToString("N")))));
 }

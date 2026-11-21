@@ -1,0 +1,25 @@
+{
+  "same": [
+    ["https://idp.example/realms/a", "https://IDP.example/realms/a"],
+    ["HTTPS://idp.example/realms/a", " https://idp.example/realms/a "],
+    ["https://IDP.example", "https://idp.example"],
+    ["https://Idp.Example?x=Y", "https://idp.example?x=Y"]
+  ],
+  "different": [
+    ["https://idp.example/realms/a", "https://idp.example/realms/a/.well-known/openid-configuration"],
+    ["https://idp.example/realms/a", "https://idp.example/realms/a/"],
+    ["https://idp.example/realms/a", "https://idp.example/realms/b"],
+    ["https://idp.example/realms/a", "https://idp.example/realms/A"],
+    ["https://idp.example/realms/a", "https://other.example/realms/a"],
+    ["https://idp.example:443/realms/a", "https://idp.example/realms/a"],
+    ["https://user@idp.example/a", "https://idp.example/a"],
+    ["https://bücher.example/a", "https://xn--bcher-kva.example/a"],
+    ["https://idp.example/a?X=1", "https://idp.example/a?x=1"]
+  ],
+  "canonical": [
+    ["HTTPS://IDP.example/Realms/A?Q=1", "https://idp.example/Realms/A?Q=1"],
+    ["https://bücher.example/A", "https://bücher.example/A"],
+    ["HTTPS://[::1]:8443/A", "https://[::1]:8443/A"],
+    ["not a url", "not a url"]
+  ]
+}

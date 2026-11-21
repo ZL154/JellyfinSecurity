@@ -302,7 +302,7 @@ public class ConfigExportService
             catch (System.Text.Json.JsonException ex) { return new ImportResult(false, $"Decrypted payload malformed: {ex.Message}"); }
             if (full is null) return new ImportResult(false, "Decrypted payload was null");
 
-            ApplyConfiguration(full.Configuration);
+            await ApplyConfigurationAsync(full.Configuration).ConfigureAwait(false);
             if (full.Users.Count > 0)
             {
                 foreach (var u in full.Users)
@@ -326,7 +326,9 @@ public class ConfigExportService
             catch (System.Text.Json.JsonException ex) { return new ImportResult(false, $"Payload malformed: {ex.Message}"); }
             if (plain is null) return new ImportResult(false, "Payload was null");
 
-            ApplyConfiguration(plain.Configuration);
+            var retired = await ApplyConfigurationAsync(plain.Configuration).ConfigureAwait(false);
+            if (retired > 0)
+                warnings.Add($"Account links retired for {retired} user(s) whose OIDC provider changed; they link again from Setup");
             if (plain.RedactedFields.Count > 0)
                 warnings.Add($"Re-enter secrets after import: {string.Join(", ", plain.RedactedFields)}");
         }
@@ -334,7 +336,11 @@ public class ConfigExportService
         return new ImportResult(true, null, warnings);
     }
 
-    private void ApplyConfiguration(PluginConfiguration imported)
+    /// <summary>Apply an imported configuration. Account links under OIDC
+    /// slugs whose provider changes are retired first
+    /// (<see cref="OidcLinkRetirement"/>). Returns the number of users whose
+    /// links were retired.</summary>
+    private async Task<int> ApplyConfigurationAsync(PluginConfiguration imported)
     {
         var live = _configAccessor();
         var json = System.Text.Json.JsonSerializer.Serialize(imported);
@@ -349,6 +355,15 @@ public class ConfigExportService
         // than reject the whole import.
         SanitizeImportedConfig(clone);
 
+        var changedProviders = OidcLinkRetirement.ChangedProviderIds(live.OidcProviders, clone.OidcProviders);
+        var retired = await OidcLinkRetirement.RetireAsync(_store, changedProviders, "configuration imported").ConfigureAwait(false);
+        if (retired.Count > 0)
+        {
+            _logger.LogWarning(
+                "Configuration import changed OIDC provider(s) {Providers}; retired their account links for {Count} user(s)",
+                string.Join(", ", changedProviders), retired.Count);
+        }
+
         // Mutate the live config in place via reflection so any held reference to
         // Plugin.Instance.Configuration sees the new values immediately.
         foreach (var prop in typeof(PluginConfiguration).GetProperties(
@@ -360,6 +375,7 @@ public class ConfigExportService
 
         Plugin.Instance?.SaveConfiguration();
         _logger.LogInformation("Plugin configuration applied from import");
+        return retired.Count;
     }
 
     private void SanitizeImportedConfig(PluginConfiguration c)

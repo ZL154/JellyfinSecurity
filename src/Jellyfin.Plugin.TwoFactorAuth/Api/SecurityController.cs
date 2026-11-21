@@ -312,7 +312,7 @@ public class SecurityController : ControllerBase
 
     [HttpPost("Oidc/Providers")]
     [Authorize(Policy = "RequiresElevation")]
-    public ActionResult<object> CreateProvider([FromBody, Required] OidcProviderUpsertRequest req)
+    public async Task<ActionResult<object>> CreateProvider([FromBody, Required] OidcProviderUpsertRequest req)
     {
         // SECURITY [v2.5.6] (U3): require step-up. Adding an OIDC provider
         // wires a new identity-issuer trust path into the plugin and could
@@ -374,6 +374,10 @@ public class SecurityController : ControllerBase
             RpInitiatedLogoutRedirectUri = SanitizePostLogoutRedirectUri(req.RpInitiatedLogoutRedirectUri),
             CreatedAt = DateTime.UtcNow,
         };
+        // A provider deleted earlier (or by an older version) can have left
+        // links under this slug. Retire them before the provider exists, so
+        // it never honours them.
+        await RetireProviderLinksAsync(new[] { provider.Id }, "a new provider took over the slug").ConfigureAwait(false);
         config.OidcProviders.Add(provider);
         plugin.SaveConfiguration();
         return Ok(new { id = provider.Id, displayName = provider.DisplayName });
@@ -392,6 +396,72 @@ public class SecurityController : ControllerBase
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin not initialized");
         var existing = plugin.Configuration.OidcProviders.FirstOrDefault(p => p.Id == id);
         if (existing is null) return NotFound();
+
+        // [v2.5.14] (#94, Re4mstr) Optional in-place callback-slug rename. The slug
+        // is BOTH the last segment of the OIDC redirect URI (…/Oidc/Callback/<slug>)
+        // AND the key SsoLinks are stored under, so renaming it must migrate those
+        // links or already-linked users get orphaned. This lets an admin fix a
+        // typo'd slug (e.g. "sing-in-with-…") without deleting + re-adding the
+        // provider and re-entering every field. The admin MUST then update the
+        // redirect_uri at their IdP to the new callback URL (returned below).
+        // Validated before anything changes, so a rejected request leaves the
+        // live provider and its links untouched.
+        string? newId = null;
+        var requestedSlug = (req.CallbackSlug ?? string.Empty).Trim();
+        if (!string.IsNullOrEmpty(requestedSlug))
+        {
+            var slug = SlugifyId(requestedSlug);
+            if (string.IsNullOrEmpty(slug))
+            {
+                return BadRequest(new { message = "Requested callback slug produces an empty id." });
+            }
+
+            if (!string.Equals(slug, existing.Id, StringComparison.Ordinal))
+            {
+                if (plugin.Configuration.OidcProviders.Any(p => p.Id == slug))
+                {
+                    return Conflict(new { message = $"Another OIDC provider already uses the slug '{slug}'." });
+                }
+
+                newId = slug;
+            }
+        }
+
+        // Links hold subjects from the IdP the provider pointed at when they
+        // were made, and a subject is only unique within that IdP. Compared
+        // offline so saving never waits on the IdP. Links are retired before
+        // the new URL is exposed; retiring is idempotent, so an interrupted
+        // save can be repeated and still sees the change.
+        if (!OidcService.SameDiscoveryUrl(existing.DiscoveryUrl, req.DiscoveryUrl))
+        {
+            var retired = await RetireProviderLinksAsync(new[] { existing.Id }, "discovery URL changed").ConfigureAwait(false);
+            _logger.LogWarning(
+                "[2FA] OIDC provider '{Id}' discovery URL changed; retired its account links for {Count} user(s). They link again from Setup.",
+                existing.Id, retired);
+        }
+
+        string? renamedTo = null;
+        if (newId is not null)
+        {
+            var oldId = existing.Id;
+            // Links left under the new slug by an earlier provider belong to
+            // that provider, not this one.
+            // Rows this rename already moved (a retry after an interrupted
+            // save) are spared.
+            await RetireProviderLinksAsync(
+                new[] { newId },
+                "a renamed provider took over the slug",
+                l => string.Equals(l.RenamedFrom, oldId, StringComparison.Ordinal)).ConfigureAwait(false);
+            var migrated = await MigrateSsoLinkProviderIdAsync(oldId, newId).ConfigureAwait(false);
+            existing.Id = newId;
+            _oidc.InvalidateCache(oldId);
+            renamedTo = newId;
+            _logger.LogWarning(
+                "[2FA] OIDC provider callback slug renamed '{Old}' -> '{New}' ({Count} SSO link(s) migrated). " +
+                "The redirect_uri at the identity provider MUST be updated to the new callback URL or sign-in will fail.",
+                oldId, newId, migrated);
+        }
+
         existing.DisplayName = req.DisplayName;
         existing.Preset = req.Preset;
         existing.DiscoveryUrl = req.DiscoveryUrl;
@@ -436,42 +506,6 @@ public class SecurityController : ControllerBase
         existing.RpInitiatedLogoutEnabled = req.RpInitiatedLogoutEnabled;
         existing.RpInitiatedLogoutRedirectUri = SanitizePostLogoutRedirectUri(req.RpInitiatedLogoutRedirectUri);
 
-        // [v2.5.14] (#94, Re4mstr) Optional in-place callback-slug rename. The slug
-        // is BOTH the last segment of the OIDC redirect URI (…/Oidc/Callback/<slug>)
-        // AND the key SsoLinks are stored under, so renaming it must migrate those
-        // links or already-linked users get orphaned. This lets an admin fix a
-        // typo'd slug (e.g. "sing-in-with-…") without deleting + re-adding the
-        // provider and re-entering every field. The admin MUST then update the
-        // redirect_uri at their IdP to the new callback URL (returned below).
-        string? renamedTo = null;
-        var requestedSlug = (req.CallbackSlug ?? string.Empty).Trim();
-        if (!string.IsNullOrEmpty(requestedSlug))
-        {
-            var newId = SlugifyId(requestedSlug);
-            if (string.IsNullOrEmpty(newId))
-            {
-                return BadRequest(new { message = "Requested callback slug produces an empty id." });
-            }
-
-            if (!string.Equals(newId, existing.Id, StringComparison.Ordinal))
-            {
-                if (plugin.Configuration.OidcProviders.Any(p => p.Id == newId))
-                {
-                    return Conflict(new { message = $"Another OIDC provider already uses the slug '{newId}'." });
-                }
-
-                var oldId = existing.Id;
-                existing.Id = newId;
-                var migrated = await MigrateSsoLinkProviderIdAsync(oldId, newId).ConfigureAwait(false);
-                _oidc.InvalidateCache(oldId);
-                renamedTo = newId;
-                _logger.LogWarning(
-                    "[2FA] OIDC provider callback slug renamed '{Old}' -> '{New}' ({Count} SSO link(s) migrated). " +
-                    "The redirect_uri at the identity provider MUST be updated to the new callback URL or sign-in will fail.",
-                    oldId, newId, migrated);
-            }
-        }
-
         plugin.SaveConfiguration();
         _oidc.InvalidateCache(existing.Id);
         return Ok(new
@@ -503,6 +537,7 @@ public class SecurityController : ControllerBase
                     if (string.Equals(l.ProviderId, oldId, StringComparison.Ordinal))
                     {
                         l.ProviderId = newId;
+                        l.RenamedFrom = oldId;
                     }
                 }
             }).ConfigureAwait(false);
@@ -512,6 +547,29 @@ public class SecurityController : ControllerBase
         return count;
     }
 
+
+    /// <summary>Retire every user's active links under these provider
+    /// slugs (<see cref="OidcLinkRetirement"/>) and audit each affected user.
+    /// Returns the number of users changed.</summary>
+    private async Task<int> RetireProviderLinksAsync(IReadOnlyCollection<string> providerIds, string reason, Func<SsoLink, bool>? spare = null)
+    {
+        var changed = await OidcLinkRetirement.RetireAsync(_store, providerIds, reason, spare).ConfigureAwait(false);
+        foreach (var (userId, count) in changed)
+        {
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = userId,
+                Username = _userManager.GetUserById(userId)?.Username ?? userId.ToString(),
+                RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+                Result = AuditResult.ConfigChanged,
+                Method = "oidc_links_retired",
+                Details = $"{count} link(s) to provider '{string.Join("', '", providerIds)}' retired: {reason}",
+            }).ConfigureAwait(false);
+        }
+
+        return changed.Count;
+    }
 
     /// <summary>[v2.5.10] (#65) map admin-UI role→library DTOs to the stored
     /// model, dropping blank rows and normalizing the library-id list.</summary>
@@ -555,7 +613,7 @@ public class SecurityController : ControllerBase
 
     [HttpDelete("Oidc/Providers/{id}")]
     [Authorize(Policy = "RequiresElevation")]
-    public ActionResult DeleteProvider([FromRoute] string id)
+    public async Task<ActionResult> DeleteProvider([FromRoute] string id)
     {
         // SECURITY [v2.5.6] (U3): require step-up. Deleting an IdP locks
         // users out of OIDC sign-in; not catastrophic but still admin-
@@ -564,10 +622,16 @@ public class SecurityController : ControllerBase
         if (guardDel is not null) return guardDel;
 
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin not initialized");
-        var removed = plugin.Configuration.OidcProviders.RemoveAll(p => p.Id == id);
-        if (removed == 0) return NotFound();
+        if (!plugin.Configuration.OidcProviders.Any(p => p.Id == id)) return NotFound();
+        // Retire the provider's links first, so a provider created later under
+        // the same slug never honours them, even if this save is interrupted.
+        var retiredLinks = await RetireProviderLinksAsync(new[] { id }, "provider deleted").ConfigureAwait(false);
+        plugin.Configuration.OidcProviders.RemoveAll(p => p.Id == id);
         plugin.SaveConfiguration();
         _oidc.InvalidateCache(id);
+        _logger.LogInformation(
+            "[2FA] OIDC provider '{Id}' deleted; retired its account links for {Count} user(s)",
+            id, retiredLinks);
         return Ok();
     }
 
@@ -1879,31 +1943,63 @@ public class SecurityController : ControllerBase
     [Authorize]
     public async Task<ActionResult<IReadOnlyList<object>>> ListMyLinks()
     {
-        var data = await _store.GetUserDataAsync(GetCurrentUserId()).ConfigureAwait(false);
+        var userId = GetCurrentUserId();
+        var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        if (data.SsoLinks.Any(l => string.IsNullOrEmpty(l.Id)))
+        {
+            await _store.MutateAsync(userId, ud => OidcLinkRetirement.EnsureLinkIds(ud)).ConfigureAwait(false);
+            data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
+        }
+
         var providers = Plugin.Instance?.Configuration.OidcProviders ?? new List<OidcProvider>();
         var safe = data.SsoLinks.Select(l => new
         {
+            id = l.Id,
             providerId = l.ProviderId,
             providerDisplay = providers.FirstOrDefault(p => p.Id == l.ProviderId)?.DisplayName ?? l.ProviderId,
-            subject = l.Subject,
+            subject = OidcLinkRetirement.DisplaySubject(l),
             email = l.Email,
             linkedAt = l.LinkedAt,
             lastUsedAt = l.LastUsedAt,
+            retired = l.RetiredAt is not null,
         }).ToList<object>();
         return Ok(safe);
     }
 
+    /// <summary>Remove one of the caller's links, named by its
+    /// <see cref="SsoLink.Id"/>.</summary>
+    [HttpDelete("Oidc/MyLinks/{linkId}")]
+    [Authorize]
+    public async Task<ActionResult> UnlinkMineById([FromRoute] string linkId)
+    {
+        if (string.IsNullOrEmpty(linkId)) return NotFound();
+        var removed = false;
+        await _store.MutateAsync(GetCurrentUserId(), ud =>
+        {
+            removed = ud.SsoLinks.RemoveAll(l => string.Equals(l.Id, linkId, StringComparison.Ordinal)) > 0;
+        }).ConfigureAwait(false);
+        return removed ? Ok() : NotFound();
+    }
+
+    /// <summary>Older clients name a link by provider and subject. That only
+    /// works while it names exactly one row; otherwise nothing is removed.</summary>
     [HttpDelete("Oidc/MyLinks/{providerId}/{subject}")]
     [Authorize]
     public async Task<ActionResult> UnlinkMine([FromRoute] string providerId, [FromRoute] string subject)
     {
         var userId = GetCurrentUserId();
-        var removed = false;
+        var matches = 0;
         await _store.MutateAsync(userId, ud =>
         {
-            removed = ud.SsoLinks.RemoveAll(l => l.ProviderId == providerId && l.Subject == subject) > 0;
+            matches = ud.SsoLinks.Count(l => l.ProviderId == providerId && l.Subject == subject);
+            if (matches == 1) ud.SsoLinks.RemoveAll(l => l.ProviderId == providerId && l.Subject == subject);
         }).ConfigureAwait(false);
-        return removed ? Ok() : NotFound();
+        return matches switch
+        {
+            0 => NotFound(),
+            1 => Ok(),
+            _ => Conflict(new { message = "More than one link matches; remove it by its id." }),
+        };
     }
 
     // =========================================================================

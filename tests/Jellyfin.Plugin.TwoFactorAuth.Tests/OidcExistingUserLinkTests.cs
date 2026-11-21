@@ -46,6 +46,7 @@ public class OidcExistingUserLinkTests
             OidcService.HasConflictingProviderLink(
                 data,
                 "keycloak",
+                "https://idp.example",
                 "replacement-subject"));
     }
 
@@ -60,8 +61,8 @@ public class OidcExistingUserLinkTests
             },
         };
 
-        Assert.False(OidcService.HasConflictingProviderLink(data, "keycloak", "subject-a"));
-        Assert.False(OidcService.HasConflictingProviderLink(data, "other-provider", "subject-b"));
-        Assert.False(OidcService.HasConflictingProviderLink(null, "keycloak", "subject-b"));
+        Assert.False(OidcService.HasConflictingProviderLink(data, "keycloak", "https://idp.example", "subject-a"));
+        Assert.False(OidcService.HasConflictingProviderLink(data, "other-provider", "https://idp.example", "subject-b"));
+        Assert.False(OidcService.HasConflictingProviderLink(null, "keycloak", "https://idp.example", "subject-b"));
     }
 }
