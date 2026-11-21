@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.Loader;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -65,11 +66,31 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return false;
             }
 
-            var providers = _appHost.GetExports<IAuthenticationProvider>(false)
-                .Select(provider => (TypeName: provider.GetType().FullName, Enabled: provider.IsEnabled))
-                .ToList();
-            return providers.Any(provider => provider.Enabled && provider.TypeName == SignInProviderRestore.PluginProviderId)
-                && CodeAfterPasswordMiddleware.PasswordProviderIndex(providerId, providers) >= 0;
+            // The host omits failed activations from GetExports. Inspect every
+            // declared type so a later password attempt cannot pick another delegate.
+            var providers = _appHost.GetExportTypes<IAuthenticationProvider>().ToList();
+            if (!providers.Remove(typeof(TwoFactorAuthProvider)))
+            {
+                return false;
+            }
+
+            var serverAssembly = AssemblyLoadContext.Default.Assemblies.SingleOrDefault(
+                assembly => assembly.GetName().Name == "Jellyfin.Server.Implementations");
+            if (serverAssembly is null
+                || serverAssembly.GetType(SignInProviderRestore.JellyfinDefaultProviderId) is not Type passwordProvider
+                || passwordProvider.Assembly != serverAssembly
+                || !providers.Remove(passwordProvider))
+            {
+                return false;
+            }
+
+            // On both supported host lines the password provider is always enabled
+            // and InvalidAuthProvider is always disabled. Any other entry, including
+            // a duplicate, leaves the delegate uncertain.
+            return providers.Count == 0
+                || (providers is [Type other]
+                    && other.Assembly == serverAssembly
+                    && other.FullName == "Jellyfin.Server.Implementations.Users.InvalidAuthProvider");
         }
         catch (Exception)
         {

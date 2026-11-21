@@ -1,6 +1,5 @@
 using System.Net;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
@@ -13,7 +12,6 @@ using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using Jellyfin.Plugin.TwoFactorAuth.Tests.Helpers;
-using Jellyfin.Server.Implementations.Users;
 using MediaBrowser.Common;
 using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Devices;
@@ -287,11 +285,8 @@ internal sealed class SignInPolicyFixture : IDisposable
         var xml = Substitute.For<IXmlSerializer>();
         xml.DeserializeFromFile(typeof(PluginConfiguration), Arg.Any<string>()).Returns(new PluginConfiguration());
         var host = Substitute.For<IApplicationHost>();
-        host.GetExports<IAuthenticationProvider>(false).Returns(new IAuthenticationProvider[]
-        {
-            (TwoFactorAuthProvider)RuntimeHelpers.GetUninitializedObject(typeof(TwoFactorAuthProvider)),
-            new DefaultAuthenticationProvider(),
-        });
+        host.GetExportTypes<IAuthenticationProvider>().Returns(
+            new[] { typeof(TwoFactorAuthProvider), HostProviderIdentityFixture.PasswordProvider });
         _plugin = new Plugin(paths, xml, host, NullLogger<Plugin>.Instance);
         Config.Enabled = true;
         Config.RequireForAllUsers = false;

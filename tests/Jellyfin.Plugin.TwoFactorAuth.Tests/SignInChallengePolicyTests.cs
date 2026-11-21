@@ -47,6 +47,26 @@ public class SignInChallengePolicyTests
         Assert.Equal(123, restored.LastUsedTotpStep);
     }
 
+    [Fact]
+    public void Omitting_account_capability_keeps_the_passkey_challenge()
+    {
+        var config = new PluginConfiguration { EnforcementScope = EnforcementScope.Optional, RequireForAllUsers = false };
+        var data = new UserTwoFactorData { Passkeys = { new PasskeyCredential() }, PasskeyRequiresSecondFactor = true };
+
+        Assert.Equal("passkey", SignInChallengePolicy.GetReason(data, config, isAdmin: false));
+        Assert.True(SignInChallengePolicy.RequiresChallenge(data, config, isAdmin: false));
+    }
+
+    [Fact]
+    public void A_disabled_authenticator_with_a_stored_verification_does_not_require_a_challenge()
+    {
+        var config = new PluginConfiguration { EnforcementScope = EnforcementScope.Optional, RequireForAllUsers = false };
+        var data = new UserTwoFactorData { TotpEnabled = false, TotpVerified = true };
+
+        Assert.Equal("none", SignInChallengePolicy.GetReason(data, config, isAdmin: false, accountPasswordSignInUnavailable: true));
+        Assert.False(SignInChallengePolicy.RequiresChallenge(data, config, isAdmin: false, accountPasswordSignInUnavailable: true));
+    }
+
     public static IEnumerable<object[]> Matrix()
     {
         foreach (var scope in Enum.GetValues<EnforcementScope>())
