@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Models;
 
@@ -277,6 +278,18 @@ public class OidcProvider
     public string RpInitiatedLogoutRedirectUri { get; set; } = string.Empty;
 
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>A copy that later edits to this provider do not reach. Each
+    /// OIDC flow works from one, so discovery, the token exchange and token
+    /// validation all use the same settings even if an admin saves meanwhile.</summary>
+    internal OidcProvider Snapshot()
+    {
+        var copy = (OidcProvider)MemberwiseClone();
+        copy.RoleLibraryMappings = RoleLibraryMappings
+            .Select(m => new OidcRoleLibraryMapping { Role = m.Role, LibraryIds = m.LibraryIds })
+            .ToList();
+        return copy;
+    }
 }
 
 /// <summary>[v2.5.10] (issue #65): one role→libraries mapping for

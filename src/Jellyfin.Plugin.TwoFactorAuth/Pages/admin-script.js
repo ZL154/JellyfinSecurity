@@ -1800,6 +1800,16 @@
                 // ---- v2.0 SSO PROVIDERS ----
                 var ssoPresets = [];
                 var ssoEditingId = null;
+                // Discovery URL the edited provider was loaded with. The server
+                // removes the provider's account links when it changes.
+                var ssoEditingDiscoveryUrl = '';
+                // Mirrors OidcService.SameDiscoveryUrl: only surrounding
+                // whitespace and the case of the scheme and host are ignored.
+                function canonicalDiscoveryUrl(raw) {
+                    var v = String(raw || '').trim();
+                    var m = /^([a-z][a-z0-9+.-]*:\/\/[^\/?#]*)(.*)$/i.exec(v);
+                    return m ? m[1].toLowerCase() + m[2] : v;
+                }
                 function loadSso() {
                     var loadPresetsP = ssoPresets.length
                         ? Promise.resolve(ssoPresets)
@@ -2022,6 +2032,7 @@
                         toggleSsoConditionalRows();
                     });
                     ssoEditingId = prov ? prov.id : null;
+                    ssoEditingDiscoveryUrl = prov ? (prov.discoveryUrl || '') : '';
                     updateSsoHint();
                 }
                 function editSsoProvider(id, rows) {
@@ -2127,6 +2138,9 @@
                     };
                     if (!body.DisplayName) { alert(_tr('tfa.admin.sso.alert_display_required', 'Display name is required.')); return; }
                     if (!body.ClientId) { alert(_tr('tfa.admin.sso.alert_client_id_required', 'Client ID is required.')); return; }
+                    if (ssoEditingId
+                        && canonicalDiscoveryUrl(body.DiscoveryUrl) !== canonicalDiscoveryUrl(ssoEditingDiscoveryUrl)
+                        && !confirm(_tr('tfa.admin.sso.confirm_discovery_change', 'Change the discovery URL? This provider\'s existing account links will stop working, and each user will have to link again from their Setup page. Users who can only sign in through this provider, including accounts it created (they have a random password), first need another way in: a password reset by you or by email, if enabled.'))) return;
                     var status = page.querySelector('#ssoSaveStatus');
                     status.style.color = '#888'; status.textContent = _tr('tfa.admin.common.saving', 'Saving…');
                     var p = ssoEditingId

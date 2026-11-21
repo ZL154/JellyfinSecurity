@@ -69,9 +69,32 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         if (configuration is PluginConfiguration incoming)
         {
             ConfigSecrets.KeepSaved(incoming, Configuration);
+            RetireLinksOfChangedProviders(incoming);
         }
 
         base.UpdateConfiguration(configuration);
+    }
+
+    /// <summary>
+    /// This generic save can add, remove or re-point OIDC providers too.
+    /// Account links under a slug whose provider changes are retired before
+    /// the new settings take effect, as the provider editor does
+    /// (<see cref="OidcLinkRetirement"/>). If that fails, the save fails, so
+    /// it can be retried.
+    /// </summary>
+    private void RetireLinksOfChangedProviders(PluginConfiguration incoming)
+    {
+        var changed = OidcLinkRetirement.ChangedProviderIds(Configuration.OidcProviders, incoming.OidcProviders);
+        if (changed.Count == 0) return;
+        var store = _appHost.Resolve<UserTwoFactorStore>();
+        if (store is null) return;
+        var retired = OidcLinkRetirement.RetireAsync(store, changed, "configuration saved").GetAwaiter().GetResult();
+        if (retired.Count > 0)
+        {
+            _logger.LogWarning(
+                "[2FA] Settings save changed OIDC provider(s) {Providers}; retired their account links for {Count} user(s)",
+                string.Join(", ", changed), retired.Count);
+        }
     }
 
     public override string Name => "Jellyfin Security";

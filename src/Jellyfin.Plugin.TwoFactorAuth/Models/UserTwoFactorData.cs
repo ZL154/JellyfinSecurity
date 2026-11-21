@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Models;
 
@@ -163,9 +164,62 @@ public class UserTwoFactorData
 /// trusted for matching, since users can change emails at their IdP.</summary>
 public class SsoLink
 {
+    /// <summary>Opaque id the account page uses to name one row. Two rows can
+    /// share provider and subject (a retired row and its replacement, or rows
+    /// from different issuers), so those cannot identify a row. Empty on rows
+    /// stored before the field existed; filled in when the list is read.</summary>
+    public string Id { get; set; } = string.Empty;
+
     public string ProviderId { get; set; } = string.Empty;
 
     public string Subject { get; set; } = string.Empty;
+
+    /// <summary>The verified id_token issuer the link was made with. A
+    /// <c>sub</c> is only unique within one issuer, and <see cref="ProviderId"/>
+    /// is an admin-editable slug that can be re-pointed at another IdP, so a
+    /// link only matches tokens from this issuer. Empty on links created
+    /// before the field existed; those are accepted once and then filled in.</summary>
+    public string Issuer { get; set; } = string.Empty;
+
+    /// <summary>Whether this link is retired. The subject prefix is the
+    /// marker that every version keeps when it rewrites the file. It starts
+    /// with a non-ASCII character, and OpenID Connect subjects are ASCII, so
+    /// it never collides with a subject an issuer assigned (tokens whose
+    /// <c>sub</c> carries it are refused as well).</summary>
+    [JsonIgnore]
+    public bool IsRetired => RetiredAt is not null
+        || (Subject?.StartsWith(RetiredSubjectPrefix, StringComparison.Ordinal) ?? false);
+
+    /// <summary>Set when the provider slug stopped pointing at the identity
+    /// provider this link was made with (discovery URL changed, provider
+    /// deleted or replaced, configuration imported). A retired link never
+    /// matches a token, but it still counts as this account's link to the
+    /// provider, so the email and username fallbacks cannot attach a
+    /// different identity to the account. The user links again explicitly
+    /// from Setup and can then remove the retired row. Retiring also prefixes
+    /// <see cref="Subject"/> with <see cref="RetiredSubjectPrefix"/>: a version
+    /// that predates this field drops it when it rewrites the file, and the
+    /// prefix keeps the row from matching a token there too, while it still
+    /// blocks the fallbacks as a different subject.</summary>
+    public DateTime? RetiredAt { get; set; }
+
+    public const string RetiredSubjectPrefix = "\u2298retired:";
+
+    /// <summary>The ASCII prefix pre-release builds of this change used. It
+    /// can be part of a real subject, so it is only read on rows that also
+    /// carry <see cref="RetiredAt"/>.</summary>
+    public const string LegacyRetiredSubjectPrefix = "retired:";
+
+    public string RetiredReason { get; set; } = string.Empty;
+
+    /// <summary>The slug this link was moved from by a callback-slug rename.
+    /// A retried rename then tells the rows it moved from stale rows that were
+    /// already under the destination slug.</summary>
+    public string RenamedFrom { get; set; } = string.Empty;
+
+    /// <summary>The discovery URL the rename that moved this link was saved
+    /// with. A retried rename spares the row only if it still points there.</summary>
+    public string RenamedWithDiscoveryUrl { get; set; } = string.Empty;
 
     public string Email { get; set; } = string.Empty;
 

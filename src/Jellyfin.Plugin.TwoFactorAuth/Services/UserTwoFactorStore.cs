@@ -189,13 +189,13 @@ public class UserTwoFactorStore : IDisposable
         await sem.WaitAsync().ConfigureAwait(false);
         try
         {
-            // PERF-P1: prefer cached canonical copy under the lock; fall back
-            // to disk only when uncached. The mutator runs against the canonical
-            // copy directly, then we write-through to disk + update cache.
-            if (!_userCache.TryGetValue(userId, out var data))
-            {
-                data = await ReadUserFileAsync(userId).ConfigureAwait(false);
-            }
+            // PERF-P1: prefer the cached copy under the lock; fall back to disk
+            // only when uncached. The mutator runs against a working copy that
+            // replaces the cached one only once it is on disk, so a failed
+            // write leaves the cache matching the file and a retry redoes it.
+            var data = _userCache.TryGetValue(userId, out var cached)
+                ? CloneUserData(cached)
+                : await ReadUserFileAsync(userId).ConfigureAwait(false);
             mutator(data);
             await WriteUserFileAsync(data).ConfigureAwait(false);
             _userCache[userId] = data;
@@ -639,8 +639,10 @@ public class UserTwoFactorStore : IDisposable
 
         try
         {
-            return JsonSerializer.Deserialize<UserTwoFactorData>(json, JsonOptions)
+            var data = JsonSerializer.Deserialize<UserTwoFactorData>(json, JsonOptions)
                    ?? throw new JsonException("Deserializer returned null for non-empty 2FA data.");
+            OidcLinkRetirement.NormalizeRetired(data);
+            return data;
         }
         catch (JsonException ex)
         {
