@@ -1,6 +1,9 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Http;
@@ -397,14 +400,18 @@ public class TwoFactorEnforcementMiddleware
             // user with an email-only challenge they may have no way to
             // satisfy. Rescues any pre-existing half-enrolled rows from
             // v2.4.0 too: they now pass through to no-2FA if policy allows.
-            var isAdmin = authResult.User.Policy?.IsAdministrator ?? false;
+            var responseAdmin = authResult.User.Policy?.IsAdministrator;
+            var isAdmin = responseAdmin ?? false;
             var quickConnect = IsQuickConnectSignIn(path);
             var accountEvidenceApplies = TwoFactorAuthProvider.AcceptedBridgeFor(context, userGuid)
                 || (quickConnect && path.TrimEnd('/').EndsWith("/Users/AuthenticateWithQuickConnect", StringComparison.OrdinalIgnoreCase));
             var passwordUnavailable = accountEvidenceApplies && config.BlockEmptyPasswordLogin
                 && SignInChallengePolicy.GetReason(userData, config, isAdmin, accountPasswordSignInUnavailable: false) == "passkey"
-                && AccountPasswordSignInUnavailable(context, userGuid);
-            if (!SignInChallengePolicy.RequiresChallenge(userData, config, isAdmin, passwordUnavailable))
+                && (config.EnforcementScope != EnforcementScope.Admins || responseAdmin == false)
+                && AccountPasswordSignInUnavailable(context, userGuid, config);
+            var requiresChallenge = SignInChallengePolicy.RequiresChallenge(userData, config, isAdmin, passwordUnavailable);
+            var exemptQuickConnect = quickConnect && passwordUnavailable && !requiresChallenge;
+            if (!requiresChallenge && !exemptQuickConnect)
             {
                 _logger.LogDebug(
                     "[2FA] User {Name} does not require a sign-in challenge under scope ({Scope}), passing through",
@@ -436,7 +443,8 @@ public class TwoFactorEnforcementMiddleware
             // paired-device list for those clients, and they get challenged
             // despite having been approved (this bit Samsung TV specifically).
             var authHeader = context.Request.Headers["X-Emby-Authorization"].FirstOrDefault();
-            var deviceId = context.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
+            // A newly exempt fetch can transfer trust only to the device named in the host response.
+            var deviceId = exemptQuickConnect ? null : context.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
                 ?? context.Request.Headers["X-Emby-DeviceId"].FirstOrDefault()
                 ?? ParseEmbyAuth(authHeader, "DeviceId");
             var deviceName = context.Request.Headers["X-Emby-Device-Name"].FirstOrDefault()
@@ -449,27 +457,19 @@ public class TwoFactorEnforcementMiddleware
             // bypasses. Fallback: Jellyfin's auth RESPONSE body (which we
             // already parsed into authResult) contains SessionInfo.DeviceId,
             // which is the authoritative value Jellyfin assigned this session.
-            if (string.IsNullOrEmpty(deviceId))
+            var sessionInfo = authResult.SessionInfo;
+            if (string.IsNullOrEmpty(deviceId) && sessionInfo.ValueKind == JsonValueKind.Object)
             {
-                try
+                if ((sessionInfo.TryGetProperty("DeviceId", out var id) || sessionInfo.TryGetProperty("deviceId", out id))
+                    && id.ValueKind == JsonValueKind.String)
                 {
-                    using var authDoc = JsonDocument.Parse(bodyBytes);
-                    if (authDoc.RootElement.TryGetProperty("SessionInfo", out var si))
-                    {
-                        if (si.TryGetProperty("DeviceId", out var did) && did.ValueKind == JsonValueKind.String)
-                        {
-                            deviceId = did.GetString();
-                        }
-                        if (string.Equals(deviceName, "Unknown", StringComparison.Ordinal)
-                            && si.TryGetProperty("DeviceName", out var dn) && dn.ValueKind == JsonValueKind.String)
-                        {
-                            deviceName = dn.GetString() ?? "Unknown";
-                        }
-                    }
+                    deviceId = id.GetString();
                 }
-                catch (Exception ex)
+                if (string.Equals(deviceName, "Unknown", StringComparison.Ordinal)
+                    && (sessionInfo.TryGetProperty("DeviceName", out var name) || sessionInfo.TryGetProperty("deviceName", out name))
+                    && name.ValueKind == JsonValueKind.String)
                 {
-                    _logger.LogDebug(ex, "[2FA] Could not fallback-parse SessionInfo.DeviceId from auth body");
+                    deviceName = name.GetString() ?? "Unknown";
                 }
             }
 
@@ -496,40 +496,48 @@ public class TwoFactorEnforcementMiddleware
             // device that fetched late, or fetched again, was challenged for a
             // token already let through. That verdict outlives the flag as the
             // verified mark, so it is read first.
-            var approved = (quickConnect && _challengeStore.IsTokenVerified(authResult.AccessToken))
-                || await _challengeStore
-                    .WaitForApprovalAsync(authResult.AccessToken, userGuid, deviceId, TimeSpan.FromMilliseconds(500))
-                    .ConfigureAwait(false);
-            if (approved)
+            BypassResult bypass;
+            if (exemptQuickConnect)
             {
-                _logger.LogDebug("[2FA] Token pre-approved by event handler — passing auth response through for {Name}",
-                    authResult.User.Name);
-                _ipBans.RecordSuccess(remoteIp ?? string.Empty);
-                await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
-                return;
+                bypass = _bypassEvaluator.Evaluate(null, null, twoFactorToken, deviceId, null, userData.TrustedDevices, [], []);
             }
-            var apiKeys = await _store.GetApiKeysAsync().ConfigureAwait(false);
+            else
+            {
+                var approved = (quickConnect && _challengeStore.IsTokenVerified(authResult.AccessToken))
+                    || await _challengeStore
+                        .WaitForApprovalAsync(authResult.AccessToken, userGuid, deviceId, TimeSpan.FromMilliseconds(500))
+                        .ConfigureAwait(false);
+                if (approved)
+                {
+                    _logger.LogDebug("[2FA] Passing auth response through for {Name} after token approval by event handler",
+                        authResult.User.Name);
+                    _ipBans.RecordSuccess(remoteIp ?? string.Empty);
+                    await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
+                    return;
+                }
+                var apiKeys = await _store.GetApiKeysAsync().ConfigureAwait(false);
 
-            // SECURITY [v2.5.6] (third-audit F5): apply registered-device
-            // expiry filter. v2.5.5 batch-3 added the expiry feature in
-            // AuthenticationEventHandler only, leaving this middleware path
-            // silently unfiltered. Now consistent across all three
-            // enforcement paths (handler + provider + this middleware).
-            var middlewareMaxAgeDays = config.RegisteredDeviceMaxAgeDays;
-            var activeRegisteredIds = middlewareMaxAgeDays > 0
-                ? AuthenticationEventHandler.FilterActiveRegisteredDeviceIds(
-                    userData.RegisteredDeviceIds, userData.RegisteredDeviceEntries, middlewareMaxAgeDays)
-                : userData.RegisteredDeviceIds;
+                // SECURITY [v2.5.6] (third-audit F5): apply registered-device
+                // expiry filter. v2.5.5 batch-3 added the expiry feature in
+                // AuthenticationEventHandler only, leaving this middleware path
+                // silently unfiltered. Now consistent across all three
+                // enforcement paths (handler + provider + this middleware).
+                var middlewareMaxAgeDays = config.RegisteredDeviceMaxAgeDays;
+                var activeRegisteredIds = middlewareMaxAgeDays > 0
+                    ? AuthenticationEventHandler.FilterActiveRegisteredDeviceIds(
+                        userData.RegisteredDeviceIds, userData.RegisteredDeviceEntries, middlewareMaxAgeDays)
+                    : userData.RegisteredDeviceIds;
 
-            var bypass = _bypassEvaluator.Evaluate(
-                remoteIp,
-                forwardedFor,
-                twoFactorToken,
-                deviceId,
-                null,
-                userData.TrustedDevices,
-                activeRegisteredIds,
-                apiKeys);
+                bypass = _bypassEvaluator.Evaluate(
+                    remoteIp,
+                    forwardedFor,
+                    twoFactorToken,
+                    deviceId,
+                    null,
+                    userData.TrustedDevices,
+                    activeRegisteredIds,
+                    apiKeys);
+            }
 
             if (bypass.IsBypassed)
             {
@@ -555,6 +563,13 @@ public class TwoFactorEnforcementMiddleware
                 return;
             }
 
+            if (exemptQuickConnect && !_challengeStore.IsTokenBlocked(authResult.AccessToken))
+            {
+                _ipBans.RecordSuccess(remoteIp ?? string.Empty);
+                await originalBody.WriteAsync(bodyBytes).ConfigureAwait(false);
+                return;
+            }
+
             // Paired-device bypass: TV/native client whose DeviceId the user
             // already approved (via QR pairing OR by approving a pending request).
             // DeviceIdMatches normalises UA-hash deviceIds so Tizen webview
@@ -566,7 +581,7 @@ public class TwoFactorEnforcementMiddleware
             // client-supplied with no integrity binding. The signed trusted-
             // device cookie path (handled in BypassEvaluator above) is the
             // secure equivalent and remains active regardless.
-            if (config.BareDeviceIdBypassEnabled && !string.IsNullOrWhiteSpace(deviceId))
+            if (!exemptQuickConnect && config.BareDeviceIdBypassEnabled && !string.IsNullOrWhiteSpace(deviceId))
             {
                 var paired = userData.PairedDevices.FirstOrDefault(p =>
                     BypassEvaluator.DeviceIdMatches(p.DeviceId, deviceId));
@@ -619,7 +634,7 @@ public class TwoFactorEnforcementMiddleware
                 context.Request.Headers["Authorization"].FirstOrDefault(),
                 context.Request.Headers["X-Emby-Authorization"].FirstOrDefault(),
                 context.Request.Headers["X-Emby-Client"].FirstOrDefault());
-            if (!string.IsNullOrEmpty(submittedPassword) && userData.AppPasswords.Count > 0
+            if (!exemptQuickConnect && !string.IsNullOrEmpty(submittedPassword) && userData.AppPasswords.Count > 0
                 && !AppPasswordClientPolicy.IsRefused(appPasswordClient))
             {
                 var apIp = RateLimiter.ClientKey(context);
@@ -744,12 +759,14 @@ public class TwoFactorEnforcementMiddleware
         }
     }
 
-    private bool AccountPasswordSignInUnavailable(HttpContext context, Guid userId)
+    private bool AccountPasswordSignInUnavailable(HttpContext context, Guid userId, PluginConfiguration config)
     {
         try
         {
             var user = context.RequestServices.GetService<IUserManager>()?.GetUserById(userId);
-            return user?.Id == userId && Plugin.Instance?.AccountPasswordSignInUnavailable(user) == true;
+            return user is not null && user.Id == userId
+                && (config.EnforcementScope != EnforcementScope.Admins || !user.HasPermission(PermissionKind.IsAdministrator))
+                && Plugin.Instance?.AccountPasswordSignInUnavailable(user) == true;
         }
         catch (Exception ex)
         {
@@ -905,6 +922,8 @@ public class TwoFactorEnforcementMiddleware
         public string? AccessToken { get; set; }
 
         public AuthUser? User { get; set; }
+
+        public JsonElement SessionInfo { get; set; }
     }
 
     private sealed class AuthUser
@@ -927,6 +946,6 @@ public class TwoFactorEnforcementMiddleware
 
     private sealed class AuthUserPolicy
     {
-        public bool IsAdministrator { get; set; }
+        public bool? IsAdministrator { get; set; }
     }
 }

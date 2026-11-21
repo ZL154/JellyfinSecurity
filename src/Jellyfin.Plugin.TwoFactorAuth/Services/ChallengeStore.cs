@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Security.Cryptography;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 
@@ -23,31 +22,6 @@ public class ChallengeStore : IDisposable
     // Quick Connect needs a user-scoped SINGLE-CONSUME flag because the TV
     // session that completes after phone approval has a different device id.
     private readonly ConcurrentDictionary<Guid, (DateTime ExpiresAt, bool ApproverVerified)> _quickConnectPending = new();
-
-    internal sealed record UnresolvedSession(string? RequestToken, string? RequestDeviceId, string? SessionDeviceId);
-    private readonly ConcurrentDictionary<Guid, ImmutableHashSet<UnresolvedSession>> _unresolvedSessions = new();
-
-    internal bool HasUnresolvedSessions => !_unresolvedSessions.IsEmpty;
-
-    internal void DeferSessionBlock(Guid userId, UnresolvedSession session)
-        => _unresolvedSessions.AddOrUpdate(userId, ImmutableHashSet.Create(session), (_, current) => current.Add(session));
-
-    internal ImmutableHashSet<UnresolvedSession> GetUnresolvedSessions(Guid userId)
-        => _unresolvedSessions.TryGetValue(userId, out var sessions) ? sessions : [];
-
-    internal void FinishSessionBlock(Guid userId, UnresolvedSession session)
-    {
-        while (_unresolvedSessions.TryGetValue(userId, out var current) && current.Contains(session))
-        {
-            var remaining = current.Remove(session);
-            if (remaining.IsEmpty
-                ? _unresolvedSessions.TryRemove(new KeyValuePair<Guid, ImmutableHashSet<UnresolvedSession>>(userId, current))
-                : _unresolvedSessions.TryUpdate(userId, remaining, current))
-            {
-                return;
-            }
-        }
-    }
 
     // [v2.5.17] (#107, #102) One-shot, user-scoped "the next session for this user
     // is 2FA-satisfied because they just authenticated with an app password".
@@ -297,7 +271,6 @@ public class ChallengeStore : IDisposable
     public void WipeAllForUser(Guid userId)
     {
         UnblockAllForUser(userId);
-        _unresolvedSessions.TryRemove(userId, out _);
         _quickConnectPending.TryRemove(userId, out _);
         _appPasswordPending.TryRemove(userId, out _);
         var prefix = $"{userId:N}|";

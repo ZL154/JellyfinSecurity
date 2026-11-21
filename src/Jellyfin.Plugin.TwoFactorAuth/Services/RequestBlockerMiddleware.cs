@@ -1,7 +1,4 @@
 using System.Security.Claims;
-using Jellyfin.Data.Queries;
-using MediaBrowser.Controller.Devices;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -112,7 +109,7 @@ public class RequestBlockerMiddleware
             // must — still refuse a token that is mid-2FA. Previously this
             // bare catch let the request through, silently skipping the 2FA
             // block on any auth-evaluation hiccup.
-            if (_challengeStore.HasUnresolvedSessions || _challengeStore.IsTokenBlocked(token))
+            if (!string.IsNullOrEmpty(token) && _challengeStore.IsTokenBlocked(token))
             {
                 _logger.LogWarning("[2FA] BLOCKED {Path} (token-scoped; auth-resolve threw) — 2FA not completed", path);
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
@@ -127,7 +124,7 @@ public class RequestBlockerMiddleware
             return;
         }
 
-        if ((userId != Guid.Empty && (!ResolveDeferredBlocks(context, userId) || _challengeStore.IsTokenBlocked(token)))
+        if ((userId != Guid.Empty && _challengeStore.IsTokenBlocked(token))
             || (authenticatedToken is not null && _challengeStore.IsTokenBlocked(authenticatedToken)))
         {
             _logger.LogInformation("[2FA] BLOCKED {Path} user={UserId} (token-scoped) — 2FA not completed",
@@ -160,33 +157,6 @@ public class RequestBlockerMiddleware
         }
 
         await _next(context).ConfigureAwait(false);
-    }
-
-    private bool ResolveDeferredBlocks(HttpContext context, Guid userId)
-    {
-        var pending = _challengeStore.GetUnresolvedSessions(userId);
-        if (pending.IsEmpty) return true;
-
-        try
-        {
-            var devices = context.RequestServices.GetRequiredService<IDeviceManager>()
-                .GetDevices(new DeviceQuery { UserId = userId });
-            var records = devices.Items.Select(d => (d.DeviceId, d.AccessToken, d.DateLastActivity)).ToList();
-            foreach (var session in pending)
-            {
-                var ownedToken = AuthenticationEventHandler.SelectSessionAccessToken(
-                    session.RequestToken, session.RequestDeviceId, session.SessionDeviceId, records);
-                if (ownedToken is null) return false;
-                if (!_challengeStore.IsTokenVerified(ownedToken)) _challengeStore.BlockToken(ownedToken);
-                _challengeStore.FinishSessionBlock(userId, session);
-            }
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[2FA] Session ownership lookup failed for user {UserId}", userId);
-            return false;
-        }
     }
 
     internal static string NormalizePluginPath(string path)
