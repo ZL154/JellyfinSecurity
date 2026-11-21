@@ -281,21 +281,31 @@
         honorSessionHandoff(window.Storage.prototype, window.localStorage, window.sessionStorage,
             isExplicitLoginRoute, Date.now());
     } catch (e) { /* storage unavailable: nothing was handed over */ }
-    function markChallengedSession(portal, serverChallenge) {
+    function markChallengedSession(portal, responseUrl) {
         try {
             var key = '__tfa_portal_recovery';
             sessionStorage.removeItem(key);
-            if (!serverChallenge || new URL(portal, window.location.origin).origin !== window.location.origin) return false;
+            if (!responseUrl) return false;
+            // [#360] A redirected response or a sibling mount can belong to another server.
+            var api = window.ApiClient;
+            if (!api || typeof api.serverAddress !== 'function') return false;
+            var base = new URL(api.serverAddress());
+            var prefix = base.pathname.replace(/\/+$/, '') + '/';
+            var source = new URL(responseUrl);
+            var target = new URL(portal, window.location.origin);
+            if (base.origin !== window.location.origin || source.origin !== base.origin || target.origin !== base.origin
+                || target.pathname !== prefix + 'TwoFactorAuth/Login' || source.pathname.indexOf(prefix) !== 0) return false;
+            var route = source.pathname.substring(prefix.length);
+            if (!route || isAuthPath(decodeURIComponent(route))) return false;
 
             // [#360] The 403 names no account. Only forward a single saved session
             // that the active client still identifies when the response arrives.
             var servers = (JSON.parse(localStorage.getItem('jellyfin_credentials')) || {}).Servers;
             if (!Array.isArray(servers) || servers.length !== 1) return false;
             var entry = servers[0];
-            var api = window.ApiClient;
             if (!entry || !isFilledString(entry.Id) || !isFilledString(entry.UserId)
                 || !isFilledString(entry.AccessToken) || entry.AccessToken.length <= TFA_HANDOFF_TOKEN_TAIL
-                || !api || typeof api.serverId !== 'function' || api.serverId() !== entry.Id
+                || typeof api.serverId !== 'function' || api.serverId() !== entry.Id
                 || typeof api.getCurrentUserId !== 'function' || api.getCurrentUserId() !== entry.UserId
                 || typeof api.accessToken !== 'function' || api.accessToken() !== entry.AccessToken) return false;
 
@@ -610,7 +620,8 @@
                         // else, send them to the portal instead of silently arming
                         // the flag and freezing the app.
                         if (!isAuthPath(url)) {
-                            redirectToTfaPortal(resp.status === 403 && (body.twoFactorRequired === true || body.TwoFactorRequired === true));
+                            redirectToTfaPortal(resp.status === 403 && (body.twoFactorRequired === true || body.TwoFactorRequired === true)
+                                && resp.url);
                         }
                     }
                     // [v2.5.10] (#55) account-lockout message on the login page.
@@ -770,7 +781,8 @@
                     // [v2.5.14] (#99) Same soft-lock escape as the fetch path —
                     // a non-auth XHR reporting 2FA-required has no challenge
                     // token to redirect to, so route the user to the portal.
-                    redirectToTfaPortal(xhr.status === 403 && (body.twoFactorRequired === true || body.TwoFactorRequired === true));
+                    redirectToTfaPortal(xhr.status === 403 && (body.twoFactorRequired === true || body.TwoFactorRequired === true)
+                        && xhr.responseURL);
                 }
             });
         }

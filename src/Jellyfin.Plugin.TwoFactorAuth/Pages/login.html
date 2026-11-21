@@ -273,6 +273,7 @@
                 var creds = JSON.parse(raw);
                 if (creds === null) return { Servers: [] };
                 if (!creds || typeof creds !== 'object' || !Array.isArray(creds.Servers)) throw new Error('Invalid saved servers');
+                if (creds.Servers.length > 1) throw new Error('Multiple saved servers');
                 return creds;
             }
             function matches(server) {

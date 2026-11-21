@@ -114,7 +114,8 @@ test('the 2FA button keeps the TV focus style in the TV layout', () => {
 // Run the injected bootstrap before DOMContentLoaded, when Jellyfin can already receive a 403.
 function challengedBrowser({mount = '/jellyfin', apiReady = false, pluginPage = false,
     session = new Map(), servers = [], native = false, logout, client = {}, apiOrigin = ORIGIN,
-    webRoute = '/web/index.html', response = () => Response.json({twoFactorRequired: true}, {status: 403})} = {}) {
+    webRoute = '/web/index.html', finalUrl = ORIGIN + mount + '/DisplayPreferences/usersettings',
+    body = {twoFactorRequired: true}, response = () => Response.json(body, {status: 403})} = {}) {
     const navigations = [];
     const sessionStorage = {
         getItem: key => session.get(key) ?? null,
@@ -134,12 +135,15 @@ function challengedBrowser({mount = '/jellyfin', apiReady = false, pluginPage = 
             addEventListener(name, fn) { this.listeners.add(fn); }
             removeEventListener(name, fn) { this.listeners.delete(fn); }
             send() {
-                Object.assign(this, {readyState: 4, status: this.fixtureStatus || 403, responseText: '{"twoFactorRequired":true}'});
+                Object.assign(this, {readyState: 4, status: this.fixtureStatus || 403, responseURL: finalUrl, responseText: JSON.stringify(body)});
                 for (const listener of this.listeners) listener();
             }
         },
         ApiClient: client === null ? undefined : {logout, ...client},
-        fetch: async (input, init) => response(input, init),
+        fetch: async (input, init) => {
+            const reply = await response(input, init);
+            return Object.defineProperty(reply, 'url', {value: finalUrl});
+        },
     };
     context.window = context;
     if (apiReady) context.ApiClient.getUrl = path => apiOrigin + mount + '/' + path;
@@ -185,7 +189,7 @@ const olderServer = {Id: 'older', UserId: 'bob', AccessToken: 'fixture-older-987
 
 const automaticPortal = '/jellyfin/TwoFactorAuth/Login#tfa-recovery';
 const apiIdentity = server => ({
-    serverId: () => server.Id, getCurrentUserId: () => server.UserId, accessToken: () => server.AccessToken,
+    serverAddress: () => ORIGIN + '/jellyfin', serverId: () => server.Id, getCurrentUserId: () => server.UserId, accessToken: () => server.AccessToken,
 });
 
 for (const transport of ['fetch', 'XHR']) {
@@ -201,6 +205,26 @@ for (const transport of ['fetch', 'XHR']) {
         assert.deepEqual(mark, {at: mark.at, server: activeServer.Id, user: activeServer.UserId, tokenTail: '01234567'});
         assert.ok(!raw.includes(activeServer.AccessToken));
     });
+}
+
+for (const transport of ['fetch', 'XHR']) {
+    for (const [reason, finalUrl, body, marked] of [
+        ['uppercase true', ORIGIN + '/jellyfin/Users/Me', {TwoFactorRequired: true}, true],
+        ['truthy string', ORIGIN + '/jellyfin/Users/Me', {twoFactorRequired: 'true'}, false],
+        ['sibling mount', ORIGIN + '/jellyfin-other/Users/Me', {twoFactorRequired: true}, false],
+        ['foreign origin', 'https://other.example/jellyfin/Users/Me', {twoFactorRequired: true}, false],
+        ['unknown response URL', '', {twoFactorRequired: true}, false],
+        ['redirect to auth', ORIGIN + '/jellyfin/Users/AuthenticateByName', {twoFactorRequired: true}, false],
+    ]) {
+        test(`${transport} checks the final response and marker for ${reason}`, async () => {
+            const page = challengedBrowser({servers: [activeServer], client: apiIdentity(activeServer), finalUrl, body});
+            if (transport === 'fetch') await page.challenge();
+            else page.xhrChallenge({});
+            assert.deepEqual(page.navigations, [marked ? automaticPortal : '/jellyfin/TwoFactorAuth/Login']);
+            const raw = page.session.get(portalKey);
+            assert.equal(raw === undefined ? null : JSON.parse(raw).server, marked ? activeServer.Id : null);
+        });
+    }
 }
 
 for (const [reason, servers, client] of [

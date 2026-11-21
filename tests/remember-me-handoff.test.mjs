@@ -365,10 +365,7 @@ const portalKey = '__tfa_portal_recovery';
 const forwardKey = '__tfa_portal_forwarded';
 const challenged = entry();
 const mark = {at: now, server: challenged.Id, user: challenged.UserId, tokenTail: challenged.AccessToken.slice(-8)};
-const saved = [
-    entry(now - 1, {Id: 'other-server'}), null, challenged,
-    entry(now - 2, {UserId: 'another-user'}), entry(now - 3, {AccessToken: 'another-session'}),
-];
+const saved = [challenged];
 const stockLogin = '../web/index.html#/login';
 const settlePortal = () => new Promise(resolve => setImmediate(resolve));
 
@@ -406,8 +403,8 @@ function portalPage({mount = '/jellyfin', hash = '#tfa-recovery', raw = JSON.str
     return {card: node('.card'), events, username: node('username'), requests, navigations, local, session, timers, link: node('standardLoginLink')};
 }
 
-test('portal consumes the marker before the GET and forwards only matching entries', async () => {
-    const page = portalPage({servers: [...saved, challenged]});
+test('portal consumes the marker before the GET and clears the single matching entry', async () => {
+    const page = portalPage();
     assert.equal(page.session.getItem(portalKey), null);
     assert.equal(page.card.hidden, true);
     await settlePortal();
@@ -417,8 +414,7 @@ test('portal consumes the marker before the GET and forwards only matching entri
         'https://example.test/jellyfin/TwoFactorAuth/public-config', 'GET', 'same-origin', [],
     ]);
     const cleared = {...challenged, AccessToken: '', UserId: ''};
-    assert.deepEqual(JSON.parse(page.local.getItem('jellyfin_credentials')).Servers,
-        [saved[0], null, cleared, saved[3], saved[4], cleared]);
+    assert.deepEqual(JSON.parse(page.local.getItem('jellyfin_credentials')).Servers, [cleared]);
     assert.equal(page.session.getItem('__tfa_pending'), null);
     assert.deepEqual(page.navigations, [stockLogin]);
     assert.ok(!page.session.getItem(forwardKey).includes(challenged.AccessToken));
@@ -473,6 +469,20 @@ for (const [reason, raw] of Object.entries({
     });
 }
 
+test('a second server saved during the policy lookup keeps both sessions and the pending state', async () => {
+    let release;
+    const page = portalPage({answer: () => new Promise(r => { release = r; })});
+    const expanded = credentials(challenged, entry(now, {Id: 'another-server'}));
+    page.local.setItem('jellyfin_credentials', expanded);
+    release(Response.json({passwordLoginDisabled: true}));
+    await settlePortal();
+    assert.equal(page.local.getItem('jellyfin_credentials'), expanded);
+    assert.equal(page.session.getItem('__tfa_pending'), 'armed');
+    assert.equal(page.session.getItem(forwardKey), null);
+    assert.equal(page.card.hidden, false);
+    assert.deepEqual(page.navigations, []);
+});
+
 test('a replacement during the GET forwards without changing the replacement or pending state', async () => {
     let release;
     const page = portalPage({answer: () => new Promise(r => { release = r; })});
@@ -520,16 +530,17 @@ test('repeated challenge for the same session shows the form; another session ma
 });
 
 test('the manual standard login link still clears every saved session', () => {
-    const page = portalPage({raw: null});
+    const servers = [challenged, null, entry(now, {Id: 'other-server'})];
+    const page = portalPage({raw: null, servers});
     page.link.click({preventDefault() {}});
     assert.deepEqual(JSON.parse(page.local.getItem('jellyfin_credentials')).Servers,
-        saved.map(s => s && {...s, AccessToken: '', UserId: ''}));
+        servers.map(s => s && {...s, AccessToken: '', UserId: ''}));
     assert.equal(page.session.getItem('__tfa_pending'), null);
     assert.deepEqual(page.navigations, [stockLogin]);
 });
 
 test('an already cleared session forwards without touching storage', async () => {
-    const {local, session} = storages({jellyfin_credentials: credentials(null, {...challenged, AccessToken: '', UserId: ''})},
+    const {local, session} = storages({jellyfin_credentials: credentials({...challenged, AccessToken: '', UserId: ''})},
         {__tfa_pending: 'new challenge'});
     local.setItem = () => assert.fail('no credential write');
     const page = portalPage({local, session});
@@ -586,7 +597,7 @@ for (const disabled of [false, true]) {
         await settlePortal();
         assert.deepEqual(page.navigations, disabled ? [stockLogin] : []);
         assert.equal(page.card.hidden, disabled);
-        const token = JSON.parse(page.local.getItem('jellyfin_credentials')).Servers[2].AccessToken;
+        const token = JSON.parse(page.local.getItem('jellyfin_credentials')).Servers[0].AccessToken;
         assert.equal(token, disabled ? '' : challenged.AccessToken);
     });
 }
