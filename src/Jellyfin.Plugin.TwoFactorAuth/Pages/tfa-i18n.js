@@ -53,7 +53,7 @@
         var base = '';
         try {
             var pathname = window.location.pathname || '';
-            var marker = pathname.toLowerCase().indexOf('/twofactorauth');
+            var marker = pathname.search(/\/twofactorauth(?=\/|$)/i);
             if (marker >= 0) base = pathname.substring(0, marker).replace(/\/+$/, '');
         } catch (e) { /* root fallback */ }
         return base + '/' + path.replace(/^\/+/, '');

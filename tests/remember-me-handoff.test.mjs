@@ -373,7 +373,7 @@ const stockLogin = '../web/index.html#/login';
 const settlePortal = () => new Promise(resolve => setImmediate(resolve));
 
 function portalPage({raw = JSON.stringify(mark), servers = saved, answer = () => Response.json({passwordLoginDisabled: true}),
-    mount = '/jellyfin', urlMount = mount, session = new FakeStorage({__tfa_pending: 'armed'}), local = new FakeStorage({jellyfin_credentials: credentials(...servers)})} = {}) {
+    session = new FakeStorage({__tfa_pending: 'armed'}), local = new FakeStorage({jellyfin_credentials: credentials(...servers)})} = {}) {
     if (raw !== null) session.setItem(portalKey, raw);
     const nodes = new Map();
     const requests = [];
@@ -389,7 +389,7 @@ function portalPage({raw = JSON.stringify(mark), servers = saved, answer = () =>
     const ctx = {
         document: {readyState: 'loading', addEventListener() {}, getElementById: node, querySelector: node},
         window: {
-            tfaUrl: path => urlMount + '/' + path,
+            tfaUrl: path => '/jellyfin/' + path,
             location: {search: '', href: 'https://example.test/jellyfin/TwoFactorAuth/Login'},
         },
         localStorage: local, sessionStorage: session, URL, URLSearchParams, Date: {now: () => now},
@@ -397,7 +397,7 @@ function portalPage({raw = JSON.stringify(mark), servers = saved, answer = () =>
         setTimeout(fn, ms) { timers.set(fn, ms); return fn; }, clearTimeout(id) { timers.delete(id); },
     };
     Object.defineProperty(ctx.window.location, 'href', {
-        get: () => 'https://example.test' + mount + '/TwoFactorAuth/Login', set: url => navigations.push(url),
+        get: () => 'https://example.test/jellyfin/TwoFactorAuth/Login', set: url => navigations.push(url),
     });
     const script = read('login.html').match(/<script>([\s\S]*?)<\/script>/)[1];
     runInNewContext(script, ctx);
@@ -557,11 +557,13 @@ test('an expired forwarding guard allows the session to recover again', async ()
     assert.deepEqual(page.navigations, [stockLogin]);
 });
 
-test('portal keeps the form if the helper points to a different mount', async () => {
-    const page = portalPage({mount: '/TwoFactorAuthLab', urlMount: ''});
-    await settlePortal();
-    assert.deepEqual(page.requests, []);
-    assert.deepEqual(page.navigations, []);
-    assert.equal(page.card.hidden, false);
-    assert.equal(page.local.getItem('jellyfin_credentials'), credentials(...saved));
-});
+for (const mount of ['', '/jellyfin', '/TwoFactorAuthLab', '/proxy/TWOFACTORAUTHmedia']) {
+    test(`standalone portal URLs preserve mount ${mount || '/'} for config and stock login`, () => {
+        const helper = read('tfa-i18n.js');
+        const build = runInNewContext(definition(helper, 'hasApiClient') + '\n(' + definition(helper, 'buildUrl') + ')', {
+            window: {location: {pathname: mount + '/TwoFactorAuth/Login'}},
+        });
+        assert.equal(build('TwoFactorAuth/public-config'), mount + '/TwoFactorAuth/public-config');
+        assert.equal(build('/web/index.html#/login'), mount + '/web/index.html#/login');
+    });
+}

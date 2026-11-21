@@ -261,12 +261,10 @@
         }
 
         function portalRecoveryUrls() {
-            var page = new URL(window.location.href);
-            page.pathname = page.pathname.replace(/\/+$/, '');
-            var config = new URL(window.tfaUrl('TwoFactorAuth/public-config'), page);
-            // [#360] Only the policy of this portal's server may clear a session.
-            if (config.href !== new URL('public-config', page).href) throw new Error('Config outside portal mount');
-            return { config: config.href, login: document.getElementById('standardLoginLink').getAttribute('href') };
+            return {
+                config: window.tfaUrl('TwoFactorAuth/public-config'),
+                login: document.getElementById('standardLoginLink').getAttribute('href')
+            };
         }
 
         function clearChallengedSession(mark) {
