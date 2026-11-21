@@ -1,4 +1,7 @@
 using System.Security.Claims;
+using Jellyfin.Data.Queries;
+using MediaBrowser.Controller.Devices;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -86,11 +89,13 @@ public class RequestBlockerMiddleware
 
         // Ask Jellyfin's CustomAuthentication handler to resolve claims for this request
         Guid userId = Guid.Empty;
+        string? authenticatedToken = null;
         try
         {
             var authResult = await context.AuthenticateAsync("CustomAuthentication").ConfigureAwait(false);
             if (authResult.Succeeded && authResult.Principal is not null)
             {
+                authenticatedToken = authResult.Principal.FindFirst("Jellyfin-Token")?.Value;
                 var claim = authResult.Principal.FindFirst("Jellyfin-UserId")
                     ?? authResult.Principal.FindFirst(ClaimTypes.NameIdentifier);
                 if (claim is not null)
@@ -107,7 +112,7 @@ public class RequestBlockerMiddleware
             // must — still refuse a token that is mid-2FA. Previously this
             // bare catch let the request through, silently skipping the 2FA
             // block on any auth-evaluation hiccup.
-            if (!string.IsNullOrEmpty(token) && _challengeStore.IsTokenBlocked(token))
+            if (_challengeStore.HasUnresolvedSessions || _challengeStore.IsTokenBlocked(token))
             {
                 _logger.LogWarning("[2FA] BLOCKED {Path} (token-scoped; auth-resolve threw) — 2FA not completed", path);
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
@@ -122,7 +127,8 @@ public class RequestBlockerMiddleware
             return;
         }
 
-        if (userId != Guid.Empty && !string.IsNullOrEmpty(token) && _challengeStore.IsTokenBlocked(token))
+        if ((userId != Guid.Empty && (!ResolveDeferredBlocks(context, userId) || _challengeStore.IsTokenBlocked(token)))
+            || (authenticatedToken is not null && _challengeStore.IsTokenBlocked(authenticatedToken)))
         {
             _logger.LogInformation("[2FA] BLOCKED {Path} user={UserId} (token-scoped) — 2FA not completed",
                 path, userId);
@@ -149,11 +155,38 @@ public class RequestBlockerMiddleware
         // user-scoped flag so the next SessionStarted for this user gets through.
         if (userId != Guid.Empty && path.Contains("/QuickConnect/Authorize", StringComparison.OrdinalIgnoreCase))
         {
-            _challengeStore.MarkQuickConnectPending(userId);
-            _logger.LogInformation("[2FA] QuickConnect authorize by {UserId} — one-shot allow for incoming session", userId);
+            _challengeStore.MarkQuickConnectPending(userId, authenticatedToken is not null && _challengeStore.IsTokenVerified(authenticatedToken));
+            _logger.LogInformation("[2FA] Quick Connect authorization requested by {UserId}", userId);
         }
 
         await _next(context).ConfigureAwait(false);
+    }
+
+    private bool ResolveDeferredBlocks(HttpContext context, Guid userId)
+    {
+        var pending = _challengeStore.GetUnresolvedSessions(userId);
+        if (pending.IsEmpty) return true;
+
+        try
+        {
+            var devices = context.RequestServices.GetRequiredService<IDeviceManager>()
+                .GetDevices(new DeviceQuery { UserId = userId });
+            var records = devices.Items.Select(d => (d.DeviceId, d.AccessToken, d.DateLastActivity)).ToList();
+            foreach (var session in pending)
+            {
+                var ownedToken = AuthenticationEventHandler.SelectSessionAccessToken(
+                    session.RequestToken, session.RequestDeviceId, session.SessionDeviceId, records);
+                if (ownedToken is null) return false;
+                if (!_challengeStore.IsTokenVerified(ownedToken)) _challengeStore.BlockToken(ownedToken);
+                _challengeStore.FinishSessionBlock(userId, session);
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Session ownership lookup failed for user {UserId}", userId);
+            return false;
+        }
     }
 
     internal static string NormalizePluginPath(string path)

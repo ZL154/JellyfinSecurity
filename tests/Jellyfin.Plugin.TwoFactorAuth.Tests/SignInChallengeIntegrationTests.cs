@@ -67,6 +67,95 @@ public class SignInChallengeIntegrationTests
         Assert.Equal(required ? 403 : 200, await fixture.UseTokenAsync());
     }
 
+    [Theory]
+    [InlineData(true, null)]
+    [InlineData(true, "not-a-trusted-credential")]
+    [InlineData(false, null)]
+    [InlineData(false, "not-a-trusted-credential")]
+    public async Task Context_alone_leaves_restored_token_unverified(bool lan, string? credential)
+    {
+        using var fixture = new SignInPolicyFixture();
+        await fixture.EnrollPasswordlessAsync();
+        fixture.Config.LanBypassEnabled = lan;
+        fixture.Config.LanBypassCidrs = ["203.0.113.10/32"];
+        fixture.Config.BareDeviceIdBypassEnabled = !lan;
+        if (!lan)
+        {
+            await fixture.Store.MutateAsync(fixture.User.Id, u => u.PairedDevices.Add(
+                new PairedDevice { DeviceId = SignInPolicyFixture.DeviceId }));
+        }
+
+        await fixture.ProcessSessionAsync(SignInPolicyFixture.Token, credential);
+        Assert.Equal(200, await fixture.UseTokenAsync());
+        Assert.False(fixture.Challenges.IsTokenVerified(SignInPolicyFixture.Token));
+        Assert.False(fixture.Challenges.ConsumeTokenApproval(SignInPolicyFixture.Token, fixture.User.Id, SignInPolicyFixture.DeviceId));
+        Assert.Empty(await fixture.Store.GetAuditLogAsync());
+        Assert.Null(fixture.Observer.LastObservedAt);
+        var data = await fixture.Store.GetUserDataAsync(fixture.User.Id);
+        Assert.Empty(data.RegisteredDeviceIds);
+        Assert.All(data.PairedDevices, p => Assert.Equal(string.Empty, p.LastIp));
+    }
+
+    [Fact]
+    public async Task Existing_network_bypass_works_for_an_account_with_a_password()
+    {
+        using var fixture = new SignInPolicyFixture();
+        await fixture.EnrollPasswordlessAsync();
+        fixture.User.Password = "stored";
+        fixture.Config.LanBypassEnabled = true;
+        fixture.Config.LanBypassCidrs = ["203.0.113.10/32"];
+        await fixture.ProcessSessionAsync(SignInPolicyFixture.Token);
+        Assert.Equal(200, await fixture.UseTokenAsync());
+        Assert.True(fixture.Challenges.IsTokenVerified(SignInPolicyFixture.Token));
+        Assert.Equal("lan", Assert.Single(await fixture.Store.GetAuditLogAsync()).Method);
+    }
+
+    [Fact]
+    public async Task Gate_off_does_not_resolve_an_optional_account()
+    {
+        using var fixture = new SignInPolicyFixture();
+        await fixture.EnrollPasswordlessAsync();
+        fixture.Config.BlockEmptyPasswordLogin = false;
+        await fixture.ProcessSessionAsync();
+        Assert.Equal(403, await fixture.UseTokenAsync());
+        fixture.Users.DidNotReceive().GetUserById(fixture.User.Id);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Unknown_role_alone_retains_admin_enforcement(bool throws)
+    {
+        using var fixture = new SignInPolicyFixture();
+        fixture.Config.EnforcementScope = EnforcementScope.Admins;
+        fixture.Users.GetUserById(fixture.User.Id).Returns(_ => throws ? throw new InvalidOperationException() : null);
+        await fixture.ProcessSessionAsync();
+        Assert.Equal(403, await fixture.UseTokenAsync());
+    }
+
+    [Fact]
+    public async Task A_policy_storage_error_protects_the_resolved_token()
+    {
+        using var fixture = new SignInPolicyFixture();
+        await File.WriteAllTextAsync(fixture.UserPolicyPath, "{");
+        await fixture.ProcessSessionAsync();
+        Assert.True(fixture.Challenges.IsTokenBlocked(SignInPolicyFixture.Token));
+        Assert.Equal(403, await fixture.UseTokenAsync());
+    }
+
+    [Fact]
+    public async Task A_device_store_outage_retries_ownership_before_protected_access()
+    {
+        using var fixture = new SignInPolicyFixture();
+        fixture.Config.EnforcementScope = EnforcementScope.All;
+        fixture.Devices.GetDevices(Arg.Any<DeviceQuery>()).Returns(_ => throw new IOException("Device store unavailable."));
+        await fixture.ProcessSessionAsync();
+        Assert.Equal(403, await fixture.UseTokenAsync());
+        fixture.SetSessionToken(SignInPolicyFixture.Token);
+        Assert.Equal(403, await fixture.UseTokenAsync());
+        Assert.True(fixture.Challenges.IsTokenBlocked(SignInPolicyFixture.Token));
+    }
+
     [Fact]
     public async Task Legacy_all_user_enforcement_does_not_depend_on_a_role_lookup()
     {
@@ -212,7 +301,9 @@ public class SignInChallengeIntegrationTests
         using var fixture = new SignInPolicyFixture();
         await fixture.EnrollPasswordlessAsync();
         fixture.Config.PairDeviceOnSecondScreenApproval = remember;
-        if (approval) fixture.Challenges.MarkQuickConnectPending(fixture.User.Id);
+        const string approver = "approver-token";
+        if (approval) fixture.Challenges.MarkTokenVerified(approver);
+        Assert.Equal(200, await fixture.UseTokenAsync(approver, "/QuickConnect/Authorize"));
 
         await fixture.ProcessSessionAsync();
         Assert.Equal(200, await fixture.UseTokenAsync());
@@ -250,7 +341,8 @@ public class SignInChallengeIntegrationTests
         using var fixture = new SignInPolicyFixture();
         await fixture.EnrollPasswordlessAsync();
         await fixture.Store.MutateAsync(fixture.User.Id, data => data.PasskeyRequiresSecondFactor = false);
-        fixture.Challenges.MarkQuickConnectPending(fixture.User.Id);
+        fixture.Challenges.MarkTokenVerified("approver-token");
+        Assert.Equal(200, await fixture.UseTokenAsync("approver-token", "/QuickConnect/Authorize"));
         await fixture.ProcessSessionAsync();
         Assert.Equal(200, await fixture.UseTokenAsync());
         fixture.Users.DidNotReceive().GetUserById(fixture.User.Id);
@@ -275,6 +367,7 @@ internal sealed class SignInPolicyFixture : IDisposable
     internal IUserManager Users { get; } = Substitute.For<IUserManager>();
     internal ISessionManager Sessions { get; } = Substitute.For<ISessionManager>();
     internal IDeviceManager Devices { get; } = Substitute.For<IDeviceManager>();
+    internal string UserPolicyPath { get; }
     internal UserTwoFactorStore Store { get; }
     internal ChallengeStore Challenges { get; } = new();
     internal PluginConfiguration Config => _plugin.Configuration;
@@ -282,6 +375,7 @@ internal sealed class SignInPolicyFixture : IDisposable
     internal SignInPolicyFixture(bool admin = false)
     {
         var paths = TestApplicationPaths.Create();
+        UserPolicyPath = Path.Combine(paths.PluginConfigurationsPath, "TwoFactorAuth", "users", $"{User.Id}.json");
         var xml = Substitute.For<IXmlSerializer>();
         xml.DeserializeFromFile(typeof(PluginConfiguration), Arg.Any<string>()).Returns(new PluginConfiguration());
         var host = Substitute.For<IApplicationHost>();
@@ -378,18 +472,18 @@ internal sealed class SignInPolicyFixture : IDisposable
         await task;
     }
 
-    internal async Task<int> UseTokenAsync(string token = Token)
+    internal async Task<int> UseTokenAsync(string token = Token, string path = "/Items")
     {
         var context = new DefaultHttpContext();
-        context.Request.Path = "/Items";
+        context.Request.Path = path;
         context.Request.Headers["X-Emby-Token"] = token;
         using var response = new MemoryStream();
         context.Response.Body = response;
-        var principal = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("Jellyfin-UserId", User.Id.ToString()) }, "test"));
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("Jellyfin-UserId", User.Id.ToString()), new Claim("Jellyfin-Token", token) }, "test"));
         var auth = Substitute.For<IAuthenticationService>();
         auth.AuthenticateAsync(Arg.Any<HttpContext>(), "CustomAuthentication")
             .Returns(AuthenticateResult.Success(new AuthenticationTicket(principal, "CustomAuthentication")));
-        using var services = new ServiceCollection().AddSingleton(auth).BuildServiceProvider();
+        using var services = new ServiceCollection().AddSingleton(auth).AddSingleton(Devices).BuildServiceProvider();
         context.RequestServices = services;
         var blocker = new RequestBlockerMiddleware(_ => Task.CompletedTask, Challenges, NullLogger<RequestBlockerMiddleware>.Instance);
         await blocker.InvokeAsync(context);

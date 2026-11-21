@@ -206,10 +206,29 @@ public class AuthenticationEventHandler : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "[2FA] Couldn't look up access token for approved session");
+            _logger.LogWarning(ex, "[2FA] Device lookup failed for user {UserId}", info.UserId);
+            _challengeStore.DeferSessionBlock(info.UserId, new(requestToken, requestDeviceId, info.DeviceId));
+            return;
         }
 
-        var userData = await _store.GetUserDataAsync(info.UserId).ConfigureAwait(false);
+        UserTwoFactorData userData;
+        try
+        {
+            userData = await _store.GetUserDataAsync(info.UserId).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            if (approvedToken is not null)
+            {
+                _challengeStore.BlockToken(approvedToken);
+            }
+            else
+            {
+                _challengeStore.DeferSessionBlock(info.UserId, new(requestToken, requestDeviceId, info.DeviceId));
+            }
+            _logger.LogWarning(ex, "[2FA] Could not load sign-in policy for user {UserId}", info.UserId);
+            return;
+        }
         _logger.LogDebug("[2FA] User {Name} TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
             info.UserName, userData.TotpEnabled, userData.TotpVerified, config.RequireForAllUsers);
 
@@ -292,7 +311,7 @@ public class AuthenticationEventHandler : IHostedService
         }
 
         // Quick Connect: one-shot flag set when a verified device approves a QC
-        // code. The TV's session (with a different deviceId) consumes it once.
+        // code. Consumption discards a proofless marker and continues with account policy.
         if (_challengeStore.ConsumeQuickConnectPending(info.UserId))
         {
             _logger.LogDebug("[2FA] {Name} QuickConnect-pending consumed — session allowed", info.UserName);
@@ -463,7 +482,7 @@ public class AuthenticationEventHandler : IHostedService
         var bypass = useContextualBypasses
             ? _bypassEvaluator.Evaluate(
                 info.RemoteEndPoint, forwardedFor, twoFactorToken, info.DeviceId, null,
-                userData.TrustedDevices, activeRegisteredIds, await _store.GetApiKeysAsync().ConfigureAwait(false))
+                userData.TrustedDevices, activeRegisteredIds, [])
             : _bypassEvaluator.Evaluate(
                 null, null, twoFactorToken, info.DeviceId, null, userData.TrustedDevices, [], []);
 
@@ -672,8 +691,9 @@ public class AuthenticationEventHandler : IHostedService
             var user = _userManager.GetUserById(userId);
             return (user, checkRole && (user is null || user.HasPermission(PermissionKind.IsAdministrator)));
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "[2FA] Directory lookup failed for user {UserId}", userId);
             // A missing role retains Admins enforcement. A missing account
             // cannot establish that ordinary password sign-in is unavailable.
             return (null, checkRole);

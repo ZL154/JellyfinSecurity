@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.TwoFactorAuth.Api;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
@@ -27,6 +28,23 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Tests;
 [Collection("SignInPolicy")]
 public class PasskeySecondFactorPreferenceTests
 {
+    [Fact]
+    public async Task An_elevated_reader_sees_each_accounts_own_reason()
+    {
+        using var api = new PreferenceApi();
+        await api.Fixture.EnrollPasswordlessAsync();
+        var target = api.Fixture.User;
+        var reader = new User("reader", "other-provider", "reset") { Password = "stored" };
+        api.Fixture.Users.GetUsers().Returns([reader, target]);
+        api.Client.DefaultRequestHeaders.Remove("X-Test-User");
+        api.Client.DefaultRequestHeaders.Add("X-Test-User", reader.Id.ToString());
+        api.Client.DefaultRequestHeaders.Add("X-Test-Elevated", "true");
+        using var users = await api.Client.GetFromJsonAsync<JsonDocument>("/TwoFactorAuth/Users");
+        var row = Assert.Single(users!.RootElement.EnumerateArray(), u => u.GetProperty("UserId").GetGuid() == target.Id);
+        Assert.Equal("none", row.GetProperty("PasswordSignInSecondFactorReason").GetString());
+        Assert.False(row.GetProperty("PasswordSignInRequiresSecondFactor").GetBoolean());
+    }
+
     private const string Route = "/TwoFactorAuth/MyPasskeySecondFactorPreference";
 
     [Fact]
