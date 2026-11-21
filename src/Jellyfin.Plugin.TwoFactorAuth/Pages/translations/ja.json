@@ -862,7 +862,7 @@
   "tfa.admin.sso.lbl_email_claim": "メールクレーム",
   "tfa.admin.sso.email_claim_help": "ユーザーのメールアドレスを含むクレーム。標準の OIDC では \"email\" を使用します。IdP が別のクレーム（例: internal_email）で返す場合のみ上書きしてください。メールでのユーザー照合と下記の自動入力に使用されます。",
   "tfa.admin.sso.opt_sync_email": "サインイン時に IdP からユーザーのメールを取り込む",
-  "tfa.admin.sso.sync_email_help": "サインイン時、未設定の場合に IdP のメールを Jellyfin ユーザーのメール欄（メール OTP に使用され、ユーザータブに表示）にコピーします。手動で入力したメールは上書きされません。",
+  "tfa.admin.sso.sync_email_help": "サインイン時、未設定の場合に IdP のメールを Jellyfin ユーザーのメール欄（メール OTP に使用され、ユーザータブに表示）にコピーします。手動で入力したメールは上書きされません。 IdP が検証済み（email_verified）とマークしたアドレスのみコピーされます。カスタムのメールクレームを使う場合は、検証済みの email クレームとも一致する必要があります。それ以外の場合は欄が空のままとなり、サーバーログに理由が記録されます。",
   "tfa.admin.sso.lbl_button_text": "ログインボタンのテキスト（任意）",
   "tfa.admin.sso.ph_button_text": "次でサインイン: …",
   "tfa.admin.sso.button_text_help": "ログインページのボタンに表示される文字。空の場合は「{プロバイダー名} でサインイン」を使用します。",

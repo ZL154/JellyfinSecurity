@@ -15,6 +15,7 @@ using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
@@ -951,6 +952,94 @@ public class OidcService : IDisposable
         return sb.ToString();
     }
 
+    /// <summary>What the email auto-fill does with an identity provider's
+    /// email claim.</summary>
+    internal enum EmailAutoFill
+    {
+        Off,
+        NoClaim,
+        Unverified,
+        AlreadySet,
+        Fill,
+    }
+
+    /// <summary>[v2.5.11] (#70) The plugin email is where email OTP codes
+    /// and password reset links go, so it is only filled from an address the
+    /// identity provider attests (see <see cref="IsSelectedEmailVerified"/>),
+    /// the same bar the email-match sign-in path applies. An unverified
+    /// address could belong to someone else. Never overwrites an address
+    /// already set. <paramref name="currentEmail"/> is only read once the
+    /// claim qualifies, so nothing touches the configuration while sync is
+    /// off or the claim is missing or unverified.</summary>
+    internal static EmailAutoFill DecideEmailAutoFill(
+        OidcProvider provider, string? claimEmail, bool emailVerified, Func<string?> currentEmail)
+    {
+        if (!provider.SyncEmailFromClaim) return EmailAutoFill.Off;
+        if (string.IsNullOrWhiteSpace(claimEmail)) return EmailAutoFill.NoClaim;
+        if (!emailVerified) return EmailAutoFill.Unverified;
+        if (!string.IsNullOrWhiteSpace(currentEmail())) return EmailAutoFill.AlreadySet;
+        return EmailAutoFill.Fill;
+    }
+
+    /// <summary>Write the address into the same configuration instance the
+    /// decision read, and only if that instance is still the live one and the
+    /// field is still empty. An admin save replaces the instance, so an
+    /// address it supplied meanwhile is never overwritten.</summary>
+    internal static bool TryFillEmail(
+        PluginConfiguration? checkedConfig, PluginConfiguration? liveConfig, string userKey, string email)
+    {
+        if (checkedConfig is null || !ReferenceEquals(checkedConfig, liveConfig)) return false;
+        if (!string.IsNullOrWhiteSpace(checkedConfig.GetUserEmail(userKey))) return false;
+        checkedConfig.SetUserEmail(userKey, email);
+        return true;
+    }
+
+    /// <summary>OIDC's <c>email_verified</c> attests the standard <c>email</c>
+    /// claim only. When the provider reads the address from a custom claim
+    /// (#70), that address counts as verified only if it is the same address
+    /// as the verified standard claim: the local part compared exactly, since
+    /// SMTP lets a server treat its case as significant (RFC 5321 §2.4), and
+    /// only the domain without regard to case.</summary>
+    internal static bool IsSelectedEmailVerified(string? selectedEmail, string? standardEmail, bool emailVerifiedFlag)
+        => emailVerifiedFlag
+            && !string.IsNullOrWhiteSpace(selectedEmail)
+            && SameMailbox(selectedEmail.Trim(), standardEmail?.Trim());
+
+    private static bool SameMailbox(string a, string? b)
+    {
+        if (b is null) return false;
+        var ia = a.LastIndexOf('@');
+        var ib = b.LastIndexOf('@');
+        if (ia <= 0 || ib <= 0) return string.Equals(a, b, StringComparison.Ordinal);
+        return string.Equals(a[..ia], b[..ib], StringComparison.Ordinal)
+            && string.Equals(a[(ia + 1)..], b[(ib + 1)..], StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The address to use once verification is known: the verified
+    /// standard claim exactly as the issuer attested it, otherwise the selected
+    /// claim (which then only serves display and is never filled).</summary>
+    private static string AttestedOrSelected(string selected, string? standard, bool verified)
+        => verified && standard is not null ? standard.Trim() : selected;
+
+    /// <summary>Read the address and its verification from an ID token's
+    /// claims, honoring the provider's configured email claim name.</summary>
+    internal static (string Email, bool Verified) ExtractEmailFromIdTokenClaims(
+        IEnumerable<System.Security.Claims.Claim> claims, string? emailClaimName)
+    {
+        var list = claims as IReadOnlyCollection<System.Security.Claims.Claim> ?? claims.ToList();
+        var name = string.IsNullOrWhiteSpace(emailClaimName) ? "email" : emailClaimName;
+        var standard = list.FirstOrDefault(c => c.Type == "email")?.Value;
+        var email = list.FirstOrDefault(c => c.Type == name)?.Value ?? standard ?? string.Empty;
+        // [v2.5.17] (#95, chrisbehectik) A JSON boolean `email_verified: true` in
+        // an id_token is surfaced by the JWT handler as the C# string "True"
+        // (capital T), NOT "true" — so compare case-insensitively.
+        var flag = string.Equals(
+            list.FirstOrDefault(c => c.Type == "email_verified")?.Value,
+            "true", StringComparison.OrdinalIgnoreCase);
+        var verified = IsSelectedEmailVerified(email, standard, flag);
+        return (AttestedOrSelected(email, standard, verified), verified);
+    }
+
     /// <summary>Shared pipeline that runs after an id_token has been verified:
     /// merge /userinfo claims, enforce IdP-MFA + group allowlist, resolve to a
     /// Jellyfin user, persist the SsoLink, and route auth via our provider so
@@ -1099,37 +1188,44 @@ public class OidcService : IDisposable
         // Best-effort: a failure must never block a sign-in.
         // [v2.5.12] (#80, ZEROX7): explain WHY the auto-fill no-ops, so "email
         // claim didn't work" is diagnosable from the log instead of being silent.
-        if (!provider.SyncEmailFromClaim)
+        try
         {
-            _logger.LogDebug("[2FA] OIDC email auto-fill OFF for provider {Provider} (enable 'sync email from claim')", provider.Id);
-        }
-        else if (string.IsNullOrWhiteSpace(claims.Email))
-        {
-            _logger.LogInformation(
-                "[2FA] OIDC email auto-fill: no email in claims for {User} — IdP sent nothing under claim '{Claim}' (or /userinfo). Check the 'email' scope is requested and the claim name matches.",
-                matchedUser.Username, string.IsNullOrWhiteSpace(provider.EmailClaim) ? "email" : provider.EmailClaim);
-        }
-        else
-        {
-            try
+            var emailUserKey = matchedUser.Id.ToString("N");
+            PluginConfiguration? checkedCfg = null;
+            switch (DecideEmailAutoFill(provider, claims.Email, claims.EmailVerified,
+                () => (checkedCfg = Plugin.Instance?.Configuration)?.GetUserEmail(emailUserKey)))
             {
-                var cfg = Plugin.Instance?.Configuration;
-                var userKey = matchedUser.Id.ToString("N");
-                if (cfg is not null && string.IsNullOrWhiteSpace(cfg.GetUserEmail(userKey)))
-                {
-                    cfg.SetUserEmail(userKey, claims.Email);
+                case EmailAutoFill.Off:
+                    _logger.LogDebug("[2FA] OIDC email auto-fill OFF for provider {Provider} (enable 'sync email from claim')", provider.Id);
+                    break;
+                case EmailAutoFill.NoClaim:
+                    _logger.LogInformation(
+                        "[2FA] OIDC email auto-fill: no email in claims for {User} — IdP sent nothing under claim '{Claim}' (or /userinfo). Check the 'email' scope is requested and the claim name matches.",
+                        matchedUser.Username, string.IsNullOrWhiteSpace(provider.EmailClaim) ? "email" : provider.EmailClaim);
+                    break;
+                case EmailAutoFill.Unverified:
+                    _logger.LogInformation(
+                        "[2FA] OIDC email auto-fill skipped for {User}: the identity provider did not attest the address (email_verified must be true, and a custom email claim must match the verified 'email' claim). Enter the user's email by hand, or have the provider verify it.",
+                        matchedUser.Username);
+                    break;
+                case EmailAutoFill.AlreadySet:
+                    _logger.LogDebug("[2FA] OIDC email auto-fill skipped for {User} — a plugin email is already set (never overwrites a manual address)", matchedUser.Username);
+                    break;
+                case EmailAutoFill.Fill:
+                    if (!TryFillEmail(checkedCfg, Plugin.Instance?.Configuration, emailUserKey, claims.Email))
+                    {
+                        _logger.LogDebug("[2FA] OIDC email auto-fill skipped for {User}: the configuration changed during sign-in", matchedUser.Username);
+                        break;
+                    }
+
                     Plugin.Instance!.SaveConfiguration();
                     _logger.LogInformation("[2FA] OIDC filled email for {User} from IdP claim '{Claim}'", matchedUser.Username, provider.EmailClaim);
-                }
-                else
-                {
-                    _logger.LogDebug("[2FA] OIDC email auto-fill skipped for {User} — a plugin email is already set (never overwrites a manual address)", matchedUser.Username);
-                }
+                    break;
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[2FA] OIDC email auto-fill failed for {User}", matchedUser.Username);
-            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] OIDC email auto-fill failed for {User}", matchedUser.Username);
         }
 
         // [v2.5.13] (#96, raffaeletani) Grant Jellyfin admin from IdP admin-group
@@ -2149,16 +2245,7 @@ public class OidcService : IDisposable
         // [v2.5.11] (#70) honor the provider's configured email claim name,
         // falling back to the standard OIDC `email` claim.
         var emailClaimName = string.IsNullOrWhiteSpace(provider.EmailClaim) ? "email" : provider.EmailClaim;
-        var email = jwt.Claims.FirstOrDefault(c => c.Type == emailClaimName)?.Value
-            ?? jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value ?? string.Empty;
-        // [v2.5.17] (#95, chrisbehectik) A JSON boolean `email_verified: true` in
-        // an id_token is surfaced by the JWT handler as the C# string "True"
-        // (capital T), NOT "true" — so the old exact "== true" check read Google
-        // (and others) as UNVERIFIED, skipping the whole email-match step and
-        // producing "no email account match". Compare case-insensitively.
-        var emailVerified = string.Equals(
-            jwt.Claims.FirstOrDefault(c => c.Type == "email_verified")?.Value,
-            "true", StringComparison.OrdinalIgnoreCase);
+        var (email, emailVerified) = ExtractEmailFromIdTokenClaims(jwt.Claims, emailClaimName);
         var username = jwt.Claims.FirstOrDefault(c => c.Type == provider.UsernameClaim)?.Value
             ?? jwt.Claims.FirstOrDefault(c => c.Type == "preferred_username")?.Value
             ?? (email.Contains('@') ? email.Split('@')[0] : email);
@@ -2322,24 +2409,23 @@ public class OidcService : IDisposable
         // [v2.5.11] (#70) honor the configured email claim name, falling back
         // to the standard OIDC `email` claim.
         var emailKey = string.IsNullOrWhiteSpace(emailClaimName) ? "email" : emailClaimName;
-        string email = string.Empty;
-        if (json.TryGetProperty(emailKey, out var em) && em.ValueKind == JsonValueKind.String)
-        {
-            email = em.GetString() ?? string.Empty;
-        }
-        else if (json.TryGetProperty("email", out var em2) && em2.ValueKind == JsonValueKind.String)
-        {
-            email = em2.GetString() ?? string.Empty;
-        }
+        string? standardEmail = json.TryGetProperty("email", out var em2) && em2.ValueKind == JsonValueKind.String
+            ? em2.GetString()
+            : null;
+        string email = json.TryGetProperty(emailKey, out var em) && em.ValueKind == JsonValueKind.String
+            ? em.GetString() ?? string.Empty
+            : standardEmail ?? string.Empty;
 
         // email_verified can be bool true, bool false, or the strings "true"/"false".
-        var emailVerified = false;
+        var emailVerifiedFlag = false;
         if (json.TryGetProperty("email_verified", out var ev))
         {
-            emailVerified = ev.ValueKind == JsonValueKind.True
+            emailVerifiedFlag = ev.ValueKind == JsonValueKind.True
                 || (ev.ValueKind == JsonValueKind.String
                     && string.Equals(ev.GetString(), "true", StringComparison.OrdinalIgnoreCase));
         }
+        var emailVerified = IsSelectedEmailVerified(email, standardEmail, emailVerifiedFlag);
+        email = AttestedOrSelected(email, standardEmail, emailVerified);
 
         // preferred_username is the standard OIDC claim; fall back to "name"
         // if absent. The provider's UsernameClaim setting (handled in

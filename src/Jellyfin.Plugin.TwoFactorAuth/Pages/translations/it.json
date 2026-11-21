@@ -862,7 +862,7 @@
   "tfa.admin.sso.lbl_email_claim": "Claim e-mail",
   "tfa.admin.sso.email_claim_help": "Claim che contiene l'e-mail dell'utente. L'OIDC standard usa \"email\"; sovrascrivi solo se il tuo IdP la restituisce in un altro claim (es. internal_email). Usato per l'abbinamento per e-mail e per il riempimento automatico qui sotto.",
   "tfa.admin.sso.opt_sync_email": "Compila l'e-mail dell'utente dall'IdP all'accesso",
-  "tfa.admin.sso.sync_email_help": "All'accesso copia l'e-mail dell'IdP nel campo e-mail dell'utente Jellyfin (usato per l'OTP via e-mail e mostrato nella scheda Utenti) se non è già impostata. Un'e-mail inserita manualmente non viene mai sovrascritta.",
+  "tfa.admin.sso.sync_email_help": "All'accesso copia l'e-mail dell'IdP nel campo e-mail dell'utente Jellyfin (usato per l'OTP via e-mail e mostrato nella scheda Utenti) se non è già impostata. Un'e-mail inserita manualmente non viene mai sovrascritta. Viene copiato solo un indirizzo che l'IdP contrassegna come verificato (email_verified); con un claim e-mail personalizzato deve anche coincidere con il claim email verificato. Altrimenti il campo resta vuoto e il log del server ne indica il motivo.",
   "tfa.admin.sso.lbl_button_text": "Testo del pulsante di accesso (facoltativo)",
   "tfa.admin.sso.ph_button_text": "Accedi con …",
   "tfa.admin.sso.button_text_help": "Cosa dice il pulsante nella pagina di accesso. Lascia vuoto per usare \"Accedi con {nome provider}\".",
