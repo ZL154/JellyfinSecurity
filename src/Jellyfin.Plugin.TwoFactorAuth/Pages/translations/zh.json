@@ -476,6 +476,7 @@
   "tfa.setup.passkeys.register_failed_prefix": "注册失败 —",
   "tfa.setup.passkeys.second_factor_label": "使用密码登录后要求第二因素",
   "tfa.setup.passkeys.second_factor_help": "开启后，使用密码登录时也会要求第二因素。关闭后，您的通行密钥只用于“使用通行密钥登录”，任何知道您密码的人都无需通行密钥即可登录。",
+  "tfa.setup.passkeys.second_factor_password_unavailable": "此账户无法使用密码登录。您的通行密钥设置会保留，并在可以使用密码登录时生效。",
   "tfa.setup.passkeys.second_factor_scope": "管理员要求此账户使用第二因素，因此此设置不起作用。",
   "tfa.setup.passkeys.second_factor_authenticator": "您的认证应用已在保护密码登录，因此此设置不起作用。",
   "tfa.setup.passkeys.second_factor_still_asked": "您已将其关闭，但密码登录仍会要求第二因素。",

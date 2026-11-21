@@ -476,6 +476,7 @@
   "tfa.setup.passkeys.register_failed_prefix": "Falha no registro —",
   "tfa.setup.passkeys.second_factor_label": "Pedir um segundo fator depois de entrar com a senha",
   "tfa.setup.passkeys.second_factor_help": "Quando ativada, entrar com sua senha também pede um segundo fator. Quando desativada, sua chave de acesso serve apenas para \"Entrar com chave de acesso\", e qualquer pessoa que tenha sua senha pode entrar sem ela.",
+  "tfa.setup.passkeys.second_factor_password_unavailable": "Não é possível entrar com senha nesta conta. Sua preferência para a chave de acesso fica salva para quando for possível entrar com senha.",
   "tfa.setup.passkeys.second_factor_scope": "Seu administrador exige um segundo fator para esta conta, então esta configuração não tem efeito.",
   "tfa.setup.passkeys.second_factor_authenticator": "Seu aplicativo autenticador já protege a entrada com senha, então esta configuração não tem efeito.",
   "tfa.setup.passkeys.second_factor_still_asked": "Você a desativou, mas entrar com a senha ainda pede um segundo fator.",

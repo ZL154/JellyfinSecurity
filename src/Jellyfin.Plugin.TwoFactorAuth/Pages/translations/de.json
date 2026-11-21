@@ -476,6 +476,7 @@
   "tfa.setup.passkeys.register_failed_prefix": "Registrierung fehlgeschlagen —",
   "tfa.setup.passkeys.second_factor_label": "Nach der Anmeldung mit Passwort einen zweiten Faktor verlangen",
   "tfa.setup.passkeys.second_factor_help": "Ist dies aktiviert, verlangt die Anmeldung mit Ihrem Passwort zusätzlich einen zweiten Faktor. Ist es deaktiviert, dient Ihr Passkey nur für „Mit Passkey anmelden“, und jeder, der Ihr Passwort kennt, kann sich ohne ihn anmelden.",
+  "tfa.setup.passkeys.second_factor_password_unavailable": "Für dieses Konto ist die Anmeldung mit Passwort nicht verfügbar. Ihre Passkey-Einstellung bleibt gespeichert und gilt, sobald die Anmeldung mit Passwort möglich ist.",
   "tfa.setup.passkeys.second_factor_scope": "Ihr Administrator verlangt für dieses Konto einen zweiten Faktor, daher hat diese Einstellung keine Wirkung.",
   "tfa.setup.passkeys.second_factor_authenticator": "Ihre Authenticator-App schützt die Anmeldung mit Passwort bereits, daher hat diese Einstellung keine Wirkung.",
   "tfa.setup.passkeys.second_factor_still_asked": "Sie haben dies deaktiviert, aber die Anmeldung mit Passwort verlangt weiterhin einen zweiten Faktor.",

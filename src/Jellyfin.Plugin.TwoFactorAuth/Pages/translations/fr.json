@@ -476,6 +476,7 @@
   "tfa.setup.passkeys.register_failed_prefix": "Échec de l'enregistrement —",
   "tfa.setup.passkeys.second_factor_label": "Demander un second facteur après une connexion par mot de passe",
   "tfa.setup.passkeys.second_factor_help": "Si cette option est activée, la connexion avec votre mot de passe demande aussi un second facteur. Si elle est désactivée, votre clé d'accès ne sert qu'à « Se connecter avec une clé d'accès », et toute personne qui connaît votre mot de passe peut se connecter sans elle.",
+  "tfa.setup.passkeys.second_factor_password_unavailable": "La connexion par mot de passe est indisponible pour ce compte. Votre préférence concernant la clé d’accès est conservée et s’appliquera dès que la connexion par mot de passe sera disponible.",
   "tfa.setup.passkeys.second_factor_scope": "Votre administrateur exige un second facteur pour ce compte, ce réglage n'a donc aucun effet.",
   "tfa.setup.passkeys.second_factor_authenticator": "Votre application d'authentification protège déjà la connexion par mot de passe, ce réglage n'a donc aucun effet.",
   "tfa.setup.passkeys.second_factor_still_asked": "Vous l'avez désactivée, mais la connexion par mot de passe demande toujours un second facteur.",

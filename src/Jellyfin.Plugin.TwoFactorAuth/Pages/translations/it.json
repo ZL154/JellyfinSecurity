@@ -476,6 +476,7 @@
   "tfa.setup.passkeys.register_failed_prefix": "Registrazione non riuscita —",
   "tfa.setup.passkeys.second_factor_label": "Chiedi un secondo fattore dopo l'accesso con password",
   "tfa.setup.passkeys.second_factor_help": "Se è attiva, l'accesso con la tua password chiede anche un secondo fattore. Se è disattivata, la tua passkey serve solo per \"Accedi con passkey\" e chiunque abbia la tua password può accedere senza di essa.",
+  "tfa.setup.passkeys.second_factor_password_unavailable": "Per questo account non è possibile accedere con la password. La tua preferenza per la passkey viene conservata e si applicherà quando sarà possibile accedere con la password.",
   "tfa.setup.passkeys.second_factor_scope": "Il tuo amministratore richiede un secondo fattore per questo account, quindi questa impostazione non ha effetto.",
   "tfa.setup.passkeys.second_factor_authenticator": "La tua app di autenticazione protegge già l'accesso con password, quindi questa impostazione non ha effetto.",
   "tfa.setup.passkeys.second_factor_still_asked": "L'hai disattivata, ma l'accesso con password chiede ancora un secondo fattore.",

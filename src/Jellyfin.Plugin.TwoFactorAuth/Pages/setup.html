@@ -220,6 +220,7 @@
                     <p class="muted" id="passkeySecondFactorStillAsked" style="display:none;margin-top:6px;line-height:1.5;" data-i18n-key="tfa.setup.passkeys.second_factor_still_asked">You turned this off, but password sign-in still asks for a second factor.</p>
                     <div class="alert error" id="passkeySecondFactorError"></div>
                 </div>
+                <p class="muted" id="passkeyPasswordUnavailable" style="display:none;margin-top:6px;line-height:1.5;" data-i18n-key="tfa.setup.passkeys.second_factor_password_unavailable">Password sign-in is unavailable for this account. Your passkey preference is saved for when password sign-in becomes available.</p>
                 <p class="muted" id="passkeySecondFactorReason" style="display:none;margin-top:6px;line-height:1.5;"></p>
             </div>
 
@@ -2172,6 +2173,7 @@
             var overridden = reason === 'scope' || reason === 'authenticator' || (unavailable && reason === 'recovery');
             return {
                 show: !unavailable,
+                passwordUnavailable: unavailable,
                 checked: on,
                 disabled: overridden,
                 reason: overridden ? reason : null,
@@ -2180,6 +2182,7 @@
         }
         function renderPasskeySecondFactor(status) {
             var view = passkeySecondFactorView(status, passkeysEnabled());
+            document.getElementById('passkeyPasswordUnavailable').style.display = view.passwordUnavailable ? '' : 'none';
             document.getElementById('passkeySecondFactor').style.display = view.show ? '' : 'none';
             if (view.show) {
                 var toggle = document.getElementById('passkeySecondFactorToggle');

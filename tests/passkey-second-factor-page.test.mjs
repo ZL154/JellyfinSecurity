@@ -138,6 +138,7 @@ test('refreshing password availability hides and restores the saved switch witho
         for (const visible of [false, true, true]) {
             await p.context.refreshPasskeySecondFactor();
             assert.equal(shown(p.el('passkeySecondFactor')), visible);
+            assert.equal(shown(p.el('passkeyPasswordUnavailable')), !visible);
             assert.equal(shown(p.el('passkeySecondFactorReason')), false);
             assert.equal(shown(p.el('passkeySecondFactorStillAsked')), false);
             if (visible) assert.equal(p.toggle.checked, saved);
@@ -146,6 +147,15 @@ test('refreshing password availability hides and restores the saved switch witho
         assert.deepEqual(p.requests.map(r => [r.url, r.method]), Array(3).fill(['/jf/TwoFactorAuth/MyStatus', 'GET']));
         assert.deepEqual(p.prompts, []);
     }
+});
+
+test('an unknown status or a hidden switch without a passkey does not claim password sign-in is unavailable', () => {
+    const p = page();
+    for (const s of [null, {}, status({PasskeyCount: 0}), status({AccountPasswordSignInUnavailable: 'true'})]) {
+        p.context.renderPasskeySecondFactor(s);
+        assert.equal(shown(p.el('passkeyPasswordUnavailable')), false);
+    }
+    assert.deepEqual(p.requests, []);
 });
 
 test('independent sign-in reasons stay visible while the password switch is hidden', () => {
@@ -164,6 +174,7 @@ test('independent sign-in reasons stay visible while the password switch is hidd
         assert.equal(shown(p.el('passkeySecondFactor')), false);
         assert.equal(shown(p.el('passkeySecondFactorStillAsked')), false);
         assert.equal(shown(note), true);
+        assert.equal(shown(p.el('passkeyPasswordUnavailable')), true);
         assert.equal(note.getAttribute('data-i18n-key'), key);
         assert.equal(note.textContent, JSON.parse(read('translations/en.json'))[key]);
         assert.doesNotMatch(note.textContent, /password/i);
@@ -205,7 +216,7 @@ test('a stored off that scope or the app overrides says password sign-in still a
         assert.equal(shown(p.el('passkeySecondFactorStillAsked')), true);
     }
     assert.deepEqual(view(status({PasswordSignInSecondFactorReason: 'scope'})), {
-        show: true, checked: true, disabled: true, reason: 'scope', stillAsked: false,
+        show: true, passwordUnavailable: false, checked: true, disabled: true, reason: 'scope', stillAsked: false,
     });
 });
 
@@ -308,7 +319,10 @@ test('the page wires the switch into the Passkeys card, loadAll and the passkey 
     const box = setup.indexOf('id="passkeySecondFactor"');
     assert(card >= 0 && box > card && box < setup.indexOf('id="cardTotpRotate"'), 'the switch must sit in the Passkeys card');
     assert.match(setup, /id="passkeySecondFactor" style="display:none;/);
-    const controls = setup.slice(box, setup.indexOf('id="passkeySecondFactorReason"', box));
+    const notice = setup.indexOf('id="passkeyPasswordUnavailable"', box);
+    const reason = setup.indexOf('id="passkeySecondFactorReason"', notice);
+    assert.ok(notice > box && reason > notice && reason < setup.indexOf('id="cardTotpRotate"'));
+    const controls = setup.slice(box, notice);
     for (const item of ['passkeySecondFactorToggle', 'second_factor_help', 'passkeySecondFactorStillAsked']) {
         assert.ok(controls.includes(item));
     }
@@ -332,10 +346,13 @@ test('every new string has its English text in en.json and a translation in all 
         'tfa.setup.passkeys.second_factor_authenticator',
         'tfa.setup.passkeys.second_factor_help',
         'tfa.setup.passkeys.second_factor_label',
+        'tfa.setup.passkeys.second_factor_password_unavailable',
         'tfa.setup.passkeys.second_factor_scope',
         'tfa.setup.passkeys.second_factor_stepup_msg',
         'tfa.setup.passkeys.second_factor_still_asked',
     ]);
+    assert.equal(english['tfa.setup.passkeys.second_factor_password_unavailable'],
+        'Password sign-in is unavailable for this account. Your passkey preference is saved for when password sign-in becomes available.');
     const bundles = Object.fromEntries(['de', 'en', 'es', 'fr', 'it', 'ja', 'pt', 'zh']
         .map(lang => [lang, JSON.parse(read(`translations/${lang}.json`))]));
     for (const [key, text] of Object.entries(english)) {

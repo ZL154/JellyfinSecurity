@@ -494,6 +494,7 @@
   "tfa.setup.passkeys.register_failed_prefix": "Registration failed —",
   "tfa.setup.passkeys.second_factor_label": "Ask for a second factor after password sign-in",
   "tfa.setup.passkeys.second_factor_help": "When this is on, signing in with your password also asks for a second factor. When it is off, your passkey is only for \"Sign in with passkey\", and anyone who has your password can sign in without it.",
+  "tfa.setup.passkeys.second_factor_password_unavailable": "Password sign-in is unavailable for this account. Your passkey preference is saved for when password sign-in becomes available.",
   "tfa.setup.passkeys.second_factor_scope": "Your administrator requires a second factor for this account, so this setting has no effect.",
   "tfa.setup.passkeys.second_factor_authenticator": "Your authenticator app already protects password sign-in, so this setting has no effect.",
   "tfa.setup.passkeys.second_factor_still_asked": "You turned this off, but password sign-in still asks for a second factor.",

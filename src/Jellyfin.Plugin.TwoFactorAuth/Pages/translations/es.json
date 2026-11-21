@@ -476,6 +476,7 @@
   "tfa.setup.passkeys.register_failed_prefix": "Registro fallido —",
   "tfa.setup.passkeys.second_factor_label": "Pedir un segundo factor después de iniciar sesión con contraseña",
   "tfa.setup.passkeys.second_factor_help": "Si está activado, al iniciar sesión con tu contraseña también se pedirá un segundo factor. Si está desactivado, tu clave de acceso solo sirve para \"Iniciar sesión con clave de acceso\" y cualquiera que tenga tu contraseña podrá iniciar sesión sin ella.",
+  "tfa.setup.passkeys.second_factor_password_unavailable": "Esta cuenta no permite iniciar sesión con contraseña. Se guarda tu preferencia sobre la clave de acceso para cuando puedas iniciar sesión con contraseña.",
   "tfa.setup.passkeys.second_factor_scope": "Tu administrador exige un segundo factor para esta cuenta, así que este ajuste no tiene efecto.",
   "tfa.setup.passkeys.second_factor_authenticator": "Tu aplicación de autenticación ya protege el inicio de sesión con contraseña, así que este ajuste no tiene efecto.",
   "tfa.setup.passkeys.second_factor_still_asked": "Lo desactivaste, pero el inicio de sesión con contraseña sigue pidiendo un segundo factor.",
