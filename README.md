@@ -389,7 +389,7 @@ Users can change this on the Setup page when the switch is available. While the 
 - **On** (the default, which every existing account keeps after updating): password sign-in asks for a second factor, and the passkey can answer it.
 - **Off**: the passkey is only for **Sign in with passkey**, and anyone who has the password can sign in with the password alone. Turning it off asks the user to confirm with the passkey or another factor first, even when **Hardened security for users (factor changes)** is Off. Turning it back on asks for nothing.
 
-If your account has no local password and **Block sign-in with an empty password** (`BlockEmptyPasswordLogin`) is on, the passkey preference does not trigger a challenge. This applies only when your account signs in through this plugin's own provider and that provider delegates password checks to Jellyfin's built-in provider. Setup hides the switch and keeps your saved preference. The switch returns and the preference applies again as soon as your account gets a password.
+If your account has no local password and **Block sign-in with an empty password** (`BlockEmptyPasswordLogin`) is on, the passkey preference does not trigger a challenge. This applies only when your account signs in through this plugin's own provider and that provider delegates password checks to Jellyfin's built-in provider. Setup hides the switch and keeps your saved preference. When your account gets a password, the switch returns and your saved preference applies again if the server-wide **Allow passkeys** setting is on. With it off, the switch stays hidden. See [Turning passkeys off](#turning-passkeys-off-345).
 
 For these accounts, the passkey preference no longer triggers a challenge on OIDC or proxy sign-in with its bypass turned off, or when a session is restored after a restart.
 
@@ -400,7 +400,7 @@ Two things take precedence even when password sign-in is unavailable. The card s
 - the **2FA enforcement scope**: an account it covers (every account with **All users**, administrators with **Admins only**) still requires a second factor at sign-in.
 - a verified **authenticator app** on the account also requires a second factor at sign-in.
 
-The **Emergency lockout** on the **I lost my phone** card turns the switch back on, so the next password sign-in asks for a second factor again. If this account still has an enrolled passkey, pending emergency recovery keeps the challenge in place even without a local password.
+**Emergency lockout** on the **I lost my phone** card turns the saved preference back on for an account with an enrolled passkey. While **Allow passkeys** is on, pending recovery keeps the challenge in place even without a local password. With passkeys off, the server keeps the passkey but excludes it from the challenge decision. A passwordless account under **Optional** scope with no verified authenticator app then gets no challenge even while recovery is pending.
 
 For sign-in through an SSO provider, that provider's **Skip plugin 2FA** option (on by default, see [Per-provider options](#per-provider-options)) keeps the plugin from asking for its own second factor after the provider's sign-in.
 
