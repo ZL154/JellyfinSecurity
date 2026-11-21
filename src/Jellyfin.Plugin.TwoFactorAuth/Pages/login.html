@@ -300,11 +300,15 @@
             var key = '__tfa_portal_recovery';
             var guardKey = '__tfa_portal_forwarded';
             var timer;
+            function showForm() {
+                card.hidden = false;
+                document.getElementById(prefillUsername ? 'password' : 'username').focus();
+            }
             try {
                 var raw = sessionStorage.getItem(key);
                 if (raw === null) return;
                 sessionStorage.removeItem(key);
-                if (sessionStorage.getItem(key) !== null) return;
+                if (sessionStorage.getItem(key) !== null || window.location.hash !== '#tfa-recovery') return;
                 var mark = JSON.parse(raw);
                 var now = Date.now();
                 if (!recentPortalMarker(mark, now)) return;
@@ -322,17 +326,19 @@
                 });
                 var timeout = new Promise(function (resolve) { timer = setTimeout(resolve, 2500); });
                 Promise.race([config, timeout]).then(function (policy) {
-                    if (!policy || policy.passwordLoginDisabled !== true) return;
+                    clearTimeout(timer);
+                    if (!policy || policy.passwordLoginDisabled !== true) { showForm(); return; }
                     clearChallengedSession(mark);
                     // Verify the loop guard before leaving, including when the session was replaced.
                     forwarded.push({at: Date.now(), server: mark.server, user: mark.user, tokenTail: mark.tokenTail});
                     var value = JSON.stringify(forwarded);
                     sessionStorage.setItem(guardKey, value);
-                    if (sessionStorage.getItem(guardKey) === value) window.location.href = urls.login;
-                }).catch(function () { /* keep the password form available */ }).then(function () {
+                    if (sessionStorage.getItem(guardKey) !== value) { showForm(); return; }
+                    window.addEventListener('pageshow', function (event) { if (event.persisted) showForm(); });
+                    window.location.href = urls.login;
+                }).catch(function () {
                     clearTimeout(timer);
-                    card.hidden = false;
-                    document.getElementById(prefillUsername ? 'password' : 'username').focus();
+                    showForm();
                 });
             } catch (e) {
                 card.hidden = false;
