@@ -97,18 +97,44 @@ internal static class OidcLinkRetirement
 
     internal static string NewLinkId() => Guid.NewGuid().ToString("N");
 
-    /// <summary>Bring retired rows to one form when a file is read: a row
-    /// with a retirement time gets the subject prefix (rows retired by an
-    /// earlier build of this change lacked it), so the marker survives a
-    /// rewrite by a version that drops <see cref="SsoLink.RetiredAt"/>.</summary>
+    /// <summary>Bring links to one form when a file is read.
+    /// <list type="bullet">
+    /// <item>A row with missing fields (an older model writes nulls) gets empty
+    /// strings; a row without a subject or provider can never match a token,
+    /// so it is retired and shown for removal.</item>
+    /// <item>A row with a retirement time gets the current subject prefix,
+    /// replacing the ASCII one pre-release builds used, so the marker survives
+    /// a rewrite by a version that drops <see cref="SsoLink.RetiredAt"/>.</item>
+    /// </list>
+    /// The change reaches disk with the user's next write.</summary>
     internal static void NormalizeRetired(UserTwoFactorData data)
     {
+        data.SsoLinks ??= new List<SsoLink>();
+        data.SsoLinks.RemoveAll(l => l is null);
         foreach (var link in data.SsoLinks)
         {
+            link.Id ??= string.Empty;
+            link.ProviderId ??= string.Empty;
+            link.Subject ??= string.Empty;
+            link.Issuer ??= string.Empty;
+            link.Email ??= string.Empty;
+            link.RetiredReason ??= string.Empty;
+            link.RenamedFrom ??= string.Empty;
+            link.RenamedWithDiscoveryUrl ??= string.Empty;
+
+            if (!link.IsRetired && (link.Subject.Length == 0 || link.ProviderId.Length == 0))
+            {
+                link.RetiredAt = DateTime.UtcNow;
+                link.RetiredReason = "invalid stored link";
+            }
+
             if (link.RetiredAt is not null
                 && !link.Subject.StartsWith(SsoLink.RetiredSubjectPrefix, StringComparison.Ordinal))
             {
-                link.Subject = SsoLink.RetiredSubjectPrefix + link.Subject;
+                var subject = link.Subject.StartsWith(SsoLink.LegacyRetiredSubjectPrefix, StringComparison.Ordinal)
+                    ? link.Subject[SsoLink.LegacyRetiredSubjectPrefix.Length..]
+                    : link.Subject;
+                link.Subject = SsoLink.RetiredSubjectPrefix + subject;
             }
         }
     }

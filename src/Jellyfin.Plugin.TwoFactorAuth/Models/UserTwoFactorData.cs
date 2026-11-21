@@ -182,12 +182,13 @@ public class SsoLink
     public string Issuer { get; set; } = string.Empty;
 
     /// <summary>Whether this link is retired. The subject prefix is the
-    /// authoritative marker: it is the one part of a retired row that every
-    /// version keeps, and the plugin refuses tokens whose <c>sub</c> carries
-    /// it, so no live link can have it.</summary>
+    /// marker that every version keeps when it rewrites the file. It starts
+    /// with a non-ASCII character, and OpenID Connect subjects are ASCII, so
+    /// it never collides with a subject an issuer assigned (tokens whose
+    /// <c>sub</c> carries it are refused as well).</summary>
     [JsonIgnore]
     public bool IsRetired => RetiredAt is not null
-        || Subject.StartsWith(RetiredSubjectPrefix, StringComparison.Ordinal);
+        || (Subject?.StartsWith(RetiredSubjectPrefix, StringComparison.Ordinal) ?? false);
 
     /// <summary>Set when the provider slug stopped pointing at the identity
     /// provider this link was made with (discovery URL changed, provider
@@ -202,7 +203,12 @@ public class SsoLink
     /// blocks the fallbacks as a different subject.</summary>
     public DateTime? RetiredAt { get; set; }
 
-    public const string RetiredSubjectPrefix = "retired:";
+    public const string RetiredSubjectPrefix = "\u2298retired:";
+
+    /// <summary>The ASCII prefix pre-release builds of this change used. It
+    /// can be part of a real subject, so it is only read on rows that also
+    /// carry <see cref="RetiredAt"/>.</summary>
+    public const string LegacyRetiredSubjectPrefix = "retired:";
 
     public string RetiredReason { get; set; } = string.Empty;
 

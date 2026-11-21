@@ -137,6 +137,48 @@ public class OidcLinkIssuerMatchingTests
     }
 
     [Fact]
+    public void An_active_subject_that_starts_with_the_old_ascii_prefix_stays_active()
+    {
+        var data = new UserTwoFactorData { SsoLinks = { new SsoLink { ProviderId = "corp", Subject = "retired:42", Issuer = Issuer } } };
+
+        OidcLinkRetirement.NormalizeRetired(data);
+
+        var link = Assert.Single(data.SsoLinks);
+        Assert.False(link.IsRetired);
+        Assert.Equal("retired:42", link.Subject);
+        Assert.True(OidcService.LinkMatches(link, "corp", Issuer, "retired:42"));
+        Assert.True(SelfServiceFactors.HasAny(data, new PluginConfiguration()));
+    }
+
+    [Fact]
+    public void A_pre_release_retired_row_gets_the_current_prefix()
+    {
+        var data = new UserTwoFactorData { SsoLinks = { new SsoLink { ProviderId = "corp", Subject = "retired:42", RetiredAt = DateTime.UtcNow } } };
+
+        OidcLinkRetirement.NormalizeRetired(data);
+
+        Assert.Equal(SsoLink.RetiredSubjectPrefix + "42", data.SsoLinks[0].Subject);
+        Assert.Equal("42", OidcLinkRetirement.DisplaySubject(data.SsoLinks[0]));
+    }
+
+    [Fact]
+    public void A_stored_link_with_null_fields_loads_as_an_inert_retired_row()
+    {
+        const string json = """{"SsoLinks":[{"ProviderId":"corp","Subject":null,"Issuer":null},{"ProviderId":"corp","Subject":"42"}]}""";
+        var data = System.Text.Json.JsonSerializer.Deserialize<UserTwoFactorData>(json)!;
+
+        OidcLinkRetirement.NormalizeRetired(data);
+
+        Assert.True(data.SsoLinks[0].IsRetired);
+        Assert.DoesNotContain(data.SsoLinks, l => OidcService.LinkMatches(l, "corp", Issuer, string.Empty));
+        Assert.True(OidcService.LinkMatches(data.SsoLinks[1], "corp", Issuer, "42"));
+    }
+
+    [Fact]
+    public void The_retired_prefix_cannot_be_a_conforming_subject()
+        => Assert.Contains(SsoLink.RetiredSubjectPrefix, c => c > 0x7F);
+
+    [Fact]
     public void A_row_retired_without_the_prefix_gets_it_when_read()
     {
         var data = new UserTwoFactorData { SsoLinks = { new SsoLink { ProviderId = "corp", Subject = "42", RetiredAt = DateTime.UtcNow } } };
@@ -229,6 +271,7 @@ public sealed class OidcLinkIssuerSignInTests : IDisposable
     private readonly OidcService _oidc;
     private readonly RSA _rsa = RSA.Create(2048);
     private readonly RsaSecurityKey _signingKey;
+    private readonly string _jwksJson;
     private readonly User _alice = new("alice", DefaultProvider, "reset");
     private readonly OidcProvider _provider = new()
     {
@@ -258,6 +301,14 @@ public sealed class OidcLinkIssuerSignInTests : IDisposable
         var keys = new JsonWebKeySet();
         keys.Keys.Add(JsonWebKeyConverter.ConvertFromRSASecurityKey(publicKey));
         _oidc.SeedProviderMetadataForTest(_provider, Issuer, keys);
+        var rsaPublic = _rsa.ExportParameters(false);
+        _jwksJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            keys = new[]
+            {
+                new { kty = "RSA", kid = "test-key", use = "sig", alg = "RS256", n = Base64UrlEncoder.Encode(rsaPublic.Modulus), e = Base64UrlEncoder.Encode(rsaPublic.Exponent) },
+            },
+        });
         _oidc.CurrentProviderLookup = id => id == ProviderId ? _provider : null;
     }
 
@@ -398,6 +449,74 @@ public sealed class OidcLinkIssuerSignInTests : IDisposable
 
         Assert.False(result.Success);
         Assert.Empty((await _store.GetUserDataAsync(_alice.Id)).SsoLinks);
+    }
+
+    [Fact]
+    public async Task An_existing_link_whose_subject_starts_with_the_old_ascii_prefix_signs_in()
+    {
+        await _store.MutateAsync(_alice.Id, d => d.SsoLinks.Add(new SsoLink { ProviderId = ProviderId, Subject = "retired:42", Issuer = Issuer }));
+
+        var result = await _oidc.ExchangeIdTokenAsync(_provider, IdToken("retired:42"), accessToken: null);
+
+        Assert.True(result.Success, result.Error);
+        Assert.Equal(_alice.Id, result.UserId);
+    }
+
+    [Fact]
+    public async Task A_sign_in_validates_with_the_settings_it_started_with()
+    {
+        // An admin rotates the client while discovery is still in flight.
+        var live = new OidcProvider
+        {
+            Id = ProviderId,
+            ClientId = ClientId,
+            DiscoveryUrl = Issuer + "/held/.well-known/openid-configuration",
+            Enabled = true,
+            LinkExistingUsersByUsername = true,
+        };
+        _oidc.CurrentProviderLookup = _ => live;
+        _oidc.OutboundCheck = (_, _, _) => Task.CompletedTask;
+        var held = new TaskCompletionSource<System.Text.Json.JsonElement>();
+        _oidc.DiscoveryFetcher = _ => held.Task;
+        _oidc.JwksFetcher = _ => Task.FromResult(_jwksJson);
+
+        var signIn = _oidc.ExchangeIdTokenAsync(live, IdToken("42", username: "alice"), accessToken: null);
+        live.ClientId = "rotated-client";
+        held.SetResult(DiscoveryDocument(Issuer));
+
+        // The token was issued to the client the sign-in started with.
+        var result = await signIn;
+        Assert.True(result.Success, result.Error);
+    }
+
+    [Fact]
+    public async Task An_auto_created_user_is_removed_when_the_sign_in_cannot_link_it()
+    {
+        var created = new User("newcomer", DefaultProvider, "reset");
+        _users.CreateUserAsync("newcomer").Returns(created);
+        _provider.AutoCreateUsers = true;
+        var moved = new OidcProvider { Id = ProviderId, DiscoveryUrl = "https://other-idp.example/.well-known/openid-configuration", Enabled = true };
+        var lookups = 0;
+        // Current when the user is created, re-pointed by the time the link is saved.
+        _oidc.CurrentProviderLookup = _ => ++lookups == 1 ? _provider : moved;
+
+        var result = await _oidc.ExchangeIdTokenAsync(_provider, IdToken("77", username: "newcomer"), accessToken: null);
+
+        Assert.False(result.Success);
+        await _users.Received(1).DeleteUserAsync(created.Id);
+        Assert.Empty((await _store.GetUserDataAsync(created.Id)).SsoLinks);
+    }
+
+    [Fact]
+    public async Task No_user_is_auto_created_for_a_provider_that_changed_during_the_sign_in()
+    {
+        _provider.AutoCreateUsers = true;
+        _oidc.CurrentProviderLookup = _ => new OidcProvider { Id = ProviderId, DiscoveryUrl = _provider.DiscoveryUrl, Enabled = false };
+
+        var result = await _oidc.ExchangeIdTokenAsync(_provider, IdToken("77", username: "newcomer"), accessToken: null);
+
+        Assert.False(result.Success);
+        await _users.DidNotReceiveWithAnyArgs().CreateUserAsync(default!);
     }
 
     [Fact]

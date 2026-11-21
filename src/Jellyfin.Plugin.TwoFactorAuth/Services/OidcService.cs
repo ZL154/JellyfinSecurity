@@ -199,6 +199,7 @@ public class OidcService : IDisposable
     public async Task<(string AuthUrl, string State)> BeginAsync(
         OidcProvider provider, string redirectUri, string returnUrl)
     {
+        provider = provider.Snapshot();
         // SECURITY [v2.5.9] (audit medium): coerce returnUrl to a safe
         // site-relative path BEFORE storing it in the pending flow. An
         // attacker-supplied absolute or protocol-relative URL would otherwise
@@ -263,6 +264,7 @@ public class OidcService : IDisposable
     public async Task<CallbackResult> CompleteAsync(
         OidcProvider provider, string code, string state, string redirectUri)
     {
+        provider = provider.Snapshot();
         if (!_pendingFlows.TryRemove(state, out var pending))
         {
             return new CallbackResult(false, "State token not found or expired", null, null, null, null);
@@ -356,6 +358,7 @@ public class OidcService : IDisposable
     public async Task<(string AuthUrl, string State)> BeginUserStepUpAsync(
         OidcProvider provider, Guid userId, string redirectUri)
     {
+        provider = provider.Snapshot();
         var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
 
         var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
@@ -421,6 +424,7 @@ public class OidcService : IDisposable
         string redirectUri,
         string accessToken)
     {
+        provider = provider.Snapshot();
         var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
         var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
         var codeChallenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier)));
@@ -474,6 +478,7 @@ public class OidcService : IDisposable
         string redirectUri,
         OnboardingSessionProofStore proofStore)
     {
+        provider = provider.Snapshot();
         if (!_pendingOnboardingValidations.TryRemove(state, out var pending))
         {
             return new OnboardingValidationResult(false, "Validation state expired", null, null, null);
@@ -556,6 +561,7 @@ public class OidcService : IDisposable
     public async Task<StepUpResult> CompleteUserStepUpAsync(
         OidcProvider provider, string code, string state, string redirectUri)
     {
+        provider = provider.Snapshot();
         if (!_pendingUserStepUps.TryRemove(state, out var pending))
         {
             return new StepUpResult(false, "Step-up state token not found or expired", null);
@@ -642,6 +648,7 @@ public class OidcService : IDisposable
     public async Task<(string AuthUrl, string State)> BeginUserLinkAsync(
         OidcProvider provider, Guid userId, string redirectUri)
     {
+        provider = provider.Snapshot();
         var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
 
         var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
@@ -694,6 +701,7 @@ public class OidcService : IDisposable
     public async Task<StepUpResult> CompleteUserLinkAsync(
         OidcProvider provider, string code, string state, string redirectUri)
     {
+        provider = provider.Snapshot();
         if (!_pendingUserLinks.TryRemove(state, out var pending))
         {
             return new StepUpResult(false, "Link state token not found or expired", null);
@@ -796,6 +804,7 @@ public class OidcService : IDisposable
     public async Task<CallbackResult> ExchangeIdTokenAsync(
         OidcProvider provider, string idToken, string? accessToken)
     {
+        provider = provider.Snapshot();
         var disc = await GetDiscoveryAsync(provider).ConfigureAwait(false);
 
         ClaimsBundle claims;
@@ -1054,7 +1063,7 @@ public class OidcService : IDisposable
 
         // Resolve to a Jellyfin user: first by existing SsoLink (sub), then
         // by email-match against email-OTP config, then optionally auto-create.
-        var (matchedUser, resolvedViaLink) = await ResolveUserAsync(provider, disc.Issuer, claims).ConfigureAwait(false);
+        var (matchedUser, resolvedViaLink, createdNow) = await ResolveUserAsync(provider, disc.Issuer, disc.SourceDiscoveryUrl, claims).ConfigureAwait(false);
         if (matchedUser is null)
         {
             return new CallbackResult(false,
@@ -1081,16 +1090,13 @@ public class OidcService : IDisposable
         var commit = LinkCommit.Refused;
         await _store.MutateAsync(matchedUser.Id, ud =>
         {
-            var current = CurrentProviderLookup(provider.Id);
             commit = DecideSignInLinkCommit(
                 ud,
                 provider.Id,
                 disc.Issuer,
                 claims.Subject,
                 resolvedViaLink,
-                providerUnchanged: current is not null
-                    && current.Enabled
-                    && SameDiscoveryUrl(current.DiscoveryUrl, disc.SourceDiscoveryUrl));
+                providerUnchanged: ProviderStillCurrent(provider.Id, disc.SourceDiscoveryUrl));
             switch (commit)
             {
                 case LinkCommit.Update:
@@ -1109,6 +1115,11 @@ public class OidcService : IDisposable
             _logger.LogWarning(
                 "[2FA] OIDC sign-in for {User} via {Provider} refused: its link or the provider changed during the sign-in",
                 matchedUser.Username, provider.Id);
+            if (createdNow)
+            {
+                await RemoveUnlinkedNewUserAsync(matchedUser).ConfigureAwait(false);
+            }
+
             return new CallbackResult(false,
                 "Your account link changed during sign-in. Try again, or link this account from Setup.",
                 null, null, null, null);
@@ -1583,14 +1594,25 @@ public class OidcService : IDisposable
     /// <summary>Resolve the identity to a Jellyfin user. <c>ViaLink</c> is
     /// true when an existing active link matched, so the caller can require
     /// that link to still be active when it commits.</summary>
-    private async Task<(Jellyfin.Database.Implementations.Entities.User? User, bool ViaLink)> ResolveUserAsync(OidcProvider provider, string issuer, ClaimsBundle claims)
+    private async Task<(Jellyfin.Database.Implementations.Entities.User? User, bool ViaLink, bool Created)> ResolveUserAsync(OidcProvider provider, string issuer, string sourceDiscoveryUrl, ClaimsBundle claims)
     {
         var viaLink = false;
-        var user = await ResolveUserCoreAsync(provider, issuer, claims, () => viaLink = true).ConfigureAwait(false);
-        return (user, viaLink && user is not null);
+        var created = false;
+        var user = await ResolveUserCoreAsync(provider, issuer, sourceDiscoveryUrl, claims, () => viaLink = true, () => created = true).ConfigureAwait(false);
+        return (user, viaLink && user is not null, created && user is not null);
     }
 
-    private async Task<Jellyfin.Database.Implementations.Entities.User?> ResolveUserCoreAsync(OidcProvider provider, string issuer, ClaimsBundle claims, Action markViaLink)
+    /// <summary>Whether the provider a sign-in started with is still the live,
+    /// enabled one, pointing at the discovery document the sign-in read.</summary>
+    private bool ProviderStillCurrent(string providerId, string sourceDiscoveryUrl)
+    {
+        var current = CurrentProviderLookup(providerId);
+        return current is not null
+            && current.Enabled
+            && SameDiscoveryUrl(current.DiscoveryUrl, sourceDiscoveryUrl);
+    }
+
+    private async Task<Jellyfin.Database.Implementations.Entities.User?> ResolveUserCoreAsync(OidcProvider provider, string issuer, string sourceDiscoveryUrl, ClaimsBundle claims, Action markViaLink, Action markCreated)
     {
         // 1. Existing link by issuer + sub
         var allUsers = await _store.GetAllUsersAsync().ConfigureAwait(false);
@@ -1735,6 +1757,14 @@ public class OidcService : IDisposable
         // 3. Auto-create
         if (provider.AutoCreateUsers && !string.IsNullOrEmpty(claims.Username))
         {
+            // Don't provision for a provider that was edited, disabled or
+            // removed while this sign-in was in flight.
+            if (!ProviderStillCurrent(provider.Id, sourceDiscoveryUrl))
+            {
+                _logger.LogWarning("[2FA] OIDC auto-create skipped: provider {Provider} changed during the sign-in", provider.Id);
+                return null;
+            }
+
             try
             {
                 var u = await _userManager.CreateUserAsync(claims.Username).ConfigureAwait(false);
@@ -1808,6 +1838,7 @@ public class OidcService : IDisposable
 
                 _logger.LogInformation("[2FA] Auto-created Jellyfin user '{Username}' from OIDC provider {Provider} (password hardened)",
                     claims.Username, provider.Id);
+                markCreated();
                 return u;
             }
             catch (Exception ex)
@@ -1920,6 +1951,24 @@ public class OidcService : IDisposable
             BackfillIssuer(l, issuer);
         }).ConfigureAwait(false);
         return found;
+    }
+
+    /// <summary>Undo an account this sign-in auto-created when the sign-in
+    /// cannot link it. Without a link the account is unreachable (its password
+    /// is random), and leaving it would make the next attempt fail on a taken
+    /// username. Best effort: a failure is logged for the admin.</summary>
+    private async Task RemoveUnlinkedNewUserAsync(Jellyfin.Database.Implementations.Entities.User user)
+    {
+        try
+        {
+            await _userManager.DeleteUserAsync(user.Id).ConfigureAwait(false);
+            await _store.DeleteUserDataAsync(user.Id).ConfigureAwait(false);
+            _logger.LogWarning("[2FA] Removed auto-created user '{User}': its sign-in was refused before it could be linked", user.Username);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[2FA] Could not remove auto-created user '{User}' after a refused sign-in; delete it manually", user.Username);
+        }
     }
 
     /// <summary>Set a 256-bit random password on a freshly-created OIDC user
@@ -2268,8 +2317,14 @@ public class OidcService : IDisposable
         }
 
         var sub = jwt.Subject;
-        // Retired links are marked by this prefix on the stored subject, so a
-        // live identity can never carry it.
+        if (string.IsNullOrEmpty(sub))
+        {
+            throw new SecurityTokenException("id_token has no subject");
+        }
+
+        // Retired links are marked by this prefix on the stored subject. It is
+        // not ASCII, and a conforming sub is, but refuse it anyway so a live
+        // identity can never carry it.
         if (sub.StartsWith(SsoLink.RetiredSubjectPrefix, StringComparison.Ordinal))
         {
             throw new SecurityTokenException("Unsupported subject");
