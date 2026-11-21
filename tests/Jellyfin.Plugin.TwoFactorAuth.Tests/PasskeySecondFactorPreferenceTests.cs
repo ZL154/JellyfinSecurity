@@ -41,6 +41,9 @@ public class PasskeySecondFactorPreferenceTests
         api.Client.DefaultRequestHeaders.Add("X-Test-Elevated", "true");
         using var users = await api.Client.GetFromJsonAsync<JsonDocument>("/TwoFactorAuth/Users");
         var row = Assert.Single(users!.RootElement.EnumerateArray(), u => u.GetProperty("UserId").GetGuid() == target.Id);
+        Assert.True(row.GetProperty("AccountPasswordSignInUnavailable").GetBoolean());
+        var readerRow = Assert.Single(users.RootElement.EnumerateArray(), u => u.GetProperty("UserId").GetGuid() == reader.Id);
+        Assert.False(readerRow.GetProperty("AccountPasswordSignInUnavailable").GetBoolean());
         Assert.Equal("none", row.GetProperty("PasswordSignInSecondFactorReason").GetString());
         Assert.False(row.GetProperty("PasswordSignInRequiresSecondFactor").GetBoolean());
     }
@@ -138,6 +141,7 @@ public class PasskeySecondFactorPreferenceTests
         foreach (var status in new[] { mine!.RootElement, listed })
         {
             Assert.Equal(user.Id, status.GetProperty("UserId").GetGuid());
+            Assert.Equal(password is null, status.GetProperty("AccountPasswordSignInUnavailable").GetBoolean());
             Assert.True(status.GetProperty("PasskeyRequiresSecondFactor").GetBoolean());
             Assert.Equal(reason, status.GetProperty("PasswordSignInSecondFactorReason").GetString());
             Assert.Equal(reason != "none", status.GetProperty("PasswordSignInRequiresSecondFactor").GetBoolean());
@@ -145,6 +149,7 @@ public class PasskeySecondFactorPreferenceTests
 
         var export = new UserExportService(api.Fixture.Store, api.Fixture.Users);
         var exported = JsonSerializer.SerializeToElement(await export.BuildExportAsync(user.Id)).GetProperty("twoFactor");
+        Assert.False(exported.TryGetProperty("accountPasswordSignInUnavailable", out _));
         Assert.True(exported.GetProperty("passkeyRequiresSecondFactor").GetBoolean());
         Assert.Equal(reason, exported.GetProperty("passwordSignInSecondFactorReason").GetString());
         Assert.Equal(reason != "none", exported.GetProperty("passwordSignInRequiresSecondFactor").GetBoolean());

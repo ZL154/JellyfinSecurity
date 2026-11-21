@@ -2397,9 +2397,10 @@ public class TwoFactorAuthController : ControllerBase
         var isLockedOut = await _store.IsLockedOutAsync(userId).ConfigureAwait(false);
         var plugin = Plugin.Instance;
         var cfg = plugin?.Configuration;
+        var passwordUnavailable = plugin?.AccountPasswordSignInUnavailable(jellyfinUser) == true;
         var signInReason = SignInChallengePolicy.GetReason(data, cfg ?? new Configuration.PluginConfiguration(),
             jellyfinUser is null || jellyfinUser.HasPermission(PermissionKind.IsAdministrator),
-            plugin?.AccountPasswordSignInUnavailable(jellyfinUser) == true);
+            passwordUnavailable);
         return Ok(new UserTwoFactorStatus
         {
             UserId = userId,
@@ -2411,6 +2412,7 @@ public class TwoFactorAuthController : ControllerBase
             IsLockedOut = isLockedOut,
             PasskeyCount = data.Passkeys.Count,
             PasskeyRequiresSecondFactor = data.PasskeyRequiresSecondFactor,
+            AccountPasswordSignInUnavailable = passwordUnavailable,
             PasswordSignInRequiresSecondFactor = signInReason != "none",
             PasswordSignInSecondFactorReason = signInReason,
             // [v2.5.6] (round-5 fix D): surface the admin's mode + per-user
@@ -2479,8 +2481,9 @@ public class TwoFactorAuthController : ControllerBase
                 isLockedOut = false;
             }
 
+            var passwordUnavailable = plugin?.AccountPasswordSignInUnavailable(ju) == true;
             var signInReason = SignInChallengePolicy.GetReason(data, cfg, ju.HasPermission(PermissionKind.IsAdministrator),
-                plugin?.AccountPasswordSignInUnavailable(ju) == true);
+                passwordUnavailable);
             result.Add(new UserTwoFactorStatus
             {
                 UserId = ju.Id,
@@ -2492,6 +2495,7 @@ public class TwoFactorAuthController : ControllerBase
                 IsLockedOut = isLockedOut,
                 PasskeyCount = data.Passkeys.Count,
                 PasskeyRequiresSecondFactor = data.PasskeyRequiresSecondFactor,
+                AccountPasswordSignInUnavailable = passwordUnavailable,
                 PasswordSignInRequiresSecondFactor = signInReason != "none",
                 PasswordSignInSecondFactorReason = signInReason,
             });

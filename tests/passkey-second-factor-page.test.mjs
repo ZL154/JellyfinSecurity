@@ -127,6 +127,53 @@ test('the switch shows the stored choice, and a missing field reads as on', () =
     }
 });
 
+test('refreshing password availability hides and restores the saved switch without writing it', async () => {
+    for (const saved of [true, false]) {
+        const choice = saved ? {} : optedOut;
+        const p = page({responses: [
+            {status: 200, body: status({...choice, AccountPasswordSignInUnavailable: true, PasswordSignInSecondFactorReason: 'none', PasswordSignInRequiresSecondFactor: false})},
+            {status: 200, body: status({...choice, AccountPasswordSignInUnavailable: false})},
+            {status: 200, body: status(choice)},
+        ]});
+        for (const visible of [false, true, true]) {
+            await p.context.refreshPasskeySecondFactor();
+            assert.equal(shown(p.el('passkeySecondFactor')), visible);
+            assert.equal(shown(p.el('passkeySecondFactorReason')), false);
+            assert.equal(shown(p.el('passkeySecondFactorStillAsked')), false);
+            if (visible) assert.equal(p.toggle.checked, saved);
+            assert.equal(p.context.window.__tfa_userPasskeyCount, 1);
+        }
+        assert.deepEqual(p.requests.map(r => [r.url, r.method]), Array(3).fill(['/jf/TwoFactorAuth/MyStatus', 'GET']));
+        assert.deepEqual(p.prompts, []);
+    }
+});
+
+test('independent sign-in reasons stay visible while the password switch is hidden', () => {
+    const p = page();
+    const reasons = {
+        scope: 'tfa.setup.passkeys.second_factor_scope',
+        authenticator: 'tfa.setup.status.protected',
+        recovery: 'tfa.setup.emergency.confirm_title',
+    };
+    for (const [reason, key] of Object.entries(reasons)) {
+        p.context.renderPasskeySecondFactor(status({
+            accountPasswordSignInUnavailable: true, PasswordSignInSecondFactorReason: reason,
+            PasskeyRequiresSecondFactor: reason === 'recovery',
+        }));
+        const note = p.el('passkeySecondFactorReason');
+        assert.equal(shown(p.el('passkeySecondFactor')), false);
+        assert.equal(shown(p.el('passkeySecondFactorStillAsked')), false);
+        assert.equal(shown(note), true);
+        assert.equal(note.getAttribute('data-i18n-key'), key);
+        assert.equal(note.textContent, JSON.parse(read('translations/en.json'))[key]);
+        assert.doesNotMatch(note.textContent, /password/i);
+    }
+    p.context.renderPasskeySecondFactor(status(optedOut));
+    assert.equal(shown(p.el('passkeySecondFactorReason')), false);
+    assert.equal(p.el('passkeySecondFactorReason').getAttribute('data-i18n-key'), null);
+    assert.deepEqual(p.requests, []);
+});
+
 test('the enforcement scope and an authenticator app disable the switch and say why', () => {
     const reasons = {
         scope: /administrator requires a second factor for this account/,
@@ -261,6 +308,13 @@ test('the page wires the switch into the Passkeys card, loadAll and the passkey 
     const box = setup.indexOf('id="passkeySecondFactor"');
     assert(card >= 0 && box > card && box < setup.indexOf('id="cardTotpRotate"'), 'the switch must sit in the Passkeys card');
     assert.match(setup, /id="passkeySecondFactor" style="display:none;/);
+    const controls = setup.slice(box, setup.indexOf('id="passkeySecondFactorReason"', box));
+    for (const item of ['passkeySecondFactorToggle', 'second_factor_help', 'passkeySecondFactorStillAsked']) {
+        assert.ok(controls.includes(item));
+    }
+    assert.match(controls, /id="passkeySecondFactorError"><\/div>\s*<\/div>\s*<p [^>]*$/);
+    assert.match(setup.slice(card, box), /id="btnAddPasskey"/);
+    assert.match(setup.slice(card, box), /id="passkeyList"/);
     assert.match(setup, /renderPasskeySecondFactor\(myStatus\);/);
     assert.match(setup, /getElementById\('passkeySecondFactorToggle'\)\.addEventListener\('change', changePasskeySecondFactor\);/);
     assert.equal(setup.match(/refreshPasskeySecondFactor\(\)\.catch\(/g)?.length, 2, 'after a passkey is added and after one is removed');
