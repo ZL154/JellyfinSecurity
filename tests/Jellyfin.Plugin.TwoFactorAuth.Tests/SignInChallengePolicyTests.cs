@@ -48,13 +48,13 @@ public class SignInChallengePolicyTests
     }
 
     [Fact]
-    public void Omitting_account_capability_keeps_the_passkey_challenge()
+    public void An_unestablished_password_capability_keeps_the_passkey_challenge()
     {
         var config = new PluginConfiguration { EnforcementScope = EnforcementScope.Optional, RequireForAllUsers = false };
         var data = new UserTwoFactorData { Passkeys = { new PasskeyCredential() }, PasskeyRequiresSecondFactor = true };
 
-        Assert.Equal("passkey", SignInChallengePolicy.GetReason(data, config, isAdmin: false));
-        Assert.True(SignInChallengePolicy.RequiresChallenge(data, config, isAdmin: false));
+        Assert.Equal("passkey", SignInChallengePolicy.GetReason(data, config, isAdmin: false, accountPasswordSignInUnavailable: false));
+        Assert.True(SignInChallengePolicy.RequiresChallenge(data, config, isAdmin: false, accountPasswordSignInUnavailable: false));
     }
 
     [Fact]

@@ -66,7 +66,7 @@ public class PasskeysEnabledTests
         if (address) config.SetUserEmail(data.UserId.ToString("N"), "person@example.test");
         var reason = config.ShouldEnforceFor(admin) ? "scope"
             : totp ? "authenticator" : enabled && preference ? "passkey" : "none";
-        Assert.Equal(reason, SignInChallengePolicy.GetReason(data, config, admin));
+        Assert.Equal(reason, SignInChallengePolicy.GetReason(data, config, admin, accountPasswordSignInUnavailable: false));
         Assert.Equal(totp || enabled || (emailEnabled && address), SelfServiceFactors.HasAny(data, config));
         var body = JsonSerializer.SerializeToElement(TwoFactorAuthController.BuildPublicConfig(config, false));
         Assert.Equal(enabled, body.GetProperty("passkeysEnabled").GetBoolean());

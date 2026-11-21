@@ -120,7 +120,7 @@ public class PasskeySecondFactorPreferenceTests
     [InlineData(null, false, "none")]
     [InlineData(null, true, "recovery")]
     [InlineData("stored-value", false, "passkey")]
-    public async Task My_status_and_the_elevated_users_list_agree_on_the_account_policy(
+    public async Task My_status_the_elevated_users_list_and_the_export_agree_on_account_policy(
         string? password, bool recovery, string reason)
     {
         using var api = new PreferenceApi();
@@ -142,6 +142,12 @@ public class PasskeySecondFactorPreferenceTests
             Assert.Equal(reason, status.GetProperty("PasswordSignInSecondFactorReason").GetString());
             Assert.Equal(reason != "none", status.GetProperty("PasswordSignInRequiresSecondFactor").GetBoolean());
         }
+
+        var export = new UserExportService(api.Fixture.Store, api.Fixture.Users);
+        var exported = JsonSerializer.SerializeToElement(await export.BuildExportAsync(user.Id)).GetProperty("twoFactor");
+        Assert.True(exported.GetProperty("passkeyRequiresSecondFactor").GetBoolean());
+        Assert.Equal(reason, exported.GetProperty("passwordSignInSecondFactorReason").GetString());
+        Assert.Equal(reason != "none", exported.GetProperty("passwordSignInRequiresSecondFactor").GetBoolean());
     }
 
     [Fact]

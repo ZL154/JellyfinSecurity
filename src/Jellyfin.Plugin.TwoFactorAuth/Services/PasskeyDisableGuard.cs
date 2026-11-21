@@ -70,7 +70,7 @@ public sealed class PasskeyDisableGuard
     /// never a copy.</summary>
     internal static bool ReliesOnPasskeys(UserTwoFactorData row, PluginConfiguration incoming, bool isAdmin)
         => SignInFactors.GetMethods(row, incoming).Count == 0
-           || (row.PasskeyRequiresSecondFactor && !SignInChallengePolicy.RequiresChallenge(row, incoming, isAdmin))
+           || (row.PasskeyRequiresSecondFactor && !SignInChallengePolicy.RequiresChallenge(row, incoming, isAdmin, accountPasswordSignInUnavailable: false))
            || !SelfServiceFactors.HasAny(row, incoming);
 }
 
