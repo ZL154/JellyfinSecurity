@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Tests;
 /// translation files the pages use, in the recipient's language.</summary>
 public class LocalizedEmailTests
 {
-    private static readonly string[] Languages = ["en", "de", "es", "fr", "it", "ja", "pt", "zh"];
+    private static readonly string[] Languages = ["en", "de", "es", "fr", "it", "ja", "pl", "pt", "zh"];
 
     private static EmailOtpService Service(string? defaultLanguage, Func<Guid, Task<string?>> userLanguage)
         => new(
@@ -141,6 +141,7 @@ public class LocalizedEmailTests
     [InlineData("fr")]
     [InlineData("it")]
     [InlineData("ja")]
+    [InlineData("pl")]
     [InlineData("pt")]
     [InlineData("zh")]
     public void Each_language_sends_its_own_text_with_the_link_and_the_code(string language)
@@ -214,7 +215,7 @@ public class LocalizedEmailTests
 /// translation files.</summary>
 public class PasswordPagesI18nTests
 {
-    private static readonly string[] Languages = ["en", "de", "es", "fr", "it", "ja", "pt", "zh"];
+    private static readonly string[] Languages = ["en", "de", "es", "fr", "it", "ja", "pl", "pt", "zh"];
 
     [Theory]
     [InlineData("password-reset.html")]

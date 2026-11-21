@@ -14,10 +14,10 @@
 //   → [v2.5.12 #79] Jellyfin <html lang> / browser language → admin default → "en".
 
 (function () {
-    var SUPPORTED = ['en', 'de', 'es', 'fr', 'it', 'ja', 'pt', 'zh'];
+    var SUPPORTED = ['en', 'de', 'es', 'fr', 'it', 'ja', 'pl', 'pt', 'zh'];
     var LANG_LABELS = {
         en: 'English', de: 'Deutsch', es: 'Español', fr: 'Français',
-        it: 'Italiano', ja: '日本語', pt: 'Português', zh: '中文'
+        it: 'Italiano', ja: '日本語', pl: 'Polski', pt: 'Português', zh: '中文'
     };
     var STORAGE_KEY = 'tfa.lang';
 

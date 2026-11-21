@@ -134,6 +134,7 @@
     <EmbeddedResource Update="Pages\translations\fr.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.fr.json" />
     <EmbeddedResource Update="Pages\translations\it.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.it.json" />
     <EmbeddedResource Update="Pages\translations\ja.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.ja.json" />
+    <EmbeddedResource Update="Pages\translations\pl.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.pl.json" />
     <EmbeddedResource Update="Pages\translations\pt.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.pt.json" />
     <EmbeddedResource Update="Pages\translations\zh.json" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.translations.zh.json" />
     <EmbeddedResource Update="Pages\tfa-i18n.js" WithCulture="false" LogicalName="Jellyfin.Plugin.TwoFactorAuth.Pages.tfa-i18n.js" />

@@ -762,7 +762,7 @@
     var dashboardNavBundles = {};
     var dashboardNavLanguageRequest = 0;
     function currentDashboardLanguage() {
-        var supported = ['en', 'de', 'es', 'fr', 'it', 'ja', 'pt', 'zh'];
+        var supported = ['en', 'de', 'es', 'fr', 'it', 'ja', 'pl', 'pt', 'zh'];
         try {
             var lang = String(document.documentElement.getAttribute('lang') || '')
                 .split('-')[0]
