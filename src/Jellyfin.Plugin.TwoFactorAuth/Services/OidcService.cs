@@ -48,7 +48,10 @@ public class OidcService : IDisposable
         // caller has to read it as "this provider cannot do RP logout", never
         // as an error. Trailing optional parameter so the existing positional
         // construction below stays untouched.
-        string EndSessionEndpoint = "");
+        string EndSessionEndpoint = "",
+        // The provider's configured discovery URL this document was read for,
+        // so a sign-in can tell the provider was re-pointed meanwhile.
+        string SourceDiscoveryUrl = "");
 
     private record PendingFlow(
         string ProviderId,
@@ -1047,7 +1050,7 @@ public class OidcService : IDisposable
 
         // Resolve to a Jellyfin user: first by existing SsoLink (sub), then
         // by email-match against email-OTP config, then optionally auto-create.
-        var matchedUser = await ResolveUserAsync(provider, disc.Issuer, claims).ConfigureAwait(false);
+        var (matchedUser, resolvedViaLink) = await ResolveUserAsync(provider, disc.Issuer, claims).ConfigureAwait(false);
         if (matchedUser is null)
         {
             return new CallbackResult(false,
@@ -1068,20 +1071,42 @@ public class OidcService : IDisposable
             LinkedAt = DateTime.UtcNow,
             LastUsedAt = DateTime.UtcNow,
         };
+        // The user was chosen from a snapshot. Decide again under the per-user
+        // lock, so a link retired or removed (or a provider re-pointed) while
+        // this sign-in was in flight is not re-created.
+        var commit = LinkCommit.Refused;
         await _store.MutateAsync(matchedUser.Id, ud =>
         {
-            var existing = ud.SsoLinks.FirstOrDefault(l => LinkMatches(l, provider.Id, disc.Issuer, claims.Subject));
-            if (existing is null)
+            var current = CurrentProviderLookup(provider.Id);
+            commit = DecideSignInLinkCommit(
+                ud,
+                provider.Id,
+                disc.Issuer,
+                claims.Subject,
+                resolvedViaLink,
+                providerUnchanged: current is not null && SameDiscoveryUrl(current.DiscoveryUrl, disc.SourceDiscoveryUrl));
+            switch (commit)
             {
-                ud.SsoLinks.Add(link);
-            }
-            else
-            {
-                existing.Email = claims.Email;
-                existing.LastUsedAt = DateTime.UtcNow;
-                BackfillIssuer(existing, disc.Issuer);
+                case LinkCommit.Update:
+                    var existing = ud.SsoLinks.First(l => LinkMatches(l, provider.Id, disc.Issuer, claims.Subject));
+                    existing.Email = claims.Email;
+                    existing.LastUsedAt = DateTime.UtcNow;
+                    BackfillIssuer(existing, disc.Issuer);
+                    break;
+                case LinkCommit.Add:
+                    ud.SsoLinks.Add(link);
+                    break;
             }
         }).ConfigureAwait(false);
+        if (commit == LinkCommit.Refused)
+        {
+            _logger.LogWarning(
+                "[2FA] OIDC sign-in for {User} via {Provider} refused: its link or the provider changed during the sign-in",
+                matchedUser.Username, provider.Id);
+            return new CallbackResult(false,
+                "Your account link changed during sign-in. Try again, or link this account from Setup.",
+                null, null, null, null);
+        }
 
         // [v2.5.11] (#70, ZEROX7) Fill the user's plugin email (used for email
         // OTP and shown in the admin Users tab) from the IdP email claim when
@@ -1549,7 +1574,17 @@ public class OidcService : IDisposable
     /// <summary>Try to find a Jellyfin user matching the IdP claims. Order:
     /// (1) existing SsoLink, (2) email match against UserEmails config,
     /// (3) auto-create if provider allows.</summary>
-    private async Task<Jellyfin.Database.Implementations.Entities.User?> ResolveUserAsync(OidcProvider provider, string issuer, ClaimsBundle claims)
+    /// <summary>Resolve the identity to a Jellyfin user. <c>ViaLink</c> is
+    /// true when an existing active link matched, so the caller can require
+    /// that link to still be active when it commits.</summary>
+    private async Task<(Jellyfin.Database.Implementations.Entities.User? User, bool ViaLink)> ResolveUserAsync(OidcProvider provider, string issuer, ClaimsBundle claims)
+    {
+        var viaLink = false;
+        var user = await ResolveUserCoreAsync(provider, issuer, claims, () => viaLink = true).ConfigureAwait(false);
+        return (user, viaLink && user is not null);
+    }
+
+    private async Task<Jellyfin.Database.Implementations.Entities.User?> ResolveUserCoreAsync(OidcProvider provider, string issuer, ClaimsBundle claims, Action markViaLink)
     {
         // 1. Existing link by issuer + sub
         var allUsers = await _store.GetAllUsersAsync().ConfigureAwait(false);
@@ -1558,7 +1593,11 @@ public class OidcService : IDisposable
             if (data.SsoLinks.Any(l => LinkMatches(l, provider.Id, issuer, claims.Subject)))
             {
                 var u = _userManager.GetUserById(data.UserId);
-                if (u is not null) return u;
+                if (u is not null)
+                {
+                    markViaLink();
+                    return u;
+                }
             }
         }
 
@@ -1815,6 +1854,33 @@ public class OidcService : IDisposable
     internal static void BackfillIssuer(SsoLink link, string issuer)
     {
         if (string.IsNullOrEmpty(link.Issuer)) link.Issuer = issuer;
+    }
+
+    /// <summary>The provider as currently configured. A seam for tests, which
+    /// must not depend on the process-wide <see cref="Plugin.Instance"/>.</summary>
+    internal Func<string, OidcProvider?> CurrentProviderLookup { get; set; } =
+        id => Plugin.Instance?.Configuration.OidcProviders.FirstOrDefault(p => p.Id == id);
+
+    internal enum LinkCommit
+    {
+        Refused,
+        Update,
+        Add,
+    }
+
+    /// <summary>What a sign-in may write, decided against the user's current
+    /// data rather than the snapshot the user was resolved from. An active
+    /// matching link is updated. A user resolved through a link that is no
+    /// longer active, a user who now holds another link to this provider
+    /// (a retired one included), or a provider re-pointed meanwhile is
+    /// refused. Otherwise a fallback match adds the link.</summary>
+    internal static LinkCommit DecideSignInLinkCommit(
+        UserTwoFactorData data, string providerId, string issuer, string subject, bool resolvedViaLink, bool providerUnchanged)
+    {
+        if (!providerUnchanged) return LinkCommit.Refused;
+        if (data.SsoLinks.Any(l => LinkMatches(l, providerId, issuer, subject))) return LinkCommit.Update;
+        if (resolvedViaLink) return LinkCommit.Refused;
+        return HasConflictingProviderLink(data, providerId, issuer, subject) ? LinkCommit.Refused : LinkCommit.Add;
     }
 
     /// <summary>Whether the user still holds an active link to this identity
@@ -2403,7 +2469,7 @@ public class OidcService : IDisposable
 
     private async Task<Discovery> GetDiscoveryAsync(OidcProvider provider)
     {
-        if (_discoveryCache.TryGetValue(provider.Id, out var cached)
+        if (_discoveryCache.TryGetValue(MetadataCacheKey(provider), out var cached)
             && (DateTime.UtcNow - cached.CachedAt) < _discoveryTtl)
         {
             return cached;
@@ -2416,7 +2482,8 @@ public class OidcService : IDisposable
         // those targets via the Discovery response shape.
         await EnsureSafeOutboundAsync(provider.DiscoveryUrl, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
 
-        var discoveryUrl = provider.DiscoveryUrl;
+        var configuredDiscoveryUrl = provider.DiscoveryUrl;
+        var discoveryUrl = configuredDiscoveryUrl;
         var resp = await _http.GetFromJsonAsync<JsonElement>(discoveryUrl).ConfigureAwait(false);
 
         // [#120] Admins commonly paste the issuer / realm root (e.g. Keycloak
@@ -2460,7 +2527,8 @@ public class OidcService : IDisposable
             // [#134] Optional, exactly like userinfo_endpoint above: an OP that
             // omits it simply cannot do RP-initiated logout, which is not an
             // error and must not fail discovery for every other flow.
-            resp.TryGetProperty("end_session_endpoint", out var es) ? es.GetString() ?? "" : "");
+            resp.TryGetProperty("end_session_endpoint", out var es) ? es.GetString() ?? "" : "",
+            configuredDiscoveryUrl);
 
         // Also validate the IdP-supplied endpoint URLs from the discovery
         // response. The DiscoveryUrl could be a perfectly fine public IdP
@@ -2475,7 +2543,7 @@ public class OidcService : IDisposable
             await EnsureSafeOutboundAsync(disc.UserInfoEndpoint, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
         }
 
-        _discoveryCache[provider.Id] = disc;
+        _discoveryCache[MetadataCacheKey(provider)] = disc;
         return disc;
     }
 
@@ -2498,13 +2566,21 @@ public class OidcService : IDisposable
     internal static bool SameDiscoveryUrl(string? a, string? b)
         => string.Equals(CanonicalDiscoveryUrl(a), CanonicalDiscoveryUrl(b), StringComparison.Ordinal);
 
-    private static string CanonicalDiscoveryUrl(string? discoveryUrl)
+    /// <summary>Lower-cases <c>scheme://authority</c> as written, up to the
+    /// first <c>/</c>, <c>?</c> or <c>#</c>, and keeps the rest verbatim. The
+    /// boundary comes from the input itself, never from a parsed and
+    /// normalized authority, and matches canonicalDiscoveryUrl in
+    /// admin-script.js.</summary>
+    internal static string CanonicalDiscoveryUrl(string? discoveryUrl)
     {
         var value = (discoveryUrl ?? string.Empty).Trim();
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) return value;
-        var authority = uri.GetLeftPart(UriPartial.Authority);
-        return authority.ToLowerInvariant() + value[authority.Length..];
+        var m = DiscoveryAuthority.Match(value);
+        return m.Success ? m.Groups[1].Value.ToLowerInvariant() + value[m.Groups[1].Length..] : value;
     }
+
+    private static readonly System.Text.RegularExpressions.Regex DiscoveryAuthority = new(
+        "^([A-Za-z][A-Za-z0-9+.-]*://[^/?#]*)",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     internal static string RequireDiscoveryEndpoint(
         JsonElement document,
@@ -2783,7 +2859,7 @@ public class OidcService : IDisposable
         // issued a token signed with a kid we don't know, force a refresh
         // — without this, post-rotation tokens fail validation forever
         // until a manual InvalidateCache call or process restart.
-        if (_jwksCache.TryGetValue(provider.Id, out var cached)
+        if (_jwksCache.TryGetValue(MetadataCacheKey(provider), out var cached)
             && (DateTime.UtcNow - cached.FetchedAt) < _jwksTtl
             && (requiredKid is null || HasKid(cached.Keys, requiredKid)))
         {
@@ -2795,7 +2871,7 @@ public class OidcService : IDisposable
         await EnsureSafeOutboundAsync(disc.JwksUri, provider.AllowPrivateNetworks, provider.AdditionalAllowedCidrs).ConfigureAwait(false);
         var json = await _http.GetStringAsync(disc.JwksUri).ConfigureAwait(false);
         var jwks = new JsonWebKeySet(json);
-        _jwksCache[provider.Id] = new JwksCacheEntry(jwks, DateTime.UtcNow);
+        _jwksCache[MetadataCacheKey(provider)] = new JwksCacheEntry(jwks, DateTime.UtcNow);
         return jwks;
     }
 
@@ -2808,25 +2884,40 @@ public class OidcService : IDisposable
         return false;
     }
 
+    /// <summary>Discovery and signing keys are cached per slug AND discovery
+    /// URL, so a provider re-pointed by any path (editor, import, generic
+    /// settings save) never reuses the previous IdP's metadata.</summary>
+    private static string MetadataCacheKey(OidcProvider provider)
+        => provider.Id + "\n" + (provider.DiscoveryUrl ?? string.Empty).Trim();
+
     public void InvalidateCache(string providerId)
     {
-        _discoveryCache.TryRemove(providerId, out _);
-        _jwksCache.TryRemove(providerId, out _);
+        var prefix = providerId + "\n";
+        foreach (var key in _discoveryCache.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+        {
+            _discoveryCache.TryRemove(key, out _);
+        }
+
+        foreach (var key in _jwksCache.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+        {
+            _jwksCache.TryRemove(key, out _);
+        }
     }
 
     /// <summary>Test hook: preload a provider's discovery document and signing
     /// keys so a test can verify a locally signed id_token without any network
     /// access. Endpoints point at a reserved name and are never contacted.</summary>
-    internal void SeedProviderMetadataForTest(string providerId, string issuer, JsonWebKeySet keys)
+    internal void SeedProviderMetadataForTest(OidcProvider provider, string issuer, JsonWebKeySet keys)
     {
-        _discoveryCache[providerId] = new Discovery(
+        _discoveryCache[MetadataCacheKey(provider)] = new Discovery(
             "https://idp.invalid/authorize",
             "https://idp.invalid/token",
             string.Empty,
             "https://idp.invalid/jwks",
             issuer,
-            DateTime.UtcNow);
-        _jwksCache[providerId] = new JwksCacheEntry(keys, DateTime.UtcNow);
+            DateTime.UtcNow,
+            SourceDiscoveryUrl: provider.DiscoveryUrl);
+        _jwksCache[MetadataCacheKey(provider)] = new JwksCacheEntry(keys, DateTime.UtcNow);
     }
 
     private void SweepPending()

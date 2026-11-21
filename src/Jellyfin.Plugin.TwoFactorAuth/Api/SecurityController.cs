@@ -446,7 +446,12 @@ public class SecurityController : ControllerBase
             var oldId = existing.Id;
             // Links left under the new slug by an earlier provider belong to
             // that provider, not this one.
-            await RetireProviderLinksAsync(new[] { newId }, "a renamed provider took over the slug").ConfigureAwait(false);
+            // Rows this rename already moved (a retry after an interrupted
+            // save) are spared.
+            await RetireProviderLinksAsync(
+                new[] { newId },
+                "a renamed provider took over the slug",
+                l => string.Equals(l.RenamedFrom, oldId, StringComparison.Ordinal)).ConfigureAwait(false);
             var migrated = await MigrateSsoLinkProviderIdAsync(oldId, newId).ConfigureAwait(false);
             existing.Id = newId;
             _oidc.InvalidateCache(oldId);
@@ -532,6 +537,7 @@ public class SecurityController : ControllerBase
                     if (string.Equals(l.ProviderId, oldId, StringComparison.Ordinal))
                     {
                         l.ProviderId = newId;
+                        l.RenamedFrom = oldId;
                     }
                 }
             }).ConfigureAwait(false);
@@ -545,9 +551,9 @@ public class SecurityController : ControllerBase
     /// <summary>Retire every user's active links under these provider
     /// slugs (<see cref="OidcLinkRetirement"/>) and audit each affected user.
     /// Returns the number of users changed.</summary>
-    private async Task<int> RetireProviderLinksAsync(IReadOnlyCollection<string> providerIds, string reason)
+    private async Task<int> RetireProviderLinksAsync(IReadOnlyCollection<string> providerIds, string reason, Func<SsoLink, bool>? spare = null)
     {
-        var changed = await OidcLinkRetirement.RetireAsync(_store, providerIds, reason).ConfigureAwait(false);
+        var changed = await OidcLinkRetirement.RetireAsync(_store, providerIds, reason, spare).ConfigureAwait(false);
         foreach (var (userId, count) in changed)
         {
             await _store.AddAuditEntryAsync(new AuditEntry
@@ -1951,7 +1957,7 @@ public class SecurityController : ControllerBase
             id = l.Id,
             providerId = l.ProviderId,
             providerDisplay = providers.FirstOrDefault(p => p.Id == l.ProviderId)?.DisplayName ?? l.ProviderId,
-            subject = l.Subject,
+            subject = OidcLinkRetirement.DisplaySubject(l),
             email = l.Email,
             linkedAt = l.LinkedAt,
             lastUsedAt = l.LastUsedAt,

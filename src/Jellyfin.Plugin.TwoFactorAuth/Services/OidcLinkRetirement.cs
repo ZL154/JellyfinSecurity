@@ -35,8 +35,10 @@ internal static class OidcLinkRetirement
 
     /// <summary>Retire every active link under the given slugs. Returns, per
     /// user changed, how many links were retired.</summary>
+    /// <param name="spare">Rows to leave alone, e.g. rows a rename already
+    /// moved here.</param>
     public static async Task<IReadOnlyDictionary<Guid, int>> RetireAsync(
-        UserTwoFactorStore store, IReadOnlyCollection<string> providerIds, string reason)
+        UserTwoFactorStore store, IReadOnlyCollection<string> providerIds, string reason, Func<SsoLink, bool>? spare = null)
     {
         var changed = new Dictionary<Guid, int>();
         if (providerIds.Count == 0) return changed;
@@ -44,28 +46,33 @@ internal static class OidcLinkRetirement
         var users = await store.GetAllUsersAsync().ConfigureAwait(false);
         foreach (var u in users)
         {
-            if (!u.SsoLinks.Any(l => l.RetiredAt is null && ids.Contains(l.ProviderId)))
+            if (!u.SsoLinks.Any(l => l.RetiredAt is null && ids.Contains(l.ProviderId) && spare?.Invoke(l) != true))
             {
                 continue;
             }
 
             var retired = 0;
-            await store.MutateAsync(u.UserId, ud => retired = Retire(ud, ids, reason, DateTime.UtcNow)).ConfigureAwait(false);
+            await store.MutateAsync(u.UserId, ud => retired = Retire(ud, ids, reason, DateTime.UtcNow, spare)).ConfigureAwait(false);
             if (retired > 0) changed[u.UserId] = retired;
         }
 
         return changed;
     }
 
-    internal static int Retire(UserTwoFactorData data, ISet<string> providerIds, string reason, DateTime now)
+    internal static int Retire(UserTwoFactorData data, ISet<string> providerIds, string reason, DateTime now, Func<SsoLink, bool>? spare = null)
     {
         var count = 0;
         foreach (var link in data.SsoLinks)
         {
-            if (link.RetiredAt is null && providerIds.Contains(link.ProviderId))
+            if (link.RetiredAt is null && providerIds.Contains(link.ProviderId) && spare?.Invoke(link) != true)
             {
                 link.RetiredAt = now;
                 link.RetiredReason = reason;
+                if (!link.Subject.StartsWith(SsoLink.RetiredSubjectPrefix, StringComparison.Ordinal))
+                {
+                    link.Subject = SsoLink.RetiredSubjectPrefix + link.Subject;
+                }
+
                 count++;
             }
         }
@@ -91,4 +98,10 @@ internal static class OidcLinkRetirement
     }
 
     internal static string NewLinkId() => Guid.NewGuid().ToString("N");
+
+    /// <summary>The subject as the IdP issued it, without the retired prefix.</summary>
+    internal static string DisplaySubject(SsoLink link)
+        => link.RetiredAt is not null && link.Subject.StartsWith(SsoLink.RetiredSubjectPrefix, StringComparison.Ordinal)
+            ? link.Subject[SsoLink.RetiredSubjectPrefix.Length..]
+            : link.Subject;
 }

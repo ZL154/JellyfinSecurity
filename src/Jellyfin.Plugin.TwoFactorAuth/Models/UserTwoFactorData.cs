@@ -186,10 +186,21 @@ public class SsoLink
     /// matches a token, but it still counts as this account's link to the
     /// provider, so the email and username fallbacks cannot attach a
     /// different identity to the account. The user links again explicitly
-    /// from Setup and can then remove the retired row.</summary>
+    /// from Setup and can then remove the retired row. Retiring also prefixes
+    /// <see cref="Subject"/> with <see cref="RetiredSubjectPrefix"/>: a version
+    /// that predates this field drops it when it rewrites the file, and the
+    /// prefix keeps the row from matching a token there too, while it still
+    /// blocks the fallbacks as a different subject.</summary>
     public DateTime? RetiredAt { get; set; }
 
+    public const string RetiredSubjectPrefix = "retired:";
+
     public string RetiredReason { get; set; } = string.Empty;
+
+    /// <summary>The slug this link was moved from by a callback-slug rename.
+    /// A retried rename then tells the rows it moved from stale rows that were
+    /// already under the destination slug.</summary>
+    public string RenamedFrom { get; set; } = string.Empty;
 
     public string Email { get; set; } = string.Empty;
 

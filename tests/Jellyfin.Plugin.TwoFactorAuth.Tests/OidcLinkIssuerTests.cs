@@ -81,22 +81,83 @@ public class OidcLinkIssuerMatchingTests
         Assert.Equal(string.Empty, Assert.Single(data.SsoLinks).Issuer);
     }
 
+    // Shared with tests/discovery-url-compare.test.mjs, so the settings
+    // page warns for exactly the edits that retire links.
+    private static System.Text.Json.JsonElement UrlCases([System.Runtime.CompilerServices.CallerFilePath] string here = "")
+        => System.Text.Json.JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(Path.GetDirectoryName(here)!, "..", "discovery-url-cases.json"))).RootElement;
+
+    public static IEnumerable<object[]> Cases(string kind)
+        => UrlCases().GetProperty(kind).EnumerateArray()
+            .Select(c => new object[] { c[0].GetString()!, c[1].GetString()! });
+
     [Theory]
-    [InlineData("https://idp.example/realms/a", "https://IDP.example/realms/a")]
-    [InlineData("HTTPS://idp.example/realms/a", " https://idp.example/realms/a ")]
+    [MemberData(nameof(Cases), "same")]
     public void Discovery_urls_differing_only_in_scheme_host_case_or_whitespace_are_the_same(string a, string b)
         => Assert.True(OidcService.SameDiscoveryUrl(a, b));
 
     [Theory]
     // GetDiscoveryAsync reads the configured URL first and only then tries the
-    // well-known suffix, so these can serve different documents.
-    [InlineData("https://idp.example/realms/a", "https://idp.example/realms/a/.well-known/openid-configuration")]
-    [InlineData("https://idp.example/realms/a", "https://idp.example/realms/a/")]
-    [InlineData("https://idp.example/realms/a", "https://idp.example/realms/b")]
-    [InlineData("https://idp.example/realms/a", "https://idp.example/realms/A")]
-    [InlineData("https://idp.example/realms/a", "https://other.example/realms/a")]
+    // well-known suffix, so those can serve different documents.
+    [MemberData(nameof(Cases), "different")]
     public void Any_other_difference_is_a_different_discovery_url(string a, string b)
         => Assert.False(OidcService.SameDiscoveryUrl(a, b));
+
+    [Theory]
+    [MemberData(nameof(Cases), "canonical")]
+    public void The_canonical_form_keeps_everything_after_the_authority_as_written(string input, string expected)
+        => Assert.Equal(expected, OidcService.CanonicalDiscoveryUrl(input));
+
+    [Fact]
+    public void A_retired_row_stays_inert_after_a_rollback_drops_its_marker()
+    {
+        var data = new UserTwoFactorData { SsoLinks = { new SsoLink { ProviderId = "corp", Subject = "42", Issuer = Issuer } } };
+        OidcLinkRetirement.Retire(data, new HashSet<string> { "corp" }, "test", DateTime.UtcNow);
+
+        // An older version reads the row without RetiredAt and rewrites it.
+        var link = data.SsoLinks[0];
+        link.RetiredAt = null;
+
+        Assert.False(OidcService.LinkMatches(link, "corp", Issuer, "42"));
+        Assert.True(OidcService.HasConflictingProviderLink(data, "corp", Issuer, "42"));
+    }
+
+    [Fact]
+    public void Only_an_active_link_counts_as_a_self_service_factor()
+    {
+        var data = new UserTwoFactorData { SsoLinks = { new SsoLink { ProviderId = "corp", Subject = "42", RetiredAt = DateTime.UtcNow } } };
+
+        Assert.False(SelfServiceFactors.HasAny(data, new PluginConfiguration()));
+        data.SsoLinks.Add(new SsoLink { ProviderId = "corp", Subject = "43" });
+        Assert.True(SelfServiceFactors.HasAny(data, new PluginConfiguration()));
+    }
+
+    [Theory]
+    // An active matching link is updated, however the user was found.
+    [InlineData(true, true, "Update")]
+    [InlineData(true, false, "Update")]
+    // Resolved through a link that was removed meanwhile.
+    [InlineData(false, true, "Refused")]
+    // A fallback match with no link to this provider adds one.
+    [InlineData(false, false, "Add")]
+    public void A_sign_in_commits_against_the_current_links(bool hasActiveLink, bool resolvedViaLink, string expected)
+    {
+        var data = new UserTwoFactorData();
+        if (hasActiveLink) data.SsoLinks.Add(new SsoLink { ProviderId = "corp", Subject = "42", Issuer = Issuer });
+
+        var commit = OidcService.DecideSignInLinkCommit(data, "corp", Issuer, "42", resolvedViaLink, providerUnchanged: true);
+
+        Assert.Equal(expected, commit.ToString());
+    }
+
+    [Fact]
+    public void A_sign_in_is_refused_when_a_link_was_retired_meanwhile_or_the_provider_moved()
+    {
+        var retired = new UserTwoFactorData { SsoLinks = { new SsoLink { ProviderId = "corp", Subject = "42", Issuer = Issuer, RetiredAt = DateTime.UtcNow } } };
+
+        Assert.Equal(OidcService.LinkCommit.Refused, OidcService.DecideSignInLinkCommit(retired, "corp", Issuer, "42", resolvedViaLink: false, providerUnchanged: true));
+        Assert.Equal(OidcService.LinkCommit.Refused, OidcService.DecideSignInLinkCommit(new UserTwoFactorData(), "corp", Issuer, "42", resolvedViaLink: false, providerUnchanged: false));
+    }
 
     [Fact]
     public void A_retired_link_never_matches_but_still_conflicts()
@@ -171,7 +232,8 @@ public sealed class OidcLinkIssuerSignInTests : IDisposable
         var publicKey = new RsaSecurityKey(_rsa.ExportParameters(false)) { KeyId = "test-key" };
         var keys = new JsonWebKeySet();
         keys.Keys.Add(JsonWebKeyConverter.ConvertFromRSASecurityKey(publicKey));
-        _oidc.SeedProviderMetadataForTest(ProviderId, Issuer, keys);
+        _oidc.SeedProviderMetadataForTest(_provider, Issuer, keys);
+        _oidc.CurrentProviderLookup = id => id == ProviderId ? _provider : null;
     }
 
     public void Dispose()
@@ -276,6 +338,33 @@ public sealed class OidcLinkIssuerSignInTests : IDisposable
         Assert.False(await _oidc.CompleteStepUpLinkAsync(_alice.Id, ProviderId, Issuer, "42"));
     }
 
+    [Fact]
+    public async Task A_sign_in_does_not_link_when_the_provider_was_re_pointed_meanwhile()
+    {
+        _provider.LinkExistingUsersByUsername = true;
+        var moved = new OidcProvider { Id = ProviderId, DiscoveryUrl = "https://other-idp.example/.well-known/openid-configuration" };
+        _oidc.CurrentProviderLookup = _ => moved;
+
+        var result = await _oidc.ExchangeIdTokenAsync(_provider, IdToken("42", username: "alice"), accessToken: null);
+
+        Assert.False(result.Success);
+        Assert.Empty((await _store.GetUserDataAsync(_alice.Id)).SsoLinks);
+    }
+
+    [Fact]
+    public async Task Cached_metadata_is_not_reused_once_the_discovery_url_changes()
+    {
+        await LinkAliceAsync(Issuer);
+        _provider.DiscoveryUrl = "https://idp.invalid/.well-known/openid-configuration";
+
+        // The seeded metadata belongs to the old URL, so discovery is fetched
+        // again for the new one, which does not resolve.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _oidc.ExchangeIdTokenAsync(_provider, IdToken("42"), accessToken: null));
+        Assert.Contains("idp.invalid", ex.Message);
+        Assert.Null(Assert.Single((await _store.GetUserDataAsync(_alice.Id)).SsoLinks).LastUsedAt);
+    }
+
     private Task LinkAliceAsync(string issuer, bool retired = false) => _store.MutateAsync(_alice.Id, d => d.SsoLinks.Add(new SsoLink
     {
         ProviderId = ProviderId,
@@ -315,6 +404,7 @@ public sealed class OidcProviderLinkRetirementTests : IDisposable
     private const string DefaultProvider = "Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider";
 
     private readonly string _sandbox;
+    private readonly MediaBrowser.Common.Configuration.IApplicationPaths _paths;
     private readonly Plugin? _previous = Plugin.Instance;
     private readonly Plugin _plugin;
     private readonly UserTwoFactorStore _store;
@@ -329,6 +419,7 @@ public sealed class OidcProviderLinkRetirementTests : IDisposable
     public OidcProviderLinkRetirementTests()
     {
         var paths = TestApplicationPaths.Create(out _sandbox);
+        _paths = paths;
         var serializer = Substitute.For<IXmlSerializer>();
         serializer.DeserializeFromFile(typeof(PluginConfiguration), Arg.Any<string>()).Returns(new PluginConfiguration());
         _plugin = new Plugin(paths, serializer, _host, Substitute.For<ILogger<Plugin>>());
@@ -533,6 +624,45 @@ public sealed class OidcProviderLinkRetirementTests : IDisposable
         var result = await _controller.ListMyLinks();
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         return System.Text.Json.JsonSerializer.SerializeToElement(ok.Value).EnumerateArray().ToList();
+    }
+
+    [Fact]
+    public async Task A_failed_write_leaves_the_link_active_and_a_retry_retires_it()
+    {
+        // Make Bob's next write fail: the temp file path is a directory.
+        var bobFile = Directory.GetFiles(_sandbox, $"{_bob.Id}.json", SearchOption.AllDirectories).Single();
+        Directory.CreateDirectory(bobFile + ".tmp");
+
+        await Assert.ThrowsAnyAsync<Exception>(() => _controller.UpdateProvider("corp", Request("https://other-idp.example")));
+        Assert.Equal(new[] { "corp:active" }, await LinksAsync(_bob));
+        Assert.Equal(DiscoveryUrl, _plugin.Configuration.OidcProviders.Single().DiscoveryUrl);
+
+        Directory.Delete(bobFile + ".tmp");
+        Assert.IsType<OkObjectResult>(await _controller.UpdateProvider("corp", Request("https://other-idp.example")));
+        Assert.Equal(new[] { "corp:retired" }, await LinksAsync(_bob));
+
+        // What is on disk agrees after a restart.
+        using var restarted = new UserTwoFactorStore(_paths, Substitute.For<IServiceProvider>());
+        Assert.NotNull(Assert.Single((await restarted.GetUserDataAsync(_bob.Id)).SsoLinks).RetiredAt);
+    }
+
+    [Fact]
+    public async Task A_retried_rename_spares_the_rows_it_already_moved()
+    {
+        // An earlier provider left a stale row under the destination slug.
+        await _store.MutateAsync(_alice.Id, d => d.SsoLinks.Add(new SsoLink { ProviderId = "corp-new", Subject = "stale" }));
+        var request = Request(DiscoveryUrl);
+        request.CallbackSlug = "corp-new";
+
+        // First attempt moved the rows, then the save was lost: config still says "corp".
+        Assert.IsType<OkObjectResult>(await _controller.UpdateProvider("corp", request));
+        _plugin.Configuration.OidcProviders.Single().Id = "corp";
+        Assert.IsType<OkObjectResult>(await _controller.UpdateProvider("corp", request));
+
+        var alice = (await _store.GetUserDataAsync(_alice.Id)).SsoLinks;
+        Assert.Null(alice.Single(l => l.Issuer == "https://idp.example/realms/corp").RetiredAt);
+        Assert.NotNull(alice.Single(l => l.Subject.EndsWith("stale", StringComparison.Ordinal)).RetiredAt);
+        Assert.Equal(new[] { "corp-new:active" }, await LinksAsync(_bob));
     }
 
     private static SecurityController.OidcProviderUpsertRequest Request(string discoveryUrl) => new()
