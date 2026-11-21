@@ -956,6 +956,32 @@ public class OidcService : IDisposable
     /// Jellyfin user, persist the SsoLink, and route auth via our provider so
     /// bridge tokens work. Called by both <see cref="CompleteAsync"/> (browser
     /// callback) and <see cref="ExchangeIdTokenAsync"/> (native token exchange).</summary>
+    /// <summary>What the email auto-fill does with an identity provider's
+    /// email claim.</summary>
+    internal enum EmailAutoFill
+    {
+        Off,
+        NoClaim,
+        Unverified,
+        AlreadySet,
+        Fill,
+    }
+
+    /// <summary>[v2.5.11] (#70) The plugin email is where email OTP codes
+    /// and password reset links go, so it is only filled from a claim the
+    /// identity provider marked verified (email_verified), the same bar the
+    /// email-match sign-in path already applies. An unverified address could
+    /// belong to someone else. Never overwrites an address already set.</summary>
+    internal static EmailAutoFill DecideEmailAutoFill(
+        OidcProvider provider, string? claimEmail, bool emailVerified, string? currentEmail)
+    {
+        if (!provider.SyncEmailFromClaim) return EmailAutoFill.Off;
+        if (string.IsNullOrWhiteSpace(claimEmail)) return EmailAutoFill.NoClaim;
+        if (!emailVerified) return EmailAutoFill.Unverified;
+        if (!string.IsNullOrWhiteSpace(currentEmail)) return EmailAutoFill.AlreadySet;
+        return EmailAutoFill.Fill;
+    }
+
     private async Task<CallbackResult> FinalizeSignInAsync(
         OidcProvider provider,
         Discovery disc,
@@ -1099,37 +1125,40 @@ public class OidcService : IDisposable
         // Best-effort: a failure must never block a sign-in.
         // [v2.5.12] (#80, ZEROX7): explain WHY the auto-fill no-ops, so "email
         // claim didn't work" is diagnosable from the log instead of being silent.
-        if (!provider.SyncEmailFromClaim)
+        var emailCfg = Plugin.Instance?.Configuration;
+        var emailUserKey = matchedUser.Id.ToString("N");
+        switch (DecideEmailAutoFill(provider, claims.Email, claims.EmailVerified, emailCfg?.GetUserEmail(emailUserKey)))
         {
-            _logger.LogDebug("[2FA] OIDC email auto-fill OFF for provider {Provider} (enable 'sync email from claim')", provider.Id);
-        }
-        else if (string.IsNullOrWhiteSpace(claims.Email))
-        {
-            _logger.LogInformation(
-                "[2FA] OIDC email auto-fill: no email in claims for {User} — IdP sent nothing under claim '{Claim}' (or /userinfo). Check the 'email' scope is requested and the claim name matches.",
-                matchedUser.Username, string.IsNullOrWhiteSpace(provider.EmailClaim) ? "email" : provider.EmailClaim);
-        }
-        else
-        {
-            try
-            {
-                var cfg = Plugin.Instance?.Configuration;
-                var userKey = matchedUser.Id.ToString("N");
-                if (cfg is not null && string.IsNullOrWhiteSpace(cfg.GetUserEmail(userKey)))
+            case EmailAutoFill.Off:
+                _logger.LogDebug("[2FA] OIDC email auto-fill OFF for provider {Provider} (enable 'sync email from claim')", provider.Id);
+                break;
+            case EmailAutoFill.NoClaim:
+                _logger.LogInformation(
+                    "[2FA] OIDC email auto-fill: no email in claims for {User} — IdP sent nothing under claim '{Claim}' (or /userinfo). Check the 'email' scope is requested and the claim name matches.",
+                    matchedUser.Username, string.IsNullOrWhiteSpace(provider.EmailClaim) ? "email" : provider.EmailClaim);
+                break;
+            case EmailAutoFill.Unverified:
+                _logger.LogInformation(
+                    "[2FA] OIDC email auto-fill skipped for {User}: the identity provider did not mark the address as verified (email_verified). Enter the user's email by hand, or have the provider verify it.",
+                    matchedUser.Username);
+                break;
+            case EmailAutoFill.AlreadySet:
+                _logger.LogDebug("[2FA] OIDC email auto-fill skipped for {User} — a plugin email is already set (never overwrites a manual address)", matchedUser.Username);
+                break;
+            case EmailAutoFill.Fill:
+                if (emailCfg is null) break;
+                try
                 {
-                    cfg.SetUserEmail(userKey, claims.Email);
+                    emailCfg!.SetUserEmail(emailUserKey, claims.Email);
                     Plugin.Instance!.SaveConfiguration();
                     _logger.LogInformation("[2FA] OIDC filled email for {User} from IdP claim '{Claim}'", matchedUser.Username, provider.EmailClaim);
                 }
-                else
+                catch (Exception ex)
                 {
-                    _logger.LogDebug("[2FA] OIDC email auto-fill skipped for {User} — a plugin email is already set (never overwrites a manual address)", matchedUser.Username);
+                    _logger.LogWarning(ex, "[2FA] OIDC email auto-fill failed for {User}", matchedUser.Username);
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[2FA] OIDC email auto-fill failed for {User}", matchedUser.Username);
-            }
+
+                break;
         }
 
         // [v2.5.13] (#96, raffaeletani) Grant Jellyfin admin from IdP admin-group
