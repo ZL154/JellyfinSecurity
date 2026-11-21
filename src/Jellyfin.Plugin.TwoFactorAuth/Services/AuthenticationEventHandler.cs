@@ -162,8 +162,9 @@ public class AuthenticationEventHandler : IHostedService
         Guid codeAfterPasswordUser,
         string codeAfterPasswordMethod)
     {
-        var config = Plugin.Instance?.Configuration;
-        if (config is null || !config.Enabled)
+        var plugin = Plugin.Instance;
+        var config = plugin?.Configuration;
+        if (plugin is null || config is null || !config.Enabled)
         {
             return;
         }
@@ -212,15 +213,10 @@ public class AuthenticationEventHandler : IHostedService
         _logger.LogDebug("[2FA] User {Name} TotpEnabled={Totp} Verified={Ver} RequireAll={Req}",
             info.UserName, userData.TotpEnabled, userData.TotpVerified, config.RequireForAllUsers);
 
-        // Resolve the role only when scope needs it. An unresolved user remains
-        // subject to Admins enforcement, preserving the session fail-safe.
-        var isAdmin = false;
-        if (!config.RequireForAllUsers && config.EnforcementScope == Configuration.EnforcementScope.Admins)
-        {
-            var u = _userManager.GetUserById(info.UserId);
-            isAdmin = u is null || u.HasPermission(PermissionKind.IsAdministrator);
-        }
-        if (!SignInChallengePolicy.RequiresChallenge(userData, config, isAdmin))
+        var needsRole = !config.RequireForAllUsers && config.EnforcementScope == Configuration.EnforcementScope.Admins;
+        var (roleUser, isAdmin) = needsRole ? ResolveSessionUser(info.UserId, checkRole: true) : (null, false);
+        var reason = SignInChallengePolicy.GetReason(userData, config, isAdmin, accountPasswordSignInUnavailable: false);
+        if (reason == "none")
         {
             return;
         }
@@ -372,6 +368,23 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
+        // A new exemption changes whether a challenge can be issued. It is
+        // neither proof for this token nor a reason to leave a one-shot unused.
+        var requiresChallenge = true;
+        if (reason == "passkey" && config.BlockEmptyPasswordLogin)
+        {
+            var user = needsRole ? roleUser : ResolveSessionUser(info.UserId, checkRole: false).User;
+            requiresChallenge = SignInChallengePolicy.RequiresChallenge(
+                userData, config, isAdmin, plugin.AccountPasswordSignInUnavailable(user));
+        }
+
+        var useContextualBypasses = requiresChallenge
+            || approvedToken is not null && _challengeStore.IsTokenVerified(approvedToken);
+        if (!useContextualBypasses && string.IsNullOrWhiteSpace(twoFactorToken))
+        {
+            return;
+        }
+
         // Paired-device bypass: TV/native client the user has explicitly approved.
         // DeviceIdMatches normalises Jellyfin Web UA-hash ids (Tizen/SmartTV)
         // so the per-session timestamp suffix doesn't break matching across
@@ -384,7 +397,7 @@ public class AuthenticationEventHandler : IHostedService
         // re-opened the very bypass the provider/middleware paths already
         // close. With the flag off, paired devices must still pass the normal
         // challenge.
-        var bareDevBypassEnabled = config.BareDeviceIdBypassEnabled && !string.IsNullOrEmpty(info.DeviceId);
+        var bareDevBypassEnabled = useContextualBypasses && config.BareDeviceIdBypassEnabled && !string.IsNullOrEmpty(info.DeviceId);
         var userDataPaired = bareDevBypassEnabled
             ? userData.PairedDevices.FirstOrDefault(p =>
                 BypassEvaluator.DeviceIdMatches(p.DeviceId, info.DeviceId))
@@ -427,7 +440,6 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
-        var apiKeys = await _store.GetApiKeysAsync().ConfigureAwait(false);
         // SECURITY [v2.5.5] (F12): apply registered-device expiry filter
         // before passing the list to BypassEvaluator. When
         // RegisteredDeviceMaxAgeDays > 0, an entry is "active" only if it
@@ -446,15 +458,14 @@ public class AuthenticationEventHandler : IHostedService
         // X-Forwarded-For right-to-left and resolve the real client IP behind
         // a trusted reverse proxy; the second lets it match a trusted device,
         // as TwoFactorAuthProvider and the response middleware already do.
-        var bypass = _bypassEvaluator.Evaluate(
-            info.RemoteEndPoint,
-            forwardedFor,
-            twoFactorToken,
-            info.DeviceId,
-            null,
-            userData.TrustedDevices,
-            activeRegisteredIds,
-            apiKeys);
+        // For an exempt, unverified token, only a current trusted-device
+        // credential can establish proof here. An address or bare ID cannot.
+        var bypass = useContextualBypasses
+            ? _bypassEvaluator.Evaluate(
+                info.RemoteEndPoint, forwardedFor, twoFactorToken, info.DeviceId, null,
+                userData.TrustedDevices, activeRegisteredIds, await _store.GetApiKeysAsync().ConfigureAwait(false))
+            : _bypassEvaluator.Evaluate(
+                null, null, twoFactorToken, info.DeviceId, null, userData.TrustedDevices, [], []);
 
         if (bypass.IsBypassed)
         {
@@ -560,6 +571,11 @@ public class AuthenticationEventHandler : IHostedService
             return;
         }
 
+        if (!requiresChallenge)
+        {
+            return;
+        }
+
         _logger.LogInformation("[2FA] 2FA required for {Name} — middleware will replace response with challenge",
             info.UserName);
 
@@ -646,6 +662,21 @@ public class AuthenticationEventHandler : IHostedService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[2FA] Failed to end session for {Name}", info.UserName);
+        }
+    }
+
+    private (User? User, bool IsAdmin) ResolveSessionUser(Guid userId, bool checkRole)
+    {
+        try
+        {
+            var user = _userManager.GetUserById(userId);
+            return (user, checkRole && (user is null || user.HasPermission(PermissionKind.IsAdministrator)));
+        }
+        catch (Exception)
+        {
+            // A missing role retains Admins enforcement. A missing account
+            // cannot establish that ordinary password sign-in is unavailable.
+            return (null, checkRole);
         }
     }
 

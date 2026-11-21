@@ -708,8 +708,9 @@ public class TwoFactorAuthController : ControllerBase
             var totpEnabled = userData.TotpEnabled && userData.TotpVerified;
             var hasPasskey = PasskeyPolicy.HasUsable(userData, config ?? new Configuration.PluginConfiguration());
             var isAdmin = user.HasPermission(PermissionKind.IsAdministrator);
+            // The portal must protect any real password the session manager accepts.
             var needsChallenge = SignInChallengePolicy.RequiresChallenge(
-                userData, config ?? new Configuration.PluginConfiguration(), isAdmin);
+                userData, config ?? new Configuration.PluginConfiguration(), isAdmin, accountPasswordSignInUnavailable: false);
             var deviceId = HttpContext.Request.Headers["X-Emby-Device-Id"].FirstOrDefault()
                 ?? Guid.NewGuid().ToString("N");
             var deviceName = HttpContext.Request.Headers["X-Emby-Device-Name"].FirstOrDefault()
@@ -2394,9 +2395,11 @@ public class TwoFactorAuthController : ControllerBase
         var data = await _store.GetUserDataAsync(userId).ConfigureAwait(false);
         var jellyfinUser = _userManager.GetUserById(userId);
         var isLockedOut = await _store.IsLockedOutAsync(userId).ConfigureAwait(false);
-        var cfg = Plugin.Instance?.Configuration;
+        var plugin = Plugin.Instance;
+        var cfg = plugin?.Configuration;
         var signInReason = SignInChallengePolicy.GetReason(data, cfg ?? new Configuration.PluginConfiguration(),
-            jellyfinUser is null || jellyfinUser.HasPermission(PermissionKind.IsAdministrator));
+            jellyfinUser is null || jellyfinUser.HasPermission(PermissionKind.IsAdministrator),
+            plugin?.AccountPasswordSignInUnavailable(jellyfinUser) == true);
         return Ok(new UserTwoFactorStatus
         {
             UserId = userId,
@@ -2443,7 +2446,8 @@ public class TwoFactorAuthController : ControllerBase
         var jellyfinUsers = EnumerateAllUsers().ToList();
         var result = new List<UserTwoFactorStatus>(jellyfinUsers.Count);
 
-        var cfg = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
+        var plugin = Plugin.Instance;
+        var cfg = plugin?.Configuration ?? new Configuration.PluginConfiguration();
         foreach (var ju in jellyfinUsers)
         {
             if (ju.Id == Guid.Empty) continue;
@@ -2475,7 +2479,8 @@ public class TwoFactorAuthController : ControllerBase
                 isLockedOut = false;
             }
 
-            var signInReason = SignInChallengePolicy.GetReason(data, cfg, ju.HasPermission(PermissionKind.IsAdministrator));
+            var signInReason = SignInChallengePolicy.GetReason(data, cfg, ju.HasPermission(PermissionKind.IsAdministrator),
+                plugin?.AccountPasswordSignInUnavailable(ju) == true);
             result.Add(new UserTwoFactorStatus
             {
                 UserId = ju.Id,
