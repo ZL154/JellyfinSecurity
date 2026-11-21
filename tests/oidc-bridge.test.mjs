@@ -487,7 +487,7 @@ function prepareGateBrowser(mode) {
             return insert.call(this, rule, ...args);
         };
     }
-    if (mode === 'element-fallback') window.CSSStyleSheet = undefined;
+    if (mode.startsWith('element-fallback')) window.CSSStyleSheet = undefined;
     window.fetch = async url => {
         if (String(url).includes('/b/TwoFactorAuth/public-config')) {
             return new Promise(resolve => { window.answerB = value => resolve(new Response(
@@ -516,19 +516,27 @@ async function exerciseGateBrowser(mode) {
     }
     const reveal = () => id('__tfa_pw_reveal');
     try {
+        const template = document.querySelector('template');
+        if (mode === 'element-fallback-remount') template.before(template.content.cloneNode(true));
         if (mode.startsWith('foreign-entry-')) {
             if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, {once: true}));
             await frame();
             check(!document.documentElement.classList.contains('tfa-pw-gated'), 'preceding view already gated');
             // Both routes select B. Only the view changes, without firing hashchange.
             history.pushState(null, '', location.hash.replace('/selectserver', '/login'));
-            const template = document.querySelector('template');
             template.replaceWith(template.content);
         }
         await frame();
         controls(true);
         await frame();
         controls(true);
+        if (mode === 'element-fallback-remount') {
+            check(reveal(), 'initial form was not initialized');
+            // Mount pristine controls on the same route, without copying the hidden inline styles.
+            document.querySelector('.manualLoginForm').replaceWith(template.content.cloneNode(true));
+            await frame();
+            controls(true);
+        }
         if (mode === 'switch') {
             reveal().click();
             controls(false);
@@ -570,11 +578,12 @@ async function exerciseGateBrowser(mode) {
     }
 }
 
-for (const mode of ['restricted', 'older-selector', 'element-fallback', 'foreign-allowed', 'foreign-restricted',
+for (const mode of ['restricted', 'older-selector', 'element-fallback', 'element-fallback-remount', 'foreign-allowed', 'foreign-restricted',
     'foreign-timeout', 'foreign-error', 'foreign-entry-active', 'foreign-entry-named', 'switch', 'legacy']) {
     test('rendered stock password form: ' + mode, async t => {
         const profile = mkdtempSync(join(tmpdir(), 'jellyfin-gate-'));
         const entering = mode.startsWith('foreign-entry-');
+        const useTemplate = entering || mode === 'element-fallback-remount';
         const named = (mode.startsWith('foreign') && mode !== 'foreign-entry-active') || mode === 'legacy';
         let finish;
         const result = new Promise(resolve => { finish = resolve; });
@@ -587,17 +596,17 @@ for (const mode of ['restricted', 'older-selector', 'element-fallback', 'foreign
                 res.writeHead(200, {'Content-Type': 'application/javascript'});
                 res.end('window.__tfaPasswordLoginDisabled = true;\n' + inject);
             } else if (req.url.startsWith('/a/web/')) {
-                const policy = entering || ['restricted', 'older-selector', 'element-fallback'].includes(mode)
+                const policy = useTemplate || ['restricted', 'older-selector', 'element-fallback'].includes(mode)
                     ? "style-src 'self'" : "style-src 'self' 'unsafe-inline'";
                 res.writeHead(200, {'Content-Type': 'text/html', 'Content-Security-Policy': policy});
                 res.end(`<!doctype html><head><script>(${prepareGateBrowser})(${JSON.stringify(mode)})</script>
                     <script src="/a/TwoFactorAuth/inject"></script></head><body>
-                    ${entering ? '<template>' : ''}<form class="manualLoginForm"><div class="inputContainer"><input id="txtManualName"></div>
+                    ${useTemplate ? '<template>' : ''}<form class="manualLoginForm"><div class="inputContainer"><input id="txtManualName"></div>
                     <div class="inputContainer"><input id="txtManualPassword" type="password"></div>
                     <label><input id="remember" type="checkbox" class="chkRememberLogin">Remember Me</label>
                     <button id="submit" type="submit">Sign In</button><button id="quick" type="button">Quick Connect</button>
                     <a href="#" id="provider">SSO</a><a href="#" id="passkey">Passkey</a>
-                    <div class="inputContainer"><input id="extra" type="search"></div></form>${entering ? '</template>' : ''}
+                    <div class="inputContainer"><input id="extra" type="search"></div></form>${useTemplate ? '</template>' : ''}
                     <script>(${exerciseGateBrowser})(${JSON.stringify(mode)})</script>`);
             } else { res.writeHead(404); res.end(); }
         });
