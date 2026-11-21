@@ -167,6 +167,13 @@ public class SsoLink
 
     public string Subject { get; set; } = string.Empty;
 
+    /// <summary>The verified id_token issuer the link was made with. A
+    /// <c>sub</c> is only unique within one issuer, and <see cref="ProviderId"/>
+    /// is an admin-editable slug that can be re-pointed at another IdP, so a
+    /// link only matches tokens from this issuer. Empty on links created
+    /// before the field existed; those are accepted once and then filled in.</summary>
+    public string Issuer { get; set; } = string.Empty;
+
     public string Email { get; set; } = string.Empty;
 
     public DateTime LinkedAt { get; set; }

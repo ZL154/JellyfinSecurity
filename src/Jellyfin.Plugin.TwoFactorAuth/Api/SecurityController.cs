@@ -312,7 +312,7 @@ public class SecurityController : ControllerBase
 
     [HttpPost("Oidc/Providers")]
     [Authorize(Policy = "RequiresElevation")]
-    public ActionResult<object> CreateProvider([FromBody, Required] OidcProviderUpsertRequest req)
+    public async Task<ActionResult<object>> CreateProvider([FromBody, Required] OidcProviderUpsertRequest req)
     {
         // SECURITY [v2.5.6] (U3): require step-up. Adding an OIDC provider
         // wires a new identity-issuer trust path into the plugin and could
@@ -376,6 +376,9 @@ public class SecurityController : ControllerBase
         };
         config.OidcProviders.Add(provider);
         plugin.SaveConfiguration();
+        // A provider deleted by an older version left its links behind under
+        // its slug. A new provider must not inherit them.
+        await RemoveProviderLinksAsync(provider.Id, "stale links under a new provider's slug").ConfigureAwait(false);
         return Ok(new { id = provider.Id, displayName = provider.DisplayName });
     }
 
@@ -392,6 +395,14 @@ public class SecurityController : ControllerBase
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin not initialized");
         var existing = plugin.Configuration.OidcProviders.FirstOrDefault(p => p.Id == id);
         if (existing is null) return NotFound();
+        // Links hold subjects from the IdP the provider pointed at when they
+        // were made. Subjects are only unique per issuer, so links do not
+        // survive a move to another discovery document. Compared offline so
+        // saving never waits on the IdP.
+        var discoveryChanged = !string.Equals(
+            OidcService.NormalizeDiscoveryUrl(existing.DiscoveryUrl),
+            OidcService.NormalizeDiscoveryUrl(req.DiscoveryUrl),
+            StringComparison.Ordinal);
         existing.DisplayName = req.DisplayName;
         existing.Preset = req.Preset;
         existing.DiscoveryUrl = req.DiscoveryUrl;
@@ -462,6 +473,9 @@ public class SecurityController : ControllerBase
 
                 var oldId = existing.Id;
                 existing.Id = newId;
+                // Links left under the new slug by a provider deleted by an
+                // older version belong to that provider, not this one.
+                await RemoveProviderLinksAsync(newId, "stale links under a renamed provider's slug").ConfigureAwait(false);
                 var migrated = await MigrateSsoLinkProviderIdAsync(oldId, newId).ConfigureAwait(false);
                 _oidc.InvalidateCache(oldId);
                 renamedTo = newId;
@@ -470,6 +484,14 @@ public class SecurityController : ControllerBase
                     "The redirect_uri at the identity provider MUST be updated to the new callback URL or sign-in will fail.",
                     oldId, newId, migrated);
             }
+        }
+
+        if (discoveryChanged)
+        {
+            var removedLinks = await RemoveProviderLinksAsync(existing.Id, "discovery URL changed").ConfigureAwait(false);
+            _logger.LogWarning(
+                "[2FA] OIDC provider '{Id}' discovery URL changed; removed its account links from {Count} user(s). Users link again from Setup or on their next sign-in.",
+                existing.Id, removedLinks);
         }
 
         plugin.SaveConfiguration();
@@ -513,6 +535,45 @@ public class SecurityController : ControllerBase
     }
 
 
+    /// <summary>Remove every user's account links for a provider slug and
+    /// audit each affected user. Returns the number of users changed.</summary>
+    private async Task<int> RemoveProviderLinksAsync(string providerId, string reason)
+    {
+        var users = await _store.GetAllUsersAsync().ConfigureAwait(false);
+        var count = 0;
+        foreach (var u in users)
+        {
+            if (!u.SsoLinks.Any(l => string.Equals(l.ProviderId, providerId, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            var removed = 0;
+            await _store.MutateAsync(u.UserId, ud =>
+            {
+                removed = ud.SsoLinks.RemoveAll(l => string.Equals(l.ProviderId, providerId, StringComparison.Ordinal));
+            }).ConfigureAwait(false);
+            if (removed == 0)
+            {
+                continue;
+            }
+
+            count++;
+            await _store.AddAuditEntryAsync(new AuditEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                UserId = u.UserId,
+                Username = _userManager.GetUserById(u.UserId)?.Username ?? u.UserId.ToString(),
+                RemoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty,
+                Result = AuditResult.ConfigChanged,
+                Method = "oidc_links_removed",
+                Details = $"{removed} link(s) to provider '{providerId}' removed: {reason}",
+            }).ConfigureAwait(false);
+        }
+
+        return count;
+    }
+
     /// <summary>[v2.5.10] (#65) map admin-UI role→library DTOs to the stored
     /// model, dropping blank rows and normalizing the library-id list.</summary>
     private static List<OidcRoleLibraryMapping> MapRoleLibraryMappings(List<RoleLibraryMappingDto>? dtos)
@@ -555,7 +616,7 @@ public class SecurityController : ControllerBase
 
     [HttpDelete("Oidc/Providers/{id}")]
     [Authorize(Policy = "RequiresElevation")]
-    public ActionResult DeleteProvider([FromRoute] string id)
+    public async Task<ActionResult> DeleteProvider([FromRoute] string id)
     {
         // SECURITY [v2.5.6] (U3): require step-up. Deleting an IdP locks
         // users out of OIDC sign-in; not catastrophic but still admin-
@@ -568,6 +629,12 @@ public class SecurityController : ControllerBase
         if (removed == 0) return NotFound();
         plugin.SaveConfiguration();
         _oidc.InvalidateCache(id);
+        // Drop the provider's links too, so a provider created later under the
+        // same slug starts with none.
+        var removedLinks = await RemoveProviderLinksAsync(id, "provider deleted").ConfigureAwait(false);
+        _logger.LogInformation(
+            "[2FA] OIDC provider '{Id}' deleted; removed its account links from {Count} user(s)",
+            id, removedLinks);
         return Ok();
     }
 

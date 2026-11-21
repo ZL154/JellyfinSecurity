@@ -259,6 +259,7 @@
   "tfa.admin.sso.btn_delete": "Delete",
   "tfa.admin.sso.id_prefix": "id:",
   "tfa.admin.sso.confirm_delete": "Delete this OIDC provider? Users linked to it will lose the link.",
+  "tfa.admin.sso.confirm_discovery_change": "Change the discovery URL? Existing account links for this provider will be removed, and users will need to link again.",
   "tfa.admin.sso.form_title_new": "New provider",
   "tfa.admin.sso.form_title_edit": "Edit",
   "tfa.admin.sso.lbl_preset": "Preset",

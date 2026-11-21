@@ -258,6 +258,7 @@
   "tfa.admin.sso.btn_delete": "Löschen",
   "tfa.admin.sso.id_prefix": "ID:",
   "tfa.admin.sso.confirm_delete": "Diesen OIDC-Anbieter löschen? Verknüpfte Benutzer verlieren die Verknüpfung.",
+  "tfa.admin.sso.confirm_discovery_change": "Discovery-URL ändern? Die bestehenden Kontoverknüpfungen dieses Anbieters werden entfernt, und Benutzer müssen sich erneut verknüpfen.",
   "tfa.admin.sso.form_title_new": "Neuer Anbieter",
   "tfa.admin.sso.form_title_edit": "Bearbeiten",
   "tfa.admin.sso.lbl_preset": "Voreinstellung",

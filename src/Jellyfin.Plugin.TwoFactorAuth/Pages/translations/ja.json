@@ -258,6 +258,7 @@
   "tfa.admin.sso.btn_delete": "削除",
   "tfa.admin.sso.id_prefix": "id:",
   "tfa.admin.sso.confirm_delete": "このOIDCプロバイダーを削除しますか?リンク済みユーザーのリンクは失われます。",
+  "tfa.admin.sso.confirm_discovery_change": "ディスカバリーURLを変更しますか?このプロバイダーの既存のアカウントリンクは削除され、ユーザーは再度リンクする必要があります。",
   "tfa.admin.sso.form_title_new": "新しいプロバイダー",
   "tfa.admin.sso.form_title_edit": "編集",
   "tfa.admin.sso.lbl_preset": "プリセット",

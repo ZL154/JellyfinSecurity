@@ -258,6 +258,7 @@
   "tfa.admin.sso.btn_delete": "Excluir",
   "tfa.admin.sso.id_prefix": "id:",
   "tfa.admin.sso.confirm_delete": "Excluir este provedor OIDC? Usuários vinculados a ele perderão o vínculo.",
+  "tfa.admin.sso.confirm_discovery_change": "Alterar a URL de descoberta? Os vínculos de conta existentes deste provedor serão removidos e os usuários precisarão vincular novamente.",
   "tfa.admin.sso.form_title_new": "Novo provedor",
   "tfa.admin.sso.form_title_edit": "Editar",
   "tfa.admin.sso.lbl_preset": "Predefinição",

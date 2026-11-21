@@ -528,9 +528,7 @@ public class OidcService : IDisposable
 
         var data = await _store.GetUserDataAsync(pending.UserId).ConfigureAwait(false);
         if (!data.MustSetPassword
-            || !data.SsoLinks.Any(link =>
-                string.Equals(link.ProviderId, provider.Id, StringComparison.Ordinal)
-                && string.Equals(link.Subject, pending.Subject, StringComparison.Ordinal)))
+            || !data.SsoLinks.Any(link => LinkMatches(link, provider.Id, disc.Issuer, pending.Subject)))
         {
             return new OnboardingValidationResult(false, "Password onboarding is no longer pending", pending.UserId, null, pending.AccessToken);
         }
@@ -608,9 +606,7 @@ public class OidcService : IDisposable
         // Without this, signing into Google as ANY account would step-up
         // ANY plugin user — the entire point of step-up is gone.
         var userData = await _store.GetUserDataAsync(pending.UserId).ConfigureAwait(false);
-        var link = userData.SsoLinks.FirstOrDefault(l =>
-            string.Equals(l.ProviderId, provider.Id, StringComparison.Ordinal)
-            && string.Equals(l.Subject, claims.Subject, StringComparison.Ordinal));
+        var link = userData.SsoLinks.FirstOrDefault(l => LinkMatches(l, provider.Id, disc.Issuer, claims.Subject));
         if (link is null)
         {
             _logger.LogWarning(
@@ -622,10 +618,12 @@ public class OidcService : IDisposable
         // Update LastUsedAt for audit/UI display.
         await _store.MutateAsync(pending.UserId, ud =>
         {
-            var l = ud.SsoLinks.FirstOrDefault(x =>
-                string.Equals(x.ProviderId, provider.Id, StringComparison.Ordinal)
-                && string.Equals(x.Subject, claims.Subject, StringComparison.Ordinal));
-            if (l is not null) l.LastUsedAt = DateTime.UtcNow;
+            var l = ud.SsoLinks.FirstOrDefault(x => LinkMatches(x, provider.Id, disc.Issuer, claims.Subject));
+            if (l is not null)
+            {
+                l.LastUsedAt = DateTime.UtcNow;
+                BackfillIssuer(l, disc.Issuer);
+            }
         }).ConfigureAwait(false);
 
         return new StepUpResult(true, null, pending.UserId);
@@ -752,8 +750,7 @@ public class OidcService : IDisposable
         // The IdP identity must not already belong to a DIFFERENT Jellyfin user.
         var allUsers = await _store.GetAllUsersAsync().ConfigureAwait(false);
         var ownedByOther = allUsers.Any(d => d.UserId != pending.UserId
-            && d.SsoLinks.Any(l => string.Equals(l.ProviderId, provider.Id, StringComparison.Ordinal)
-                && string.Equals(l.Subject, claims.Subject, StringComparison.Ordinal)));
+            && d.SsoLinks.Any(l => LinkMatches(l, provider.Id, disc.Issuer, claims.Subject)));
         if (ownedByOther)
         {
             _logger.LogWarning(
@@ -764,15 +761,14 @@ public class OidcService : IDisposable
 
         await _store.MutateAsync(pending.UserId, ud =>
         {
-            var existing = ud.SsoLinks.FirstOrDefault(l =>
-                string.Equals(l.ProviderId, provider.Id, StringComparison.Ordinal)
-                && string.Equals(l.Subject, claims.Subject, StringComparison.Ordinal));
+            var existing = ud.SsoLinks.FirstOrDefault(l => LinkMatches(l, provider.Id, disc.Issuer, claims.Subject));
             if (existing is null)
             {
                 ud.SsoLinks.Add(new SsoLink
                 {
                     ProviderId = provider.Id,
                     Subject = claims.Subject,
+                    Issuer = disc.Issuer,
                     Email = claims.Email,
                     LinkedAt = DateTime.UtcNow,
                     LastUsedAt = DateTime.UtcNow,
@@ -782,6 +778,7 @@ public class OidcService : IDisposable
             {
                 existing.Email = claims.Email;
                 existing.LastUsedAt = DateTime.UtcNow;
+                BackfillIssuer(existing, disc.Issuer);
             }
         }).ConfigureAwait(false);
 
@@ -1059,7 +1056,7 @@ public class OidcService : IDisposable
 
         // Resolve to a Jellyfin user: first by existing SsoLink (sub), then
         // by email-match against email-OTP config, then optionally auto-create.
-        var matchedUser = await ResolveUserAsync(provider, claims).ConfigureAwait(false);
+        var matchedUser = await ResolveUserAsync(provider, disc.Issuer, claims).ConfigureAwait(false);
         if (matchedUser is null)
         {
             return new CallbackResult(false,
@@ -1074,14 +1071,14 @@ public class OidcService : IDisposable
         {
             ProviderId = provider.Id,
             Subject = claims.Subject,
+            Issuer = disc.Issuer,
             Email = claims.Email,
             LinkedAt = DateTime.UtcNow,
             LastUsedAt = DateTime.UtcNow,
         };
         await _store.MutateAsync(matchedUser.Id, ud =>
         {
-            var existing = ud.SsoLinks.FirstOrDefault(l =>
-                l.ProviderId == provider.Id && l.Subject == claims.Subject);
+            var existing = ud.SsoLinks.FirstOrDefault(l => LinkMatches(l, provider.Id, disc.Issuer, claims.Subject));
             if (existing is null)
             {
                 ud.SsoLinks.Add(link);
@@ -1090,6 +1087,7 @@ public class OidcService : IDisposable
             {
                 existing.Email = claims.Email;
                 existing.LastUsedAt = DateTime.UtcNow;
+                BackfillIssuer(existing, disc.Issuer);
             }
         }).ConfigureAwait(false);
 
@@ -1559,13 +1557,13 @@ public class OidcService : IDisposable
     /// <summary>Try to find a Jellyfin user matching the IdP claims. Order:
     /// (1) existing SsoLink, (2) email match against UserEmails config,
     /// (3) auto-create if provider allows.</summary>
-    private async Task<Jellyfin.Database.Implementations.Entities.User?> ResolveUserAsync(OidcProvider provider, ClaimsBundle claims)
+    private async Task<Jellyfin.Database.Implementations.Entities.User?> ResolveUserAsync(OidcProvider provider, string issuer, ClaimsBundle claims)
     {
-        // 1. Existing link by sub
+        // 1. Existing link by issuer + sub
         var allUsers = await _store.GetAllUsersAsync().ConfigureAwait(false);
         foreach (var data in allUsers)
         {
-            if (data.SsoLinks.Any(l => l.ProviderId == provider.Id && l.Subject == claims.Subject))
+            if (data.SsoLinks.Any(l => LinkMatches(l, provider.Id, issuer, claims.Subject)))
             {
                 var u = _userManager.GetUserById(data.UserId);
                 if (u is not null) return u;
@@ -1612,7 +1610,7 @@ public class OidcService : IDisposable
                 {
                     var u = liveMatches[0];
                     var linkedData = allUsers.FirstOrDefault(d => d.UserId == u.Id);
-                    if (HasConflictingProviderLink(linkedData, provider.Id, claims.Subject))
+                    if (HasConflictingProviderLink(linkedData, provider.Id, issuer, claims.Subject))
                     {
                         _logger.LogWarning(
                             "[2FA] OIDC email-match refused: Jellyfin user '{User}' is already linked to a different {Provider} subject. Possible takeover attempt.",
@@ -1666,6 +1664,7 @@ public class OidcService : IDisposable
                 var conflicting = HasConflictingProviderLink(
                     existingData,
                     provider.Id,
+                    issuer,
                     claims.Subject);
                 if (conflicting)
                 {
@@ -1792,13 +1791,37 @@ public class OidcService : IDisposable
     internal static bool AllowsExistingUsernameLink(OidcProvider provider)
         => provider.AutoCreateUsers || provider.LinkExistingUsersByUsername;
 
+    /// <summary>A user already linked to this provider under any identity other
+    /// than this issuer + subject must not be claimed by it through the email or
+    /// username fallbacks.</summary>
     internal static bool HasConflictingProviderLink(
         UserTwoFactorData? data,
         string providerId,
+        string issuer,
         string subject)
         => data?.SsoLinks.Any(link =>
             string.Equals(link.ProviderId, providerId, StringComparison.Ordinal)
-            && !string.Equals(link.Subject, subject, StringComparison.Ordinal)) == true;
+            && !LinkMatches(link, providerId, issuer, subject)) == true;
+
+    /// <summary>
+    /// Whether a stored link belongs to the identity a verified id_token
+    /// names. A <c>sub</c> is only unique within its issuer, and the provider
+    /// id is an editable slug, so the issuer has to agree as well. Links stored
+    /// before the issuer was recorded have none; they are accepted so existing
+    /// users keep signing in, and the caller records the issuer on that match.
+    /// </summary>
+    internal static bool LinkMatches(SsoLink link, string providerId, string issuer, string subject)
+        => string.Equals(link.ProviderId, providerId, StringComparison.Ordinal)
+            && string.Equals(link.Subject, subject, StringComparison.Ordinal)
+            && (string.IsNullOrEmpty(link.Issuer)
+                || string.Equals(link.Issuer, issuer, StringComparison.Ordinal));
+
+    /// <summary>Records the issuer on a link that predates the field, the first
+    /// time it matches a verified token.</summary>
+    internal static void BackfillIssuer(SsoLink link, string issuer)
+    {
+        if (string.IsNullOrEmpty(link.Issuer)) link.Issuer = issuer;
+    }
 
     /// <summary>Set a 256-bit random password on a freshly-created OIDC user
     /// so the account is never in the "no stored hash" state that Jellyfin's
@@ -2453,6 +2476,32 @@ public class OidcService : IDisposable
     internal static string BuildStandardDiscoveryUrl(string discoveryUrl)
         => discoveryUrl.TrimEnd('/') + "/.well-known/openid-configuration";
 
+    /// <summary>
+    /// Canonical form of a configured discovery URL, used to tell whether an
+    /// edit points the provider somewhere else. Scheme and host case, a
+    /// trailing slash and the standard well-known suffix (which
+    /// <see cref="BuildStandardDiscoveryUrl"/> appends on its own) do not count
+    /// as a change; the path keeps its case because realm names are
+    /// case-sensitive.
+    /// </summary>
+    internal static string NormalizeDiscoveryUrl(string? discoveryUrl)
+    {
+        const string WellKnown = "/.well-known/openid-configuration";
+        var value = (discoveryUrl ?? string.Empty).Trim();
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
+        {
+            return value.TrimEnd('/');
+        }
+
+        var path = uri.AbsolutePath.TrimEnd('/');
+        if (path.EndsWith(WellKnown, StringComparison.OrdinalIgnoreCase))
+        {
+            path = path[..^WellKnown.Length].TrimEnd('/');
+        }
+
+        return uri.GetLeftPart(UriPartial.Authority).ToLowerInvariant() + path + uri.Query;
+    }
+
     internal static string RequireDiscoveryEndpoint(
         JsonElement document,
         string key,
@@ -2759,6 +2808,21 @@ public class OidcService : IDisposable
     {
         _discoveryCache.TryRemove(providerId, out _);
         _jwksCache.TryRemove(providerId, out _);
+    }
+
+    /// <summary>Test hook: preload a provider's discovery document and signing
+    /// keys so a test can verify a locally signed id_token without any network
+    /// access. Endpoints point at a reserved name and are never contacted.</summary>
+    internal void SeedProviderMetadataForTest(string providerId, string issuer, JsonWebKeySet keys)
+    {
+        _discoveryCache[providerId] = new Discovery(
+            "https://idp.invalid/authorize",
+            "https://idp.invalid/token",
+            string.Empty,
+            "https://idp.invalid/jwks",
+            issuer,
+            DateTime.UtcNow);
+        _jwksCache[providerId] = new JwksCacheEntry(keys, DateTime.UtcNow);
     }
 
     private void SweepPending()

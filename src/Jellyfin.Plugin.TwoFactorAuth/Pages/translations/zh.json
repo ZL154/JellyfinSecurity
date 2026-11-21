@@ -258,6 +258,7 @@
   "tfa.admin.sso.btn_delete": "删除",
   "tfa.admin.sso.id_prefix": "id:",
   "tfa.admin.sso.confirm_delete": "删除此 OIDC 提供方?链接到它的用户将丢失链接。",
+  "tfa.admin.sso.confirm_discovery_change": "更改发现 URL?此提供方的现有账户链接将被删除，用户需要重新链接。",
   "tfa.admin.sso.form_title_new": "新建提供方",
   "tfa.admin.sso.form_title_edit": "编辑",
   "tfa.admin.sso.lbl_preset": "预设",

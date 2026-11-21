@@ -258,6 +258,7 @@
   "tfa.admin.sso.btn_delete": "Supprimer",
   "tfa.admin.sso.id_prefix": "id :",
   "tfa.admin.sso.confirm_delete": "Supprimer ce fournisseur OIDC ? Les utilisateurs qui y sont liés perdront le lien.",
+  "tfa.admin.sso.confirm_discovery_change": "Modifier l'URL de découverte ? Les liens de compte existants de ce fournisseur seront supprimés et les utilisateurs devront se lier à nouveau.",
   "tfa.admin.sso.form_title_new": "Nouveau fournisseur",
   "tfa.admin.sso.form_title_edit": "Modifier",
   "tfa.admin.sso.lbl_preset": "Préréglage",

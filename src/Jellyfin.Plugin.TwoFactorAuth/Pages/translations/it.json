@@ -258,6 +258,7 @@
   "tfa.admin.sso.btn_delete": "Elimina",
   "tfa.admin.sso.id_prefix": "id:",
   "tfa.admin.sso.confirm_delete": "Eliminare questo provider OIDC? Gli utenti collegati ad esso perderanno il collegamento.",
+  "tfa.admin.sso.confirm_discovery_change": "Modificare l'URL di discovery? I collegamenti degli account esistenti per questo provider verranno rimossi e gli utenti dovranno collegarsi di nuovo.",
   "tfa.admin.sso.form_title_new": "Nuovo provider",
   "tfa.admin.sso.form_title_edit": "Modifica",
   "tfa.admin.sso.lbl_preset": "Preset",
