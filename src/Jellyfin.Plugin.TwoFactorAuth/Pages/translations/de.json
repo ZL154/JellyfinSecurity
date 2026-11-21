@@ -862,7 +862,7 @@
   "tfa.admin.sso.lbl_email_claim": "E-Mail-Claim",
   "tfa.admin.sso.email_claim_help": "Claim, der die E-Mail-Adresse des Benutzers enthält. Standard-OIDC verwendet \"email\"; nur überschreiben, wenn dein IdP sie unter einem anderen Claim liefert (z. B. internal_email). Wird für den E-Mail-Abgleich und das automatische Ausfüllen unten verwendet.",
   "tfa.admin.sso.opt_sync_email": "E-Mail des Benutzers beim Anmelden aus dem IdP übernehmen",
-  "tfa.admin.sso.sync_email_help": "Kopiert beim Anmelden die IdP-E-Mail in das E-Mail-Feld des Jellyfin-Benutzers (für E-Mail-OTP und im Benutzer-Tab sichtbar), sofern noch keine gesetzt ist. Eine manuell eingetragene E-Mail wird nie überschrieben.",
+  "tfa.admin.sso.sync_email_help": "Kopiert beim Anmelden die IdP-E-Mail in das E-Mail-Feld des Jellyfin-Benutzers (für E-Mail-OTP und im Benutzer-Tab sichtbar), sofern noch keine gesetzt ist. Eine manuell eingetragene E-Mail wird nie überschrieben. Nur eine Adresse, die der IdP als verifiziert markiert (<code>email_verified</code>), wird übernommen; bei einem benutzerdefinierten E-Mail-Claim muss sie außerdem mit dem verifizierten <code>email</code>-Claim übereinstimmen. Andernfalls bleibt das Feld leer und das Serverprotokoll nennt den Grund.",
   "tfa.admin.sso.lbl_button_text": "Text der Anmelde-Schaltfläche (optional)",
   "tfa.admin.sso.ph_button_text": "Anmelden mit …",
   "tfa.admin.sso.button_text_help": "Beschriftung der Schaltfläche auf der Anmeldeseite. Leer lassen für \"Anmelden mit {Anbietername}\".",
