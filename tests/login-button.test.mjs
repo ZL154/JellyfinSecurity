@@ -110,3 +110,245 @@ test('the 2FA button keeps the TV focus style in the TV layout', () => {
     assert.equal(button.getAttribute('is'), null);
     assert.equal(button.className, 'raised block emby-button show-focus');
 });
+
+// Run the injected bootstrap before DOMContentLoaded, when Jellyfin can already receive a 403.
+function challengedBrowser({mount = '/jellyfin', apiReady = false, pluginPage = false,
+    session = new Map(), servers = [], native = false, logout, client = {}, apiOrigin = ORIGIN,
+    webRoute = '/web/index.html', finalUrl = ORIGIN + mount + '/DisplayPreferences/usersettings',
+    body = {twoFactorRequired: true}, response = () => Response.json(body, {status: 403})} = {}) {
+    const navigations = [];
+    const sessionStorage = {
+        getItem: key => session.get(key) ?? null,
+        setItem: (key, value) => session.set(key, value),
+        removeItem: key => session.delete(key),
+    };
+    const context = {
+        URL, Response, Request, Headers, navigator: {userAgent: 'Firefox'}, console: {log() {}},
+        document: {readyState: 'loading', addEventListener() {}},
+        location: {origin: ORIGIN, pathname: mount + (pluginPage ? '/TwoFactorAuth/Login' : webRoute),
+            hash: '#/home', set href(url) { navigations.push(url); }},
+        sessionStorage,
+        localStorage: {getItem: key => key === 'jellyfin_credentials' ? JSON.stringify({Servers: servers}) : null},
+        XMLHttpRequest: class {
+            open() {} setRequestHeader() {}
+            listeners = new Set();
+            addEventListener(name, fn) { this.listeners.add(fn); }
+            removeEventListener(name, fn) { this.listeners.delete(fn); }
+            send() {
+                Object.assign(this, {readyState: 4, status: this.fixtureStatus || 403, responseURL: finalUrl, responseText: JSON.stringify(body)});
+                for (const listener of this.listeners) listener();
+            }
+        },
+        ApiClient: client === null ? undefined : {logout, ...client},
+        fetch: async (input, init) => {
+            const reply = await response(input, init);
+            return Object.defineProperty(reply, 'url', {value: finalUrl});
+        },
+    };
+    context.window = context;
+    if (apiReady) context.ApiClient.getUrl = path => apiOrigin + mount + '/' + path;
+    if (native) context.NativeShell = {};
+    runInNewContext(inject, context);
+    return {session, navigations,
+        challenge: (init, url = mount + '/DisplayPreferences/usersettings') => context.fetch(url, init),
+        xhrChallenge(headers, xhr = new context.XMLHttpRequest(), status = 403) {
+            xhr.fixtureStatus = status;
+            xhr.open('GET', mount + '/DisplayPreferences/usersettings');
+            for (const [key, value] of Object.entries(headers)) xhr.setRequestHeader(key, value);
+            xhr.send();
+            return xhr;
+        },
+    };
+}
+
+for (const mount of ['', '/jellyfin', '/webmedia', '/TwoFactorAuthLab', '/TwoFactorAuth/site', '/web/site', '/web/TwoFactorAuth/site']) {
+    for (const apiReady of [false, true]) {
+        test(`challenged browser preserves mount ${mount || '/'} with ${apiReady ? 'initialized' : 'early'} client`, async () => {
+            const page = challengedBrowser({mount, apiReady});
+            await page.challenge();
+            assert.deepEqual(page.navigations, [(apiReady ? ORIGIN : '') + mount + '/TwoFactorAuth/Login']);
+            const portal = challengedBrowser({mount, apiReady, pluginPage: true});
+            await portal.challenge();
+            assert.deepEqual(portal.navigations, []);
+        });
+    }
+}
+
+for (const webRoute of ['/web', '/web/', '/WEB/index.HTML///']) {
+    test(`a terminal ${webRoute} route preserves a mount containing both route names`, async () => {
+        const mount = '/TwoFactorAuth/web/site';
+        const page = challengedBrowser({mount, webRoute});
+        await page.challenge();
+        assert.deepEqual(page.navigations, [mount + '/TwoFactorAuth/Login']);
+    });
+}
+
+const portalKey = '__tfa_portal_recovery';
+const activeServer = {Id: 'active', UserId: 'alice', AccessToken: 'fixture-active-01234567', DateLastAccessed: 20};
+const olderServer = {Id: 'older', UserId: 'bob', AccessToken: 'fixture-older-98765432', DateLastAccessed: 10};
+
+const automaticPortal = '/jellyfin/TwoFactorAuth/Login#tfa-recovery';
+const apiIdentity = server => ({
+    serverAddress: () => ORIGIN + '/jellyfin', serverId: () => server.Id, getCurrentUserId: () => server.UserId, accessToken: () => server.AccessToken,
+});
+
+for (const transport of ['fetch', 'XHR']) {
+    test(`a server 403 over ${transport} marks the only saved session matching the client`, async () => {
+        const page = challengedBrowser({servers: [activeServer], client: apiIdentity(activeServer)});
+        const start = Date.now();
+        if (transport === 'fetch') await Promise.all([page.challenge(), page.challenge()]);
+        else page.xhrChallenge({});
+        assert.deepEqual(page.navigations, [automaticPortal]);
+        const raw = page.session.get(portalKey);
+        const mark = JSON.parse(raw);
+        assert.ok(mark.at >= start && mark.at <= Date.now() && Number.isInteger(mark.at));
+        assert.deepEqual(mark, {at: mark.at, server: activeServer.Id, user: activeServer.UserId, tokenTail: '01234567'});
+        assert.ok(!raw.includes(activeServer.AccessToken));
+    });
+}
+
+for (const transport of ['fetch', 'XHR']) {
+    for (const [reason, finalUrl, body, marked] of [
+        ['uppercase true', ORIGIN + '/jellyfin/Users/Me', {TwoFactorRequired: true}, true],
+        ['truthy string', ORIGIN + '/jellyfin/Users/Me', {twoFactorRequired: 'true'}, false],
+        ['sibling mount', ORIGIN + '/jellyfin-other/Users/Me', {twoFactorRequired: true}, false],
+        ['foreign origin', 'https://other.example/jellyfin/Users/Me', {twoFactorRequired: true}, false],
+        ['unknown response URL', '', {twoFactorRequired: true}, false],
+        ['redirect to auth', ORIGIN + '/jellyfin/Users/AuthenticateByName', {twoFactorRequired: true}, false],
+        ['encoded auth action', ORIGIN + '/jellyfin/Users/%41uthenticateByName', {twoFactorRequired: true}, false],
+        ['bare mount', ORIGIN + '/jellyfin/', {twoFactorRequired: true}, false],
+    ]) {
+        test(`${transport} checks the final response and marker for ${reason}`, async () => {
+            const page = challengedBrowser({servers: [activeServer], client: apiIdentity(activeServer), finalUrl, body});
+            if (transport === 'fetch') await page.challenge();
+            else page.xhrChallenge({});
+            assert.deepEqual(page.navigations, [marked ? automaticPortal : '/jellyfin/TwoFactorAuth/Login']);
+            const raw = page.session.get(portalKey);
+            assert.equal(raw === undefined ? null : JSON.parse(raw).server, marked ? activeServer.Id : null);
+        });
+    }
+}
+
+for (const transport of ['fetch', 'XHR']) {
+    for (const mount of ['', '/media']) {
+        test(`${transport} recognizes complete parent endpoints under ${mount || '/'} and rejects a nested server`, async () => {
+            const client = {...apiIdentity(activeServer), serverAddress: () => ORIGIN + mount};
+            // The first three paths returned the first 403s in the two live bench versions.
+            for (const [path, marked] of [
+                ['/UserViews', true], ['/system/ENDPOINT', true], ['/QuickConnect/Enabled', true],
+                ['/Users/Me', true], ['/DisplayPreferences/usersettings?client=web', true], ['/Playback/BitrateTest', true],
+                ['/Movies/Users/Me', false], ['/Items/Users/Me', false], ['/archive/Users/Me?controller=Items', false],
+                ['/Movies/Recommendations', false], ['/Users/Me/extra', false], ['/UserViews/', false],
+            ]) {
+                const page = challengedBrowser({mount, client, servers: [activeServer], finalUrl: ORIGIN + mount + path});
+                if (transport === 'fetch') await page.challenge();
+                else page.xhrChallenge({});
+                assert.deepEqual(page.navigations, [mount + '/TwoFactorAuth/Login' + (marked ? '#tfa-recovery' : '')], path);
+                assert.equal(page.session.has(portalKey), marked, path);
+            }
+        });
+    }
+}
+
+for (const [reason, server, portal] of [
+    ['server and portal on a separate origin', 'https://other.example/jellyfin', 'https://other.example/jellyfin'],
+    ['portal on another mount', ORIGIN + '/jellyfin', ORIGIN + '/other'],
+]) {
+    test(`a matching response opens the plain portal with the ${reason}`, async () => {
+        const client = {...apiIdentity(activeServer), serverAddress: () => server, getUrl: path => portal + '/' + path};
+        const page = challengedBrowser({client, servers: [activeServer], finalUrl: server + '/Users/Me'});
+        await page.challenge();
+        assert.deepEqual(page.navigations, [portal + '/TwoFactorAuth/Login']);
+        assert.equal(page.session.has(portalKey), false);
+    });
+}
+
+for (const [reason, servers, client] of [
+    ['two saved servers', [activeServer, olderServer], apiIdentity(activeServer)],
+    ['another signed-out server', [activeServer, {...olderServer, AccessToken: '', UserId: ''}], apiIdentity(activeServer)],
+    ['no servers', [], apiIdentity(activeServer)],
+    ['missing client', [activeServer], null],
+    ['incomplete client', [activeServer], {accessToken: () => activeServer.AccessToken}],
+    ['server mismatch', [activeServer], apiIdentity({...activeServer, Id: 'other'})],
+    ['user mismatch', [activeServer], apiIdentity({...activeServer, UserId: 'other'})],
+    ['token mismatch', [activeServer], apiIdentity({...activeServer, AccessToken: 'other-token-' + activeServer.AccessToken.slice(-8)})],
+    ['empty user', [{...activeServer, UserId: ''}], apiIdentity({...activeServer, UserId: ''})],
+    ['exactly eight token characters', [{...activeServer, AccessToken: '12345678'}], apiIdentity({...activeServer, AccessToken: '12345678'})],
+]) {
+    test(`a server 403 opens the plain portal on ${reason}`, async () => {
+        const page = challengedBrowser({servers, client, session: new Map([[portalKey, 'stale']])});
+        await page.challenge({headers: {'X-Emby-Token': activeServer.AccessToken}});
+        assert.equal(page.session.has(portalKey), false);
+        assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
+    });
+}
+
+test('a silently ignored marker write leaves the portal URL plain', async () => {
+    const session = new Map();
+    session.set = () => session;
+    const page = challengedBrowser({servers: [activeServer], client: apiIdentity(activeServer), session});
+    await page.challenge();
+    assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
+});
+
+test('a separate-origin automatic navigation leaves no marker on the source tab', async () => {
+    const page = challengedBrowser({servers: [activeServer], client: apiIdentity(activeServer), apiReady: true,
+        apiOrigin: 'https://server.example.test', session: new Map([[portalKey, 'stale']])});
+    await page.challenge();
+    assert.equal(page.session.has(portalKey), false);
+    assert.deepEqual(page.navigations, ['https://server.example.test/jellyfin/TwoFactorAuth/Login']);
+});
+
+test('a local pending block discards a stranded marker and keeps the new session out of recovery', async () => {
+    const session = new Map([['__tfa_pending', String(Date.now())], [portalKey, 'old']]);
+    const page = challengedBrowser({servers: [activeServer], client: apiIdentity(activeServer), session,
+        response: () => assert.fail('pending request reached the network')});
+    const reply = await page.challenge();
+    assert.equal((await reply.json())._tfaShortCircuit, true);
+    assert.equal(session.has(portalKey), false);
+    assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
+});
+
+for (const transport of ['fetch', 'XHR']) {
+    test(`a non-auth 401 over ${transport} only opens the plain portal`, async () => {
+        const page = challengedBrowser({servers: [activeServer], client: apiIdentity(activeServer),
+            response: () => Response.json({twoFactorRequired: true}, {status: 401})});
+        if (transport === 'fetch') await page.challenge();
+        else page.xhrChallenge({}, undefined, 401);
+        assert.equal(page.session.has(portalKey), false);
+        assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
+    });
+}
+
+test('one-pass headers, Request headers and Request overrides reach native fetch intact', async () => {
+    const received = [];
+    const page = challengedBrowser({response: (input, init) => {
+        const request = new Request(typeof input === 'string' ? new URL(input, ORIGIN) : input, init);
+        received.push([...request.headers]);
+        return Response.json({});
+    }});
+    const pairs = [['x-first', 'alpha'], ['x-second', 'beta']];
+    const input = new Request(ORIGIN + '/items', {headers: {'x-original': 'present'}});
+    await page.challenge({headers: pairs.values()});
+    await page.challenge(undefined, input);
+    await page.challenge({headers: pairs.values()}, input);
+    assert.deepEqual(received, [pairs, [['x-original', 'present']], pairs]);
+});
+
+test('embedded logout still completes before opening the stock picker without a portal marker', async () => {
+    let release;
+    const page = challengedBrowser({servers: [activeServer], native: true, logout: () => new Promise(r => { release = r; })});
+    await page.challenge();
+    assert.deepEqual(page.navigations, []);
+    release();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(page.navigations, ['/jellyfin/web/index.html#/login']);
+    assert.equal(page.session.has(portalKey), false);
+});
+
+test('embedded client without logout opens the portal without marking a session', async () => {
+    const page = challengedBrowser({servers: [activeServer], native: true});
+    await page.challenge();
+    assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
+    assert.equal(page.session.has(portalKey), false);
+});

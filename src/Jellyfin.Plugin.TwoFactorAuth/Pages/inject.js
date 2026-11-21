@@ -11,13 +11,10 @@
     function jellyfinBasePath() {
         try {
             var path = window.location.pathname || '';
-            var lower = path.toLowerCase();
-            var markers = ['/web', '/twofactorauth'];
-            var cut = -1;
-            for (var i = 0; i < markers.length; i++) {
-                var at = lower.indexOf(markers[i]);
-                if (at >= 0 && (cut < 0 || at < cut)) cut = at;
-            }
+            // [#360] The mount can itself contain web or TwoFactorAuth directories.
+            var cut = path.search(/\/web(?:\/index\.html)?\/*$/i);
+            if (cut < 0) cut = path.search(/\/twofactorauth\/[^/]+\/*$/i);
+            if (cut < 0) cut = path.search(/\/(?:web|twofactorauth)(?=\/|$)/i);
             return cut >= 0 ? path.substring(0, cut).replace(/\/+$/, '') : '';
         } catch (e) { return ''; }
     }
@@ -284,6 +281,46 @@
         honorSessionHandoff(window.Storage.prototype, window.localStorage, window.sessionStorage,
             isExplicitLoginRoute, Date.now());
     } catch (e) { /* storage unavailable: nothing was handed over */ }
+    // [#360] A child mount can be named after a controller. Matching the whole
+    // endpoint keeps Movies/Users/Me from being treated as the parent's Users/Me.
+    var TFA_RECOVERY_ENDPOINTS = [
+        'userviews', 'system/endpoint', 'quickconnect/enabled',
+        'users/me', 'displaypreferences/usersettings', 'playback/bitratetest'
+    ];
+    function markChallengedSession(portal, responseUrl) {
+        try {
+            var key = '__tfa_portal_recovery';
+            sessionStorage.removeItem(key);
+            if (!responseUrl) return false;
+            // [#360] A redirected response or a sibling mount can belong to another server.
+            var api = window.ApiClient;
+            if (!api || typeof api.serverAddress !== 'function') return false;
+            var base = new URL(api.serverAddress());
+            var prefix = base.pathname.replace(/\/+$/, '') + '/';
+            var source = new URL(responseUrl);
+            var target = new URL(portal, window.location.origin);
+            if (base.origin !== window.location.origin || source.origin !== base.origin || target.origin !== base.origin
+                || target.pathname !== prefix + 'TwoFactorAuth/Login' || source.pathname.indexOf(prefix) !== 0) return false;
+            var route = source.pathname.substring(prefix.length).toLowerCase();
+            if (TFA_RECOVERY_ENDPOINTS.indexOf(route) < 0) return false;
+
+            // [#360] The 403 names no account. Only forward a single saved session
+            // that the active client still identifies when the response arrives.
+            var servers = (JSON.parse(localStorage.getItem('jellyfin_credentials')) || {}).Servers;
+            if (!Array.isArray(servers) || servers.length !== 1) return false;
+            var entry = servers[0];
+            if (!entry || !isFilledString(entry.Id) || !isFilledString(entry.UserId)
+                || !isFilledString(entry.AccessToken) || entry.AccessToken.length <= TFA_HANDOFF_TOKEN_TAIL
+                || typeof api.serverId !== 'function' || api.serverId() !== entry.Id
+                || typeof api.getCurrentUserId !== 'function' || api.getCurrentUserId() !== entry.UserId
+                || typeof api.accessToken !== 'function' || api.accessToken() !== entry.AccessToken) return false;
+
+            var value = JSON.stringify({at: Date.now(), server: entry.Id, user: entry.UserId,
+                tokenTail: entry.AccessToken.slice(-TFA_HANDOFF_TOKEN_TAIL)});
+            sessionStorage.setItem(key, value);
+            return sessionStorage.getItem(key) === value;
+        } catch (e) { return false; }
+    }
     // [v2.5.14] (#99/#98) Escape hatch for the soft-lock. When the pending flag
     // is armed, every non-auth fetch/XHR is short-circuited with a synthetic 403.
     // If the user is NOT actively on a 2FA page completing the challenge, that
@@ -324,7 +361,11 @@
                 return;
             }
         } catch (e) { /* fall back to the standalone portal */ }
-        try { window.location.href = serverUrl('TwoFactorAuth/Login'); } catch (e) {}
+        try {
+            var portal = serverUrl('TwoFactorAuth/Login');
+            if (!inEmbeddedWebView() && markChallengedSession(portal, arguments[0])) portal += '#tfa-recovery';
+            window.location.href = portal;
+        } catch (e) {}
     }
     // [v2.5.16] (#100, Re4mstr) Enforce the OIDC force-password-onboarding step so
     // a flagged user can't escape it by pressing Back. The OIDC bridge sets
@@ -539,7 +580,7 @@
                 // [v2.5.14] (#99) Don't just dead-end every call with a synthetic
                 // 403 (which Jellyfin Web surfaces as "server cannot be reached");
                 // move the user to the 2FA portal so they can actually complete it.
-                redirectToTfaPortal();
+                redirectToTfaPortal(false);
                 return Promise.resolve(syntheticTfaBlockedResponse());
             }
 
@@ -585,7 +626,8 @@
                         // else, send them to the portal instead of silently arming
                         // the flag and freezing the app.
                         if (!isAuthPath(url)) {
-                            redirectToTfaPortal();
+                            redirectToTfaPortal(resp.status === 403 && (body.twoFactorRequired === true || body.TwoFactorRequired === true)
+                                && resp.url);
                         }
                     }
                     // [v2.5.10] (#55) account-lockout message on the login page.
@@ -745,7 +787,8 @@
                     // [v2.5.14] (#99) Same soft-lock escape as the fetch path —
                     // a non-auth XHR reporting 2FA-required has no challenge
                     // token to redirect to, so route the user to the portal.
-                    redirectToTfaPortal();
+                    redirectToTfaPortal(xhr.status === 403 && (body.twoFactorRequired === true || body.TwoFactorRequired === true)
+                        && xhr.responseURL);
                 }
             });
         }

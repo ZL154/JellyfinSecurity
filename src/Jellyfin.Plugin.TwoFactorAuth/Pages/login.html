@@ -251,6 +251,105 @@
             document.getElementById('username').focus();
         }
 
+        // [#360] A browser challenge brings a one-use marker from the previous document.
+        function recentPortalMarker(mark, now) {
+            return mark && typeof mark.at === 'number' && Math.floor(mark.at) === mark.at
+                && now >= mark.at && now - mark.at <= 60000
+                && typeof mark.server === 'string' && mark.server.length > 0
+                && typeof mark.user === 'string' && mark.user.length > 0
+                && typeof mark.tokenTail === 'string' && mark.tokenTail.length === 8;
+        }
+
+        function portalRecoveryUrls() {
+            return {
+                config: window.tfaUrl('TwoFactorAuth/public-config'),
+                login: document.getElementById('standardLoginLink').getAttribute('href')
+            };
+        }
+
+        function clearChallengedSession(mark) {
+            var key = 'jellyfin_credentials';
+            function readCredentials(raw) {
+                var creds = JSON.parse(raw);
+                if (creds === null) return { Servers: [] };
+                if (!creds || typeof creds !== 'object' || !Array.isArray(creds.Servers)) throw new Error('Invalid saved servers');
+                if (creds.Servers.length > 1) throw new Error('Multiple saved servers');
+                return creds;
+            }
+            function matches(server) {
+                return server && server.Id === mark.server && server.UserId === mark.user
+                    && typeof server.AccessToken === 'string' && server.AccessToken.length > 8
+                    && server.AccessToken.slice(-8) === mark.tokenTail;
+            }
+            var creds = readCredentials(localStorage.getItem(key));
+            var entries = creds.Servers.filter(matches);
+            if (!entries.length) return;
+            entries.forEach(function (server) { server.UserId = ''; server.AccessToken = ''; });
+            var value = JSON.stringify(creds);
+            localStorage.setItem(key, value);
+            var saved = localStorage.getItem(key);
+            if (saved !== value) {
+                if (readCredentials(saved).Servers.some(matches)) throw new Error('Session cleanup did not persist');
+                return; // A concurrent replacement owns its pending state.
+            }
+            sessionStorage.removeItem('__tfa_pending');
+            if (sessionStorage.getItem('__tfa_pending') !== null) throw new Error('Challenge is still pending');
+        }
+
+        function recoverPortalSession() {
+            var card = document.querySelector('.card');
+            var key = '__tfa_portal_recovery';
+            var guardKey = '__tfa_portal_forwarded';
+            var timer;
+            function showForm() {
+                card.hidden = false;
+                document.getElementById(prefillUsername ? 'password' : 'username').focus();
+            }
+            try {
+                var raw = sessionStorage.getItem(key);
+                if (raw === null) return;
+                sessionStorage.removeItem(key);
+                if (sessionStorage.getItem(key) !== null || window.location.hash !== '#tfa-recovery') return;
+                var mark = JSON.parse(raw);
+                var now = Date.now();
+                if (!recentPortalMarker(mark, now)) return;
+                var forwarded = JSON.parse(sessionStorage.getItem(guardKey) || '[]').filter(function (entry) {
+                    return recentPortalMarker(entry, now);
+                });
+                if (forwarded.some(function (entry) {
+                    return entry.server === mark.server && entry.user === mark.user && entry.tokenTail === mark.tokenTail;
+                })) return;
+
+                var urls = portalRecoveryUrls();
+                card.hidden = true;
+                var config = fetch(urls.config).then(function (response) {
+                    return response.ok ? response.json() : null;
+                });
+                var timeout = new Promise(function (resolve) { timer = setTimeout(resolve, 2500); });
+                Promise.race([config, timeout]).then(function (policy) {
+                    clearTimeout(timer);
+                    if (!policy || policy.passwordLoginDisabled !== true) { showForm(); return; }
+                    clearChallengedSession(mark);
+                    // Verify the loop guard before leaving, including when the session was replaced.
+                    forwarded.push({at: Date.now(), server: mark.server, user: mark.user, tokenTail: mark.tokenTail});
+                    var value = JSON.stringify(forwarded);
+                    sessionStorage.setItem(guardKey, value);
+                    if (sessionStorage.getItem(guardKey) !== value) { showForm(); return; }
+                    // [#360] A 204 can leave this document in place after assigning the stock URL.
+                    timer = setTimeout(showForm, 3000);
+                    window.addEventListener('pagehide', function () { clearTimeout(timer); });
+                    window.addEventListener('pageshow', function (event) { if (event.persisted) showForm(); });
+                    window.location.href = urls.login;
+                }).catch(function () {
+                    clearTimeout(timer);
+                    showForm();
+                });
+            } catch (e) {
+                card.hidden = false;
+            }
+        }
+        recoverPortalSession();
+
         function showError(msg) {
             var el = document.getElementById('errorMsg');
             el.textContent = msg;

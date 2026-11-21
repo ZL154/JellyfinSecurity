@@ -360,3 +360,309 @@ for (const [name, script] of Object.entries(serverBridges)) {
         assertMarkedWith(session, entry());
     });
 }
+
+const portalKey = '__tfa_portal_recovery';
+const forwardKey = '__tfa_portal_forwarded';
+const challenged = entry();
+const mark = {at: now, server: challenged.Id, user: challenged.UserId, tokenTail: challenged.AccessToken.slice(-8)};
+const saved = [challenged];
+const stockLogin = '../web/index.html#/login';
+const settlePortal = () => new Promise(resolve => setImmediate(resolve));
+
+function portalPage({mount = '/jellyfin', hash = '#tfa-recovery', raw = JSON.stringify(mark), servers = saved, answer = () => Response.json({passwordLoginDisabled: true}),
+    session = new FakeStorage({__tfa_pending: 'armed'}), local = new FakeStorage({jellyfin_credentials: credentials(...servers)})} = {}) {
+    if (raw !== null) session.setItem(portalKey, raw);
+    const nodes = new Map();
+    const requests = [];
+    const navigations = [];
+    const timers = new Map();
+    const events = new Map();
+    const node = id => {
+        if (!nodes.has(id)) nodes.set(id, {
+            hidden: false, focus() { this.focused = true; }, getAttribute: () => stockLogin,
+            addEventListener(name, fn) { this[name] = fn; },
+        });
+        return nodes.get(id);
+    };
+    const ctx = {
+        document: {readyState: 'loading', addEventListener() {}, getElementById: node, querySelector: node},
+        window: {
+            addEventListener(name, listener) { events.set(name, listener); },
+            location: {search: '', hash, href: 'https://example.test/jellyfin/TwoFactorAuth/Login' + hash},
+        },
+        localStorage: local, sessionStorage: session, URL, URLSearchParams, Date: {now: () => now},
+        async fetch(url, init) { requests.push(new Request(new URL(url, 'https://example.test'), init)); return answer(url); },
+        setTimeout(fn, ms) { timers.set(fn, ms); return fn; }, clearTimeout(id) { timers.delete(id); },
+    };
+    ctx.window.tfaUrl = standaloneUrlBuilder(mount);
+    Object.defineProperty(ctx.window.location, 'href', {
+        get: () => 'https://example.test/jellyfin/TwoFactorAuth/Login', set: url => navigations.push(url),
+    });
+    const script = read('login.html').match(/<script>([\s\S]*?)<\/script>/)[1];
+    runInNewContext(script, ctx);
+    return {card: node('.card'), events, username: node('username'), requests, navigations, local, session, timers, link: node('standardLoginLink')};
+}
+
+test('portal consumes the marker before the GET and clears the single matching entry', async () => {
+    const page = portalPage();
+    assert.equal(page.session.getItem(portalKey), null);
+    assert.equal(page.card.hidden, true);
+    await settlePortal();
+    assert.equal(page.requests.length, 1);
+    const req = page.requests[0];
+    assert.deepEqual([req.url, req.method, req.credentials, [...req.headers]], [
+        'https://example.test/jellyfin/TwoFactorAuth/public-config', 'GET', 'same-origin', [],
+    ]);
+    const cleared = {...challenged, AccessToken: '', UserId: ''};
+    assert.deepEqual(JSON.parse(page.local.getItem('jellyfin_credentials')).Servers, [cleared]);
+    assert.equal(page.session.getItem('__tfa_pending'), null);
+    assert.deepEqual(page.navigations, [stockLogin]);
+    assert.ok(!page.session.getItem(forwardKey).includes(challenged.AccessToken));
+});
+
+for (const [reason, answer] of [
+    ['false', () => Response.json({passwordLoginDisabled: false})], ['missing', () => Response.json({})],
+    ['string', () => Response.json({passwordLoginDisabled: 'true'})], ['HTTP failure', () => Promise.resolve(new Response(null, {status: 503}))],
+    ['network failure', () => Promise.reject(Error('offline'))], ['invalid JSON', () => Promise.resolve(new Response('oops'))],
+]) {
+    test(`portal restores the form on ${reason}`, async () => {
+        const page = portalPage({answer: () => Promise.resolve(answer())});
+        assert.equal(page.card.hidden, true);
+        await settlePortal();
+        assert.equal(page.card.hidden, false);
+        assert.equal(page.timers.size, 0);
+        assert.deepEqual(page.navigations, []);
+        assert.equal(page.local.getItem('jellyfin_credentials'), credentials(...saved));
+        assert.equal(page.session.getItem('__tfa_pending'), 'armed');
+    });
+}
+
+test('the deadline includes body parsing and a late reply cannot change the choice', async () => {
+    let answer;
+    const page = portalPage({answer: async () => ({ok: true, json: () => new Promise(r => { answer = r; })})});
+    await settlePortal();
+    assert.equal(page.card.hidden, true);
+    const [[expire, ms]] = page.timers;
+    assert.equal(ms, 2500);
+    expire();
+    await settlePortal();
+    assert.equal(page.card.hidden, false);
+    assert.equal(page.timers.size, 0);
+    answer({passwordLoginDisabled: true});
+    await settlePortal();
+    assert.deepEqual(page.navigations, []);
+    assert.equal(page.local.getItem('jellyfin_credentials'), credentials(...saved));
+});
+
+for (const [reason, raw] of Object.entries({
+    absent: null, invalid: '{', stale: JSON.stringify({...mark, at: now - 60001}),
+    future: JSON.stringify({...mark, at: now + 1}), user: JSON.stringify({...mark, user: ''}),
+    server: JSON.stringify({...mark, server: undefined}), fractional: JSON.stringify({...mark, at: now - 0.5}),
+    tail: JSON.stringify({...mark, tokenTail: challenged.AccessToken}), time: JSON.stringify({...mark, at: String(now)}),
+})) {
+    test(`portal leaves the form available without a recovery lookup for ${reason} marker`, () => {
+        const page = portalPage({raw});
+        assert.equal(page.card.hidden, false);
+        assert.deepEqual(page.requests, []);
+        assert.equal(page.session.getItem(portalKey), null);
+        assert.deepEqual(page.navigations, []);
+    });
+}
+
+test('a second server saved during the policy lookup keeps both sessions and the pending state', async () => {
+    let release;
+    const page = portalPage({answer: () => new Promise(r => { release = r; })});
+    const expanded = credentials(challenged, entry(now, {Id: 'another-server'}));
+    page.local.setItem('jellyfin_credentials', expanded);
+    release(Response.json({passwordLoginDisabled: true}));
+    await settlePortal();
+    assert.equal(page.local.getItem('jellyfin_credentials'), expanded);
+    assert.equal(page.session.getItem('__tfa_pending'), 'armed');
+    assert.equal(page.session.getItem(forwardKey), null);
+    assert.equal(page.card.hidden, false);
+    assert.deepEqual(page.navigations, []);
+});
+
+test('a replacement during the GET forwards without changing the replacement or pending state', async () => {
+    let release;
+    const page = portalPage({answer: () => new Promise(r => { release = r; })});
+    const replacement = credentials(entry(now, {AccessToken: 'replacement-different-tail'}));
+    page.local.setItem('jellyfin_credentials', replacement);
+    release(Response.json({passwordLoginDisabled: true}));
+    await settlePortal();
+    assert.deepEqual(page.navigations, [stockLogin]);
+    assert.equal(page.local.getItem('jellyfin_credentials'), replacement);
+    assert.equal(page.session.getItem('__tfa_pending'), 'armed');
+});
+
+for (const op of ['throw', 'ignore credentials', 'ignore pending removal', 'ignore loop guard', 'ignore marker removal']) {
+    test(`portal keeps the form after storage operation: ${op}`, async () => {
+        const {local, session} = storages({jellyfin_credentials: credentials(...saved)}, {__tfa_pending: 'armed'});
+        if (op === 'throw') local.setItem = () => { throw Error('denied'); };
+        if (op === 'ignore credentials') local.setItem = () => {};
+        const remove = session.removeItem.bind(session);
+        session.removeItem = key => {
+            if (op === 'ignore pending removal' && key === '__tfa_pending') return;
+            if (op === 'ignore marker removal' && key === portalKey) return;
+            remove(key);
+        };
+        const set = session.setItem.bind(session);
+        session.setItem = (key, value) => { if (op !== 'ignore loop guard' || key !== forwardKey) set(key, value); };
+        const page = portalPage({local, session});
+        await settlePortal();
+        assert.equal(page.card.hidden, false);
+        assert.deepEqual(page.navigations, []);
+    });
+}
+
+test('repeated challenge for the same session shows the form; another session may forward', async () => {
+    const page = portalPage();
+    await settlePortal();
+    assert.deepEqual(page.navigations, [stockLogin]);
+    const repeat = portalPage({session: page.session});
+    await settlePortal();
+    assert.equal(repeat.card.hidden, false);
+    assert.deepEqual(repeat.requests, []);
+    assert.deepEqual(repeat.navigations, []);
+    const other = portalPage({session: page.session, raw: JSON.stringify({...mark, server: 'other-server'})});
+    await settlePortal();
+    assert.deepEqual(other.navigations, [stockLogin]);
+});
+
+test('the manual standard login link still clears every saved session', () => {
+    const servers = [challenged, null, entry(now, {Id: 'other-server'})];
+    const page = portalPage({raw: null, servers});
+    page.link.click({preventDefault() {}});
+    assert.deepEqual(JSON.parse(page.local.getItem('jellyfin_credentials')).Servers,
+        servers.map(s => s && {...s, AccessToken: '', UserId: ''}));
+    assert.equal(page.session.getItem('__tfa_pending'), null);
+    assert.deepEqual(page.navigations, [stockLogin]);
+});
+
+test('an already cleared session forwards without touching storage', async () => {
+    const {local, session} = storages({jellyfin_credentials: credentials({...challenged, AccessToken: '', UserId: ''})},
+        {__tfa_pending: 'new challenge'});
+    local.setItem = () => assert.fail('no credential write');
+    const page = portalPage({local, session});
+    await settlePortal();
+    assert.deepEqual(page.navigations, [stockLogin]);
+    assert.equal(session.getItem('__tfa_pending'), 'new challenge');
+});
+
+test('a concurrent replacement seen at read-back forwards without overwriting it', async () => {
+    const {local, session} = storages({jellyfin_credentials: credentials(challenged)}, {__tfa_pending: 'armed'});
+    const replacement = credentials({...challenged, AccessToken: 'replacement-new-tail'});
+    let writes = 0;
+    local.setItem = (key, value) => {
+        assert.equal(key, 'jellyfin_credentials');
+        assert.equal(JSON.parse(value).Servers[0].AccessToken, '');
+        writes++;
+        local.items.set(key, replacement);
+    };
+    const page = portalPage({local, session});
+    await settlePortal();
+    assert.equal(writes, 1);
+    assert.deepEqual(page.navigations, [stockLogin]);
+    assert.equal(local.getItem('jellyfin_credentials'), replacement);
+});
+
+test('a second server seen at credential write-back keeps the form and pending state', async () => {
+    const {local, session} = storages({jellyfin_credentials: credentials(challenged)}, {__tfa_pending: 'armed'});
+    const concurrent = credentials({...challenged, AccessToken: '', UserId: ''}, entry(now, {Id: 'another-server'}));
+    local.setItem = key => local.items.set(key, concurrent);
+    const page = portalPage({local, session});
+    await settlePortal();
+    assert.equal(local.getItem('jellyfin_credentials'), concurrent);
+    assert.equal(session.getItem('__tfa_pending'), 'armed');
+    assert.equal(session.getItem(forwardKey), null);
+    assert.equal(page.card.hidden, false);
+    assert.deepEqual(page.navigations, []);
+});
+
+test('an expired forwarding guard allows the session to recover again', async () => {
+    const session = new FakeStorage({[forwardKey]: JSON.stringify([{...mark, at: now - 60001}])});
+    const page = portalPage({session});
+    await settlePortal();
+    assert.deepEqual(page.navigations, [stockLogin]);
+});
+
+function standaloneUrlBuilder(mount) {
+    const helper = read('tfa-i18n.js');
+    return runInNewContext(definition(helper, 'hasApiClient') + '\n(' + definition(helper, 'buildUrl') + ')', {
+        window: {location: {pathname: mount + '/TwoFactorAuth/Login'}},
+    });
+}
+
+for (const mount of ['', '/jellyfin', '/TwoFactorAuthLab', '/proxy/TWOFACTORAUTHmedia', '/TwoFactorAuth/site', '/web/site/TwoFactorAuth']) {
+    test(`standalone portal URLs preserve mount ${mount || '/'} for config and stock login`, () => {
+        const build = standaloneUrlBuilder(mount);
+        assert.equal(build('TwoFactorAuth/public-config'), mount + '/TwoFactorAuth/public-config');
+        assert.equal(build('/web/index.html#/login'), mount + '/web/index.html#/login');
+    });
+}
+
+for (const disabled of [false, true]) {
+    test(`the mounted policy wins when password sign-in is disabled only at the ${disabled ? 'mount' : 'root'}`, async () => {
+        const mount = '/TwoFactorAuth/site';
+        const page = portalPage({mount, answer: url => Response.json({
+            passwordLoginDisabled: url === mount + '/TwoFactorAuth/public-config' ? disabled : !disabled,
+        })});
+        await settlePortal();
+        assert.deepEqual(page.navigations, disabled ? [stockLogin] : []);
+        assert.equal(page.card.hidden, disabled);
+        const token = JSON.parse(page.local.getItem('jellyfin_credentials')).Servers[0].AccessToken;
+        assert.equal(token, disabled ? '' : challenged.AccessToken);
+    });
+}
+
+test('a plain visit after an interrupted handoff consumes the marker and leaves the password form visible', async () => {
+    const page = portalPage({hash: ''});
+    await settlePortal();
+    assert.equal(page.session.getItem(portalKey), null);
+    assert.deepEqual(page.requests, []);
+    assert.deepEqual(page.navigations, []);
+    assert.equal(page.card.hidden, false);
+    assert.equal(page.local.getItem('jellyfin_credentials'), credentials(...saved));
+});
+
+test('an interrupted outgoing stock login restores the form after three seconds', async () => {
+    const page = portalPage();
+    await settlePortal();
+    assert.deepEqual(page.navigations, [stockLogin]);
+    assert.equal(page.card.hidden, true);
+    const [[restore, delay]] = page.timers;
+    assert.equal(delay, 3000);
+    page.username.focused = false;
+    restore();
+    assert.equal(page.card.hidden, false);
+    assert.equal(page.username.focused, true);
+    assert.deepEqual(page.navigations, [stockLogin]);
+});
+
+test('pagehide cancels the outgoing deadline and only a persisted pageshow restores the form', async () => {
+    const page = portalPage();
+    await settlePortal();
+    page.events.get('pagehide')();
+    assert.equal(page.timers.size, 0);
+    page.events.get('pageshow')({persisted: false});
+    assert.equal(page.card.hidden, true);
+    page.events.get('pageshow')({persisted: true});
+    assert.equal(page.card.hidden, false);
+});
+
+test('an eight-character credential equal to a marker tail survives cleanup', async () => {
+    const only = {...challenged, AccessToken: mark.tokenTail};
+    const page = portalPage({servers: [only]});
+    await settlePortal();
+    assert.deepEqual(page.navigations, [stockLogin]);
+    assert.equal(page.local.getItem('jellyfin_credentials'), credentials(only));
+});
+
+for (const change of [{user: 'another-user'}, {tokenTail: '12345678'}]) {
+    test(`a prior portal guard for another ${Object.keys(change)[0]} permits a new handoff`, async () => {
+        const session = new FakeStorage({[forwardKey]: JSON.stringify([{...mark, ...change}])});
+        const page = portalPage({session});
+        await settlePortal();
+        assert.deepEqual(page.navigations, [stockLogin]);
+    });
+}

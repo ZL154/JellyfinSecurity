@@ -53,7 +53,9 @@
         var base = '';
         try {
             var pathname = window.location.pathname || '';
-            var marker = pathname.toLowerCase().indexOf('/twofactorauth');
+            // [#360] Standalone pages sit directly below their own controller segment.
+            var marker = pathname.search(/\/twofactorauth\/[^/]+\/*$/i);
+            if (marker < 0) marker = pathname.search(/\/twofactorauth(?=\/|$)/i);
             if (marker >= 0) base = pathname.substring(0, marker).replace(/\/+$/, '');
         } catch (e) { /* root fallback */ }
         return base + '/' + path.replace(/^\/+/, '');
