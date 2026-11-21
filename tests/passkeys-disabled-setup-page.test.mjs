@@ -91,6 +91,22 @@ test('with passkeys off, saved passkeys keep the card with a notice and no way t
     assert.equal(shown(p.el('passkeySecondFactor')), false, 'no switch for a passkey that cannot be used');
 });
 
+test('turning passkeys off replaces the passwordless account note with the server notice', () => {
+    const p = page({publicConfig: {passkeysEnabled: true}});
+    const s = status({AccountPasswordSignInUnavailable: true});
+    p.context.renderPasskeySecondFactor(s);
+    assert.equal(shown(p.el('passkeyPasswordUnavailable')), true);
+
+    p.context.window._tfaPublicConfig = OFF;
+    p.context.renderPasskeyAvailability(s);
+    p.context.renderPasskeySecondFactor(s);
+    assert.equal(noticeShown(p), true);
+    assert.equal(shown(p.el('cardPasskeys')), true);
+    assert.equal(shown(p.el('passkeySecondFactor')), false);
+    assert.equal(shown(p.el('passkeyPasswordUnavailable')), false);
+    assert.deepEqual(p.requests, []);
+});
+
 test('with passkeys off, the saved passkeys are still listed, each with its Remove button', async () => {
     const rows = [
         {id: 'key-1', label: 'MacBook <Touch ID>', createdAt: '2026-10-01T10:00:00Z', lastUsedAt: null},

@@ -67,6 +67,24 @@ public class SignInChallengePolicyTests
         Assert.False(SignInChallengePolicy.RequiresChallenge(data, config, isAdmin: false, accountPasswordSignInUnavailable: true));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_disabled_passkey_cannot_require_a_challenge_for_a_passwordless_account(bool recovery)
+    {
+        var config = new PluginConfiguration { EnforcementScope = EnforcementScope.Optional, PasskeysEnabled = false };
+        var data = new UserTwoFactorData
+        {
+            Passkeys = { new PasskeyCredential() },
+            PasskeyRequiresSecondFactor = true,
+            ForceRecoveryOnNextLogin = recovery,
+        };
+
+        Assert.Equal("none", SignInChallengePolicy.GetReason(data, config, isAdmin: false, accountPasswordSignInUnavailable: true));
+        Assert.False(SignInChallengePolicy.RequiresChallenge(data, config, isAdmin: false, accountPasswordSignInUnavailable: true));
+        Assert.True(data.PasskeyRequiresSecondFactor);
+    }
+
     public static IEnumerable<object[]> Matrix()
     {
         foreach (var scope in Enum.GetValues<EnforcementScope>())
