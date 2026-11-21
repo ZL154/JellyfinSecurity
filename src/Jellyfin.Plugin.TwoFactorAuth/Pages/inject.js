@@ -1309,6 +1309,7 @@
     var credentialObserver;
     var revealedServers = Object.create(null);
     var gateUrl;
+    var gateWasLogin;
     var pendingUrl;
     var pendingTimer;
 
@@ -1388,8 +1389,9 @@
         if (!stockWeb) return;
         var activeUrl = publicConfigUrl();
         var url = loginConfigUrl(activeUrl);
-        gateUrl = url;
         var login = isLoginPage();
+        gateUrl = url;
+        gateWasLogin = login;
         if (login && !bootstrap) fetchTfaPublicConfig();
         var policy = clientConfig;
         if (url !== activeUrl) {
@@ -2416,9 +2418,12 @@
 
         var moPending = false;
         var mo = new MutationObserver(function () {
-            // pushState does not emit hashchange. A newly mounted server's
-            // form needs its gate before the deferred UI pass and first paint.
-            if (stockWeb && isLoginPage() && loginConfigUrl(publicConfigUrl()) !== gateUrl) applyPasswordLoginGate();
+            // pushState can enter login on the same server without a hashchange.
+            // Apply its gate before the new form paints, ahead of the deferred UI pass.
+            if (stockWeb) {
+                var login = isLoginPage();
+                if (login !== gateWasLogin || (login && loginConfigUrl(publicConfigUrl()) !== gateUrl)) applyPasswordLoginGate();
+            }
             if (moPending) return;
             moPending = true;
             setTimeout(function () { moPending = false; tryInject(); }, 250);

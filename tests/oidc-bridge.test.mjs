@@ -469,6 +469,10 @@ function prepareGateBrowser(mode) {
     localStorage.setItem('jellyfin_credentials', JSON.stringify({Servers: [
         {Id: 'B', ManualAddress: location.origin + '/b', LastConnectionMode: 2},
     ]}));
+    if (mode.startsWith('foreign-entry-')) {
+        const active = mode === 'foreign-entry-active' ? 'b' : 'a';
+        window.ApiClient = {serverId: () => active, getUrl: path => location.origin + '/' + active + '/' + path};
+    }
     if (mode === 'legacy') {
         window.URLSearchParams = undefined;
         window.URL = function () { throw new Error('URL unavailable'); };
@@ -500,16 +504,27 @@ async function exerciseGateBrowser(mode) {
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     const id = name => document.getElementById(name);
     function controls(hidden) {
-        for (const name of ['txtManualName', 'txtManualPassword', 'submit', 'remember', 'quick', 'provider', 'passkey', 'extra']) {
+        for (const name of ['txtManualPassword', 'txtManualName', 'submit', 'remember', 'quick', 'provider', 'passkey', 'extra']) {
             const element = id(name);
             const allowed = !hidden || !['txtManualName', 'txtManualPassword', 'submit'].includes(name);
-            check(!!element.getClientRects().length === allowed, name + ' visibility, expected ' + allowed);
+            const visible = !!element.getClientRects().length;
             element.focus();
-            check((document.activeElement === element) === allowed, name + ' focus, expected ' + allowed);
+            const focused = document.activeElement === element;
+            check(visible === allowed && focused === allowed,
+                name + ': visible=' + visible + ', focused=' + focused + ', expected both ' + allowed);
         }
     }
     const reveal = () => id('__tfa_pw_reveal');
     try {
+        if (mode.startsWith('foreign-entry-')) {
+            if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, {once: true}));
+            await frame();
+            check(!document.documentElement.classList.contains('tfa-pw-gated'), 'preceding view already gated');
+            // Both routes select B. Only the view changes, without firing hashchange.
+            history.pushState(null, '', location.hash.replace('/selectserver', '/login'));
+            const template = document.querySelector('template');
+            template.replaceWith(template.content);
+        }
         await frame();
         controls(true);
         await frame();
@@ -556,10 +571,11 @@ async function exerciseGateBrowser(mode) {
 }
 
 for (const mode of ['restricted', 'older-selector', 'element-fallback', 'foreign-allowed', 'foreign-restricted',
-    'foreign-timeout', 'foreign-error', 'switch', 'legacy']) {
+    'foreign-timeout', 'foreign-error', 'foreign-entry-active', 'foreign-entry-named', 'switch', 'legacy']) {
     test('rendered stock password form: ' + mode, async t => {
         const profile = mkdtempSync(join(tmpdir(), 'jellyfin-gate-'));
-        const named = mode.startsWith('foreign') || mode === 'legacy';
+        const entering = mode.startsWith('foreign-entry-');
+        const named = (mode.startsWith('foreign') && mode !== 'foreign-entry-active') || mode === 'legacy';
         let finish;
         const result = new Promise(resolve => { finish = resolve; });
         const timer = setTimeout(() => finish('browser timed out'), 15000);
@@ -571,17 +587,17 @@ for (const mode of ['restricted', 'older-selector', 'element-fallback', 'foreign
                 res.writeHead(200, {'Content-Type': 'application/javascript'});
                 res.end('window.__tfaPasswordLoginDisabled = true;\n' + inject);
             } else if (req.url.startsWith('/a/web/')) {
-                const policy = ['restricted', 'older-selector', 'element-fallback'].includes(mode)
+                const policy = entering || ['restricted', 'older-selector', 'element-fallback'].includes(mode)
                     ? "style-src 'self'" : "style-src 'self' 'unsafe-inline'";
                 res.writeHead(200, {'Content-Type': 'text/html', 'Content-Security-Policy': policy});
                 res.end(`<!doctype html><head><script>(${prepareGateBrowser})(${JSON.stringify(mode)})</script>
                     <script src="/a/TwoFactorAuth/inject"></script></head><body>
-                    <form class="manualLoginForm"><div class="inputContainer"><input id="txtManualName"></div>
+                    ${entering ? '<template>' : ''}<form class="manualLoginForm"><div class="inputContainer"><input id="txtManualName"></div>
                     <div class="inputContainer"><input id="txtManualPassword" type="password"></div>
                     <label><input id="remember" type="checkbox" class="chkRememberLogin">Remember Me</label>
                     <button id="submit" type="submit">Sign In</button><button id="quick" type="button">Quick Connect</button>
                     <a href="#" id="provider">SSO</a><a href="#" id="passkey">Passkey</a>
-                    <div class="inputContainer"><input id="extra" type="search"></div></form>
+                    <div class="inputContainer"><input id="extra" type="search"></div></form>${entering ? '</template>' : ''}
                     <script>(${exerciseGateBrowser})(${JSON.stringify(mode)})</script>`);
             } else { res.writeHead(404); res.end(); }
         });
@@ -598,7 +614,8 @@ for (const mode of ['restricted', 'older-selector', 'element-fallback', 'foreign
             rmSync(profile, {recursive: true, force: true, maxRetries: 3});
         });
         await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
-        const url = 'http://127.0.0.1:' + server.address().port + '/a/web/index.html#/login?' + (named ? 'serverid=B' : 'redirect=home');
+        const route = entering ? '/selectserver' : '/login';
+        const url = 'http://127.0.0.1:' + server.address().port + '/a/web/index.html#' + route + '?' + (named ? 'serverid=B' : 'redirect=home');
         browser = spawn(process.env.CHROME_BIN || 'google-chrome', ['--headless', '--disable-background-networking',
             '--disable-component-update', '--no-first-run', '--user-data-dir=' + profile, url], {stdio: 'ignore'});
         browser.once('error', error => finish(error.message));
