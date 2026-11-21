@@ -173,7 +173,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - Per-IP rate limiting on verify (10/min) and email send (5/5min); per-challenge attempt limit (5 before the challenge is burned).
 - Per-user lockout after 5 failed attempts (15-minute cool-down, configurable).
 - LAN bypass (configurable CIDR ranges), and a force-2FA-for-all-users mode.
-- **Disable password sign-in** — OIDC / Quick-Connect-only mode with independently toggleable admin / LAN / exempt-CIDR escape hatches, plus an opt-in setting that lets app passwords (never the account password) through for native apps.
+- **Disable password sign-in**: OIDC / Quick-Connect-only mode with independently toggleable admin / LAN / exempt-CIDR escape hatches, plus an opt-in setting that lets app passwords (never the account password) through for native apps. The standalone 2FA login portal still accepts a valid account password and applies the usual second-factor policy.
 
 A completed password change through the plugin's reset link, Jellyfin's Forgot Password PIN, an administrator setting or resetting a password, or a user changing their password clears the plugin's temporary failed-attempt count and lockout. Requesting a reset, opening a link, or submitting an invalid or expired token does not. The plugin leaves second factors, trusted devices, IP bans, the token blocklist, and Jellyfin's own failed-attempt count and disabled-account status unchanged.
 
@@ -384,17 +384,23 @@ New registrations request **ES256**, the WebAuthn-required portable algorithm. T
 
 A passkey signs in without a password through **🔑 Sign in with passkey** on the login page. Registering one also changes password sign-in: by default, once an account has a passkey, signing in with the username and password asks for a second factor, as it does for an account with a verified authenticator app. An email address or a linked SSO provider alone does not do that (#339).
 
-Each user can change this on the Setup page. While the account has a passkey, the **Passkeys** card shows **Ask for a second factor after password sign-in**:
+Users can change this on the Setup page when the switch is available. While the account has a passkey, the **Passkeys** card normally shows **Ask for a second factor after password sign-in**:
 
 - **On** (the default, which every existing account keeps after updating): password sign-in asks for a second factor, and the passkey can answer it.
 - **Off**: the passkey is only for **Sign in with passkey**, and anyone who has the password can sign in with the password alone. Turning it off asks the user to confirm with the passkey or another factor first, even when **Hardened security for users (factor changes)** is Off. Turning it back on asks for nothing.
 
-Two things take precedence, and while either applies the card shows the switch disabled with the reason:
+If your account has no local password and **Block sign-in with an empty password** (`BlockEmptyPasswordLogin`) is on, the passkey preference does not trigger a challenge. This applies only when your account signs in through this plugin's own provider and that provider delegates password checks to Jellyfin's built-in provider. Setup hides the switch and keeps your saved preference. The switch returns and the preference applies again as soon as your account gets a password.
 
-- the **2FA enforcement scope**: an account it covers (every account with **All users**, administrators with **Admins only**) always gets a second factor after password sign-in;
-- a verified **authenticator app** on the account keeps password sign-in asking for a second factor.
+For these accounts, the passkey preference no longer triggers a challenge on OIDC or proxy sign-in with its bypass turned off, or when a session is restored after a restart.
 
-The **Emergency lockout** on the **I lost my phone** card turns the switch back on, so the next password sign-in asks for a second factor again.
+Installations with any other authentication provider (for example, an LDAP plugin) and accounts assigned directly to Jellyfin's default provider keep their existing behavior. The plugin can confirm this only for accounts that sign in through its own provider.
+
+Two things take precedence even when password sign-in is unavailable. The card shows the reason and disables the switch when it is visible:
+
+- the **2FA enforcement scope**: an account it covers (every account with **All users**, administrators with **Admins only**) still requires a second factor at sign-in.
+- a verified **authenticator app** on the account also requires a second factor at sign-in.
+
+The **Emergency lockout** on the **I lost my phone** card turns the switch back on, so the next password sign-in asks for a second factor again. Pending emergency recovery still requires a challenge when the account has no local password.
 
 For sign-in through an SSO provider, that provider's **Skip plugin 2FA** option (on by default, see [Per-provider options](#per-provider-options)) keeps the plugin from asking for its own second factor after the provider's sign-in.
 
@@ -442,7 +448,7 @@ With **Accept the authenticator code typed after the password** checked (Setting
 
 - The part before the last six digits has to be the account's password. When it isn't, the sign-in goes on unchanged, so a password that itself ends in digits keeps working typed alone.
 - The code works once, as on the challenge page, and wrong codes share that page's limit of 15 attempts per 15 minutes per account, which also covers administrators exempt from the lockout. A wrong code gets the same `401` as a wrong password and counts like one, toward the plugin's lockout and toward Jellyfin's own limit of failed sign-ins.
-- The code alone never signs in: an account without a password stays behind **Block sign-in with an empty password**, and **Disable password sign-in** refuses it like any other password sign-in.
+- The code alone never signs in: an account without a password stays behind **Block sign-in with an empty password**, and **Disable password sign-in** refuses it like any other password sign-in. With the empty-password setting off, passwordless kiosk accounts keep their usual sign-in behavior. See [How a passkey interacts with password sign-in](#how-a-passkey-interacts-with-password-sign-in).
 - An app that saves what was typed and signs in again on its own can't do so once the code has changed; use an app password for those. Accounts that sign in through another authentication plugin (LDAP and the like) aren't covered and still get the challenge.
 
 **Codes by email and Telegram** (#313). With **Send a sign-in code by email and Telegram to apps that can't show the challenge** checked (Settings → General, off by default, needs email OTP), an account whose codes come by email or Telegram can do the same. When such an app signs in with the right password, the challenge it can't show also sends an 8-digit code to the account's email address and linked Telegram chat. Sign in again in the same app with the password followed by that code, with no space: `MyPassword12345678`.
