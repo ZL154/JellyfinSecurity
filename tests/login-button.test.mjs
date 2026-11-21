@@ -231,12 +231,14 @@ for (const transport of ['fetch', 'XHR']) {
 
 for (const transport of ['fetch', 'XHR']) {
     for (const mount of ['', '/media']) {
-        test(`${transport} recognizes parent API controllers under ${mount || '/'} and rejects a nested server`, async () => {
+        test(`${transport} recognizes complete parent endpoints under ${mount || '/'} and rejects a nested server`, async () => {
             const client = {...apiIdentity(activeServer), serverAddress: () => ORIGIN + mount};
             // The first three paths returned the first 403s in the two live bench versions.
             for (const [path, marked] of [
-                ['/UserViews', true], ['/system/endpoint', true], ['/QuickConnect/Enabled', true],
-                ['/Items/new-item?fields=archive', true], ['/archive/Users/Me?controller=Items', false],
+                ['/UserViews', true], ['/system/ENDPOINT', true], ['/QuickConnect/Enabled', true],
+                ['/Users/Me', true], ['/DisplayPreferences/usersettings?client=web', true], ['/Playback/BitrateTest', true],
+                ['/Movies/Users/Me', false], ['/Items/Users/Me', false], ['/archive/Users/Me?controller=Items', false],
+                ['/Movies/Recommendations', false], ['/Users/Me/extra', false], ['/UserViews/', false],
             ]) {
                 const page = challengedBrowser({mount, client, servers: [activeServer], finalUrl: ORIGIN + mount + path});
                 if (transport === 'fetch') await page.challenge();
