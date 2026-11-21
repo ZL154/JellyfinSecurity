@@ -915,9 +915,9 @@ public class TwoFactorAuthController : ControllerBase
                 {
                     _ipBans.RecordFailure(clientIp);
                     // SECURITY [v2.5.9] (audit low): identical message for every
-                // auth failure (bad user / bad password / bad code) so the
-                // response can't be used as a 2FA-code-validity oracle.
-                return Unauthorized(new { message = "Invalid username, password, or verification code." });
+                    // auth failure (bad user / bad password / bad code) so the
+                    // response can't be used as a 2FA-code-validity oracle.
+                    return Unauthorized(new { message = "Invalid username, password, or verification code." });
                 }
                 catch (MediaBrowser.Controller.Net.SecurityException ex)
                 {
@@ -1176,7 +1176,9 @@ public class TwoFactorAuthController : ControllerBase
         Response.Headers.CacheControl = "no-store, no-cache, must-revalidate, max-age=0";
         Response.Headers.Pragma = "no-cache";
         Response.Headers.Expires = "0";
-        return Content(js, "application/javascript; charset=utf-8");
+        var config = Plugin.Instance?.Configuration;
+        var disabled = config is not null && ComputePasswordLoginDisabledForRequest(config);
+        return Content($"window.__tfaPasswordLoginDisabled = {(disabled ? "true" : "false")};\n{js}", "application/javascript; charset=utf-8");
     }
 
     private IActionResult ServeEmbeddedPage(string filename)
@@ -5179,7 +5181,7 @@ public class TwoFactorAuthController : ControllerBase
     /// LockoutMessageMiddleware minus the admin check (unknowable pre-login).</summary>
     private bool ComputePasswordLoginDisabledForRequest(Jellyfin.Plugin.TwoFactorAuth.Configuration.PluginConfiguration cfg)
     {
-        if (!cfg.DisablePasswordLogin)
+        if (!cfg.Enabled || !cfg.DisablePasswordLogin)
         {
             return false;
         }
