@@ -35,6 +35,145 @@ public class SignInPolicyCollection;
 public class SignInChallengeIntegrationTests
 {
     [Theory]
+    [InlineData("oidc", false)]
+    [InlineData(HeaderSignIn.BridgeProviderId, false)]
+    [InlineData("passkey", true)]
+    public async Task Accepted_bridges_apply_account_policy_without_granting_extra_proof(string origin, bool bypass)
+    {
+        using var fixture = new SignInPolicyFixture();
+        await fixture.EnrollPasswordlessAsync();
+        var ticket = fixture.Bridges.Mint(fixture.User.Id, fixture.User.Username, origin, bypassPluginTwoFa: bypass);
+        var response = await fixture.SignInAsync(password: ticket, authenticate: async context =>
+        {
+            var result = await fixture.AuthenticateAsync(context, ticket);
+            Assert.Equal(fixture.User.Username, result.Username);
+            Assert.Equal(bypass, fixture.Challenges.IsDevicePreVerified(fixture.User.Id, SignInPolicyFixture.DeviceId));
+            await fixture.ProcessSessionAsync();
+        });
+        Assert.Equal(200, response.Status);
+        Assert.Equal(200, await fixture.UseTokenAsync());
+        Assert.Equal(bypass, fixture.Challenges.IsTokenVerified(SignInPolicyFixture.Token));
+        Assert.DoesNotContain(await fixture.Store.GetAuditLogAsync(), e => e.Result == AuditResult.ChallengeIssued);
+    }
+
+    [Theory]
+    [InlineData("eligible", 200)]
+    [InlineData("recovery", 401)]
+    [InlineData("scope", 401)]
+    [InlineData("totp", 401)]
+    [InlineData("password", 401)]
+    [InlineData("missing", 401)]
+    [InlineData("directory-error", 401)]
+    public async Task Quick_connect_without_proof_uses_the_current_account_policy(string condition, int status)
+    {
+        using var fixture = new SignInPolicyFixture();
+        await fixture.EnrollPasswordlessAsync();
+        if (condition == "recovery") await fixture.Store.MutateAsync(fixture.User.Id, d => d.ForceRecoveryOnNextLogin = true);
+        if (condition == "scope") fixture.Config.EnforcementScope = EnforcementScope.All;
+        if (condition == "totp") await fixture.Store.MutateAsync(fixture.User.Id, d => d.TotpEnabled = d.TotpVerified = true);
+        if (condition == "password") fixture.User.Password = "stored";
+        if (condition == "missing") fixture.Users.GetUserById(fixture.User.Id).Returns((User?)null);
+        if (condition == "directory-error") fixture.Users.GetUserById(fixture.User.Id).Returns(_ => throw new IOException("Directory unavailable."));
+        await fixture.ProcessSessionAsync();
+        var response = await fixture.SignInAsync("/Users/AuthenticateWithQuickConnect");
+        Assert.Equal(status, response.Status);
+        Assert.Equal(status == 200 ? 200 : 403, await fixture.UseTokenAsync());
+        Assert.False(fixture.Challenges.IsTokenVerified(SignInPolicyFixture.Token));
+    }
+
+    [Theory]
+    [InlineData("/Users/AuthenticateByName")]
+    [InlineData("/Users/0123456789abcdef0123456789abcdef/Authenticate")]
+    [InlineData("/Users/AuthenticateWithQuickConnect/other")]
+    public async Task An_ambiguous_native_response_retains_the_challenge(string path)
+    {
+        using var fixture = new SignInPolicyFixture();
+        await fixture.EnrollPasswordlessAsync();
+        Assert.Equal(401, (await fixture.SignInAsync(path)).Status);
+        fixture.Users.DidNotReceive().GetUserById(fixture.User.Id);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Network_restrictions_apply_before_the_eligible_native_response(bool banned)
+    {
+        using var fixture = new SignInPolicyFixture();
+        await fixture.EnrollPasswordlessAsync();
+        if (banned)
+        {
+            fixture.Config.IpBanEnabled = true;
+            fixture.Bans.Ban("203.0.113.10", "manual", "test", 1);
+        }
+        else
+        {
+            await fixture.Store.MutateAsync(fixture.User.Id, data => data.IpAllowlistCidrs.Add("192.0.2.0/24"));
+        }
+        Assert.Equal(403, (await fixture.SignInAsync("/Users/AuthenticateWithQuickConnect")).Status);
+        fixture.Users.DidNotReceive().GetUserById(fixture.User.Id);
+    }
+
+    [Fact]
+    public async Task A_bridge_for_another_user_cannot_exempt_the_password_response()
+    {
+        using var fixture = new SignInPolicyFixture();
+        await fixture.EnrollPasswordlessAsync();
+        var other = new User("other-user", "provider", "reset");
+        fixture.Users.GetUserById(other.Id).Returns(other);
+        var ticket = fixture.Bridges.Mint(other.Id, other.Username, "oidc", bypassPluginTwoFa: false);
+        var response = await fixture.SignInAsync(password: ticket,
+            authenticate: context => fixture.AuthenticateAsync(context, ticket, other.Username));
+        Assert.Equal(401, response.Status);
+    }
+
+    [Fact]
+    public async Task A_successful_password_delegation_keeps_the_provider_and_response_challenges()
+    {
+        using var fixture = new SignInPolicyFixture();
+        await fixture.EnrollPasswordlessAsync();
+        const string password = "accepted-by-delegate";
+        var delegated = Substitute.For<IAuthenticationProvider>();
+        delegated.IsEnabled.Returns(true);
+        delegated.Authenticate(fixture.User.Username, password).Returns(new ProviderAuthenticationResult { Username = fixture.User.Username });
+        fixture.Host.GetExports<IAuthenticationProvider>(false).Returns(new[] { delegated });
+        var response = await fixture.SignInAsync(password: password, authenticate: async context =>
+        {
+            Assert.Equal(fixture.User.Username, (await fixture.AuthenticateAsync(context, password)).Username);
+            Assert.Contains(await fixture.Store.GetAuditLogAsync(), entry => entry.Result == AuditResult.ChallengeIssued);
+        });
+        Assert.Equal(401, response.Status);
+        Assert.Equal(403, await fixture.UseTokenAsync());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task The_provider_rejects_blank_credentials_before_delegation(string blank)
+    {
+        using var fixture = new SignInPolicyFixture();
+        await fixture.EnrollPasswordlessAsync();
+        await Assert.ThrowsAsync<AuthenticationException>(() => fixture.AuthenticateAsync(new DefaultHttpContext(), blank));
+        fixture.Host.DidNotReceive().GetExports<IAuthenticationProvider>(false);
+    }
+
+    [Fact]
+    public async Task A_matched_app_credential_retains_its_preverification_and_one_shot_allowance()
+    {
+        using var fixture = new SignInPolicyFixture();
+        await fixture.EnrollPasswordlessAsync();
+        var (password, hash) = new AppPasswordService().Generate();
+        await fixture.Store.MutateAsync(fixture.User.Id, d => d.AppPasswords.Add(new AppPassword { PasswordHash = hash, Label = "TV" }));
+        var context = new DefaultHttpContext();
+        context.Request.Headers["X-Emby-Device-Id"] = SignInPolicyFixture.DeviceId;
+        context.Request.Headers["X-Emby-Client"] = "TV";
+        Assert.Equal(fixture.User.Username, (await fixture.AuthenticateAsync(context, password)).Username);
+        Assert.True(fixture.Challenges.IsDevicePreVerified(fixture.User.Id, SignInPolicyFixture.DeviceId));
+        await fixture.ProcessSessionAsync();
+        Assert.False(fixture.Challenges.ConsumeAppPasswordPending(fixture.User.Id));
+        Assert.True(fixture.Challenges.IsTokenVerified(SignInPolicyFixture.Token));
+    }
+
+    [Theory]
     [InlineData(false, false, false)]
     [InlineData(true, false, true)]
     [InlineData(false, true, true)]
@@ -363,6 +502,8 @@ internal sealed class SignInPolicyFixture : IDisposable
     internal SignInObserver Observer { get; }
     internal IpBanService Bans { get; }
     private readonly PendingPairingService _pending = new(NullLogger<PendingPairingService>.Instance);
+    internal IApplicationHost Host { get; } = Substitute.For<IApplicationHost>();
+    internal OidcLoginTokenStore Bridges { get; } = new();
     internal User User { get; } = new("local-user", "provider", "reset");
     internal IUserManager Users { get; } = Substitute.For<IUserManager>();
     internal ISessionManager Sessions { get; } = Substitute.For<ISessionManager>();
@@ -378,10 +519,10 @@ internal sealed class SignInPolicyFixture : IDisposable
         UserPolicyPath = Path.Combine(paths.PluginConfigurationsPath, "TwoFactorAuth", "users", $"{User.Id}.json");
         var xml = Substitute.For<IXmlSerializer>();
         xml.DeserializeFromFile(typeof(PluginConfiguration), Arg.Any<string>()).Returns(new PluginConfiguration());
-        var host = Substitute.For<IApplicationHost>();
-        host.GetExportTypes<IAuthenticationProvider>().Returns(
+        Host.Resolve<IUserManager>().Returns(Users);
+        Host.GetExportTypes<IAuthenticationProvider>().Returns(
             new[] { typeof(TwoFactorAuthProvider), HostProviderIdentityFixture.PasswordProvider });
-        _plugin = new Plugin(paths, xml, host, NullLogger<Plugin>.Instance);
+        _plugin = new Plugin(paths, xml, Host, NullLogger<Plugin>.Instance);
         Config.Enabled = true;
         Config.RequireForAllUsers = false;
         Config.EnforcementScope = EnforcementScope.Optional;
@@ -426,15 +567,28 @@ internal sealed class SignInPolicyFixture : IDisposable
         });
     }
 
-    internal async Task<(int Status, string Body)> SignInAsync()
+    internal Task<ProviderAuthenticationResult> AuthenticateAsync(HttpContext context, string password, string? username = null)
+    {
+        var accessor = Substitute.For<IHttpContextAccessor>();
+        accessor.HttpContext.Returns(context);
+        var provider = new TwoFactorAuthProvider(Host, Store, Challenges, new BypassEvaluator(NullLogger<BypassEvaluator>.Instance),
+            new NotificationService(NullLogger<NotificationService>.Instance), new AppPasswordService(), _pending, new RateLimiter(),
+            Bridges, Bans, new IpAllowlistService(Store, NullLogger<IpAllowlistService>.Instance), accessor, NullLogger<TwoFactorAuthProvider>.Instance);
+        return provider.Authenticate(username ?? User.Username, password);
+    }
+
+    internal async Task<(int Status, string Body)> SignInAsync(
+        string path = "/Users/AuthenticateByName", string password = "sample-secret", Func<HttpContext, Task>? authenticate = null)
     {
         var context = new DefaultHttpContext();
         context.Request.Method = "POST";
-        context.Request.Path = "/Users/AuthenticateByName";
+        context.Request.Path = path;
+        using var services = new ServiceCollection().AddSingleton(Users).BuildServiceProvider();
+        context.RequestServices = services;
         context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.10");
         context.Request.Headers["X-Emby-Device-Id"] = DeviceId;
         context.Request.ContentType = "application/json";
-        using var submitted = new MemoryStream(Encoding.UTF8.GetBytes("{\"Username\":\"local-user\",\"Pw\":\"sample-secret\"}"));
+        using var submitted = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(new { Username = User.Username, Pw = password }));
         context.Request.Body = submitted;
         context.Request.ContentLength = submitted.Length;
         using var response = new MemoryStream();
@@ -442,6 +596,7 @@ internal sealed class SignInPolicyFixture : IDisposable
         var middleware = new TwoFactorEnforcementMiddleware(
             async ctx =>
             {
+                if (authenticate is not null) await authenticate(ctx);
                 ctx.Response.ContentType = "application/json";
                 await ctx.Response.WriteAsync(JsonSerializer.Serialize(new
                 {
@@ -492,6 +647,7 @@ internal sealed class SignInPolicyFixture : IDisposable
 
     public void Dispose()
     {
+        Bridges.Dispose();
         _geo.Dispose();
         _http.Dispose();
         Bans.Dispose();

@@ -23,6 +23,11 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// </summary>
 public class TwoFactorAuthProvider : IAuthenticationProvider
 {
+    private static readonly object AcceptedBridgeUser = new();
+
+    internal static bool AcceptedBridgeFor(HttpContext context, Guid userId)
+        => context.Items.TryGetValue(AcceptedBridgeUser, out var value) && value is Guid id && id == userId;
+
     private readonly IApplicationHost _appHost;
     private readonly UserTwoFactorStore _store;
     private readonly ChallengeStore _challengeStore;
@@ -83,6 +88,8 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     /// <inheritdoc />
     public async Task<ProviderAuthenticationResult> Authenticate(string username, string password)
     {
+        var context = _httpContextAccessor.HttpContext;
+        context?.Items.Remove(AcceptedBridgeUser);
         var config = Plugin.Instance?.Configuration;
         var authIp = GetRemoteIp();
         if (!string.IsNullOrEmpty(authIp) && _ipBans.CheckBanned(authIp) is { } ban)
@@ -241,6 +248,8 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             _ipBans.RecordSuccess(authIp ?? string.Empty);
             _logger.LogInformation("[2FA] OIDC sign-in for {User} via {Provider}",
                 bridgeUser.Username, consumed.Value.ProviderId);
+            // Only the origin is recorded. The response still applies account policy.
+            if (context is not null) context.Items[AcceptedBridgeUser] = bridgeUser.Id;
             return new ProviderAuthenticationResult { Username = bridgeUser.Username ?? username };
         }
 
@@ -490,7 +499,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         var providerUserEntity = UserManager.GetUserById(jellyfinUser.Id);
         var providerIsAdmin = providerUserEntity is not null
             && providerUserEntity.HasPermission(PermissionKind.IsAdministrator);
-        bool userNeeds2Fa = SignInChallengePolicy.RequiresChallenge(userData, config, providerIsAdmin);
+        bool userNeeds2Fa = SignInChallengePolicy.RequiresChallenge(userData, config, providerIsAdmin, accountPasswordSignInUnavailable: false);
 
         if (!userNeeds2Fa)
         {

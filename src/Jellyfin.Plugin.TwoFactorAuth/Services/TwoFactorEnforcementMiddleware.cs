@@ -2,7 +2,9 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
+using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Services;
@@ -396,7 +398,13 @@ public class TwoFactorEnforcementMiddleware
             // satisfy. Rescues any pre-existing half-enrolled rows from
             // v2.4.0 too: they now pass through to no-2FA if policy allows.
             var isAdmin = authResult.User.Policy?.IsAdministrator ?? false;
-            if (!SignInChallengePolicy.RequiresChallenge(userData, config, isAdmin))
+            var quickConnect = IsQuickConnectSignIn(path);
+            var accountEvidenceApplies = TwoFactorAuthProvider.AcceptedBridgeFor(context, userGuid)
+                || (quickConnect && path.TrimEnd('/').EndsWith("/Users/AuthenticateWithQuickConnect", StringComparison.OrdinalIgnoreCase));
+            var passwordUnavailable = accountEvidenceApplies && config.BlockEmptyPasswordLogin
+                && SignInChallengePolicy.GetReason(userData, config, isAdmin, accountPasswordSignInUnavailable: false) == "passkey"
+                && AccountPasswordSignInUnavailable(context, userGuid);
+            if (!SignInChallengePolicy.RequiresChallenge(userData, config, isAdmin, passwordUnavailable))
             {
                 _logger.LogDebug(
                     "[2FA] User {Name} does not require a sign-in challenge under scope ({Scope}), passing through",
@@ -488,7 +496,6 @@ public class TwoFactorEnforcementMiddleware
             // device that fetched late, or fetched again, was challenged for a
             // token already let through. That verdict outlives the flag as the
             // verified mark, so it is read first.
-            var quickConnect = IsQuickConnectSignIn(path);
             var approved = (quickConnect && _challengeStore.IsTokenVerified(authResult.AccessToken))
                 || await _challengeStore
                     .WaitForApprovalAsync(authResult.AccessToken, userGuid, deviceId, TimeSpan.FromMilliseconds(500))
@@ -734,6 +741,20 @@ public class TwoFactorEnforcementMiddleware
             context.Response.ContentType = "application/json";
             await originalBody.WriteAsync(
                 Encoding.UTF8.GetBytes("{\"message\":\"2FA service error. Contact your administrator.\"}")).ConfigureAwait(false);
+        }
+    }
+
+    private bool AccountPasswordSignInUnavailable(HttpContext context, Guid userId)
+    {
+        try
+        {
+            var user = context.RequestServices.GetService<IUserManager>()?.GetUserById(userId);
+            return user?.Id == userId && Plugin.Instance?.AccountPasswordSignInUnavailable(user) == true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[2FA] Directory lookup failed for user {UserId}", userId);
+            return false;
         }
     }
 
