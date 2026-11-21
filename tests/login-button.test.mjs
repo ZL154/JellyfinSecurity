@@ -110,3 +110,43 @@ test('the 2FA button keeps the TV focus style in the TV layout', () => {
     assert.equal(button.getAttribute('is'), null);
     assert.equal(button.className, 'raised block emby-button show-focus');
 });
+
+// Run the injected bootstrap before DOMContentLoaded, when Jellyfin can already receive a 403.
+function challengedBrowser({mount = '/jellyfin', apiReady = false, pluginPage = false,
+    session = new Map(), servers = [], native = false, logout} = {}) {
+    const navigations = [];
+    const sessionStorage = {
+        getItem: key => session.get(key) ?? null,
+        setItem: (key, value) => session.set(key, value),
+        removeItem: key => session.delete(key),
+    };
+    const context = {
+        URL, Response, navigator: {userAgent: 'Firefox'}, console: {log() {}},
+        document: {readyState: 'loading', addEventListener() {}},
+        location: {origin: ORIGIN, pathname: mount + (pluginPage ? '/TwoFactorAuth/Login' : '/web/index.html'),
+            hash: '#/home', set href(url) { navigations.push(url); }},
+        sessionStorage,
+        localStorage: {getItem: key => key === 'jellyfin_credentials' ? JSON.stringify({Servers: servers}) : null},
+        XMLHttpRequest: class {},
+        ApiClient: {logout},
+        fetch: async () => Response.json({twoFactorRequired: true}, {status: 403}),
+    };
+    context.window = context;
+    if (apiReady) context.ApiClient.getUrl = path => ORIGIN + mount + '/' + path;
+    if (native) context.NativeShell = {};
+    runInNewContext(inject, context);
+    return {session, navigations, challenge: () => context.fetch(mount + '/DisplayPreferences/usersettings')};
+}
+
+for (const mount of ['', '/jellyfin', '/webmedia', '/TwoFactorAuthLab']) {
+    for (const apiReady of [false, true]) {
+        test(`challenged browser preserves mount ${mount || '/'} with ${apiReady ? 'initialized' : 'early'} client`, async () => {
+            const page = challengedBrowser({mount, apiReady});
+            await page.challenge();
+            assert.deepEqual(page.navigations, [(apiReady ? ORIGIN : '') + mount + '/TwoFactorAuth/Login']);
+            const portal = challengedBrowser({mount, apiReady, pluginPage: true});
+            await portal.challenge();
+            assert.deepEqual(portal.navigations, []);
+        });
+    }
+}

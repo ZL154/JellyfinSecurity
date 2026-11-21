@@ -11,13 +11,8 @@
     function jellyfinBasePath() {
         try {
             var path = window.location.pathname || '';
-            var lower = path.toLowerCase();
-            var markers = ['/web', '/twofactorauth'];
-            var cut = -1;
-            for (var i = 0; i < markers.length; i++) {
-                var at = lower.indexOf(markers[i]);
-                if (at >= 0 && (cut < 0 || at < cut)) cut = at;
-            }
+            // [#360] A mount such as /webmedia is a directory, not the /web route.
+            var cut = path.search(/\/(?:web|twofactorauth)(?=\/|$)/i);
             return cut >= 0 ? path.substring(0, cut).replace(/\/+$/, '') : '';
         } catch (e) { return ''; }
     }
