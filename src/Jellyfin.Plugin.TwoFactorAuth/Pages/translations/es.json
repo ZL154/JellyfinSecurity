@@ -862,7 +862,7 @@
   "tfa.admin.sso.lbl_email_claim": "Claim de correo",
   "tfa.admin.sso.email_claim_help": "Claim que contiene el correo del usuario. El OIDC estándar usa \"email\"; anula solo si tu IdP lo devuelve en otro claim (p. ej. internal_email). Se usa para emparejar usuarios por correo y para el autorrelleno de abajo.",
   "tfa.admin.sso.opt_sync_email": "Rellenar el correo del usuario desde el IdP al iniciar sesión",
-  "tfa.admin.sso.sync_email_help": "Al iniciar sesión, copia el correo del IdP al campo de correo del usuario de Jellyfin (usado para OTP por correo y mostrado en la pestaña Usuarios) si aún no está definido. Un correo introducido manualmente nunca se sobrescribe. Solo se copia una dirección que el IdP marca como verificada (<code>email_verified</code>); con un claim de correo personalizado, también debe coincidir con el claim <code>email</code> verificado. Si no, el campo queda vacío y el registro del servidor indica el motivo.",
+  "tfa.admin.sso.sync_email_help": "Al iniciar sesión, copia el correo del IdP al campo de correo del usuario de Jellyfin (usado para OTP por correo y mostrado en la pestaña Usuarios) si aún no está definido. Un correo introducido manualmente nunca se sobrescribe. Solo se copia una dirección que el IdP marca como verificada (email_verified); con un claim de correo personalizado, también debe coincidir con el claim email verificado. Si no, el campo queda vacío y el registro del servidor indica el motivo.",
   "tfa.admin.sso.lbl_button_text": "Texto del botón de inicio de sesión (opcional)",
   "tfa.admin.sso.ph_button_text": "Iniciar sesión con …",
   "tfa.admin.sso.button_text_help": "Lo que dice el botón en la página de inicio de sesión. Déjalo vacío para usar \"Iniciar sesión con {nombre del proveedor}\".",

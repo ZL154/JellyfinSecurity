@@ -428,7 +428,7 @@
                             </div>
                             <div class="tfa-row tfa-row-stack">
                                 <label><input type="checkbox" id="ssoSyncEmail" is="emby-checkbox" /> <span data-i18n-key="tfa.admin.sso.opt_sync_email">Fill the user's email from the IdP on sign-in</span></label>
-                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.sync_email_help">On sign-in, copy the IdP email into the Jellyfin user's email field (used for email OTP and shown in the Users tab) when it isn't already set. An email you entered manually is never overwritten. Only an address the IdP marks verified (<code>email_verified</code>) is copied; with a custom email claim, it must also match the verified <code>email</code> claim. Otherwise the field stays blank and the server log says why.</div>
+                                <div class="tfa-help" data-i18n-key="tfa.admin.sso.sync_email_help">On sign-in, copy the IdP email into the Jellyfin user's email field (used for email OTP and shown in the Users tab) when it isn't already set. An email you entered manually is never overwritten. Only an address the IdP marks verified (email_verified) is copied; with a custom email claim, it must also match the verified email claim. Otherwise the field stays blank and the server log says why.</div>
                             </div>
                             <div class="tfa-row">
                                 <label data-i18n-key="tfa.admin.sso.lbl_acr">acr_values (optional)</label>

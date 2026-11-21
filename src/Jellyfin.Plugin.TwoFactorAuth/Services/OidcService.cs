@@ -15,6 +15,7 @@ using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
@@ -980,14 +981,45 @@ public class OidcService : IDisposable
         return EmailAutoFill.Fill;
     }
 
+    /// <summary>Write the address into the same configuration instance the
+    /// decision read, and only if that instance is still the live one and the
+    /// field is still empty. An admin save replaces the instance, so an
+    /// address it supplied meanwhile is never overwritten.</summary>
+    internal static bool TryFillEmail(
+        PluginConfiguration? checkedConfig, PluginConfiguration? liveConfig, string userKey, string email)
+    {
+        if (checkedConfig is null || !ReferenceEquals(checkedConfig, liveConfig)) return false;
+        if (!string.IsNullOrWhiteSpace(checkedConfig.GetUserEmail(userKey))) return false;
+        checkedConfig.SetUserEmail(userKey, email);
+        return true;
+    }
+
     /// <summary>OIDC's <c>email_verified</c> attests the standard <c>email</c>
     /// claim only. When the provider reads the address from a custom claim
     /// (#70), that address counts as verified only if it is the same address
-    /// as the verified standard claim.</summary>
+    /// as the verified standard claim: the local part compared exactly, since
+    /// SMTP lets a server treat its case as significant (RFC 5321 §2.4), and
+    /// only the domain without regard to case.</summary>
     internal static bool IsSelectedEmailVerified(string? selectedEmail, string? standardEmail, bool emailVerifiedFlag)
         => emailVerifiedFlag
             && !string.IsNullOrWhiteSpace(selectedEmail)
-            && string.Equals(selectedEmail.Trim(), standardEmail?.Trim(), StringComparison.OrdinalIgnoreCase);
+            && SameMailbox(selectedEmail.Trim(), standardEmail?.Trim());
+
+    private static bool SameMailbox(string a, string? b)
+    {
+        if (b is null) return false;
+        var ia = a.LastIndexOf('@');
+        var ib = b.LastIndexOf('@');
+        if (ia <= 0 || ib <= 0) return string.Equals(a, b, StringComparison.Ordinal);
+        return string.Equals(a[..ia], b[..ib], StringComparison.Ordinal)
+            && string.Equals(a[(ia + 1)..], b[(ib + 1)..], StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The address to use once verification is known: the verified
+    /// standard claim exactly as the issuer attested it, otherwise the selected
+    /// claim (which then only serves display and is never filled).</summary>
+    private static string AttestedOrSelected(string selected, string? standard, bool verified)
+        => verified && standard is not null ? standard.Trim() : selected;
 
     /// <summary>Read the address and its verification from an ID token's
     /// claims, honoring the provider's configured email claim name.</summary>
@@ -1004,7 +1036,8 @@ public class OidcService : IDisposable
         var flag = string.Equals(
             list.FirstOrDefault(c => c.Type == "email_verified")?.Value,
             "true", StringComparison.OrdinalIgnoreCase);
-        return (email, IsSelectedEmailVerified(email, standard, flag));
+        var verified = IsSelectedEmailVerified(email, standard, flag);
+        return (AttestedOrSelected(email, standard, verified), verified);
     }
 
     /// <summary>Shared pipeline that runs after an id_token has been verified:
@@ -1158,8 +1191,9 @@ public class OidcService : IDisposable
         try
         {
             var emailUserKey = matchedUser.Id.ToString("N");
+            PluginConfiguration? checkedCfg = null;
             switch (DecideEmailAutoFill(provider, claims.Email, claims.EmailVerified,
-                () => Plugin.Instance?.Configuration?.GetUserEmail(emailUserKey)))
+                () => (checkedCfg = Plugin.Instance?.Configuration)?.GetUserEmail(emailUserKey)))
             {
                 case EmailAutoFill.Off:
                     _logger.LogDebug("[2FA] OIDC email auto-fill OFF for provider {Provider} (enable 'sync email from claim')", provider.Id);
@@ -1178,9 +1212,12 @@ public class OidcService : IDisposable
                     _logger.LogDebug("[2FA] OIDC email auto-fill skipped for {User} — a plugin email is already set (never overwrites a manual address)", matchedUser.Username);
                     break;
                 case EmailAutoFill.Fill:
-                    var emailCfg = Plugin.Instance?.Configuration;
-                    if (emailCfg is null) break;
-                    emailCfg.SetUserEmail(emailUserKey, claims.Email);
+                    if (!TryFillEmail(checkedCfg, Plugin.Instance?.Configuration, emailUserKey, claims.Email))
+                    {
+                        _logger.LogDebug("[2FA] OIDC email auto-fill skipped for {User}: the configuration changed during sign-in", matchedUser.Username);
+                        break;
+                    }
+
                     Plugin.Instance!.SaveConfiguration();
                     _logger.LogInformation("[2FA] OIDC filled email for {User} from IdP claim '{Claim}'", matchedUser.Username, provider.EmailClaim);
                     break;
@@ -2388,6 +2425,7 @@ public class OidcService : IDisposable
                     && string.Equals(ev.GetString(), "true", StringComparison.OrdinalIgnoreCase));
         }
         var emailVerified = IsSelectedEmailVerified(email, standardEmail, emailVerifiedFlag);
+        email = AttestedOrSelected(email, standardEmail, emailVerified);
 
         // preferred_username is the standard OIDC claim; fall back to "name"
         // if absent. The provider's UsernameClaim setting (handled in

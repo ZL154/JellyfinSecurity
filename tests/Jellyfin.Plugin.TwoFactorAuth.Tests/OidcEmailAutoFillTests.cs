@@ -1,6 +1,7 @@
 using System;
 using System.Security.Claims;
 using System.Text.Json;
+using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using Xunit;
@@ -53,8 +54,19 @@ public class OidcEmailAutoFillTests
             """{ "internal_email": "a@corp.example", "email_verified": true }""", "internal_email"));
 
     [Fact]
-    public void UserInfo_custom_claim_matching_the_verified_email_fills()
-        => Assert.Equal(EmailAutoFill.Fill, FromUserInfo(
+    public void UserInfo_custom_claim_matching_the_verified_email_fills_with_the_attested_spelling()
+    {
+        var extract = ExtractClaimsFromUserInfo(JsonDocument.Parse(
+            """{ "internal_email": "a@CORP.example", "email": "a@corp.example", "email_verified": "true" }""").RootElement, "internal_email");
+
+        Assert.True(extract.EmailVerified);
+        // The address delivered to is the one the issuer verified.
+        Assert.Equal("a@corp.example", extract.Email);
+    }
+
+    [Fact]
+    public void UserInfo_custom_claim_differing_in_the_local_part_case_is_not_attested()
+        => Assert.Equal(EmailAutoFill.Unverified, FromUserInfo(
             """{ "internal_email": "A@corp.example", "email": "a@corp.example", "email_verified": "true" }""", "internal_email"));
 
     [Fact]
@@ -81,6 +93,57 @@ public class OidcEmailAutoFillTests
     public void IdToken_custom_claim_matching_the_verified_email_fills()
         => Assert.Equal(EmailAutoFill.Fill, FromIdToken(
             "internal_email", ("internal_email", "a@corp.example"), ("email", "a@corp.example"), ("email_verified", "true")));
+
+    [Fact]
+    public void IdToken_custom_claim_differing_in_the_local_part_case_is_not_attested()
+        => Assert.Equal(EmailAutoFill.Unverified, FromIdToken(
+            "internal_email", ("internal_email", "A@corp.example"), ("email", "a@corp.example"), ("email_verified", "true")));
+
+    [Fact]
+    public void IdToken_fill_uses_the_attested_spelling()
+    {
+        var (email, verified) = ExtractEmailFromIdTokenClaims(new[]
+        {
+            new Claim("internal_email", "a@CORP.EXAMPLE"), new Claim("email", "a@corp.example"), new Claim("email_verified", "true"),
+        }, "internal_email");
+
+        Assert.True(verified);
+        Assert.Equal("a@corp.example", email);
+    }
+
+    // ---- writing ----
+
+    [Fact]
+    public void The_fill_writes_the_address_into_the_checked_configuration()
+    {
+        var cfg = new PluginConfiguration();
+
+        Assert.True(TryFillEmail(cfg, cfg, "user", "a@example.com"));
+        Assert.Equal("a@example.com", cfg.GetUserEmail("user"));
+    }
+
+    [Fact]
+    public void An_address_from_a_concurrent_admin_save_is_kept()
+    {
+        var checkedCfg = new PluginConfiguration();
+        var saved = new PluginConfiguration();
+        saved.SetUserEmail("user", "admin@example.com");
+
+        // The admin save replaced the configuration after the check.
+        Assert.False(TryFillEmail(checkedCfg, saved, "user", "a@example.com"));
+        Assert.Equal("admin@example.com", saved.GetUserEmail("user"));
+        Assert.True(string.IsNullOrEmpty(checkedCfg.GetUserEmail("user")));
+    }
+
+    [Fact]
+    public void An_address_set_on_the_same_configuration_meanwhile_is_kept()
+    {
+        var cfg = new PluginConfiguration();
+        cfg.SetUserEmail("user", "admin@example.com");
+
+        Assert.False(TryFillEmail(cfg, cfg, "user", "a@example.com"));
+        Assert.Equal("admin@example.com", cfg.GetUserEmail("user"));
+    }
 
     // ---- decision ----
 

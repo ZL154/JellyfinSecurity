@@ -862,7 +862,7 @@
   "tfa.admin.sso.lbl_email_claim": "Claim de e-mail",
   "tfa.admin.sso.email_claim_help": "Claim que contém o e-mail do usuário. O OIDC padrão usa \"email\"; substitua apenas se o seu IdP o retornar em outro claim (ex.: internal_email). Usado para corresponder usuários por e-mail e para o preenchimento automático abaixo.",
   "tfa.admin.sso.opt_sync_email": "Preencher o e-mail do usuário a partir do IdP ao entrar",
-  "tfa.admin.sso.sync_email_help": "Ao entrar, copia o e-mail do IdP para o campo de e-mail do usuário do Jellyfin (usado para OTP por e-mail e mostrado na aba Usuários) quando ainda não estiver definido. Um e-mail inserido manualmente nunca é sobrescrito. Só é copiado um endereço que o IdP marca como verificado (<code>email_verified</code>); com um claim de e-mail personalizado, ele também precisa coincidir com o claim <code>email</code> verificado. Caso contrário, o campo fica em branco e o log do servidor informa o motivo.",
+  "tfa.admin.sso.sync_email_help": "Ao entrar, copia o e-mail do IdP para o campo de e-mail do usuário do Jellyfin (usado para OTP por e-mail e mostrado na aba Usuários) quando ainda não estiver definido. Um e-mail inserido manualmente nunca é sobrescrito. Só é copiado um endereço que o IdP marca como verificado (email_verified); com um claim de e-mail personalizado, ele também precisa coincidir com o claim email verificado. Caso contrário, o campo fica em branco e o log do servidor informa o motivo.",
   "tfa.admin.sso.lbl_button_text": "Texto do botão de login (opcional)",
   "tfa.admin.sso.ph_button_text": "Entrar com …",
   "tfa.admin.sso.button_text_help": "O que o botão diz na página de login. Deixe em branco para usar \"Entrar com {nome do provedor}\".",

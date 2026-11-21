@@ -862,7 +862,7 @@
   "tfa.admin.sso.lbl_email_claim": "邮箱声明（claim）",
   "tfa.admin.sso.email_claim_help": "包含用户邮箱的声明。标准 OIDC 使用 \"email\"；仅当你的 IdP 在其他声明（如 internal_email）中返回时才覆盖。用于按邮箱匹配用户以及下方的自动填充。",
   "tfa.admin.sso.opt_sync_email": "登录时从 IdP 填充用户邮箱",
-  "tfa.admin.sso.sync_email_help": "登录时，若尚未设置，将 IdP 邮箱复制到 Jellyfin 用户的邮箱字段（用于邮箱 OTP 并在用户选项卡中显示）。手动输入的邮箱永远不会被覆盖。 仅复制 IdP 标记为已验证（<code>email_verified</code>）的地址；使用自定义邮箱声明时，还必须与已验证的 <code>email</code> 声明一致。否则该字段保持为空，服务器日志会说明原因。",
+  "tfa.admin.sso.sync_email_help": "登录时，若尚未设置，将 IdP 邮箱复制到 Jellyfin 用户的邮箱字段（用于邮箱 OTP 并在用户选项卡中显示）。手动输入的邮箱永远不会被覆盖。 仅复制 IdP 标记为已验证（email_verified）的地址；使用自定义邮箱声明时，还必须与已验证的 email 声明一致。否则该字段保持为空，服务器日志会说明原因。",
   "tfa.admin.sso.lbl_button_text": "登录按钮文字（可选）",
   "tfa.admin.sso.ph_button_text": "使用…登录",
   "tfa.admin.sso.button_text_help": "登录页按钮上显示的文字。留空则使用“使用 {提供商名称} 登录”。",
