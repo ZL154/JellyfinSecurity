@@ -1803,19 +1803,12 @@
                 // Discovery URL the edited provider was loaded with. The server
                 // removes the provider's account links when it changes.
                 var ssoEditingDiscoveryUrl = '';
-                // Mirrors OidcService.NormalizeDiscoveryUrl so the warning only
-                // shows for an edit the server treats as a change.
-                function normalizeDiscoveryUrl(raw) {
+                // Mirrors OidcService.SameDiscoveryUrl: only surrounding
+                // whitespace and the case of the scheme and host are ignored.
+                function canonicalDiscoveryUrl(raw) {
                     var v = String(raw || '').trim();
-                    var wellKnown = '/.well-known/openid-configuration';
-                    try {
-                        var u = new URL(v);
-                        var path = u.pathname.replace(/\/+$/, '');
-                        if (path.toLowerCase().endsWith(wellKnown)) path = path.slice(0, -wellKnown.length).replace(/\/+$/, '');
-                        return (u.protocol + '//' + u.host).toLowerCase() + path + u.search;
-                    } catch (e) {
-                        return v.replace(/\/+$/, '');
-                    }
+                    var m = /^([a-z][a-z0-9+.-]*:\/\/[^\/?#]*)(.*)$/i.exec(v);
+                    return m ? m[1].toLowerCase() + m[2] : v;
                 }
                 function loadSso() {
                     var loadPresetsP = ssoPresets.length
@@ -2146,8 +2139,8 @@
                     if (!body.DisplayName) { alert(_tr('tfa.admin.sso.alert_display_required', 'Display name is required.')); return; }
                     if (!body.ClientId) { alert(_tr('tfa.admin.sso.alert_client_id_required', 'Client ID is required.')); return; }
                     if (ssoEditingId
-                        && normalizeDiscoveryUrl(body.DiscoveryUrl) !== normalizeDiscoveryUrl(ssoEditingDiscoveryUrl)
-                        && !confirm(_tr('tfa.admin.sso.confirm_discovery_change', 'Change the discovery URL? Existing account links for this provider will be removed, and users will need to link again.'))) return;
+                        && canonicalDiscoveryUrl(body.DiscoveryUrl) !== canonicalDiscoveryUrl(ssoEditingDiscoveryUrl)
+                        && !confirm(_tr('tfa.admin.sso.confirm_discovery_change', 'Change the discovery URL? This provider\'s existing account links will stop working, and each user will have to link again from their Setup page. Users who can only sign in through this provider, including accounts it created (they have a random password), first need another way in: a password reset by you or by email, if enabled.'))) return;
                     var status = page.querySelector('#ssoSaveStatus');
                     status.style.color = '#888'; status.textContent = _tr('tfa.admin.common.saving', 'Saving…');
                     var p = ssoEditingId

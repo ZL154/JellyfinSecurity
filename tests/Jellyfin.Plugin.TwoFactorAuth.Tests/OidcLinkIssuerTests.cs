@@ -82,21 +82,49 @@ public class OidcLinkIssuerMatchingTests
     }
 
     [Theory]
-    [InlineData("https://idp.example/realms/a", "https://IDP.example/realms/a/")]
-    [InlineData("https://idp.example/realms/a", "https://idp.example/realms/a/.well-known/openid-configuration")]
-    [InlineData(" https://idp.example:443/realms/a ", "https://idp.example/realms/a")]
-    public void Equivalent_discovery_urls_normalize_the_same(string a, string b)
-    {
-        Assert.Equal(OidcService.NormalizeDiscoveryUrl(a), OidcService.NormalizeDiscoveryUrl(b));
-    }
+    [InlineData("https://idp.example/realms/a", "https://IDP.example/realms/a")]
+    [InlineData("HTTPS://idp.example/realms/a", " https://idp.example/realms/a ")]
+    public void Discovery_urls_differing_only_in_scheme_host_case_or_whitespace_are_the_same(string a, string b)
+        => Assert.True(OidcService.SameDiscoveryUrl(a, b));
 
     [Theory]
+    // GetDiscoveryAsync reads the configured URL first and only then tries the
+    // well-known suffix, so these can serve different documents.
+    [InlineData("https://idp.example/realms/a", "https://idp.example/realms/a/.well-known/openid-configuration")]
+    [InlineData("https://idp.example/realms/a", "https://idp.example/realms/a/")]
     [InlineData("https://idp.example/realms/a", "https://idp.example/realms/b")]
     [InlineData("https://idp.example/realms/a", "https://idp.example/realms/A")]
     [InlineData("https://idp.example/realms/a", "https://other.example/realms/a")]
-    public void Different_discovery_urls_normalize_differently(string a, string b)
+    public void Any_other_difference_is_a_different_discovery_url(string a, string b)
+        => Assert.False(OidcService.SameDiscoveryUrl(a, b));
+
+    [Fact]
+    public void A_retired_link_never_matches_but_still_conflicts()
     {
-        Assert.NotEqual(OidcService.NormalizeDiscoveryUrl(a), OidcService.NormalizeDiscoveryUrl(b));
+        var link = new SsoLink { ProviderId = "corp", Subject = "42", Issuer = Issuer, RetiredAt = DateTime.UtcNow };
+        var data = new UserTwoFactorData { SsoLinks = { link } };
+
+        Assert.False(OidcService.LinkMatches(link, "corp", Issuer, "42"));
+        Assert.True(OidcService.HasConflictingProviderLink(data, "corp", Issuer, "42"));
+    }
+
+    [Fact]
+    public void Changed_providers_are_the_added_removed_and_re_pointed_slugs()
+    {
+        var before = new[]
+        {
+            new OidcProvider { Id = "same", DiscoveryUrl = "https://a.example" },
+            new OidcProvider { Id = "moved", DiscoveryUrl = "https://b.example" },
+            new OidcProvider { Id = "gone", DiscoveryUrl = "https://c.example" },
+        };
+        var after = new[]
+        {
+            new OidcProvider { Id = "same", DiscoveryUrl = "https://A.example" },
+            new OidcProvider { Id = "moved", DiscoveryUrl = "https://b.example/.well-known/openid-configuration" },
+            new OidcProvider { Id = "new", DiscoveryUrl = "https://d.example" },
+        };
+
+        Assert.Equal(new[] { "gone", "moved", "new" }, OidcLinkRetirement.ChangedProviderIds(before, after).OrderBy(x => x));
     }
 }
 
@@ -221,12 +249,40 @@ public sealed class OidcLinkIssuerSignInTests : IDisposable
         Assert.Equal(Issuer, link.Issuer);
     }
 
-    private Task LinkAliceAsync(string issuer) => _store.MutateAsync(_alice.Id, d => d.SsoLinks.Add(new SsoLink
+    [Fact]
+    public async Task A_retired_link_does_not_sign_in_and_blocks_the_username_fallback()
+    {
+        _provider.LinkExistingUsersByUsername = true;
+        await LinkAliceAsync(Issuer, retired: true);
+
+        var result = await _oidc.ExchangeIdTokenAsync(_provider, IdToken("42", username: "alice"), accessToken: null);
+
+        Assert.False(result.Success);
+        var link = Assert.Single((await _store.GetUserDataAsync(_alice.Id)).SsoLinks);
+        Assert.NotNull(link.RetiredAt);
+    }
+
+    [Fact]
+    public async Task A_step_up_only_completes_while_the_link_is_active()
+    {
+        await LinkAliceAsync(Issuer);
+        Assert.True(await _oidc.CompleteStepUpLinkAsync(_alice.Id, ProviderId, Issuer, "42"));
+        Assert.NotNull(Assert.Single((await _store.GetUserDataAsync(_alice.Id)).SsoLinks).LastUsedAt);
+
+        // Retired or removed while the step-up was in flight.
+        await _store.MutateAsync(_alice.Id, d => d.SsoLinks[0].RetiredAt = DateTime.UtcNow);
+        Assert.False(await _oidc.CompleteStepUpLinkAsync(_alice.Id, ProviderId, Issuer, "42"));
+        await _store.MutateAsync(_alice.Id, d => d.SsoLinks.Clear());
+        Assert.False(await _oidc.CompleteStepUpLinkAsync(_alice.Id, ProviderId, Issuer, "42"));
+    }
+
+    private Task LinkAliceAsync(string issuer, bool retired = false) => _store.MutateAsync(_alice.Id, d => d.SsoLinks.Add(new SsoLink
     {
         ProviderId = ProviderId,
         Subject = "42",
         Issuer = issuer,
         LinkedAt = DateTime.UtcNow.AddDays(-30),
+        RetiredAt = retired ? DateTime.UtcNow : null,
     }));
 
     private string IdToken(string subject, string? username = null)
@@ -253,7 +309,7 @@ public sealed class OidcLinkIssuerSignInTests : IDisposable
 public sealed class OidcProviderLinksCollection;
 
 [Collection("OIDC provider links")]
-public sealed class OidcProviderLinkPurgeTests : IDisposable
+public sealed class OidcProviderLinkRetirementTests : IDisposable
 {
     private const string DiscoveryUrl = "https://idp.example/realms/corp/.well-known/openid-configuration";
     private const string DefaultProvider = "Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider";
@@ -268,13 +324,14 @@ public sealed class OidcProviderLinkPurgeTests : IDisposable
     private readonly SecurityController _controller;
     private readonly User _alice = new("alice", DefaultProvider, "reset");
     private readonly User _bob = new("bob", DefaultProvider, "reset");
+    private readonly IApplicationHost _host = Substitute.For<IApplicationHost>();
 
-    public OidcProviderLinkPurgeTests()
+    public OidcProviderLinkRetirementTests()
     {
         var paths = TestApplicationPaths.Create(out _sandbox);
         var serializer = Substitute.For<IXmlSerializer>();
         serializer.DeserializeFromFile(typeof(PluginConfiguration), Arg.Any<string>()).Returns(new PluginConfiguration());
-        _plugin = new Plugin(paths, serializer, Substitute.For<IApplicationHost>(), Substitute.For<ILogger<Plugin>>());
+        _plugin = new Plugin(paths, serializer, _host, Substitute.For<ILogger<Plugin>>());
         _plugin.Configuration.OidcProviders.Add(new OidcProvider
         {
             Id = "corp",
@@ -285,6 +342,7 @@ public sealed class OidcProviderLinkPurgeTests : IDisposable
         });
 
         _store = new UserTwoFactorStore(paths, Substitute.For<IServiceProvider>());
+        _host.Resolve<UserTwoFactorStore>().Returns(_store);
         foreach (var user in new[] { _alice, _bob })
         {
             _users.GetUserById(user.Id).Returns(user);
@@ -339,49 +397,77 @@ public sealed class OidcProviderLinkPurgeTests : IDisposable
     }
 
     [Fact]
-    public async Task Changing_the_discovery_url_removes_the_providers_links()
+    public async Task Changing_the_discovery_url_retires_the_providers_links()
     {
         var result = await _controller.UpdateProvider("corp", Request("https://other-idp.example/.well-known/openid-configuration"));
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.Equal(new[] { "other" }, await ProviderIdsAsync(_alice));
-        Assert.Empty(await ProviderIdsAsync(_bob));
+        Assert.Equal(new[] { "corp:retired", "other:active" }, await LinksAsync(_alice));
+        Assert.Equal(new[] { "corp:retired" }, await LinksAsync(_bob));
 
         var audit = await _store.GetAuditLogAsync();
-        var removed = audit.Where(e => e.Method == "oidc_links_removed").ToList();
-        Assert.Equal(2, removed.Count);
-        Assert.All(removed, e => Assert.Equal(AuditResult.ConfigChanged, e.Result));
-        Assert.Contains(removed, e => e.UserId == _alice.Id && e.Username == "alice");
-        Assert.Contains(removed, e => e.UserId == _bob.Id);
+        var retired = audit.Where(e => e.Method == "oidc_links_retired").ToList();
+        Assert.Equal(2, retired.Count);
+        Assert.All(retired, e => Assert.Equal(AuditResult.ConfigChanged, e.Result));
+        Assert.Contains(retired, e => e.UserId == _alice.Id && e.Username == "alice");
+        Assert.Contains(retired, e => e.UserId == _bob.Id);
     }
 
-    [Theory]
-    [InlineData(DiscoveryUrl)]
-    [InlineData("https://idp.example/realms/corp")]
-    public async Task An_edit_that_keeps_the_discovery_url_keeps_the_links(string discoveryUrl)
+    [Fact]
+    public async Task Moving_between_the_root_and_the_well_known_url_counts_as_a_change()
     {
-        var request = Request(discoveryUrl);
+        var result = await _controller.UpdateProvider("corp", Request("https://idp.example/realms/corp"));
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(new[] { "corp:retired" }, await LinksAsync(_bob));
+    }
+
+    [Fact]
+    public async Task An_edit_that_keeps_the_discovery_url_keeps_the_links()
+    {
+        var request = Request("https://IDP.example/realms/corp/.well-known/openid-configuration");
         request.DisplayName = "Corporate sign-in";
 
         var result = await _controller.UpdateProvider("corp", request);
 
         Assert.IsType<OkObjectResult>(result);
         Assert.Equal("Corporate sign-in", _plugin.Configuration.OidcProviders.Single().DisplayName);
-        Assert.Equal(new[] { "corp", "other" }, await ProviderIdsAsync(_alice));
-        Assert.Equal(new[] { "corp" }, await ProviderIdsAsync(_bob));
-        Assert.DoesNotContain(await _store.GetAuditLogAsync(), e => e.Method == "oidc_links_removed");
+        Assert.Equal(new[] { "corp:active", "other:active" }, await LinksAsync(_alice));
+        Assert.Equal(new[] { "corp:active" }, await LinksAsync(_bob));
+        Assert.DoesNotContain(await _store.GetAuditLogAsync(), e => e.Method == "oidc_links_retired");
     }
 
     [Fact]
-    public async Task Deleting_a_provider_removes_its_links()
+    public async Task A_rejected_slug_changes_neither_the_provider_nor_its_links()
+    {
+        _plugin.Configuration.OidcProviders.Add(new OidcProvider { Id = "taken", DisplayName = "Taken", DiscoveryUrl = "https://t.example" });
+        var request = Request("https://other-idp.example/.well-known/openid-configuration");
+        request.DisplayName = "Renamed";
+        request.CallbackSlug = "taken";
+
+        var result = await _controller.UpdateProvider("corp", request);
+
+        Assert.IsType<ConflictObjectResult>(result);
+        var corp = _plugin.Configuration.OidcProviders.Single(p => p.Id == "corp");
+        Assert.Equal(DiscoveryUrl, corp.DiscoveryUrl);
+        Assert.Equal("Corp", corp.DisplayName);
+        Assert.Equal(new[] { "corp:active" }, await LinksAsync(_bob));
+
+        // The retry, with a free slug, still sees the URL change.
+        request.CallbackSlug = "corp-new";
+        Assert.IsType<OkObjectResult>(await _controller.UpdateProvider("corp", request));
+        Assert.Equal(new[] { "corp-new:retired" }, await LinksAsync(_bob));
+    }
+
+    [Fact]
+    public async Task Deleting_a_provider_retires_its_links()
     {
         var result = await _controller.DeleteProvider("corp");
 
         Assert.IsType<OkResult>(result);
         Assert.Empty(_plugin.Configuration.OidcProviders);
-        Assert.Equal(new[] { "other" }, await ProviderIdsAsync(_alice));
-        Assert.Empty(await ProviderIdsAsync(_bob));
-        Assert.Equal(2, (await _store.GetAuditLogAsync()).Count(e => e.Method == "oidc_links_removed"));
+        Assert.Equal(new[] { "corp:retired", "other:active" }, await LinksAsync(_alice));
+        Assert.Equal(new[] { "corp:retired" }, await LinksAsync(_bob));
     }
 
     [Fact]
@@ -395,8 +481,58 @@ public sealed class OidcProviderLinkPurgeTests : IDisposable
 
         Assert.IsType<OkObjectResult>(result.Result);
         Assert.Equal("corp", _plugin.Configuration.OidcProviders.Single().Id);
-        Assert.Equal(new[] { "other" }, await ProviderIdsAsync(_alice));
-        Assert.Empty(await ProviderIdsAsync(_bob));
+        Assert.Equal(new[] { "corp:retired", "other:active" }, await LinksAsync(_alice));
+        Assert.Equal(new[] { "corp:retired" }, await LinksAsync(_bob));
+    }
+
+    [Fact]
+    public async Task The_generic_settings_save_retires_links_of_a_re_pointed_provider()
+    {
+        var incoming = new PluginConfiguration();
+        incoming.OidcProviders.Add(new OidcProvider { Id = "corp", DisplayName = "Corp", DiscoveryUrl = "https://other-idp.example", ClientId = "jellyfin" });
+
+        _plugin.UpdateConfiguration(incoming);
+
+        Assert.Equal(new[] { "corp:retired" }, await LinksAsync(_bob));
+        Assert.Equal(new[] { "corp:retired", "other:active" }, await LinksAsync(_alice));
+    }
+
+    [Fact]
+    public async Task Unlinking_one_row_keeps_a_row_that_differs_only_by_issuer()
+    {
+        await _store.MutateAsync(_alice.Id, d =>
+            d.SsoLinks.Add(new SsoLink { ProviderId = "corp", Subject = "a-1", Issuer = "https://new-idp.example" }));
+        await ListAliceLinksAsync();
+        var oldId = (await _store.GetUserDataAsync(_alice.Id)).SsoLinks.Single(l => l.Issuer == "https://idp.example/realms/corp").Id;
+
+        // The old route cannot tell the two rows apart and removes nothing.
+        Assert.IsType<ConflictObjectResult>(await _controller.UnlinkMine("corp", "a-1"));
+        Assert.Equal(3, (await _store.GetUserDataAsync(_alice.Id)).SsoLinks.Count);
+
+        Assert.IsType<OkResult>(await _controller.UnlinkMineById(oldId));
+        var remaining = (await _store.GetUserDataAsync(_alice.Id)).SsoLinks;
+        Assert.Equal(2, remaining.Count);
+        Assert.Contains(remaining, l => l.ProviderId == "corp" && l.Issuer == "https://new-idp.example");
+    }
+
+    [Fact]
+    public async Task Listing_links_gives_every_row_a_stable_id_and_marks_retired_ones()
+    {
+        await _store.MutateAsync(_alice.Id, d => d.SsoLinks[0].RetiredAt = DateTime.UtcNow);
+
+        var first = await ListAliceLinksAsync();
+        var second = await ListAliceLinksAsync();
+
+        Assert.All(first, l => Assert.False(string.IsNullOrEmpty(l.GetProperty("id").GetString())));
+        Assert.Equal(first.Select(l => l.GetProperty("id").GetString()), second.Select(l => l.GetProperty("id").GetString()));
+        Assert.Equal(new[] { true, false }, first.Select(l => l.GetProperty("retired").GetBoolean()));
+    }
+
+    private async Task<List<System.Text.Json.JsonElement>> ListAliceLinksAsync()
+    {
+        var result = await _controller.ListMyLinks();
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        return System.Text.Json.JsonSerializer.SerializeToElement(ok.Value).EnumerateArray().ToList();
     }
 
     private static SecurityController.OidcProviderUpsertRequest Request(string discoveryUrl) => new()
@@ -418,6 +554,9 @@ public sealed class OidcProviderLinkPurgeTests : IDisposable
             d.SsoLinks.Add(new SsoLink { ProviderId = "corp", Subject = "b-1" }));
     }
 
-    private async Task<string[]> ProviderIdsAsync(User user)
-        => (await _store.GetUserDataAsync(user.Id)).SsoLinks.Select(l => l.ProviderId).OrderBy(id => id).ToArray();
+    private async Task<string[]> LinksAsync(User user)
+        => (await _store.GetUserDataAsync(user.Id)).SsoLinks
+            .Select(l => l.ProviderId + (l.RetiredAt is null ? ":active" : ":retired"))
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToArray();
 }

@@ -163,6 +163,12 @@ public class UserTwoFactorData
 /// trusted for matching, since users can change emails at their IdP.</summary>
 public class SsoLink
 {
+    /// <summary>Opaque id the account page uses to name one row. Two rows can
+    /// share provider and subject (a retired row and its replacement, or rows
+    /// from different issuers), so those cannot identify a row. Empty on rows
+    /// stored before the field existed; filled in when the list is read.</summary>
+    public string Id { get; set; } = string.Empty;
+
     public string ProviderId { get; set; } = string.Empty;
 
     public string Subject { get; set; } = string.Empty;
@@ -173,6 +179,17 @@ public class SsoLink
     /// link only matches tokens from this issuer. Empty on links created
     /// before the field existed; those are accepted once and then filled in.</summary>
     public string Issuer { get; set; } = string.Empty;
+
+    /// <summary>Set when the provider slug stopped pointing at the identity
+    /// provider this link was made with (discovery URL changed, provider
+    /// deleted or replaced, configuration imported). A retired link never
+    /// matches a token, but it still counts as this account's link to the
+    /// provider, so the email and username fallbacks cannot attach a
+    /// different identity to the account. The user links again explicitly
+    /// from Setup and can then remove the retired row.</summary>
+    public DateTime? RetiredAt { get; set; }
+
+    public string RetiredReason { get; set; } = string.Empty;
 
     public string Email { get; set; } = string.Empty;
 

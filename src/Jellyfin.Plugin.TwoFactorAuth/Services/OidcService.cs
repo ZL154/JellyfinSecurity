@@ -605,26 +605,16 @@ public class OidcService : IDisposable
         // SsoLink for this provider whose Subject == the IdP-returned sub.
         // Without this, signing into Google as ANY account would step-up
         // ANY plugin user — the entire point of step-up is gone.
-        var userData = await _store.GetUserDataAsync(pending.UserId).ConfigureAwait(false);
-        var link = userData.SsoLinks.FirstOrDefault(l => LinkMatches(l, provider.Id, disc.Issuer, claims.Subject));
-        if (link is null)
+        // Decided under the per-user lock, so a link removed or retired while
+        // this request was in flight is not honoured.
+        var linked = await CompleteStepUpLinkAsync(pending.UserId, provider.Id, disc.Issuer, claims.Subject).ConfigureAwait(false);
+        if (!linked)
         {
             _logger.LogWarning(
                 "[2FA] OIDC step-up subject mismatch: user {UserId} has no link to {ProviderId} subject {Subject}",
                 pending.UserId, provider.Id, claims.Subject);
             return new StepUpResult(false, "This IdP account is not linked to your Jellyfin user", null);
         }
-
-        // Update LastUsedAt for audit/UI display.
-        await _store.MutateAsync(pending.UserId, ud =>
-        {
-            var l = ud.SsoLinks.FirstOrDefault(x => LinkMatches(x, provider.Id, disc.Issuer, claims.Subject));
-            if (l is not null)
-            {
-                l.LastUsedAt = DateTime.UtcNow;
-                BackfillIssuer(l, disc.Issuer);
-            }
-        }).ConfigureAwait(false);
 
         return new StepUpResult(true, null, pending.UserId);
     }
@@ -766,6 +756,7 @@ public class OidcService : IDisposable
             {
                 ud.SsoLinks.Add(new SsoLink
                 {
+                    Id = OidcLinkRetirement.NewLinkId(),
                     ProviderId = provider.Id,
                     Subject = claims.Subject,
                     Issuer = disc.Issuer,
@@ -1069,6 +1060,7 @@ public class OidcService : IDisposable
         // Persist / update the SsoLink so future sign-ins match by sub.
         var link = new SsoLink
         {
+            Id = OidcLinkRetirement.NewLinkId(),
             ProviderId = provider.Id,
             Subject = claims.Subject,
             Issuer = disc.Issuer,
@@ -1809,9 +1801,11 @@ public class OidcService : IDisposable
     /// id is an editable slug, so the issuer has to agree as well. Links stored
     /// before the issuer was recorded have none; they are accepted so existing
     /// users keep signing in, and the caller records the issuer on that match.
+    /// A retired link (<see cref="SsoLink.RetiredAt"/>) never matches.
     /// </summary>
     internal static bool LinkMatches(SsoLink link, string providerId, string issuer, string subject)
-        => string.Equals(link.ProviderId, providerId, StringComparison.Ordinal)
+        => link.RetiredAt is null
+            && string.Equals(link.ProviderId, providerId, StringComparison.Ordinal)
             && string.Equals(link.Subject, subject, StringComparison.Ordinal)
             && (string.IsNullOrEmpty(link.Issuer)
                 || string.Equals(link.Issuer, issuer, StringComparison.Ordinal));
@@ -1821,6 +1815,23 @@ public class OidcService : IDisposable
     internal static void BackfillIssuer(SsoLink link, string issuer)
     {
         if (string.IsNullOrEmpty(link.Issuer)) link.Issuer = issuer;
+    }
+
+    /// <summary>Whether the user still holds an active link to this identity
+    /// when the step-up completes; records its use if so. Runs as one
+    /// read-modify-write under the store's per-user lock.</summary>
+    internal async Task<bool> CompleteStepUpLinkAsync(Guid userId, string providerId, string issuer, string subject)
+    {
+        var found = false;
+        await _store.MutateAsync(userId, ud =>
+        {
+            var l = ud.SsoLinks.FirstOrDefault(x => LinkMatches(x, providerId, issuer, subject));
+            if (l is null) return;
+            found = true;
+            l.LastUsedAt = DateTime.UtcNow;
+            BackfillIssuer(l, issuer);
+        }).ConfigureAwait(false);
+        return found;
     }
 
     /// <summary>Set a 256-bit random password on a freshly-created OIDC user
@@ -2477,29 +2488,22 @@ public class OidcService : IDisposable
         => discoveryUrl.TrimEnd('/') + "/.well-known/openid-configuration";
 
     /// <summary>
-    /// Canonical form of a configured discovery URL, used to tell whether an
-    /// edit points the provider somewhere else. Scheme and host case, a
-    /// trailing slash and the standard well-known suffix (which
-    /// <see cref="BuildStandardDiscoveryUrl"/> appends on its own) do not count
-    /// as a change; the path keeps its case because realm names are
-    /// case-sensitive.
+    /// Whether two configured discovery URLs name the same resource.
+    /// <see cref="GetDiscoveryAsync"/> reads the configured URL itself first
+    /// and only falls back to the well-known suffix when that read fails, so
+    /// a root URL and its suffixed form can return different documents and
+    /// count as different here. Only surrounding whitespace and the case of
+    /// the scheme and host, which never change the resource, are ignored.
     /// </summary>
-    internal static string NormalizeDiscoveryUrl(string? discoveryUrl)
+    internal static bool SameDiscoveryUrl(string? a, string? b)
+        => string.Equals(CanonicalDiscoveryUrl(a), CanonicalDiscoveryUrl(b), StringComparison.Ordinal);
+
+    private static string CanonicalDiscoveryUrl(string? discoveryUrl)
     {
-        const string WellKnown = "/.well-known/openid-configuration";
         var value = (discoveryUrl ?? string.Empty).Trim();
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
-        {
-            return value.TrimEnd('/');
-        }
-
-        var path = uri.AbsolutePath.TrimEnd('/');
-        if (path.EndsWith(WellKnown, StringComparison.OrdinalIgnoreCase))
-        {
-            path = path[..^WellKnown.Length].TrimEnd('/');
-        }
-
-        return uri.GetLeftPart(UriPartial.Authority).ToLowerInvariant() + path + uri.Query;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) return value;
+        var authority = uri.GetLeftPart(UriPartial.Authority);
+        return authority.ToLowerInvariant() + value[authority.Length..];
     }
 
     internal static string RequireDiscoveryEndpoint(
