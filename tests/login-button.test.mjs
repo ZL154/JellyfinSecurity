@@ -138,8 +138,8 @@ function challengedBrowser({mount = '/jellyfin', apiReady = false, pluginPage = 
                 for (const listener of this.listeners) listener();
             }
         },
-        ApiClient: {logout, ...client},
-        fetch: async () => response(),
+        ApiClient: client === null ? undefined : {logout, ...client},
+        fetch: async (input, init) => response(input, init),
     };
     context.window = context;
     if (apiReady) context.ApiClient.getUrl = path => apiOrigin + mount + '/' + path;
@@ -188,42 +188,48 @@ const apiIdentity = server => ({
     serverId: () => server.Id, getCurrentUserId: () => server.UserId, accessToken: () => server.AccessToken,
 });
 
-for (const [reason, time] of [['older', 10], ['tied', 20]]) {
-    for (const source of ['request', 'client', 'both']) {
-        test(`the ${reason} session is selected by ${source} identity even when listed second`, async () => {
-            const server = {...olderServer, DateLastAccessed: time};
-            const page = challengedBrowser({servers: [activeServer, null, server],
-                client: source === 'request' ? {} : apiIdentity(server)});
-            const init = source === 'client' ? undefined : {headers: {Authorization: 'MediaBrowser Token="' + server.AccessToken + '"'}};
-            const start = Date.now();
-            await Promise.all([page.challenge(init), page.challenge(init)]);
-            assert.deepEqual(page.navigations, [automaticPortal]);
-            const raw = page.session.get(portalKey);
-            const mark = JSON.parse(raw);
-            assert.ok(Number.isInteger(mark.at) && mark.at >= start && mark.at <= Date.now());
-            assert.deepEqual(mark, {at: mark.at, server: 'older', user: 'bob', tokenTail: '98765432'});
-            assert.ok(!raw.includes(server.AccessToken));
-        });
-    }
+for (const transport of ['fetch', 'XHR']) {
+    test(`a server 403 over ${transport} marks the only saved session matching the client`, async () => {
+        const page = challengedBrowser({servers: [activeServer], client: apiIdentity(activeServer)});
+        const start = Date.now();
+        if (transport === 'fetch') await Promise.all([page.challenge(), page.challenge()]);
+        else page.xhrChallenge({});
+        assert.deepEqual(page.navigations, [automaticPortal]);
+        const raw = page.session.get(portalKey);
+        const mark = JSON.parse(raw);
+        assert.ok(mark.at >= start && mark.at <= Date.now() && Number.isInteger(mark.at));
+        assert.deepEqual(mark, {at: mark.at, server: activeServer.Id, user: activeServer.UserId, tokenTail: '01234567'});
+        assert.ok(!raw.includes(activeServer.AccessToken));
+    });
 }
 
-for (const [reason, servers, client, token] of [
-    ['empty store', [], {}, olderServer.AccessToken],
-    ['missing identity', [olderServer, activeServer], {}, null],
-    ['short token', [{...olderServer, AccessToken: 'short'}], {}, 'short'],
-    ['exactly eight characters', [{...olderServer, AccessToken: '12345678'}], {}, '12345678'],
-    ['no matching token', [activeServer], {}, olderServer.AccessToken],
-    ['token reused by two entries', [olderServer, {...activeServer, AccessToken: olderServer.AccessToken}], {}, olderServer.AccessToken],
-    ['request and client disagree', [olderServer, activeServer], apiIdentity(activeServer), olderServer.AccessToken],
-    ['client user disagrees', [olderServer], apiIdentity({...olderServer, UserId: 'different'}), null],
+for (const [reason, servers, client] of [
+    ['two saved servers', [activeServer, olderServer], apiIdentity(activeServer)],
+    ['another signed-out server', [activeServer, {...olderServer, AccessToken: '', UserId: ''}], apiIdentity(activeServer)],
+    ['no servers', [], apiIdentity(activeServer)],
+    ['missing client', [activeServer], null],
+    ['incomplete client', [activeServer], {accessToken: () => activeServer.AccessToken}],
+    ['server mismatch', [activeServer], apiIdentity({...activeServer, Id: 'other'})],
+    ['user mismatch', [activeServer], apiIdentity({...activeServer, UserId: 'other'})],
+    ['token mismatch', [activeServer], apiIdentity({...activeServer, AccessToken: 'other-token-' + activeServer.AccessToken.slice(-8)})],
+    ['empty user', [{...activeServer, UserId: ''}], apiIdentity({...activeServer, UserId: ''})],
+    ['exactly eight token characters', [{...activeServer, AccessToken: '12345678'}], apiIdentity({...activeServer, AccessToken: '12345678'})],
 ]) {
-    test(`browser drops a stale marker on ${reason}`, async () => {
+    test(`a server 403 opens the plain portal on ${reason}`, async () => {
         const page = challengedBrowser({servers, client, session: new Map([[portalKey, 'stale']])});
-        await page.challenge(token ? {headers: {'X-Emby-Token': token}} : undefined);
+        await page.challenge({headers: {'X-Emby-Token': activeServer.AccessToken}});
         assert.equal(page.session.has(portalKey), false);
         assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
     });
 }
+
+test('a silently ignored marker write leaves the portal URL plain', async () => {
+    const session = new Map();
+    session.set = () => session;
+    const page = challengedBrowser({servers: [activeServer], client: apiIdentity(activeServer), session});
+    await page.challenge();
+    assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
+});
 
 test('a separate-origin automatic navigation leaves no marker on the source tab', async () => {
     const page = challengedBrowser({servers: [activeServer], client: apiIdentity(activeServer), apiReady: true,
@@ -233,46 +239,42 @@ test('a separate-origin automatic navigation leaves no marker on the source tab'
     assert.deepEqual(page.navigations, ['https://server.example.test/jellyfin/TwoFactorAuth/Login']);
 });
 
-test('a delayed 403 uses the fetch headers dispatched before the caller modified them', async () => {
-    let answer;
-    const page = challengedBrowser({servers: [activeServer, olderServer], response: () => new Promise(r => { answer = r; })});
-    const headers = new Headers({'X-Emby-Token': olderServer.AccessToken});
-    const request = page.challenge({headers});
-    headers.set('X-Emby-Token', activeServer.AccessToken);
-    answer(Response.json({twoFactorRequired: true}, {status: 403}));
-    await request;
-    assert.equal(JSON.parse(page.session.get(portalKey)).server, olderServer.Id);
+test('a local pending block discards a stranded marker and keeps the new session out of recovery', async () => {
+    const session = new Map([['__tfa_pending', String(Date.now())], [portalKey, 'old']]);
+    const page = challengedBrowser({servers: [activeServer], client: apiIdentity(activeServer), session,
+        response: () => assert.fail('pending request reached the network')});
+    const reply = await page.challenge();
+    assert.equal((await reply.json())._tfaShortCircuit, true);
+    assert.equal(session.has(portalKey), false);
+    assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
 });
 
-test('the pending gate uses the actual Request token and respects overriding init headers', async () => {
-    for (const override of [false, true]) {
-        const session = new Map([['__tfa_pending', String(Date.now())]]);
-        const page = challengedBrowser({servers: [activeServer, olderServer], session});
-        const input = new Request(ORIGIN + '/jellyfin/Users/Me', {headers: {Authorization: 'Bearer ' + olderServer.AccessToken}});
-        const reply = await page.challenge(override ? {headers: {'X-Emby-Token': activeServer.AccessToken}} : undefined, input);
-        assert.equal((await reply.json())._tfaShortCircuit, true);
-        assert.equal(JSON.parse(session.get(portalKey)).server, override ? activeServer.Id : olderServer.Id);
-    }
+for (const transport of ['fetch', 'XHR']) {
+    test(`a non-auth 401 over ${transport} only opens the plain portal`, async () => {
+        const page = challengedBrowser({servers: [activeServer], client: apiIdentity(activeServer),
+            response: () => Response.json({twoFactorRequired: true}, {status: 401})});
+        if (transport === 'fetch') await page.challenge();
+        else page.xhrChallenge({}, undefined, 401);
+        assert.equal(page.session.has(portalKey), false);
+        assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
+    });
+}
+
+test('one-pass headers, Request headers and Request overrides reach native fetch intact', async () => {
+    const received = [];
+    const page = challengedBrowser({response: (input, init) => {
+        const request = new Request(typeof input === 'string' ? new URL(input, ORIGIN) : input, init);
+        received.push([...request.headers]);
+        return Response.json({});
+    }});
+    const pairs = [['x-first', 'alpha'], ['x-second', 'beta']];
+    const input = new Request(ORIGIN + '/items', {headers: {'x-original': 'present'}});
+    await page.challenge({headers: pairs.values()});
+    await page.challenge(undefined, input);
+    await page.challenge({headers: pairs.values()}, input);
+    assert.deepEqual(received, [pairs, [['x-original', 'present']], pairs]);
 });
 
-test('XHR challenge uses the token sent in its headers', () => {
-    const page = challengedBrowser({servers: [activeServer, olderServer]});
-    page.xhrChallenge({'X-Emby-Authorization': 'MediaBrowser Client="Web", Token="' + olderServer.AccessToken + '"'});
-    assert.equal(JSON.parse(page.session.get(portalKey)).server, olderServer.Id);
-});
-
-test('a reused XHR identifies the challenged send even after an earlier successful request', () => {
-    const page = challengedBrowser({servers: [activeServer, olderServer]});
-    const xhr = page.xhrChallenge({'X-Emby-Token': activeServer.AccessToken}, undefined, 200);
-    page.xhrChallenge({'X-Emby-Token': olderServer.AccessToken}, xhr);
-    assert.equal(JSON.parse(page.session.get(portalKey)).server, olderServer.Id);
-});
-
-test('a request with a query token requires an exact saved match', async () => {
-    const page = challengedBrowser({servers: [activeServer, olderServer]});
-    await page.challenge(undefined, '/jellyfin/socket?api_key=' + olderServer.AccessToken);
-    assert.equal(JSON.parse(page.session.get(portalKey)).server, olderServer.Id);
-});
 test('embedded logout still completes before opening the stock picker without a portal marker', async () => {
     let release;
     const page = challengedBrowser({servers: [activeServer], native: true, logout: () => new Promise(r => { release = r; })});
@@ -288,19 +290,5 @@ test('embedded client without logout opens the portal without marking a session'
     const page = challengedBrowser({servers: [activeServer], native: true});
     await page.challenge();
     assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
-    assert.equal(page.session.has(portalKey), false);
-});
-
-test('two saved tokens with the same marker tuple cannot be distinguished on the portal', async () => {
-    const duplicateTail = {...olderServer, AccessToken: 'second-token-' + olderServer.AccessToken.slice(-8)};
-    const page = challengedBrowser({servers: [olderServer, duplicateTail]});
-    await page.challenge({headers: {'X-Emby-Token': olderServer.AccessToken}});
-    assert.equal(page.session.has(portalKey), false);
-});
-
-test('multiple differing tokens in an authorization header leave the form available', async () => {
-    const page = challengedBrowser({servers: [olderServer, activeServer]});
-    await page.challenge({headers: {Authorization:
-        'MediaBrowser Token="' + olderServer.AccessToken + '", Token="' + activeServer.AccessToken + '"'}});
     assert.equal(page.session.has(portalKey), false);
 });

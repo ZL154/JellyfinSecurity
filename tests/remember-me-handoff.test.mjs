@@ -379,9 +379,10 @@ function portalPage({mount = '/jellyfin', hash = '#tfa-recovery', raw = JSON.str
     const requests = [];
     const navigations = [];
     const timers = new Map();
+    const events = new Map();
     const node = id => {
         if (!nodes.has(id)) nodes.set(id, {
-            hidden: false, focus() {}, getAttribute: () => stockLogin,
+            hidden: false, focus() { this.focused = true; }, getAttribute: () => stockLogin,
             addEventListener(name, fn) { this[name] = fn; },
         });
         return nodes.get(id);
@@ -389,7 +390,7 @@ function portalPage({mount = '/jellyfin', hash = '#tfa-recovery', raw = JSON.str
     const ctx = {
         document: {readyState: 'loading', addEventListener() {}, getElementById: node, querySelector: node},
         window: {
-            addEventListener() {},
+            addEventListener(name, listener) { events.set(name, listener); },
             location: {search: '', hash, href: 'https://example.test/jellyfin/TwoFactorAuth/Login' + hash},
         },
         localStorage: local, sessionStorage: session, URL, URLSearchParams, Date: {now: () => now},
@@ -402,7 +403,7 @@ function portalPage({mount = '/jellyfin', hash = '#tfa-recovery', raw = JSON.str
     });
     const script = read('login.html').match(/<script>([\s\S]*?)<\/script>/)[1];
     runInNewContext(script, ctx);
-    return {card: node('.card'), requests, navigations, local, session, timers, link: node('standardLoginLink')};
+    return {card: node('.card'), events, username: node('username'), requests, navigations, local, session, timers, link: node('standardLoginLink')};
 }
 
 test('portal consumes the marker before the GET and forwards only matching entries', async () => {
@@ -600,12 +601,29 @@ test('a plain visit after an interrupted handoff consumes the marker and leaves 
     assert.equal(page.local.getItem('jellyfin_credentials'), credentials(...saved));
 });
 
-test('the departing password form stays hidden while the new document is still loading', async () => {
+test('an interrupted outgoing stock login restores the form after three seconds', async () => {
     const page = portalPage();
     await settlePortal();
     assert.deepEqual(page.navigations, [stockLogin]);
     assert.equal(page.card.hidden, true);
+    const [[restore, delay]] = page.timers;
+    assert.equal(delay, 3000);
+    page.username.focused = false;
+    restore();
+    assert.equal(page.card.hidden, false);
+    assert.equal(page.username.focused, true);
+    assert.deepEqual(page.navigations, [stockLogin]);
+});
+
+test('pagehide cancels the outgoing deadline and only a persisted pageshow restores the form', async () => {
+    const page = portalPage();
+    await settlePortal();
+    page.events.get('pagehide')();
     assert.equal(page.timers.size, 0);
+    page.events.get('pageshow')({persisted: false});
+    assert.equal(page.card.hidden, true);
+    page.events.get('pageshow')({persisted: true});
+    assert.equal(page.card.hidden, false);
 });
 
 test('an eight-character credential equal to a marker tail survives cleanup', async () => {

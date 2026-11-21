@@ -334,6 +334,9 @@
                     var value = JSON.stringify(forwarded);
                     sessionStorage.setItem(guardKey, value);
                     if (sessionStorage.getItem(guardKey) !== value) { showForm(); return; }
+                    // [#360] A 204 can leave this document in place after assigning the stock URL.
+                    timer = setTimeout(showForm, 3000);
+                    window.addEventListener('pagehide', function () { clearTimeout(timer); });
                     window.addEventListener('pageshow', function (event) { if (event.persisted) showForm(); });
                     window.location.href = urls.login;
                 }).catch(function () {

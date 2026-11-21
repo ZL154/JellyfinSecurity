@@ -281,61 +281,26 @@
         honorSessionHandoff(window.Storage.prototype, window.localStorage, window.sessionStorage,
             isExplicitLoginRoute, Date.now());
     } catch (e) { /* storage unavailable: nothing was handed over */ }
-    // [#360] Capture the request identity at dispatch, before a delayed 403 or a
-    // client switch. Only the short marker is ever written to browser storage.
-    function recoveryIdentity(url, headers) {
-        try {
-            var request = new URL(url, window.location.origin + window.location.pathname);
-            if (request.origin !== window.location.origin) return null;
-            headers = new Headers(headers);
-            var tokens = [];
-            request.searchParams.forEach(function (value, name) {
-                if (/^(api_key|apikey)$/i.test(name) && value) tokens.push(value);
-            });
-            ['X-Emby-Token', 'X-MediaBrowser-Token'].forEach(function (name) {
-                var value = headers.get(name);
-                if (value) tokens.push(value);
-            });
-            ['Authorization', 'X-Emby-Authorization'].forEach(function (name) {
-                var value = headers.get(name) || '';
-                var fields = /(?:^|[, ])(?:Bearer\s+([^,\s]+)|Token=(?:"([^"]+)"|([^,\s]+)))/gi;
-                var field;
-                while ((field = fields.exec(value)) !== null) tokens.push(field[1] || field[2] || field[3]);
-            });
-            var api = window.ApiClient;
-            var clientToken = api && typeof api.accessToken === 'function' && api.accessToken();
-            var server = api && typeof api.serverId === 'function' && api.serverId();
-            var user = api && typeof api.getCurrentUserId === 'function' && api.getCurrentUserId();
-            if (!tokens.length && !(clientToken && server && user)) return null;
-            if (clientToken) tokens.push(clientToken);
-            var token = tokens[0];
-            if (!isFilledString(token) || token.length <= TFA_HANDOFF_TOKEN_TAIL
-                || !tokens.every(function (value) { return value === token; })) return null;
-            return { token: token, server: server, user: user };
-        } catch (e) { return null; }
-    }
-
-    function markChallengedSession(portal, identity) {
+    function markChallengedSession(portal, serverChallenge) {
         try {
             var key = '__tfa_portal_recovery';
             sessionStorage.removeItem(key);
-            if (!identity || new URL(portal, window.location.origin).origin !== window.location.origin) return false;
+            if (!serverChallenge || new URL(portal, window.location.origin).origin !== window.location.origin) return false;
+
+            // [#360] The 403 names no account. Only forward a single saved session
+            // that the active client still identifies when the response arrives.
             var servers = (JSON.parse(localStorage.getItem('jellyfin_credentials')) || {}).Servers;
-            if (!Array.isArray(servers)) return false;
-            var matches = servers.filter(function (entry) {
-                return entry && isFilledString(entry.Id) && isFilledString(entry.UserId)
-                    && entry.AccessToken === identity.token && (!identity.server || entry.Id === identity.server)
-                    && (!identity.user || entry.UserId === identity.user);
-            });
-            if (matches.length !== 1) return false;
-            var match = matches[0];
-            var tail = identity.token.slice(-TFA_HANDOFF_TOKEN_TAIL);
-            // The shortened marker must still identify only this saved session.
-            if (servers.some(function (other) {
-                return other && other !== match && other.Id === match.Id && other.UserId === match.UserId
-                    && isFilledString(other.AccessToken) && other.AccessToken.slice(-TFA_HANDOFF_TOKEN_TAIL) === tail;
-            })) return false;
-            var value = JSON.stringify({ at: Date.now(), server: match.Id, user: match.UserId, tokenTail: tail });
+            if (!Array.isArray(servers) || servers.length !== 1) return false;
+            var entry = servers[0];
+            var api = window.ApiClient;
+            if (!entry || !isFilledString(entry.Id) || !isFilledString(entry.UserId)
+                || !isFilledString(entry.AccessToken) || entry.AccessToken.length <= TFA_HANDOFF_TOKEN_TAIL
+                || !api || typeof api.serverId !== 'function' || api.serverId() !== entry.Id
+                || typeof api.getCurrentUserId !== 'function' || api.getCurrentUserId() !== entry.UserId
+                || typeof api.accessToken !== 'function' || api.accessToken() !== entry.AccessToken) return false;
+
+            var value = JSON.stringify({at: Date.now(), server: entry.Id, user: entry.UserId,
+                tokenTail: entry.AccessToken.slice(-TFA_HANDOFF_TOKEN_TAIL)});
             sessionStorage.setItem(key, value);
             return sessionStorage.getItem(key) === value;
         } catch (e) { return false; }
@@ -592,8 +557,6 @@
         window.fetch = function (input, init) {
             var url = (typeof input === 'string') ? input : (input && input.url) || '';
 
-            var identity = recoveryIdentity(url || (input && input.href),
-                init && init.headers !== undefined ? init.headers : input && input.headers);
             // v2.4.12: short-circuit when 2FA is pending. Always allow the
             // auth paths through (so the user can re-authenticate) and the
             // /TwoFactorAuth/* paths that complete the challenge.
@@ -601,7 +564,7 @@
                 // [v2.5.14] (#99) Don't just dead-end every call with a synthetic
                 // 403 (which Jellyfin Web surfaces as "server cannot be reached");
                 // move the user to the 2FA portal so they can actually complete it.
-                redirectToTfaPortal(identity);
+                redirectToTfaPortal(false);
                 return Promise.resolve(syntheticTfaBlockedResponse());
             }
 
@@ -647,7 +610,7 @@
                         // else, send them to the portal instead of silently arming
                         // the flag and freezing the app.
                         if (!isAuthPath(url)) {
-                            redirectToTfaPortal(identity);
+                            redirectToTfaPortal(resp.status === 403 && (body.twoFactorRequired === true || body.TwoFactorRequired === true));
                         }
                     }
                     // [v2.5.10] (#55) account-lockout message on the login page.
@@ -707,14 +670,8 @@
     // through to the native send. The browser's own violation (and whatever the
     // calling library does with it) is then reported unmodified.
     XMLHttpRequest.prototype.open = function (method, url, async) {
-        // [#360] A reused XHR must not redirect with the previous send's identity.
-        if (this.__tfa_blockedListener) {
-            this.removeEventListener('readystatechange', this.__tfa_blockedListener);
-            this.__tfa_blockedListener = null;
-        }
         this.__tfa_url = url;
         this.__tfa_authHeaders = {};
-        this.__tfa_recoveryHeaders = null;
         this.__tfa_sync = (arguments.length > 2 && async === false);
         return origOpen.apply(this, arguments);
     };
@@ -729,12 +686,7 @@
                 return;
             }
         }
-        var result = origSetHeader.apply(this, arguments);
-        if (!this.__tfa_sync && /^(authorization|x-emby-authorization|x-emby-token|x-mediabrowser-token)$/i.test(name)) {
-            if (!this.__tfa_recoveryHeaders) this.__tfa_recoveryHeaders = [];
-            this.__tfa_recoveryHeaders.push([name, value]);
-        }
-        return result;
+        return origSetHeader.apply(this, arguments);
     };
     XMLHttpRequest.prototype.send = function () {
         var xhr = this;
@@ -790,8 +742,6 @@
                 handleTwoFactorBody(body);
             });
         } else {
-            var identity = recoveryIdentity(xhr.__tfa_url, xhr.__tfa_recoveryHeaders || undefined);
-            xhr.__tfa_recoveryHeaders = null;
             // v2.4.12: non-auth XHR — we don't short-circuit (faking XHR
             // completion events is too brittle and risks confusing
             // jellyfin-apiclient consumers), but if the response carries
@@ -799,7 +749,7 @@
             // calls short-circuit cleanly. The server-side 401->403 change
             // means even these uninterceptable XHRs don't get counted by
             // fail2ban's status-401-only failregex.
-            xhr.__tfa_blockedListener = function () {
+            xhr.addEventListener('readystatechange', function () {
                 if (xhr.readyState !== 4) return;
                 // [v2.5.21] (#137) This success-clear used to sit BELOW the
                 // 401/403 early-return, so a 2xx could never reach it — the XHR
@@ -820,10 +770,9 @@
                     // [v2.5.14] (#99) Same soft-lock escape as the fetch path —
                     // a non-auth XHR reporting 2FA-required has no challenge
                     // token to redirect to, so route the user to the portal.
-                    redirectToTfaPortal(identity);
+                    redirectToTfaPortal(xhr.status === 403 && (body.twoFactorRequired === true || body.TwoFactorRequired === true));
                 }
-            };
-            xhr.addEventListener('readystatechange', xhr.__tfa_blockedListener);
+            });
         }
         return origSend.apply(this, arguments);
     };
