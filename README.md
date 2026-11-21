@@ -173,7 +173,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - Per-IP rate limiting on verify (10/min) and email send (5/5min); per-challenge attempt limit (5 before the challenge is burned).
 - Per-user lockout after 5 failed attempts (15-minute cool-down, configurable).
 - LAN bypass (configurable CIDR ranges), and a force-2FA-for-all-users mode.
-- **Disable password sign-in** restricts account passwords while keeping configured OIDC and Quick Connect methods available. Administrators, LAN clients and exempt network ranges have separate exceptions. An optional setting allows app passwords for native apps. On the stock web login page, the server hides the password fields before they appear to a client covered by the restriction. Select **Sign in with a password instead** to reveal them. Changing **Remember Me** also sets the session preference for OIDC, including the in-app device flow.
+- **Disable password sign-in** — OIDC / Quick-Connect-only mode with independently toggleable admin / LAN / exempt-CIDR escape hatches, plus an opt-in setting that lets app passwords (never the account password) through for native apps.
 
 A completed password change through the plugin's reset link, Jellyfin's Forgot Password PIN, an administrator setting or resetting a password, or a user changing their password clears the plugin's temporary failed-attempt count and lockout. Requesting a reset, opening a link, or submitting an invalid or expired token does not. The plugin leaves second factors, trusted devices, IP bans, the token blocklist, and Jellyfin's own failed-attempt count and disabled-account status unchanged.
 
@@ -557,6 +557,10 @@ Implicit email/username linking is refused for administrators, ambiguous matches
 - admin fills it in Jellyfin Security → Users tab's email column (press Tab after typing to save)
 
 **4. Done.** Sign out and the login page now shows a "Sign in with Google" button. Click → Google consent → bridge page → signed in.
+
+When **Disable password sign-in** applies to the client's address, Jellyfin Web hides the username, password and submit button before the manual form appears. Select **Sign in with a password instead** to reveal the form. The server still checks whether the account may use a password from that address.
+
+The native **Remember Me** checkbox also sets the session preference for OIDC, including the in-app device flow. Clear it before starting sign-in if you want Jellyfin Web to ask you to sign in again on its next full load.
 
 ### Other providers
 
