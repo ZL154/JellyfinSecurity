@@ -1,6 +1,10 @@
 // Run with Node.js 18+: node --test tests/oidc-bridge.test.mjs
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {spawn} from 'node:child_process';
+import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
+import {createServer} from 'node:http';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {test} from 'node:test';
 import {runInNewContext} from 'node:vm';
 
@@ -345,7 +349,7 @@ function stockLoginPage(bootstrap, mounted = true, route = {}) {
     if (route.servers) storage.set('jellyfin_credentials', JSON.stringify({Servers: route.servers}));
     const window = {location, __tfaPasswordLoginDisabled: bootstrap};
     const context = {
-        window, URL, URLSearchParams, XMLHttpRequest: class {}, console: {log() {}, warn() {}},
+        window, URL, URLSearchParams, setTimeout, clearTimeout, XMLHttpRequest: class {}, console: {log() {}, warn() {}},
         localStorage: {getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value)},
         document: {
             currentScript: {src: 'https://jellyfin.test/mount/TwoFactorAuth/inject?v=1'},
@@ -356,7 +360,11 @@ function stockLoginPage(bootstrap, mounted = true, route = {}) {
             }},
             addEventListener: (event, handler) => listeners.set(event, handler),
             getElementById: id => links.get(id),
-            createElement: () => ({
+            querySelectorAll: () => [],
+            adoptedStyleSheets: [],
+            createElement: tag => ({
+                get href() { return this.address?.href; },
+                set href(value) { this.address = new URL(value, location); },
                 style: {}, addEventListener(event, handler) { this[event] = handler; },
                 remove() { links.delete(this.id); },
             }),
@@ -378,7 +386,6 @@ function stockLoginPage(bootstrap, mounted = true, route = {}) {
 test('the stock form is gated before it mounts and the admin reveal survives another gate pass', () => {
     const page = stockLoginPage(true, false);
     assert.ok(page.classes.has('tfa-pw-gated'));
-    assert.ok(page.styles.some(style => style.textContent.includes('.manualLoginForm')));
     page.mount();
     page.window.gate();
     page.links.get('__tfa_pw_reveal').click({preventDefault() {}});
@@ -406,7 +413,7 @@ for (const base of ['https://other.test/mount', 'https://jellyfin.test/other']) 
         const first = page.window.refresh();
         page.window.ApiClient = {getUrl: path => base + '/' + path};
         page.window.gate();
-        assert.equal(page.classes.has('tfa-pw-gated'), false);
+        assert.ok(page.classes.has('tfa-pw-gated'), 'keep the credentials hidden while the selected server answers');
         const second = page.window.refresh();
         page.requests.get(base + '/TwoFactorAuth/public-config')(false);
         await second;
@@ -435,7 +442,7 @@ test('a login route naming another saved server uses its address before the glob
     const page = stockLoginPage(true, true, {serverId: 'second', servers: [
         {Id: 'SECOND', LastConnectionMode: 1, RemoteAddress: other, ManualAddress: 'https://unused.test'},
     ]});
-    assert.equal(page.classes.has('tfa-pw-gated'), false);
+    assert.ok(page.classes.has('tfa-pw-gated'), 'pending before the stock form mounts');
     page.window.ApiClient = {serverId: () => 'first', getUrl: path => 'https://jellyfin.test/mount/' + path};
     page.window.gate();
     const request = page.requests.get(other + '/TwoFactorAuth/public-config');
@@ -452,3 +459,150 @@ test('an unknown named server never inherits the shell policy', () => {
     assert.equal(page.classes.has('tfa-pw-gated'), false);
     assert.equal(page.links.has('__tfa_pw_reveal'), false);
 });
+
+// These functions run inside Chromium. The script under test is a blocking
+// external resource and the form follows it in parser order, as in Jellyfin.
+function prepareGateBrowser(mode) {
+    window.postResult = window.fetch.bind(window);
+    window.errors = [];
+    window.addEventListener('error', event => window.errors.push(event.message));
+    localStorage.setItem('jellyfin_credentials', JSON.stringify({Servers: [
+        {Id: 'B', ManualAddress: location.origin + '/b', LastConnectionMode: 2},
+    ]}));
+    if (mode === 'legacy') {
+        window.URLSearchParams = undefined;
+        window.URL = function () { throw new Error('URL unavailable'); };
+        Array.prototype.find = undefined;
+    }
+    if (mode === 'legacy' || mode === 'older-selector') {
+        const supports = CSS.supports.bind(CSS);
+        CSS.supports = (...args) => args[0].includes(':has(') ? false : supports(...args);
+        const insert = CSSStyleSheet.prototype.insertRule;
+        CSSStyleSheet.prototype.insertRule = function (rule, ...args) {
+            if (rule.includes(':has(')) throw new SyntaxError('Unsupported selector');
+            return insert.call(this, rule, ...args);
+        };
+    }
+    if (mode === 'element-fallback') window.CSSStyleSheet = undefined;
+    window.fetch = async url => {
+        if (String(url).includes('/b/TwoFactorAuth/public-config')) {
+            return new Promise(resolve => { window.answerB = value => resolve(new Response(
+                JSON.stringify({passwordLoginDisabled: value}), {status: value === 'error' ? 503 : 200})); });
+        }
+        const body = String(url).includes('public-config') ? {passwordLoginDisabled: true} : [];
+        return new Response(JSON.stringify(body));
+    };
+}
+
+async function exerciseGateBrowser(mode) {
+    const check = (value, why) => { if (!value) throw new Error(why); };
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const id = name => document.getElementById(name);
+    function controls(hidden) {
+        for (const name of ['txtManualName', 'txtManualPassword', 'submit', 'remember', 'quick', 'provider', 'passkey', 'extra']) {
+            const element = id(name);
+            const allowed = !hidden || !['txtManualName', 'txtManualPassword', 'submit'].includes(name);
+            check(!!element.getClientRects().length === allowed, name + ' visibility, expected ' + allowed);
+            element.focus();
+            check((document.activeElement === element) === allowed, name + ' focus, expected ' + allowed);
+        }
+    }
+    const reveal = () => id('__tfa_pw_reveal');
+    try {
+        await frame();
+        controls(true);
+        await frame();
+        controls(true);
+        if (mode === 'switch') {
+            reveal().click();
+            controls(false);
+            document.querySelector('form').replaceWith(document.querySelector('form').cloneNode(true));
+            window.dispatchEvent(new Event('hashchange'));
+            await frame();
+            controls(false);
+            // The stock router can replace the view after pushState without a hashchange event.
+            history.pushState(null, '', '#/login?serverid=B');
+            document.querySelector('form').replaceWith(document.querySelector('form').cloneNode(true));
+            await frame();
+            controls(true);
+        }
+        if (mode.startsWith('foreign') || mode === 'switch' || mode === 'legacy') {
+            check(typeof window.answerB === 'function', 'selected server did not receive a policy request');
+            check(!reveal(), 'pending server offered a premature reveal');
+            if (mode === 'foreign-timeout') {
+                await wait(2800);
+                controls(false);
+            }
+            const answer = mode === 'foreign-allowed' ? false : mode === 'foreign-error' ? 'error' : true;
+            window.answerB(answer);
+            await wait(30);
+            controls(answer === true);
+            if (answer !== true) check(!reveal(), 'allowed server retained a reveal link');
+        }
+        if (!['foreign-allowed', 'foreign-error'].includes(mode)) {
+            await wait(300);
+            controls(true);
+            check(reveal(), 'missing reveal link');
+            reveal().click();
+            check(document.activeElement === id('txtManualName'), 'reveal did not focus username');
+            controls(false);
+        }
+        check(!window.errors.length, window.errors.join('; '));
+        await window.postResult('/result', {method: 'POST', body: 'pass'});
+    } catch (error) {
+        await window.postResult('/result', {method: 'POST', body: error.message + ' ' + window.errors.join('; ')});
+    }
+}
+
+for (const mode of ['restricted', 'older-selector', 'element-fallback', 'foreign-allowed', 'foreign-restricted',
+    'foreign-timeout', 'foreign-error', 'switch', 'legacy']) {
+    test('rendered stock password form: ' + mode, async t => {
+        const profile = mkdtempSync(join(tmpdir(), 'jellyfin-gate-'));
+        const named = mode.startsWith('foreign') || mode === 'legacy';
+        let finish;
+        const result = new Promise(resolve => { finish = resolve; });
+        const timer = setTimeout(() => finish('browser timed out'), 15000);
+        const server = createServer((req, res) => {
+            if (req.url === '/result') {
+                let body = '';
+                req.setEncoding('utf8').on('data', chunk => { body += chunk; }).on('end', () => { res.end(); finish(body); });
+            } else if (req.url === '/a/TwoFactorAuth/inject') {
+                res.writeHead(200, {'Content-Type': 'application/javascript'});
+                res.end('window.__tfaPasswordLoginDisabled = true;\n' + inject);
+            } else if (req.url.startsWith('/a/web/')) {
+                const policy = ['restricted', 'older-selector', 'element-fallback'].includes(mode)
+                    ? "style-src 'self'" : "style-src 'self' 'unsafe-inline'";
+                res.writeHead(200, {'Content-Type': 'text/html', 'Content-Security-Policy': policy});
+                res.end(`<!doctype html><head><script>(${prepareGateBrowser})(${JSON.stringify(mode)})</script>
+                    <script src="/a/TwoFactorAuth/inject"></script></head><body>
+                    <form class="manualLoginForm"><div class="inputContainer"><input id="txtManualName"></div>
+                    <div class="inputContainer"><input id="txtManualPassword" type="password"></div>
+                    <label><input id="remember" type="checkbox" class="chkRememberLogin">Remember Me</label>
+                    <button id="submit" type="submit">Sign In</button><button id="quick" type="button">Quick Connect</button>
+                    <a href="#" id="provider">SSO</a><a href="#" id="passkey">Passkey</a>
+                    <div class="inputContainer"><input id="extra" type="search"></div></form>
+                    <script>(${exerciseGateBrowser})(${JSON.stringify(mode)})</script>`);
+            } else { res.writeHead(404); res.end(); }
+        });
+        let browser;
+        t.after(async () => {
+            clearTimeout(timer);
+            if (browser && browser.exitCode === null && browser.signalCode === null && browser.pid) {
+                const exited = new Promise(resolve => browser.once('exit', resolve));
+                browser.kill();
+                await exited;
+            }
+            server.closeAllConnections();
+            await new Promise(resolve => server.close(resolve));
+            rmSync(profile, {recursive: true, force: true, maxRetries: 3});
+        });
+        await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+        const url = 'http://127.0.0.1:' + server.address().port + '/a/web/index.html#/login?' + (named ? 'serverid=B' : 'redirect=home');
+        browser = spawn(process.env.CHROME_BIN || 'google-chrome', ['--headless', '--disable-background-networking',
+            '--disable-component-update', '--no-first-run', '--user-data-dir=' + profile, url], {stdio: 'ignore'});
+        browser.once('error', error => finish(error.message));
+        browser.once('exit', code => finish('browser exited with ' + code));
+        assert.equal(await result, 'pass');
+    });
+}

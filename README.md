@@ -558,7 +558,7 @@ Implicit email/username linking is refused for administrators, ambiguous matches
 
 **4. Done.** Sign out and the login page now shows a "Sign in with Google" button. Click → Google consent → bridge page → signed in.
 
-When **Disable password sign-in** applies to the client's address, Jellyfin Web hides the username, password and submit button before the manual form appears. Select **Sign in with a password instead** to reveal the form. The server still checks whether the account may use a password from that address.
+When **Disable password sign-in** applies to the client's address, Jellyfin Web hides the username, password and submit button before the manual form appears. Select **Sign in with a password instead** to reveal the form for that server. When you select a different server, the password controls stay hidden while its policy loads. A server that allows passwords shows them as soon as it answers. If the request fails or takes longer than 2.5 seconds, the stock form becomes available. A later response can still apply the restriction. The server checks every password sign-in against its own policy.
 
 The native **Remember Me** checkbox also sets the session preference for OIDC, including the in-app device flow. Clear it before starting sign-in if you want Jellyfin Web to ask you to sign in again on its next full load.
 
