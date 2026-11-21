@@ -566,6 +566,19 @@ test('a concurrent replacement seen at read-back forwards without overwriting it
     assert.equal(local.getItem('jellyfin_credentials'), replacement);
 });
 
+test('a second server seen at credential write-back keeps the form and pending state', async () => {
+    const {local, session} = storages({jellyfin_credentials: credentials(challenged)}, {__tfa_pending: 'armed'});
+    const concurrent = credentials({...challenged, AccessToken: '', UserId: ''}, entry(now, {Id: 'another-server'}));
+    local.setItem = key => local.items.set(key, concurrent);
+    const page = portalPage({local, session});
+    await settlePortal();
+    assert.equal(local.getItem('jellyfin_credentials'), concurrent);
+    assert.equal(session.getItem('__tfa_pending'), 'armed');
+    assert.equal(session.getItem(forwardKey), null);
+    assert.equal(page.card.hidden, false);
+    assert.deepEqual(page.navigations, []);
+});
+
 test('an expired forwarding guard allows the session to recover again', async () => {
     const session = new FakeStorage({[forwardKey]: JSON.stringify([{...mark, at: now - 60001}])});
     const page = portalPage({session});

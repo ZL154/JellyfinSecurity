@@ -281,6 +281,17 @@
         honorSessionHandoff(window.Storage.prototype, window.localStorage, window.sessionStorage,
             isExplicitLoginRoute, Date.now());
     } catch (e) { /* storage unavailable: nothing was handed over */ }
+    // [#360] A child server can share the active mount's prefix. Only recognize
+    // top-level API routes from Jellyfin 10.11 and 12 for automatic recovery.
+    var TFA_API_CONTROLLERS = [
+        'albums', 'artists', 'audio', 'backup', 'branding', 'channels', 'clientlog', 'collections',
+        'devices', 'displaypreferences', 'environment', 'fallbackfont', 'genres', 'getutctime', 'items',
+        'libraries', 'library', 'livestreams', 'livetv', 'localization', 'mediasegments', 'movies',
+        'musicgenres', 'packages', 'persons', 'playback', 'playingitems', 'playlists', 'plugins',
+        'providers', 'quickconnect', 'repositories', 'scheduledtasks', 'search', 'sessions', 'shows',
+        'songs', 'startup', 'studios', 'syncplay', 'system', 'trailers', 'userfavoriteitems',
+        'userimage', 'useritems', 'userplayeditems', 'users', 'userviews', 'videos', 'years'
+    ];
     function markChallengedSession(portal, responseUrl) {
         try {
             var key = '__tfa_portal_recovery';
@@ -296,7 +307,8 @@
             if (base.origin !== window.location.origin || source.origin !== base.origin || target.origin !== base.origin
                 || target.pathname !== prefix + 'TwoFactorAuth/Login' || source.pathname.indexOf(prefix) !== 0) return false;
             var route = source.pathname.substring(prefix.length);
-            if (!route || isAuthPath(decodeURIComponent(route))) return false;
+            var controller = route.split('/')[0].toLowerCase();
+            if (TFA_API_CONTROLLERS.indexOf(controller) < 0 || isAuthPath(decodeURIComponent(route))) return false;
 
             // [#360] The 403 names no account. Only forward a single saved session
             // that the active client still identifies when the response arrives.
