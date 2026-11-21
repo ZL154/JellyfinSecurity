@@ -1220,78 +1220,149 @@
         var input = findUsernameInput();
         return input && input.value ? input.value.trim() : '';
     }
-    // [v2.5.7] (issue #48 feature, Gaarindor): lazy-fetch the anonymous
-    // public-config so addLoginButton can honour HideBuiltInLoginButtons.
-    // First call kicks off the fetch and returns early; subsequent polling
-    // ticks (tryInject runs every ~250ms) re-enter and either render or
-    // skip based on the flag.
+    // A stock Web client can select another server without reloading the shell.
+    // Include the mount path so two servers at the same origin stay distinct.
     var _tfaPublicCfg = null;
-    var _tfaPublicCfgPromise = null;
-    function fetchTfaPublicConfig() {
-        if (_tfaPublicCfgPromise) return _tfaPublicCfgPromise;
-        // [#251] Sent with the page's cookies, like the plugin's other
-        // requests. Without them, an access layer in front of Jellyfin
-        // (forward auth, Cloudflare Access) answered with its own sign-in page
-        // and the login page silently dropped to the default layout: password
-        // form and built-in buttons back, links back under Sign In. The
-        // fallback stays, but now says why in the console.
-        _tfaPublicCfgPromise = fetch(serverUrl('TwoFactorAuth/public-config'))
+    var clientConfig = null;
+    var namedServerConfig = null;
+    var stockWeb = /\/web(?:\/|$)/i.test(window.location.pathname);
+    var bootstrapConfigUrl = stockWeb && typeof window.__tfaPasswordLoginDisabled === 'boolean' && document.currentScript && document.currentScript.src
+        ? new URL('public-config', document.currentScript.src).href : null;
+
+    function publicConfigUrl() {
+        if (bootstrapConfigUrl && !window.ApiClient) return bootstrapConfigUrl;
+        return new URL(serverUrl('TwoFactorAuth/public-config'), window.location.href).href;
+    }
+
+    // A named stock login route uses getOrCreateApiClient(serverid), which
+    // can differ from window.ApiClient until sign-in succeeds. Resolve only
+    // an address in Jellyfin's own saved servers, using its connection mode.
+    function loginConfigUrl(activeUrl) {
+        var hash = window.location.hash || '';
+        var query = hash.indexOf('?');
+        if (query < 0) return activeUrl;
+        var id = new URLSearchParams(hash.slice(query + 1)).getAll('serverid').pop();
+        if (!id) return activeUrl;
+        try {
+            id = id.toLowerCase();
+            var api = window.ApiClient;
+            if (api && typeof api.serverId === 'function' && String(api.serverId()).toLowerCase() === id) return activeUrl;
+            var servers = JSON.parse(localStorage.getItem('jellyfin_credentials')).Servers;
+            var server = servers.find(function (s) { return s && String(s.Id).toLowerCase() === id; });
+            if (!server) return null;
+            var address;
+            switch (server.LastConnectionMode) {
+                case 0: address = server.LocalAddress; break;
+                case 1: address = server.RemoteAddress; break;
+                case 2: address = server.ManualAddress; break;
+                default: address = server.ManualAddress || server.LocalAddress || server.RemoteAddress;
+            }
+            var url = new URL(address);
+            if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.search || url.hash) return null;
+            return url.href.replace(/\/+$/, '') + '/TwoFactorAuth/public-config';
+        } catch (e) { return null; }
+    }
+
+    function requestPublicConfig(url) {
+        var request = {url: url, value: null};
+        request.promise = fetch(url)
             .then(function (r) {
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 return r.json().catch(function () {
                     throw new Error('not JSON' + (r.redirected ? ', redirected to ' + r.url : ''));
                 });
             })
-            .then(function (j) { _tfaPublicCfg = j || {}; return _tfaPublicCfg; })
             .catch(function (e) {
-                console.warn('[2FA] Could not read TwoFactorAuth/public-config (' + ((e && e.message) || e) + '); the login page uses its default layout.');
-                _tfaPublicCfg = {};
-                return _tfaPublicCfg;
+                console.warn('[2FA] Could not read TwoFactorAuth/public-config (' + ((e && e.message) || e) + ').');
+                return {};
+            })
+            .then(function (config) {
+                request.value = config || {};
+                if (request === clientConfig) _tfaPublicCfg = request.value;
+                if (request === clientConfig || request === namedServerConfig) applyPasswordLoginGate();
+                return request.value;
             });
-        return _tfaPublicCfgPromise;
+        return request;
     }
 
-    // [v2.5.11] (#69, ZEROX7) hide the username/password form when password
-    // sign-in is disabled for this client — leaving only the SSO + Quick Connect
-    // affordances. A discreet "sign in with a password instead" link reveals it
-    // again (the server still allows admins / LAN / exempt IPs via the escape
-    // hatches; everyone else gets a clear 403 if they submit).
-    function _tfaFieldWrap(form, sel) {
-        var el = form.querySelector(sel);
-        if (!el) return null;
-        return el.closest('.inputContainer') || el;
+    function fetchTfaPublicConfig() {
+        var url = publicConfigUrl();
+        if (!clientConfig || clientConfig.url !== url) {
+            clientConfig = namedServerConfig && namedServerConfig.url === url ? namedServerConfig : requestPublicConfig(url);
+            _tfaPublicCfg = clientConfig.value;
+        }
+        return clientConfig.promise;
     }
+
+    function setPasswordGate(gated) {
+        if (gated && !document.getElementById('__tfa_pw_gate_style')) {
+            var style = document.createElement('style');
+            style.id = '__tfa_pw_gate_style';
+            var form = 'html.tfa-pw-gated .manualLoginForm > ';
+            // Match the credential fields even before Jellyfin upgrades them.
+            // Keep the submit element in the DOM as the alternative buttons' anchor.
+            var hide = '{display:none !important}';
+            style.textContent = form + 'button[type="submit"]' + hide
+                + form + '.inputContainer:has(#txtManualName, input[name="username"], #username, input[type="password"])' + hide
+                + '@supports not selector(:has(*)){' + form + '.inputContainer:nth-of-type(-n+2)' + hide + '}';
+            document.head.appendChild(style);
+        }
+        document.documentElement.classList.toggle('tfa-pw-gated', gated);
+    }
+
+    if (bootstrapConfigUrl) {
+        setPasswordGate(window.__tfaPasswordLoginDisabled && bootstrapConfigUrl === loginConfigUrl(publicConfigUrl()));
+    }
+
+    if (stockWeb) {
+        // Native submit saves this too. OIDC navigates away or starts its
+        // device flow without submitting, so capture the actual user change.
+        document.addEventListener('change', function (event) {
+            var box = event.target;
+            if (!box || !box.matches || !box.matches('.manualLoginForm .chkRememberLogin')) return;
+            try { localStorage.setItem('enableAutoLogin', String(box.checked)); } catch (e) { /* storage blocked */ }
+        });
+    }
+
     function applyPasswordLoginGate() {
-        if (!isLoginPage() || _tfaPublicCfg === null) return;
-        var form = document.querySelector('.manualLoginForm') || document.querySelector('form');
-        if (!form) return;
-        var REVEAL_ID = '__tfa_pw_reveal';
-        var wraps = [
-            _tfaFieldWrap(form, 'input#txtManualName, input[name="username"], input#username'),
-            _tfaFieldWrap(form, 'input[type="password"], input#txtManualPassword, input[name="password"]'),
-            form.querySelector('button[type="submit"]')
-        ];
-        if (!_tfaPublicCfg.passwordLoginDisabled || window.__tfaPwRevealed) {
-            // Not gated (or the user revealed it): make sure everything is visible.
-            wraps.forEach(function (w) { if (w) w.style.display = ''; });
-            var ex0 = document.getElementById(REVEAL_ID); if (ex0 && _tfaPublicCfg.passwordLoginDisabled !== true) ex0.remove();
+        if (!stockWeb) return;
+        var activeUrl = publicConfigUrl();
+        var url = loginConfigUrl(activeUrl);
+        var login = isLoginPage();
+        if (login) fetchTfaPublicConfig();
+        var policy = clientConfig;
+        if (url !== activeUrl) {
+            if (url && login && (!namedServerConfig || namedServerConfig.url !== url)) namedServerConfig = requestPublicConfig(url);
+            policy = namedServerConfig;
+        }
+        var config = policy && policy.url === url && policy.value;
+        var disabled = config && typeof config.passwordLoginDisabled === 'boolean'
+            ? config.passwordLoginDisabled : !!bootstrapConfigUrl && bootstrapConfigUrl === url && window.__tfaPasswordLoginDisabled;
+        var gated = disabled && !window.__tfaPwRevealed;
+        setPasswordGate(gated);
+        if (!login) return;
+
+        var link = document.getElementById('__tfa_pw_reveal');
+        if (!gated) {
+            if (link) link.remove();
             return;
         }
-        wraps.forEach(function (w) { if (w) w.style.display = 'none'; });
-        if (!document.getElementById(REVEAL_ID)) {
-            var link = document.createElement('a');
-            link.id = REVEAL_ID;
-            link.href = '#';
-            link.textContent = (_tfaPublicCfg.passwordLoginRevealText || T('tfa.login.pw_reveal', 'Sign in with a password instead'));
-            link.style.cssText = 'display:block;margin-top:12px;text-align:center;color:#7d828b;font-size:13px;cursor:pointer;';
-            link.addEventListener('click', function (e) {
-                e.preventDefault();
-                window.__tfaPwRevealed = true;
-                wraps.forEach(function (w) { if (w) w.style.display = ''; });
-                link.remove();
-            });
-            form.appendChild(link);
-        }
+        var form = document.querySelector('.manualLoginForm');
+        if (!form || link) return;
+        link = document.createElement('a');
+        link.id = '__tfa_pw_reveal';
+        link.href = '#';
+        link.textContent = (config && config.passwordLoginRevealText) || T('tfa.login.pw_reveal', 'Sign in with a password instead');
+        link.style.cssText = 'display:block;margin-top:12px;text-align:center;color:#7d828b;font-size:13px;cursor:pointer;';
+        link.addEventListener('click', function (e) {
+            e.preventDefault();
+            window.__tfaPwRevealed = true;
+            setPasswordGate(false);
+            link.remove();
+            var username = form.querySelector('input#txtManualName, input[name="username"], input#username');
+            if (username) username.focus();
+        });
+        form.appendChild(link);
     }
 
     // [v2.5.11] (#71, ZEROX7) "Forgot password?" link → reveals a small inline
@@ -1413,8 +1484,6 @@
         // fetch is in flight (_tfaPublicCfg === null) skip injecting — the
         // next polling tick will re-enter once the response arrives.
         if (_tfaPublicCfg === null) { fetchTfaPublicConfig(); return; }
-        // [v2.5.11] (#69) hide/reveal the password form per the public-config gate.
-        applyPasswordLoginGate();
         // [v2.5.11] (#71) add the "Forgot password?" affordance when enabled.
         addForgotPasswordLink();
         // [v2.5.12] (#80) hide Jellyfin's native forgot-password link when ours is active.
@@ -2246,6 +2315,7 @@
     }
 
     function tryInject() {
+        applyPasswordLoginGate();
         addLoginButton();
         injectSidebar();
         injectUserMenu();

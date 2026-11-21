@@ -327,3 +327,128 @@ test('proxy sign-in: an imported configuration keeps only valid, narrow proxy ad
     const exporter = readFileSync(new URL('../src/Jellyfin.Plugin.TwoFactorAuth/Services/ConfigExportService.cs', import.meta.url), 'utf8');
     assert.match(exporter, /c\.HeaderSignInProxyCidrs = SanitizeCidrArray\(c\.HeaderSignInProxyCidrs, "HeaderSignInProxyCidrs"\);/);
 });
+
+function stockLoginPage(bootstrap, mounted = true, route = {}) {
+    const classes = new Set();
+    const styles = [];
+    const listeners = new Map();
+    const storage = new Map();
+    const requests = new Map();
+    const links = new Map();
+    const username = {style: {}, closest: () => null, focus() { this.focused = true; }};
+    let form = {
+        querySelector: selector => selector.includes('txtManualName') ? username : null,
+        appendChild: link => links.set(link.id, link),
+    };
+    const location = new URL('https://jellyfin.test/mount/web/index.html#/login');
+    if (route.serverId) location.hash += '?serverid=' + route.serverId;
+    if (route.servers) storage.set('jellyfin_credentials', JSON.stringify({Servers: route.servers}));
+    const window = {location, __tfaPasswordLoginDisabled: bootstrap};
+    const context = {
+        window, URL, URLSearchParams, XMLHttpRequest: class {}, console: {log() {}, warn() {}},
+        localStorage: {getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value)},
+        document: {
+            currentScript: {src: 'https://jellyfin.test/mount/TwoFactorAuth/inject?v=1'},
+            readyState: 'loading',
+            documentElement: {classList: {
+                toggle(name, on) { if (on) classes.add(name); else classes.delete(name); },
+                remove(name) { classes.delete(name); },
+            }},
+            addEventListener: (event, handler) => listeners.set(event, handler),
+            getElementById: id => links.get(id),
+            createElement: () => ({
+                style: {}, addEventListener(event, handler) { this[event] = handler; },
+                remove() { links.delete(this.id); },
+            }),
+            head: {appendChild: style => { styles.push(style); links.set(style.id, style); }},
+            querySelector: selector => mounted && selector === '.manualLoginForm' ? form : null,
+        },
+        fetch: url => new Promise(resolve => requests.set(new URL(url, location).href, disabled => {
+            resolve({ok: true, json: async () => ({passwordLoginDisabled: disabled})});
+        })),
+    };
+    const boot = inject.replace("    if (document.readyState === 'loading') {",
+        '    window.refresh = fetchTfaPublicConfig; window.gate = applyPasswordLoginGate;\n$&');
+    runInNewContext(boot, context);
+    return {window, classes, styles, listeners, storage, requests, links, username,
+        mount() { form = {...form}; mounted = true; },
+    };
+}
+
+test('the stock form is gated before it mounts and the admin reveal survives another gate pass', () => {
+    const page = stockLoginPage(true, false);
+    assert.ok(page.classes.has('tfa-pw-gated'));
+    assert.ok(page.styles.some(style => style.textContent.includes('.manualLoginForm')));
+    page.mount();
+    page.window.gate();
+    page.links.get('__tfa_pw_reveal').click({preventDefault() {}});
+    assert.equal(page.classes.has('tfa-pw-gated'), false);
+    assert.equal(page.username.focused, true);
+    page.mount();
+    page.window.gate();
+    assert.equal(page.classes.has('tfa-pw-gated'), false);
+    assert.equal(page.links.has('__tfa_pw_reveal'), false);
+});
+
+test('an unbootstrapped script waits for the selected server policy', async () => {
+    const page = stockLoginPage(undefined);
+    assert.equal(page.classes.has('tfa-pw-gated'), false);
+    const ready = page.window.refresh();
+    page.requests.get('https://jellyfin.test/mount/TwoFactorAuth/public-config')(true);
+    await ready;
+    page.window.gate();
+    assert.ok(page.classes.has('tfa-pw-gated'));
+});
+
+for (const base of ['https://other.test/mount', 'https://jellyfin.test/other']) {
+    test('a selected server supplies its own policy at ' + base, async () => {
+        const page = stockLoginPage(true);
+        const first = page.window.refresh();
+        page.window.ApiClient = {getUrl: path => base + '/' + path};
+        page.window.gate();
+        assert.equal(page.classes.has('tfa-pw-gated'), false);
+        const second = page.window.refresh();
+        page.requests.get(base + '/TwoFactorAuth/public-config')(false);
+        await second;
+        page.requests.get('https://jellyfin.test/mount/TwoFactorAuth/public-config')(true);
+        await first;
+        page.window.gate();
+        assert.equal(page.classes.has('tfa-pw-gated'), false, 'late previous response must not restore the old gate');
+        assert.equal(page.links.has('__tfa_pw_reveal'), false);
+    });
+}
+
+test('a remember-me change is stored before either OIDC flow can leave the form', () => {
+    const page = stockLoginPage(false);
+    for (const checked of [false, true]) {
+        page.listeners.get('change')({target: {
+            checked, matches: selector => selector === '.manualLoginForm .chkRememberLogin',
+        }});
+        assert.equal(page.storage.get('enableAutoLogin'), String(checked));
+    }
+    page.listeners.get('change')({target: {checked: false, matches: () => false}});
+    assert.equal(page.storage.get('enableAutoLogin'), 'true');
+});
+
+test('a login route naming another saved server uses its address before the global client switches', async () => {
+    const other = 'https://jellyfin.test/second';
+    const page = stockLoginPage(true, true, {serverId: 'second', servers: [
+        {Id: 'SECOND', LastConnectionMode: 1, RemoteAddress: other, ManualAddress: 'https://unused.test'},
+    ]});
+    assert.equal(page.classes.has('tfa-pw-gated'), false);
+    page.window.ApiClient = {serverId: () => 'first', getUrl: path => 'https://jellyfin.test/mount/' + path};
+    page.window.gate();
+    const request = page.requests.get(other + '/TwoFactorAuth/public-config');
+    assert.ok(request);
+    request(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(page.classes.has('tfa-pw-gated'), 'apply the selected policy when it arrives even if polling has stopped');
+    assert.ok(page.links.has('__tfa_pw_reveal'));
+});
+
+test('an unknown named server never inherits the shell policy', () => {
+    const page = stockLoginPage(true, true, {serverId: 'unknown', servers: []});
+    page.window.gate();
+    assert.equal(page.classes.has('tfa-pw-gated'), false);
+    assert.equal(page.links.has('__tfa_pw_reveal'), false);
+});
