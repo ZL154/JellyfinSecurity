@@ -82,10 +82,14 @@ public class SignInChallengeIntegrationTests
     }
 
     [Theory]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    [InlineData(false, false)]
-    public async Task A_trusted_target_can_use_its_returned_quick_connect_token(bool eligible, bool camelCase)
+    [InlineData(true, false, "DeviceId", true)]
+    [InlineData(true, true, "deviceId", true)]
+    [InlineData(false, false, "DeviceId", true)]
+    [InlineData(false, true, "deviceId", false)]
+    [InlineData(false, true, "DeviceId", false)]
+    [InlineData(false, false, "deviceId", false)]
+    public async Task Headerless_quick_connect_uses_response_casing_allowed_for_the_target(
+        bool eligible, bool camelCase, string deviceProperty, bool accepted)
     {
         using var fixture = new SignInPolicyFixture();
         await fixture.EnrollPasswordlessAsync();
@@ -95,13 +99,16 @@ public class SignInChallengeIntegrationTests
         fixture.Challenges.BlockToken(SignInPolicyFixture.Token);
         var response = await fixture.SignInAsync("/media/Users/AuthenticateWithQuickConnect/", authenticate: context =>
         {
+            context.Request.Headers.Remove("X-Emby-Device-Id");
             context.Request.Headers["X-TwoFactor-Token"] = credential;
             return Task.CompletedTask;
-        }, camelCase: camelCase);
-        Assert.Equal(200, response.Status);
-        Assert.Equal(200, await fixture.UseTokenAsync());
-        Assert.True(fixture.Challenges.IsTokenVerified(SignInPolicyFixture.Token));
-        Assert.Equal("trusted_device", Assert.Single(await fixture.Store.GetAuditLogAsync()).Method);
+        }, camelCase: camelCase, sessionInfo: new Dictionary<string, string> { [deviceProperty] = SignInPolicyFixture.DeviceId });
+        Assert.Equal(accepted ? 200 : 401, response.Status);
+        Assert.Equal(accepted ? 200 : 403, await fixture.UseTokenAsync());
+        Assert.Equal(accepted, fixture.Challenges.IsTokenVerified(SignInPolicyFixture.Token));
+        var audit = await fixture.Store.GetAuditLogAsync();
+        if (accepted) Assert.Equal("trusted_device", Assert.Single(audit).Method);
+        else Assert.DoesNotContain(audit, entry => entry.Method == "trusted_device");
     }
 
     [Theory]
@@ -622,7 +629,7 @@ internal sealed class SignInPolicyFixture : IDisposable
 
     internal async Task<(int Status, string Body)> SignInAsync(
         string path = "/Users/AuthenticateByName", string password = "sample-secret", Func<HttpContext, Task>? authenticate = null,
-        object? responsePolicy = null, bool camelCase = false)
+        object? responsePolicy = null, bool camelCase = false, object? sessionInfo = null)
     {
         var context = new DefaultHttpContext();
         context.Request.Method = "POST";
@@ -645,7 +652,7 @@ internal sealed class SignInPolicyFixture : IDisposable
                 await ctx.Response.WriteAsync(JsonSerializer.Serialize(new
                 {
                     AccessToken = Token,
-                    SessionInfo = new { Id = "session", DeviceId },
+                    SessionInfo = sessionInfo ?? new { Id = "session", DeviceId },
                     User = new { Id = User.Id.ToString("N"), Name = User.Username, Policy = responsePolicy ?? new { IsAdministrator = User.HasPermission(PermissionKind.IsAdministrator) } },
                 }, camelCase ? JsonSerializerOptions.Web : JsonSerializerOptions.Default));
             }, Store, Challenges, new BypassEvaluator(NullLogger<BypassEvaluator>.Instance), new AppPasswordService(), _pending,

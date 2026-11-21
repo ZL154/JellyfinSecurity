@@ -457,19 +457,35 @@ public class TwoFactorEnforcementMiddleware
             // bypasses. Fallback: Jellyfin's auth RESPONSE body (which we
             // already parsed into authResult) contains SessionInfo.DeviceId,
             // which is the authoritative value Jellyfin assigned this session.
-            var sessionInfo = authResult.SessionInfo;
-            if (string.IsNullOrEmpty(deviceId) && sessionInfo.ValueKind == JsonValueKind.Object)
+            if (exemptQuickConnect)
             {
-                if ((sessionInfo.TryGetProperty("DeviceId", out var id) || sessionInfo.TryGetProperty("deviceId", out id))
-                    && id.ValueKind == JsonValueKind.String)
+                deviceId = authResult.GetTargetDeviceProperty("DeviceId", "deviceId");
+                if (string.Equals(deviceName, "Unknown", StringComparison.Ordinal))
                 {
-                    deviceId = id.GetString();
+                    deviceName = authResult.GetTargetDeviceProperty("DeviceName", "deviceName") ?? "Unknown";
                 }
-                if (string.Equals(deviceName, "Unknown", StringComparison.Ordinal)
-                    && (sessionInfo.TryGetProperty("DeviceName", out var name) || sessionInfo.TryGetProperty("deviceName", out name))
-                    && name.ValueKind == JsonValueKind.String)
+            }
+            else if (string.IsNullOrEmpty(deviceId))
+            {
+                try
                 {
-                    deviceName = name.GetString() ?? "Unknown";
+                    using var authDoc = JsonDocument.Parse(bodyBytes);
+                    if (authDoc.RootElement.TryGetProperty("SessionInfo", out var si))
+                    {
+                        if (si.TryGetProperty("DeviceId", out var did) && did.ValueKind == JsonValueKind.String)
+                        {
+                            deviceId = did.GetString();
+                        }
+                        if (string.Equals(deviceName, "Unknown", StringComparison.Ordinal)
+                            && si.TryGetProperty("DeviceName", out var dn) && dn.ValueKind == JsonValueKind.String)
+                        {
+                            deviceName = dn.GetString() ?? "Unknown";
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[2FA] Could not fallback-parse SessionInfo.DeviceId from auth body");
                 }
             }
 
@@ -924,6 +940,18 @@ public class TwoFactorEnforcementMiddleware
         public AuthUser? User { get; set; }
 
         public JsonElement SessionInfo { get; set; }
+
+        public string? GetTargetDeviceProperty(string pascalName, string camelName)
+        {
+            if (SessionInfo.ValueKind == JsonValueKind.Object
+                && (SessionInfo.TryGetProperty(pascalName, out var value) || SessionInfo.TryGetProperty(camelName, out value))
+                && value.ValueKind == JsonValueKind.String)
+            {
+                return value.GetString();
+            }
+
+            return null;
+        }
     }
 
     private sealed class AuthUser

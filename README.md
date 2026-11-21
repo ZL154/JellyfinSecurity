@@ -400,7 +400,7 @@ Two things take precedence even when password sign-in is unavailable. The card s
 - the **2FA enforcement scope**: an account it covers (every account with **All users**, administrators with **Admins only**) still requires a second factor at sign-in.
 - a verified **authenticator app** on the account also requires a second factor at sign-in.
 
-The **Emergency lockout** on the **I lost my phone** card turns the switch back on, so the next password sign-in asks for a second factor again. Pending emergency recovery still requires a challenge when the account has no local password.
+The **Emergency lockout** on the **I lost my phone** card turns the switch back on, so the next password sign-in asks for a second factor again. If this account still has an enrolled passkey, pending emergency recovery keeps the challenge in place even without a local password.
 
 For sign-in through an SSO provider, that provider's **Skip plugin 2FA** option (on by default, see [Per-provider options](#per-provider-options)) keeps the plugin from asking for its own second factor after the provider's sign-in.
 
