@@ -1,9 +1,9 @@
 using System.Text.Json;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
+using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using Jellyfin.Plugin.TwoFactorAuth.Tests.Helpers;
 using NSubstitute;
-using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Xunit;
 
 namespace Jellyfin.Plugin.TwoFactorAuth.Tests;
@@ -17,6 +17,7 @@ public class SignInChallengePolicyTests
         using var saved = JsonDocument.Parse(JsonSerializer.Serialize(data));
         Assert.False(saved.RootElement.GetProperty("PasskeyRequiresSecondFactor").GetBoolean());
     }
+
     [Fact]
     public void A_legacy_record_requires_the_second_factor_by_default()
     {
@@ -51,33 +52,42 @@ public class SignInChallengePolicyTests
         foreach (var scope in Enum.GetValues<EnforcementScope>())
         foreach (var admin in new[] { false, true })
         foreach (var legacy in new[] { false, true })
-        foreach (var factor in new[] { "none", "passkey", "verified", "unverified", "both" })
+        foreach (var totp in new[] { "off", "unverified", "verified" })
+        foreach (var passkey in new[] { false, true })
         foreach (var preference in new[] { false, true })
+        foreach (var unavailable in new[] { false, true })
+        foreach (var recovery in new[] { false, true })
         {
-            var reason = legacy || scope == EnforcementScope.All || (scope == EnforcementScope.Admins && admin)
-                ? "scope"
-                : factor is "verified" or "both"
-                    ? "authenticator"
-                    : factor == "passkey" && preference ? "passkey" : "none";
-            yield return new object[] { scope, admin, legacy, factor, preference, reason };
+            string reason = (passkey, preference, unavailable, recovery) switch
+            {
+                (true, true, false, _) => "passkey",
+                (true, true, true, true) => "recovery",
+                _ => "none",
+            };
+            if (totp == "verified") reason = "authenticator";
+            if (legacy || scope == EnforcementScope.All || (scope == EnforcementScope.Admins && admin)) reason = "scope";
+            yield return new object[] { scope, admin, legacy, totp, passkey, preference, unavailable, recovery, reason };
         }
     }
 
     [Theory]
     [MemberData(nameof(Matrix))]
-    public void The_policy_honors_scope_verified_totp_and_the_preference(
-        EnforcementScope scope, bool admin, bool legacy, string factor, bool preference, string reason)
+    public void The_policy_honors_scope_authenticator_passkey_and_emergency_recovery(
+        EnforcementScope scope, bool admin, bool legacy, string totp, bool passkey,
+        bool preference, bool unavailable, bool recovery, string reason)
     {
         var config = new PluginConfiguration { EnforcementScope = scope, RequireForAllUsers = legacy };
         var data = new UserTwoFactorData
         {
-            TotpEnabled = factor is "verified" or "unverified" or "both",
-            TotpVerified = factor is "verified" or "both",
+            TotpEnabled = totp != "off",
+            TotpVerified = totp == "verified",
             PasskeyRequiresSecondFactor = preference,
+            ForceRecoveryOnNextLogin = recovery,
         };
-        if (factor is "passkey" or "both") data.Passkeys.Add(new PasskeyCredential());
+        if (passkey) data.Passkeys.Add(new PasskeyCredential());
 
-        Assert.Equal(reason, SignInChallengePolicy.GetReason(data, config, admin));
-        Assert.Equal(reason != "none", SignInChallengePolicy.RequiresChallenge(data, config, admin));
+        Assert.Equal(reason, SignInChallengePolicy.GetReason(data, config, admin, unavailable));
+        Assert.Equal(reason != "none", SignInChallengePolicy.RequiresChallenge(data, config, admin, unavailable));
+        Assert.Equal(preference, data.PasskeyRequiresSecondFactor);
     }
 }

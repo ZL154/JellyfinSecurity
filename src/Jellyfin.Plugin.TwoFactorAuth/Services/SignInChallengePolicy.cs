@@ -7,16 +7,23 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// which enrolled methods can answer that challenge.</summary>
 internal static class SignInChallengePolicy
 {
-    internal static bool RequiresChallenge(UserTwoFactorData data, PluginConfiguration config, bool isAdmin)
-        => GetReason(data, config, isAdmin) != "none";
+    internal static bool RequiresChallenge(
+        UserTwoFactorData data, PluginConfiguration config, bool isAdmin, bool accountPasswordSignInUnavailable = false)
+        => GetReason(data, config, isAdmin, accountPasswordSignInUnavailable) != "none";
 
     /// <summary>Returns the effective reason, with mandatory scope first,
     /// followed by the authenticator app and the passkey preference.</summary>
-    internal static string GetReason(UserTwoFactorData data, PluginConfiguration config, bool isAdmin)
+    internal static string GetReason(
+        UserTwoFactorData data, PluginConfiguration config, bool isAdmin, bool accountPasswordSignInUnavailable = false)
     {
         if (config.ShouldEnforceFor(isAdmin)) return "scope";
         if (data.TotpEnabled && data.TotpVerified) return "authenticator";
-        if (PasskeyPolicy.HasUsable(data, config) && data.PasskeyRequiresSecondFactor) return "passkey";
+        if (PasskeyPolicy.HasUsable(data, config) && data.PasskeyRequiresSecondFactor)
+        {
+            if (accountPasswordSignInUnavailable) return data.ForceRecoveryOnNextLogin ? "recovery" : "none";
+            return "passkey";
+        }
+
         return "none";
     }
 }

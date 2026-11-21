@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging;
@@ -43,6 +46,37 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     public static Plugin? Instance { get; private set; }
+
+    /// <summary>Checks whether the blank-password gate and the current provider
+    /// assignment rule out ordinary password sign-in for this resolved account.</summary>
+    internal bool AccountPasswordSignInUnavailable(User? user)
+    {
+        try
+        {
+            var config = Configuration;
+            if (!config.Enabled || !config.BlockEmptyPasswordLogin || user is null || !string.IsNullOrEmpty(user.Password))
+            {
+                return false;
+            }
+
+            var providerId = user.AuthenticationProviderId;
+            if (!string.Equals(providerId, SignInProviderRestore.PluginProviderId, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var providers = _appHost.GetExports<IAuthenticationProvider>(false)
+                .Select(provider => (TypeName: provider.GetType().FullName, Enabled: provider.IsEnabled))
+                .ToList();
+            return providers.Any(provider => provider.Enabled && provider.TypeName == SignInProviderRestore.PluginProviderId)
+                && CodeAfterPasswordMiddleware.PasswordProviderIndex(providerId, providers) >= 0;
+        }
+        catch (Exception)
+        {
+            // Incomplete account or provider evidence must keep the existing challenge.
+            return false;
+        }
+    }
 
     /// <summary>
     /// [#213] Jellyfin calls this before it removes the plugin, while the server
