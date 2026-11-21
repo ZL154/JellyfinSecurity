@@ -319,7 +319,37 @@
                 return;
             }
         } catch (e) { /* fall back to the standalone portal */ }
-        try { window.location.href = serverUrl('TwoFactorAuth/Login'); } catch (e) {}
+        try {
+            var portal = serverUrl('TwoFactorAuth/Login');
+            if (!inEmbeddedWebView()) {
+                try {
+                    var key = '__tfa_portal_recovery';
+                    sessionStorage.removeItem(key);
+                    if (new URL(portal, window.location.origin).origin === window.location.origin) {
+                        // [#360] Name the session Jellyfin Web reconnects to, as in honorSessionHandoff.
+                        var servers = (JSON.parse(localStorage.getItem('jellyfin_credentials')) || {}).Servers;
+                        var latest = null;
+                        var lastAccessed = -1;
+                        if (Array.isArray(servers)) {
+                            for (var i = 0; i < servers.length; i++) {
+                                if (!servers[i]) continue;
+                                var at = servers[i].DateLastAccessed == null ? 0 : servers[i].DateLastAccessed;
+                                if (!isWholeNumber(at)) { latest = null; break; }
+                                if (at > lastAccessed) { latest = servers[i]; lastAccessed = at; }
+                            }
+                        }
+                        if (latest && isFilledString(latest.Id) && isFilledString(latest.UserId)
+                            && isFilledString(latest.AccessToken) && latest.AccessToken.length > TFA_HANDOFF_TOKEN_TAIL) {
+                            sessionStorage.setItem(key, JSON.stringify({
+                                at: Date.now(), server: latest.Id, user: latest.UserId,
+                                tokenTail: latest.AccessToken.slice(-TFA_HANDOFF_TOKEN_TAIL)
+                            }));
+                        }
+                    }
+                } catch (e) { /* the portal also works without a marker */ }
+            }
+            window.location.href = portal;
+        } catch (e) {}
     }
     // [v2.5.16] (#100, Re4mstr) Enforce the OIDC force-password-onboarding step so
     // a flagged user can't escape it by pressing Back. The OIDC bridge sets

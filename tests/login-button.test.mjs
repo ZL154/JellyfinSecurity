@@ -150,3 +150,51 @@ for (const mount of ['', '/jellyfin', '/webmedia', '/TwoFactorAuthLab']) {
         });
     }
 }
+
+const portalKey = '__tfa_portal_recovery';
+const activeServer = {Id: 'active', UserId: 'alice', AccessToken: 'fixture-active-01234567', DateLastAccessed: 20};
+const olderServer = {Id: 'older', UserId: 'bob', AccessToken: 'fixture-older-98765432', DateLastAccessed: 10};
+
+test('browser marks only the latest stored session and navigates once', async () => {
+    const page = challengedBrowser({servers: [olderServer, null, activeServer]});
+    const start = Date.now();
+    await Promise.all([page.challenge(), page.challenge()]);
+    assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
+    const raw = page.session.get(portalKey);
+    assert.ok(raw);
+    const mark = JSON.parse(raw);
+    assert.ok(Number.isInteger(mark.at) && mark.at >= start && mark.at <= Date.now());
+    assert.deepEqual(mark, {at: mark.at, server: 'active', user: 'alice', tokenTail: '01234567'});
+    assert.ok(!raw.includes(activeServer.AccessToken));
+});
+
+for (const [reason, servers] of [
+    ['empty store', []], ['missing token', [olderServer, {...activeServer, AccessToken: ''}]],
+    ['short token', [{...activeServer, AccessToken: 'short'}]],
+    ['invalid access date', [activeServer, {...olderServer, DateLastAccessed: 'unknown'}]],
+]) {
+    test(`browser discards a stale marker on ${reason}`, async () => {
+        const page = challengedBrowser({servers, session: new Map([[portalKey, 'stale']])});
+        await page.challenge();
+        assert.equal(page.session.has(portalKey), false);
+        assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
+    });
+}
+
+test('embedded logout still completes before opening the stock picker without a portal marker', async () => {
+    let release;
+    const page = challengedBrowser({servers: [activeServer], native: true, logout: () => new Promise(r => { release = r; })});
+    await page.challenge();
+    assert.deepEqual(page.navigations, []);
+    release();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(page.navigations, ['/jellyfin/web/index.html#/login']);
+    assert.equal(page.session.has(portalKey), false);
+});
+
+test('embedded client without logout opens the portal without marking a session', async () => {
+    const page = challengedBrowser({servers: [activeServer], native: true});
+    await page.challenge();
+    assert.deepEqual(page.navigations, ['/jellyfin/TwoFactorAuth/Login']);
+    assert.equal(page.session.has(portalKey), false);
+});
