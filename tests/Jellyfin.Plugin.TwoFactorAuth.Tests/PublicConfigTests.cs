@@ -30,6 +30,7 @@ public class PublicConfigTests
             "hideBuiltInTwoFactorButton",
             "hideTwoFactorSetupForSsoUsers",
             "loginLinksBelowQuickConnect",
+            "passkeysEnabled",
             "passwordLoginDisabled",
             "passwordRecoveryEnabled",
             "proxySignInAvailable",

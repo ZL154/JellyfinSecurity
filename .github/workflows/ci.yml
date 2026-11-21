@@ -124,6 +124,10 @@ jobs:
         run: node --test tests/password-reset-page.test.mjs
       - name: Test login page button JavaScript
         run: node --test tests/login-button.test.mjs
+      - name: Test Setup page passkeys switch JavaScript
+        run: node --test tests/passkeys-disabled-setup-page.test.mjs
+      - name: Test admin page passkeys switch JavaScript
+        run: node --test tests/passkeys-disabled-admin-page.test.mjs
 
       - name: Test with coverage
         run: |

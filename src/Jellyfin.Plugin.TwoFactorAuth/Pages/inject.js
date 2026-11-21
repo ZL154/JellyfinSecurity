@@ -1422,7 +1422,10 @@
         // [v2.5.16] (#79) also hide it when there's no visible password field at all.
         hideForgotPasswordWhenNoPassword();
         var hideTwoFa = !!_tfaPublicCfg.hideBuiltInTwoFactorButton;
-        var hidePasskey = !!_tfaPublicCfg.hideBuiltInPasskeyButton;
+        // [#345] With passkeys turned off on the server, passkey sign-in is
+        // refused, so the button goes too. A missing field (an older server,
+        // or public-config not read) keeps it, as before.
+        var hidePasskey = !!_tfaPublicCfg.hideBuiltInPasskeyButton || _tfaPublicCfg.passkeysEnabled === false;
         var signInBtn = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
         if (!signInBtn) return;
         // [v2.5.7] (issue #48): if the admin re-enabled a button on a page

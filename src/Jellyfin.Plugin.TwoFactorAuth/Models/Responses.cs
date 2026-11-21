@@ -84,10 +84,13 @@ public class UserTwoFactorStatus
 
     public bool PasskeyRequiresSecondFactor { get; set; } = true;
 
+    /// <summary>Whether the account's provider and current password policy rule out ordinary password sign-in.</summary>
+    public bool AccountPasswordSignInUnavailable { get; set; }
+
     /// <summary>The challenge policy before device or primary-factor bypasses.</summary>
     public bool PasswordSignInRequiresSecondFactor { get; set; }
 
-    /// <summary>Effective policy reason: scope, authenticator, passkey or none.</summary>
+    /// <summary>Effective policy reason for sign-in, including pending emergency recovery.</summary>
     public string PasswordSignInSecondFactorReason { get; set; } = "none";
 
     /// <summary>[v2.5.6] (round-5 fix D): admin-selected mode for the

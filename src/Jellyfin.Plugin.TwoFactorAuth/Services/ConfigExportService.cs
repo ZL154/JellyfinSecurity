@@ -21,12 +21,14 @@ public class ConfigExportService
     private readonly SecurityScoreService _score;
     private readonly ILogger<ConfigExportService> _logger;
     private readonly Func<PluginConfiguration> _configAccessor;
+    private readonly PasskeyDisableGuard _passkeyDisableGuard;
 
     public ConfigExportService(
         UserTwoFactorStore store,
         SecurityScoreService score,
-        ILogger<ConfigExportService> logger)
-        : this(store, score, logger, () => Plugin.Instance?.Configuration ?? new PluginConfiguration())
+        ILogger<ConfigExportService> logger,
+        PasskeyDisableGuard passkeyDisableGuard)
+        : this(store, score, logger, () => Plugin.Instance?.Configuration ?? new PluginConfiguration(), passkeyDisableGuard)
     {
     }
 
@@ -34,12 +36,17 @@ public class ConfigExportService
         UserTwoFactorStore store,
         SecurityScoreService score,
         ILogger<ConfigExportService> logger,
-        Func<PluginConfiguration> configAccessor)
+        Func<PluginConfiguration> configAccessor,
+        PasskeyDisableGuard? passkeyDisableGuard = null)
     {
         _store = store;
         _score = score;
         _logger = logger;
         _configAccessor = configAccessor;
+        // The isolated configuration test seam has no Jellyfin user manager.
+        // Keep its guard conservative: every stored user counts, named by GUID,
+        // and none is taken for an administrator, which can only list more users.
+        _passkeyDisableGuard = passkeyDisableGuard ?? new PasskeyDisableGuard(store, id => new PasskeyAccount(id.ToString("N"), false));
     }
 
     public async Task<ExportEnvelope> BuildConfigOnlyExportAsync()
@@ -302,7 +309,8 @@ public class ConfigExportService
             catch (System.Text.Json.JsonException ex) { return new ImportResult(false, $"Decrypted payload malformed: {ex.Message}"); }
             if (full is null) return new ImportResult(false, "Decrypted payload was null");
 
-            ApplyConfiguration(full.Configuration);
+            var refusal = await ApplyConfiguration(full.Configuration, full.Users).ConfigureAwait(false);
+            if (refusal is not null) return refusal;
             if (full.Users.Count > 0)
             {
                 foreach (var u in full.Users)
@@ -326,7 +334,8 @@ public class ConfigExportService
             catch (System.Text.Json.JsonException ex) { return new ImportResult(false, $"Payload malformed: {ex.Message}"); }
             if (plain is null) return new ImportResult(false, "Payload was null");
 
-            ApplyConfiguration(plain.Configuration);
+            var refusal = await ApplyConfiguration(plain.Configuration).ConfigureAwait(false);
+            if (refusal is not null) return refusal;
             if (plain.RedactedFields.Count > 0)
                 warnings.Add($"Re-enter secrets after import: {string.Join(", ", plain.RedactedFields)}");
         }
@@ -334,7 +343,7 @@ public class ConfigExportService
         return new ImportResult(true, null, warnings);
     }
 
-    private void ApplyConfiguration(PluginConfiguration imported)
+    private async Task<ImportResult?> ApplyConfiguration(PluginConfiguration imported, IReadOnlyList<UserTwoFactorData>? replacements = null)
     {
         var live = _configAccessor();
         var json = System.Text.Json.JsonSerializer.Serialize(imported);
@@ -348,6 +357,14 @@ public class ConfigExportService
         // or zero out numeric thresholds. We sanitize each field rather
         // than reject the whole import.
         SanitizeImportedConfig(clone);
+        try
+        {
+            await _passkeyDisableGuard.EnsureCanApplyAsync(live, clone, replacements).ConfigureAwait(false);
+        }
+        catch (PasskeyDisableException refusal)
+        {
+            return new ImportResult(false, refusal.Message);
+        }
 
         // Mutate the live config in place via reflection so any held reference to
         // Plugin.Instance.Configuration sees the new values immediately.
@@ -360,6 +377,7 @@ public class ConfigExportService
 
         Plugin.Instance?.SaveConfiguration();
         _logger.LogInformation("Plugin configuration applied from import");
+        return null;
     }
 
     private void SanitizeImportedConfig(PluginConfiguration c)

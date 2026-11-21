@@ -96,3 +96,54 @@ test('blocked localStorage still lets the verified session complete', async () =
     assert.equal(result.delivered.AccessToken, 'test-session');
     assert.deepEqual(result.errors, []);
 });
+
+// [#345] The challenge page offers the passkey only from the methods the
+// server lists for this challenge, and the server leaves passkey out while
+// passkeys are turned off. Run the page's own method rendering, as written
+// in challenge.html, against a challenge info answer.
+const challengeFunction = name => {
+    const found = html.match(new RegExp(`\\n( *)function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\1\\}`));
+    assert(found, `challenge.html must define ${name}`);
+    return found[0].trim();
+};
+async function passkeyOffered(info) {
+    const elements = new Map();
+    const element = id => {
+        if (!elements.has(id)) {
+            elements.set(id, {
+                style: {}, textContent: '', value: '', hidden: false,
+                classList: {add() {}, remove() {}, toggle() {}},
+                setAttribute() {}, removeAttribute() {}, focus() {},
+            });
+        }
+        return elements.get(id);
+    };
+    const tabs = ['totp', 'recovery', 'email'].map(method => ({dataset: {method}, style: {}, classList: {toggle() {}}}));
+    const context = {
+        document: {getElementById: element, querySelectorAll: () => tabs, querySelector: () => element('heading')},
+        window: {tfaUrl: path => '/jf/' + path, isSecureContext: true, PublicKeyCredential: function () {}},
+        challengeToken: 'test-challenge',
+        _tr: (key, fallback) => fallback,
+        fetch: async () => {
+            if (!info) throw new Error('offline');
+            return {ok: true, json: async () => info};
+        },
+    };
+    runInNewContext("var currentMethod = 'totp'; var availableMethods = ['totp'];\n"
+        + ['loadChallengeInfo', 'renderAvailableMethods', 'showEnrollmentRequired', 'refreshPasskeyButton', 'setMethod']
+            .map(challengeFunction).join('\n')
+        + '\nrefreshPasskeyButton(); loadChallengeInfo();', context);
+    await new Promise(resolve => setImmediate(resolve));
+    return element('btnPasskey').style.display === 'block';
+}
+
+test('the passkey is offered only when the server lists it for the challenge', async () => {
+    assert.equal(await passkeyOffered({Username: 'alice', Methods: ['totp', 'email']}), false, 'passkeys off: the server leaves it out');
+    assert.equal(await passkeyOffered({Username: 'alice', Methods: ['totp', 'passkey']}), true);
+    assert.equal(await passkeyOffered({Username: 'alice', Methods: ['enroll'], EnrollmentRequired: true}), false);
+    assert.equal(await passkeyOffered(null), false, 'no challenge info: no passkey');
+    // Only refreshPasskeyButton shows the button, and it reads the list.
+    assert.equal(html.match(/getElementById\('btnPasskey'\)\.style\.display = /g)?.length, 1, 'enrollment hides it');
+    assert.match(challengeFunction('refreshPasskeyButton'), /availableMethods\.indexOf\('passkey'\) >= 0/);
+    assert.doesNotMatch(html, /passkeysEnabled/);
+});

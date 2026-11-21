@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Text.Json;
@@ -24,6 +23,11 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Services;
 /// </summary>
 public class TwoFactorAuthProvider : IAuthenticationProvider
 {
+    private static readonly object AcceptedBridgeUser = new();
+
+    internal static bool AcceptedBridgeFor(HttpContext context, Guid userId)
+        => context.Items.TryGetValue(AcceptedBridgeUser, out var value) && value is Guid id && id == userId;
+
     private readonly IApplicationHost _appHost;
     private readonly UserTwoFactorStore _store;
     private readonly ChallengeStore _challengeStore;
@@ -84,6 +88,8 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
     /// <inheritdoc />
     public async Task<ProviderAuthenticationResult> Authenticate(string username, string password)
     {
+        var context = _httpContextAccessor.HttpContext;
+        context?.Items.Remove(AcceptedBridgeUser);
         var config = Plugin.Instance?.Configuration;
         var authIp = GetRemoteIp();
         if (!string.IsNullOrEmpty(authIp) && _ipBans.CheckBanned(authIp) is { } ban)
@@ -178,6 +184,10 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
                 _ipBans.RecordFailure(authIp ?? string.Empty);
                 throw new AuthenticationException("Invalid or expired sign-in token.");
             }
+            if (consumed.Value.ProviderId == "passkey" && config?.PasskeysEnabled == false)
+            {
+                throw new AuthenticationException(PasskeyPolicy.DisabledMessage);
+            }
             var bridgeUser = UserManager.GetUserById(consumed.Value.UserId);
             if (bridgeUser is null)
             {
@@ -238,6 +248,8 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
             _ipBans.RecordSuccess(authIp ?? string.Empty);
             _logger.LogInformation("[2FA] OIDC sign-in for {User} via {Provider}",
                 bridgeUser.Username, consumed.Value.ProviderId);
+            // Only the origin is recorded. The response still applies account policy.
+            if (context is not null) context.Items[AcceptedBridgeUser] = bridgeUser.Id;
             return new ProviderAuthenticationResult { Username = bridgeUser.Username ?? username };
         }
 
@@ -487,7 +499,7 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         var providerUserEntity = UserManager.GetUserById(jellyfinUser.Id);
         var providerIsAdmin = providerUserEntity is not null
             && providerUserEntity.HasPermission(PermissionKind.IsAdministrator);
-        bool userNeeds2Fa = SignInChallengePolicy.RequiresChallenge(userData, config, providerIsAdmin);
+        bool userNeeds2Fa = SignInChallengePolicy.RequiresChallenge(userData, config, providerIsAdmin, accountPasswordSignInUnavailable: false);
 
         if (!userNeeds2Fa)
         {
@@ -650,53 +662,8 @@ public class TwoFactorAuthProvider : IAuthenticationProvider
         // 8. 2FA is required and no bypass applies — build the available
         //    methods list and issue a challenge token.
         // ------------------------------------------------------------------
-        // v2.4.1: use ShouldEnforceFor so per-role policy (Admins-only) is
-        // honored in this provider too, not just in the middleware.
-        //
-        // [v2.5.6] (round-5 fix B): a configured email + globally-enabled
-        // email OTP counts as a valid sole factor — matches the path in
-        // TwoFactorEnforcementMiddleware so the two enforcement entry points
-        // stay consistent. Lets a passkey-less / TOTP-less user with email
-        // configured complete sign-in via email OTP instead of being forced
-        // into TOTP enrollment.
-        var providerHasEmailFactor = config.EmailOtpEnabled
-            && !string.IsNullOrEmpty(config.GetUserEmail(userId.ToString("N")));
-        var enrollmentRequired = config.ShouldEnforceFor(providerIsAdmin)
-            && !userData.TotpVerified
-            && userData.Passkeys.Count == 0
-            && !providerHasEmailFactor;
-        var methods = new List<string>();
-
-        if (enrollmentRequired)
-        {
-            methods.Add("enroll");
-        }
-        else if (userData.TotpEnabled && userData.TotpVerified)
-        {
-            methods.Add("totp");
-        }
-
-        // [v2.5.18] Surface recovery codes on the challenge when the user has unused
-        // ones, matching the login portal (login.html always offers "Use a recovery
-        // code instead"). Without this the Recovery tab never appeared in the normal
-        // verify-identity flow, so a user who lost their authenticator had no way to
-        // fall back to a valid recovery code.
-        if (!enrollmentRequired && userData.RecoveryCodes.Any(rc => !rc.Used))
-        {
-            methods.Add("recovery");
-        }
-
-        if (!enrollmentRequired && config.EmailOtpEnabled)
-        {
-            methods.Add("email");
-        }
-
-        // If somehow no method is configured but RequireForAllUsers is on, fall back
-        // to email-only so the user isn't permanently locked out at the UI level.
-        if (methods.Count == 0)
-        {
-            methods.Add("email");
-        }
+        var methods = SignInFactors.ForChallenge(userData, config, SignInFactors.Entry.Provider,
+            config.ShouldEnforceFor(providerIsAdmin), out var enrollmentRequired);
 
         var challenge = _challengeStore.CreateChallenge(
             userId,

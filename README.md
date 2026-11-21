@@ -173,7 +173,7 @@ Organized by capability. Per-version history lives in the [Changelog](#-changelo
 - Per-IP rate limiting on verify (10/min) and email send (5/5min); per-challenge attempt limit (5 before the challenge is burned).
 - Per-user lockout after 5 failed attempts (15-minute cool-down, configurable).
 - LAN bypass (configurable CIDR ranges), and a force-2FA-for-all-users mode.
-- **Disable password sign-in** — OIDC / Quick-Connect-only mode with independently toggleable admin / LAN / exempt-CIDR escape hatches, plus an opt-in setting that lets app passwords (never the account password) through for native apps.
+- **Disable password sign-in**: OIDC / Quick-Connect-only mode with independently toggleable admin / LAN / exempt-CIDR escape hatches, plus an opt-in setting that lets app passwords (never the account password) through for native apps. The standalone 2FA login portal still accepts a valid account password and applies the usual second-factor policy.
 
 A completed password change through the plugin's reset link, Jellyfin's Forgot Password PIN, an administrator setting or resetting a password, or a user changing their password clears the plugin's temporary failed-attempt count and lockout. Requesting a reset, opening a link, or submitting an invalid or expired token does not. The plugin leaves second factors, trusted devices, IP bans, the token blocklist, and Jellyfin's own failed-attempt count and disabled-account status unchanged.
 
@@ -341,6 +341,8 @@ From this point, every login from a new browser prompts for a code:
 
 Passkeys replace the 6-digit code with a biometric or hardware tap. They are phishing-resistant (the credential is bound to your exact domain) and require no typing.
 
+An administrator can turn passkeys off for the whole server with **Allow passkeys**; see [Turning passkeys off](#turning-passkeys-off-345).
+
 **Important — server config first.** Passkeys require HTTPS AND the WebAuthn Relying Party ID + origin to match the URL the browser is on. In **Dashboard → Plugins → Two-Factor Authentication → Settings → WebAuthn / passkeys**:
 
 - **Relying Party ID**: enter your public hostname only — `jellyfin.example.com`. No `https://`, no port, no path.
@@ -382,17 +384,23 @@ New registrations request **ES256**, the WebAuthn-required portable algorithm. T
 
 A passkey signs in without a password through **🔑 Sign in with passkey** on the login page. Registering one also changes password sign-in: by default, once an account has a passkey, signing in with the username and password asks for a second factor, as it does for an account with a verified authenticator app. An email address or a linked SSO provider alone does not do that (#339).
 
-Each user can change this on the Setup page. While the account has a passkey, the **Passkeys** card shows **Ask for a second factor after password sign-in**:
+Users can change this on the Setup page when the switch is available. While the account has a passkey, the **Passkeys** card normally shows **Ask for a second factor after password sign-in**:
 
 - **On** (the default, which every existing account keeps after updating): password sign-in asks for a second factor, and the passkey can answer it.
 - **Off**: the passkey is only for **Sign in with passkey**, and anyone who has the password can sign in with the password alone. Turning it off asks the user to confirm with the passkey or another factor first, even when **Hardened security for users (factor changes)** is Off. Turning it back on asks for nothing.
 
-Two things take precedence, and while either applies the card shows the switch disabled with the reason:
+If your account has no local password and **Block sign-in with an empty password** (`BlockEmptyPasswordLogin`) is on, the passkey preference does not trigger a challenge. This applies only when your account signs in through this plugin's own provider and that provider delegates password checks to Jellyfin's built-in provider. Setup hides the switch and keeps your saved preference. When your account gets a password, the switch returns and your saved preference applies again if the server-wide **Allow passkeys** setting is on. With it off, the switch stays hidden. See [Turning passkeys off](#turning-passkeys-off-345).
 
-- the **2FA enforcement scope**: an account it covers (every account with **All users**, administrators with **Admins only**) always gets a second factor after password sign-in;
-- a verified **authenticator app** on the account keeps password sign-in asking for a second factor.
+For these accounts, the passkey preference no longer triggers a challenge on OIDC or proxy sign-in with its bypass turned off, or when a session is restored after a restart.
 
-The **Emergency lockout** on the **I lost my phone** card turns the switch back on, so the next password sign-in asks for a second factor again.
+Installations with any other authentication provider (for example, an LDAP plugin) and accounts assigned directly to Jellyfin's default provider keep their existing behavior. The plugin can confirm this only for accounts that sign in through its own provider.
+
+Two things take precedence even when password sign-in is unavailable. The card shows the reason and disables the switch when it is visible:
+
+- the **2FA enforcement scope**: an account it covers (every account with **All users**, administrators with **Admins only**) still requires a second factor at sign-in.
+- a verified **authenticator app** on the account also requires a second factor at sign-in.
+
+**Emergency lockout** on the **I lost my phone** card turns the saved preference back on for an account with an enrolled passkey. While **Allow passkeys** is on, pending recovery keeps the challenge in place even without a local password. With passkeys off, the server keeps the passkey but excludes it from the challenge decision. A passwordless account under **Optional** scope with no verified authenticator app then gets no challenge even while recovery is pending.
 
 For sign-in through an SSO provider, that provider's **Skip plugin 2FA** option (on by default, see [Per-provider options](#per-provider-options)) keeps the plugin from asking for its own second factor after the provider's sign-in.
 
@@ -440,7 +448,7 @@ With **Accept the authenticator code typed after the password** checked (Setting
 
 - The part before the last six digits has to be the account's password. When it isn't, the sign-in goes on unchanged, so a password that itself ends in digits keeps working typed alone.
 - The code works once, as on the challenge page, and wrong codes share that page's limit of 15 attempts per 15 minutes per account, which also covers administrators exempt from the lockout. A wrong code gets the same `401` as a wrong password and counts like one, toward the plugin's lockout and toward Jellyfin's own limit of failed sign-ins.
-- The code alone never signs in: an account without a password stays behind **Block sign-in with an empty password**, and **Disable password sign-in** refuses it like any other password sign-in.
+- The code alone never signs in: an account without a password stays behind **Block sign-in with an empty password**, and **Disable password sign-in** refuses it like any other password sign-in. With the empty-password setting off, passwordless kiosk accounts keep their usual sign-in behavior. See [How a passkey interacts with password sign-in](#how-a-passkey-interacts-with-password-sign-in).
 - An app that saves what was typed and signs in again on its own can't do so once the code has changed; use an app password for those. Accounts that sign in through another authentication plugin (LDAP and the like) aren't covered and still get the challenge.
 
 **Codes by email and Telegram** (#313). With **Send a sign-in code by email and Telegram to apps that can't show the challenge** checked (Settings → General, off by default, needs email OTP), an account whose codes come by email or Telegram can do the same. When such an app signs in with the right password, the challenge it can't show also sends an 8-digit code to the account's email address and linked Telegram chat. Sign in again in the same app with the password followed by that code, with no space: `MyPassword12345678`.
@@ -504,7 +512,7 @@ Pending TV/native-client pairing requests. Approve or deny each request and show
 Paginated, filterable login attempt history. Tracks success, failures, lockouts, bypasses, and challenge issuances. Choose **Newest first** or **Oldest first**; the selected order remains active while navigating the dashboard.
 
 ### Settings
-- **General**: plugin toggle, **2FA enforcement scope** (Optional, Admins only or All users), Have I Been Pwned password check, email OTP toggle
+- **General**: plugin toggle, **2FA enforcement scope** (Optional, Admins only or All users), Have I Been Pwned password check, email OTP toggle, **Allow passkeys** (see [Turning passkeys off](#turning-passkeys-off-345))
 - **LAN Bypass** — CIDR ranges, X-Forwarded-For trust, trusted proxies
 - **Security** — failed-attempt threshold, lockout duration, audit log size, and OIDC onboarding password policy (minimum length plus optional uppercase, lowercase, number, and symbol requirements)
 - **SMTP**: host, port, SSL, credentials, from-address (required for email OTP and for alert emails)
@@ -513,6 +521,25 @@ Paginated, filterable login attempt history. Tracks success, failures, lockouts,
 - **Audit chain (v2.5)** — **Rebuild audit chain** button repairs the hash chain after disk corruption / manual edits (step-up gated)
 
 **Telegram and email alerts (#259):** for Telegram, create a bot with @BotFather, paste its token in **Settings → Push Notifications → Telegram bot token** and set **Telegram chat ID** to your user ID, a group or channel ID (negative) or a public channel's @username; the bot must be able to post there, so start a chat with it or add it to the group or channel. The token is sent only to api.telegram.org and is kept out of the server log, and when Telegram refuses a message the test button shows its reason ("Bad Request: chat not found"). For email, every address under **Admin email addresses for security alerts** gets its own copy of each alert over the SMTP settings used for email OTP. **Send test notification** reports each configured channel separately.
+
+#### Turning passkeys off (#345)
+
+**Settings → General → Allow passkeys** (`PasskeysEnabled`) is on by default, so updating changes nothing. Turn it off when nobody should use passkeys on this server, for example to keep the authenticator app as the only second factor (turn **Allow email OTP as fallback** off too for that). While it is off:
+
+- the server refuses every passkey ceremony with "Passkeys are disabled on this server.": registering a passkey, **Sign in with passkey** (with or without a username), the passkey answer to the 2FA challenge, and a passkey in a step-up prompt, the admin's included;
+- a saved passkey no longer counts as a factor anywhere: it does not make password sign-in ask for a second factor, it cannot answer the challenge, it does not let the account create app passwords, and the security score and the enrollment numbers leave it out;
+- the login page has no passkey button, the challenge and the step-up prompts do not offer a passkey, and the Setup page has no way to add one. Saved passkeys stay listed on the Setup page, with a note that says why they no longer work, so users can still remove them;
+- saved passkeys and each user's **Ask for a second factor after password sign-in** choice are kept, so turning the setting back on brings them back as they were.
+
+Turning it off is refused, and nothing in that save is applied, while a user relies on a saved passkey for their second factor, judged with the settings that same save would apply. A user relies on it when any of these holds:
+
+- nothing else could answer their sign-in challenge: no verified authenticator app, no unused recovery code, and no email codes (which need **Allow email OTP as fallback** on and an email address or a linked Telegram chat to send them to);
+- the passkey is the only reason their password sign-in asks for a second factor: they kept **Ask for a second factor after password sign-in** on, no enforcement scope covers them and they have no authenticator app. An email or recovery code can answer the challenge, but neither makes it required;
+- the passkey is the only factor that makes their Setup page ask for proof before a change, so changes to their 2FA would stop needing it.
+
+Without the refusal, the switch would quietly take that protection away: their password alone would sign them in, or would be enough to enroll a new authenticator where the enforcement scope covers them, or a signed in session could change their 2FA without proof. The settings page names those users, and there are two ways forward: have them add an authenticator app on their Setup page while passkeys still work, or reset their 2FA with **Reset 2FA (full wipe)** in the **Users** tab. Then save again. A configuration import that would turn passkeys off is refused the same way, with the same names. Sessions that are already signed in stay signed in.
+
+This is not the same as **Hide the "Sign in with passkey" button** (see [Hide built-in 2FA / Passkey login buttons](#-hide-built-in-2fa--passkey-login-buttons-v257)), which only removes that button from the login page: while passkeys are allowed, they keep working at the challenge, in step-up prompts and for any client that calls the passkey sign-in endpoints.
 
 ### Authentication Provider in Jellyfin's user profile
 Jellyfin's own user page (**Dashboard → Users**, then an account) shows an **Authentication Provider** field whenever more than one sign-in provider is registered. With the plugin loaded it offers **Default**, Jellyfin's own provider, and **Two-Factor Authentication**, the plugin's, which kept the plugin's old name. The field only picks what checks the account's credentials. Whether a sign-in needs 2FA comes from the plugin's settings, which apply to every sign-in on either provider, so nothing needs to change there to enforce 2FA.
@@ -853,6 +880,8 @@ For OIDC-only deployments where every user signs in through your IdP and the plu
 - **Hide the "Sign in with passkey" button** — removes the passkey shortcut.
 
 Each is independent — pick any combination. Configured OIDC provider buttons stay visible regardless of these flags.
+
+Hiding the passkey button does not turn passkeys off: they keep working at the 2FA challenge, in step-up prompts and through the passkey sign-in endpoints. To turn them off for the server, see [Turning passkeys off](#turning-passkeys-off-345).
 
 **Login-link placement & Forgot-password (v2.5.16, #79, ZEROX7):** an opt-in **Settings → Hardening → "Show the SSO / 2FA / passkey links below the Use Quick Connect button"** toggle (default off) moves the injected links beneath Quick Connect instead of directly under Sign In. Separately, the native "Forgot password" link is now hidden automatically when there's no visible password field (e.g. OIDC-only login), since there'd be nothing to recover.
 

@@ -21,7 +21,7 @@ public class ChallengeStore : IDisposable
 
     // Quick Connect needs a user-scoped SINGLE-CONSUME flag because the TV
     // session that completes after phone approval has a different device id.
-    private readonly ConcurrentDictionary<Guid, DateTime> _quickConnectPending = new();
+    private readonly ConcurrentDictionary<Guid, (DateTime ExpiresAt, bool ApproverVerified)> _quickConnectPending = new();
 
     // [v2.5.17] (#107, #102) One-shot, user-scoped "the next session for this user
     // is 2FA-satisfied because they just authenticated with an app password".
@@ -212,16 +212,17 @@ public class ChallengeStore : IDisposable
     }
 
     /// <summary>Mark a pending cross-device Quick Connect acceptance. Single consume.</summary>
-    public void MarkQuickConnectPending(Guid userId)
+    public void MarkQuickConnectPending(Guid userId) => MarkQuickConnectPending(userId, approverVerified: false);
+
+    public void MarkQuickConnectPending(Guid userId, bool approverVerified)
     {
-        _quickConnectPending[userId] = DateTime.UtcNow.AddMinutes(2);
+        _quickConnectPending[userId] = (DateTime.UtcNow.AddMinutes(2), approverVerified);
     }
 
     public bool ConsumeQuickConnectPending(Guid userId)
     {
-        if (_quickConnectPending.TryRemove(userId, out var exp) && exp > DateTime.UtcNow)
-            return true;
-        return false;
+        return _quickConnectPending.TryRemove(userId, out var entry)
+            && entry.ExpiresAt > DateTime.UtcNow && entry.ApproverVerified;
     }
 
     /// <summary>[v2.5.17] (#107) Mark that this user just authenticated with an app
@@ -683,7 +684,7 @@ public class ChallengeStore : IDisposable
         }
         foreach (var kv in _quickConnectPending)
         {
-            if (kv.Value <= now) _quickConnectPending.TryRemove(kv.Key, out _);
+            if (kv.Value.ExpiresAt <= now) _quickConnectPending.TryRemove(kv);
         }
         foreach (var kv in _appPasswordPending)
         {

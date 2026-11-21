@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Runtime.Loader;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging;
@@ -44,6 +48,57 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public static Plugin? Instance { get; private set; }
 
+    /// <summary>Checks whether the blank-password gate and the current provider
+    /// assignment rule out ordinary password sign-in for this resolved account.</summary>
+    internal bool AccountPasswordSignInUnavailable(User? user)
+    {
+        try
+        {
+            var config = Configuration;
+            if (!config.Enabled || !config.BlockEmptyPasswordLogin || user is null || !string.IsNullOrEmpty(user.Password))
+            {
+                return false;
+            }
+
+            var providerId = user.AuthenticationProviderId;
+            if (!string.Equals(providerId, SignInProviderRestore.PluginProviderId, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // The host omits failed activations from GetExports. Inspect every
+            // declared type so a later password attempt cannot pick another delegate.
+            var providers = _appHost.GetExportTypes<IAuthenticationProvider>().ToList();
+            if (!providers.Remove(typeof(TwoFactorAuthProvider)))
+            {
+                return false;
+            }
+
+            var serverAssembly = AssemblyLoadContext.Default.Assemblies.SingleOrDefault(
+                assembly => assembly.GetName().Name == "Jellyfin.Server.Implementations");
+            if (serverAssembly is null
+                || serverAssembly.GetType(SignInProviderRestore.JellyfinDefaultProviderId) is not Type passwordProvider
+                || passwordProvider.Assembly != serverAssembly
+                || !providers.Remove(passwordProvider))
+            {
+                return false;
+            }
+
+            // On both supported host lines the password provider is always enabled
+            // and InvalidAuthProvider is always disabled. Any other entry, including
+            // a duplicate, leaves the delegate uncertain.
+            return providers.Count == 0
+                || (providers is [Type other]
+                    && other.Assembly == serverAssembly
+                    && other.FullName == "Jellyfin.Server.Implementations.Users.InvalidAuthProvider");
+        }
+        catch (Exception)
+        {
+            // Incomplete account or provider evidence must keep the existing challenge.
+            return false;
+        }
+    }
+
     /// <summary>
     /// [#213] Jellyfin calls this before it removes the plugin, while the server
     /// is still running. Accounts moved onto this plugin's sign-in provider are
@@ -68,6 +123,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         if (configuration is PluginConfiguration incoming)
         {
+            // [#345] Inspect the exact object Jellyfin materialized, before secrets
+            // or live configuration are changed. No competing parse of the body.
+            if (Configuration.PasskeysEnabled && !incoming.PasskeysEnabled)
+            {
+                _appHost.Resolve<PasskeyDisableGuard>()
+                    .EnsureCanApplyAsync(Configuration, incoming).GetAwaiter().GetResult();
+            }
             ConfigSecrets.KeepSaved(incoming, Configuration);
         }
 

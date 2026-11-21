@@ -86,11 +86,13 @@ public class RequestBlockerMiddleware
 
         // Ask Jellyfin's CustomAuthentication handler to resolve claims for this request
         Guid userId = Guid.Empty;
+        string? authenticatedToken = null;
         try
         {
             var authResult = await context.AuthenticateAsync("CustomAuthentication").ConfigureAwait(false);
             if (authResult.Succeeded && authResult.Principal is not null)
             {
+                authenticatedToken = authResult.Principal.FindFirst("Jellyfin-Token")?.Value;
                 var claim = authResult.Principal.FindFirst("Jellyfin-UserId")
                     ?? authResult.Principal.FindFirst(ClaimTypes.NameIdentifier);
                 if (claim is not null)
@@ -122,7 +124,8 @@ public class RequestBlockerMiddleware
             return;
         }
 
-        if (userId != Guid.Empty && !string.IsNullOrEmpty(token) && _challengeStore.IsTokenBlocked(token))
+        if ((userId != Guid.Empty && _challengeStore.IsTokenBlocked(token))
+            || (authenticatedToken is not null && _challengeStore.IsTokenBlocked(authenticatedToken)))
         {
             _logger.LogInformation("[2FA] BLOCKED {Path} user={UserId} (token-scoped) — 2FA not completed",
                 path, userId);
@@ -149,8 +152,8 @@ public class RequestBlockerMiddleware
         // user-scoped flag so the next SessionStarted for this user gets through.
         if (userId != Guid.Empty && path.Contains("/QuickConnect/Authorize", StringComparison.OrdinalIgnoreCase))
         {
-            _challengeStore.MarkQuickConnectPending(userId);
-            _logger.LogInformation("[2FA] QuickConnect authorize by {UserId} — one-shot allow for incoming session", userId);
+            _challengeStore.MarkQuickConnectPending(userId, authenticatedToken is not null && _challengeStore.IsTokenVerified(authenticatedToken));
+            _logger.LogInformation("[2FA] Quick Connect authorization requested by {UserId}", userId);
         }
 
         await _next(context).ConfigureAwait(false);

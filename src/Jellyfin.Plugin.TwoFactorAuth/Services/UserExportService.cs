@@ -78,11 +78,13 @@ public class UserExportService
         // call.
         var audit = await _store.GetAuditLogAsync(limit: 10_000).ConfigureAwait(false);
         var auditForUser = audit.Where(e => e.UserId == userId).ToList();
-        var email = Plugin.Instance?.Configuration?.GetUserEmail(userId.ToString("N"));
+        var plugin = Plugin.Instance;
+        var email = plugin?.Configuration?.GetUserEmail(userId.ToString("N"));
 
         var signInReason = SignInChallengePolicy.GetReason(data,
-            Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration(),
-            user is null || user.HasPermission(PermissionKind.IsAdministrator));
+            plugin?.Configuration ?? new Configuration.PluginConfiguration(),
+            user is null || user.HasPermission(PermissionKind.IsAdministrator),
+            plugin?.AccountPasswordSignInUnavailable(user) == true);
         return new
         {
             schemaVersion = 1,

@@ -2018,6 +2018,9 @@ public class SecurityController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> PasskeyLoginBegin([FromBody, Required] PasskeyLoginBeginRequest req)
     {
+        if (Plugin.Instance?.Configuration.PasskeysEnabled == false)
+            return BadRequest(new { message = PasskeyPolicy.DisabledMessage });
+
         // Rate limit before touching user data — an unauthenticated attacker
         // hitting this endpoint could enumerate which usernames have passkeys.
         // Returning identical shape regardless of username validity would be
@@ -2087,6 +2090,9 @@ public class SecurityController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> PasskeyLoginComplete([FromBody, Required] PasskeyLoginCompleteRequest req)
     {
+        if (Plugin.Instance?.Configuration.PasskeysEnabled == false)
+            return BadRequest(new { message = PasskeyPolicy.DisabledMessage });
+
         var ip = RateLimiter.ClientKey(HttpContext);
         var clientIp = BypassEvaluator.ResolveClientIp(HttpContext) ?? ip;
         if (_bans.CheckBanned(clientIp) is { } ban)

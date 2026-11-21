@@ -3,11 +3,13 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.TwoFactorAuth.Api;
 using Jellyfin.Plugin.TwoFactorAuth.Configuration;
 using Jellyfin.Plugin.TwoFactorAuth.Models;
 using Jellyfin.Plugin.TwoFactorAuth.Services;
 using Jellyfin.Plugin.TwoFactorAuth.Tests.Helpers;
+using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -17,6 +19,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using NSubstitute;
 using OtpNet;
 using Xunit;
 
@@ -25,6 +28,26 @@ namespace Jellyfin.Plugin.TwoFactorAuth.Tests;
 [Collection("SignInPolicy")]
 public class PasskeySecondFactorPreferenceTests
 {
+    [Fact]
+    public async Task An_elevated_reader_sees_each_accounts_own_reason()
+    {
+        using var api = new PreferenceApi();
+        await api.Fixture.EnrollPasswordlessAsync();
+        var target = api.Fixture.User;
+        var reader = new User("reader", "other-provider", "reset") { Password = "stored" };
+        api.Fixture.Users.GetUsers().Returns([reader, target]);
+        api.Client.DefaultRequestHeaders.Remove("X-Test-User");
+        api.Client.DefaultRequestHeaders.Add("X-Test-User", reader.Id.ToString());
+        api.Client.DefaultRequestHeaders.Add("X-Test-Elevated", "true");
+        using var users = await api.Client.GetFromJsonAsync<JsonDocument>("/TwoFactorAuth/Users");
+        var row = Assert.Single(users!.RootElement.EnumerateArray(), u => u.GetProperty("UserId").GetGuid() == target.Id);
+        Assert.True(row.GetProperty("AccountPasswordSignInUnavailable").GetBoolean());
+        var readerRow = Assert.Single(users.RootElement.EnumerateArray(), u => u.GetProperty("UserId").GetGuid() == reader.Id);
+        Assert.False(readerRow.GetProperty("AccountPasswordSignInUnavailable").GetBoolean());
+        Assert.Equal("none", row.GetProperty("PasswordSignInSecondFactorReason").GetString());
+        Assert.False(row.GetProperty("PasswordSignInRequiresSecondFactor").GetBoolean());
+    }
+
     private const string Route = "/TwoFactorAuth/MyPasskeySecondFactorPreference";
 
     [Fact]
@@ -94,6 +117,55 @@ public class PasskeySecondFactorPreferenceTests
         using var appResponse = await api.Client.GetAsync("/TwoFactorAuth/MyStatus");
         using var app = JsonDocument.Parse(await appResponse.Content.ReadAsStringAsync());
         Assert.Equal("authenticator", app.RootElement.GetProperty("PasswordSignInSecondFactorReason").GetString());
+    }
+
+    [Theory]
+    [InlineData(null, false, "none")]
+    [InlineData(null, true, "recovery")]
+    [InlineData("stored-value", false, "passkey")]
+    public async Task My_status_the_elevated_users_list_and_the_export_agree_on_account_policy(
+        string? password, bool recovery, string reason)
+    {
+        using var api = new PreferenceApi();
+        await api.Fixture.EnrollPasswordlessAsync();
+        var user = api.Fixture.User;
+        user.Password = password;
+        api.Fixture.Users.GetUsers().Returns([user]);
+        await api.Fixture.Store.MutateAsync(user.Id, data => data.ForceRecoveryOnNextLogin = recovery);
+        using var mine = await api.Client.GetFromJsonAsync<JsonDocument>("/TwoFactorAuth/MyStatus");
+        using var denied = await api.Client.GetAsync("/TwoFactorAuth/Users");
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        api.Client.DefaultRequestHeaders.Add("X-Test-Elevated", "true");
+        using var users = await api.Client.GetFromJsonAsync<JsonDocument>("/TwoFactorAuth/Users");
+        var listed = Assert.Single(users!.RootElement.EnumerateArray());
+        foreach (var status in new[] { mine!.RootElement, listed })
+        {
+            Assert.Equal(user.Id, status.GetProperty("UserId").GetGuid());
+            Assert.Equal(password is null, status.GetProperty("AccountPasswordSignInUnavailable").GetBoolean());
+            Assert.True(status.GetProperty("PasskeyRequiresSecondFactor").GetBoolean());
+            Assert.Equal(reason, status.GetProperty("PasswordSignInSecondFactorReason").GetString());
+            Assert.Equal(reason != "none", status.GetProperty("PasswordSignInRequiresSecondFactor").GetBoolean());
+        }
+
+        var export = new UserExportService(api.Fixture.Store, api.Fixture.Users);
+        var exported = JsonSerializer.SerializeToElement(await export.BuildExportAsync(user.Id)).GetProperty("twoFactor");
+        Assert.False(exported.TryGetProperty("accountPasswordSignInUnavailable", out _));
+        Assert.True(exported.GetProperty("passkeyRequiresSecondFactor").GetBoolean());
+        Assert.Equal(reason, exported.GetProperty("passwordSignInSecondFactorReason").GetString());
+        Assert.Equal(reason != "none", exported.GetProperty("passwordSignInRequiresSecondFactor").GetBoolean());
+    }
+
+    [Fact]
+    public async Task The_portal_protects_a_submitted_password_even_for_an_eligible_account()
+    {
+        using var api = new PreferenceApi();
+        await api.Fixture.EnrollPasswordlessAsync();
+        using var denied = await api.Client.PostAsJsonAsync("/TwoFactorAuth/Authenticate",
+            new { username = api.Fixture.User.Username, password = "submitted-password" });
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        using var json = JsonDocument.Parse(await denied.Content.ReadAsStringAsync());
+        Assert.Contains("passkey", json.RootElement.GetProperty("message").GetString());
+        await api.Fixture.Sessions.DidNotReceive().AuthenticateNewSession(Arg.Any<AuthenticationRequest>());
     }
 
     [Theory]
@@ -239,6 +311,24 @@ public class PasskeySecondFactorPreferenceTests
     }
 
     [Fact]
+    public async Task Emergency_lockout_rearms_a_stored_passkey_while_passkeys_are_off()
+    {
+        using var api = new PreferenceApi();
+        await api.EnrollAsync(false);
+        api.Fixture.Config.PasskeysEnabled = false;
+        using var emergency = await api.Client.PostAsJsonAsync("/TwoFactorAuth/Setup/EmergencyLockout", new { });
+        Assert.Equal(HttpStatusCode.OK, emergency.StatusCode);
+        var data = await api.Fixture.Store.GetUserDataAsync(api.Fixture.User.Id);
+        Assert.True(data.ForceRecoveryOnNextLogin);
+        // [#345] The switch keeps the passkey out of sign-in, but turning it back
+        // on must not bring back an opted-out passkey that skips the challenge.
+        Assert.True(data.PasskeyRequiresSecondFactor);
+        var audit = await api.Fixture.Store.GetAuditLogAsync();
+        Assert.Single(audit, entry => entry.Method == "emergency_lockout");
+        Assert.Single(audit, entry => entry.Method == "passkey_second_factor_on");
+    }
+
+    [Fact]
     public async Task Emergency_lockout_without_a_passkey_does_not_change_the_preference()
     {
         using var api = new PreferenceApi();
@@ -287,7 +377,8 @@ internal sealed class PreferenceApi : IDisposable
             .ConfigureServices(services =>
             {
                 services.AddAuthentication("test").AddScheme<AuthenticationSchemeOptions, PreferenceTestAuth>("test", _ => { });
-                services.AddAuthorization();
+                services.AddAuthorization(options => options.AddPolicy("RequiresElevation",
+                    policy => policy.RequireClaim("elevated", "true")));
                 services.AddControllers().AddApplicationPart(typeof(TwoFactorAuthController).Assembly)
                     .AddJsonOptions(options => options.JsonSerializerOptions.PropertyNamingPolicy = null).AddControllersAsServices();
                 services.AddTransient(_ => new TwoFactorAuthController(
@@ -296,7 +387,8 @@ internal sealed class PreferenceApi : IDisposable
                     sessionManager: Fixture.Sessions, userManager: Fixture.Users, cookieSigner: null!, rateLimiter: limiter,
                     recoveryCodes: null!, appPasswords: null!, pendingPairings: null!, deviceManager: Fixture.Devices,
                     sessionTerm: termination, passkeys: null!, passkeyChallenges: null!, diagnostics: null!, stats: null!,
-                    userExport: null!, recoveryPdf: null!, ipBans: null!, allowlist: null!, stepUp: stepUp, scoreService: null!,
+                    userExport: null!, recoveryPdf: null!, ipBans: Fixture.Bans,
+                    allowlist: new IpAllowlistService(Fixture.Store, NullLogger<IpAllowlistService>.Instance), stepUp: stepUp, scoreService: null!,
                     configExport: null!, onboardingProofs: null!, externalUrls: null!, signInObserver: null!,
                     logger: NullLogger<TwoFactorAuthController>.Instance));
             })
@@ -328,7 +420,9 @@ internal sealed class PreferenceTestAuth : AuthenticationHandler<AuthenticationS
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         if (!Guid.TryParse(Request.Headers["X-Test-User"], out var id)) return Task.FromResult(AuthenticateResult.NoResult());
-        var principal = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("Jellyfin-UserId", id.ToString()) }, Scheme.Name));
+        var identity = new ClaimsIdentity(new[] { new Claim("Jellyfin-UserId", id.ToString()) }, Scheme.Name);
+        if (Request.Headers["X-Test-Elevated"] == "true") identity.AddClaim(new Claim("elevated", "true"));
+        var principal = new ClaimsPrincipal(identity);
         return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name)));
     }
 }
