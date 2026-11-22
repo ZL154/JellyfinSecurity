@@ -1419,6 +1419,8 @@
         link.tfaConfigUrl = url;
         link.href = '#';
         link.textContent = (config && config.passwordLoginRevealText) || T('tfa.login.pw_reveal', 'Sign in with a password instead');
+        // tfa-i18n may still be loading here; let 'tfa-i18n-ready' re-translate the fallback.
+        if (!(config && config.passwordLoginRevealText)) link.setAttribute('data-i18n-key', 'tfa.login.pw_reveal');
         link.style.cssText = 'display:block;margin-top:12px;text-align:center;color:#7d828b;font-size:13px;cursor:pointer;';
         link.addEventListener('click', function (e) {
             e.preventDefault();
