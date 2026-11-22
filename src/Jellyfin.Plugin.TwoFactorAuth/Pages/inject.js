@@ -1261,9 +1261,33 @@
         if (!el) return null;
         return el.closest('.inputContainer') || el;
     }
+    // jellyfin-web keeps earlier views in the DOM, hidden. Entering login again
+    // (e.g. the header logo -> #/login?serverid=...) builds a NEW #loginPage
+    // while the old one, holding our injected nodes, stays hidden - so a
+    // document-wide id guard found the stale node and the visible form got
+    // nothing. Resolve the login view that is actually on screen.
+    function visibleLoginRoot() {
+        try {
+            var pages = document.querySelectorAll('[id="loginPage"]');
+            for (var i = 0; i < pages.length; i++) {
+                if (pages[i].getClientRects().length) return pages[i];
+            }
+        } catch (e) { /* ignore */ }
+        return document;
+    }
+    // Returns the injected node if it lives in the visible login view; a copy
+    // stranded in a hidden view is removed so it can be injected again.
+    function liveInjected(id, root) {
+        var el = document.getElementById(id);
+        if (!el) return null;
+        if (root === document || root.contains(el)) return el;
+        el.remove();
+        return liveInjected(id, root);
+    }
     function applyPasswordLoginGate() {
         if (!isLoginPage() || _tfaPublicCfg === null) return;
-        var form = document.querySelector('.manualLoginForm') || document.querySelector('form');
+        var loginRoot = visibleLoginRoot();
+        var form = loginRoot.querySelector('.manualLoginForm') || loginRoot.querySelector('form');
         if (!form) return;
         var REVEAL_ID = '__tfa_pw_reveal';
         var wraps = [
@@ -1274,15 +1298,17 @@
         if (!_tfaPublicCfg.passwordLoginDisabled || window.__tfaPwRevealed) {
             // Not gated (or the user revealed it): make sure everything is visible.
             wraps.forEach(function (w) { if (w) w.style.display = ''; });
-            var ex0 = document.getElementById(REVEAL_ID); if (ex0 && _tfaPublicCfg.passwordLoginDisabled !== true) ex0.remove();
+            var ex0 = liveInjected(REVEAL_ID, loginRoot); if (ex0 && _tfaPublicCfg.passwordLoginDisabled !== true) ex0.remove();
             return;
         }
         wraps.forEach(function (w) { if (w) w.style.display = 'none'; });
-        if (!document.getElementById(REVEAL_ID)) {
+        if (!liveInjected(REVEAL_ID, loginRoot)) {
             var link = document.createElement('a');
             link.id = REVEAL_ID;
             link.href = '#';
             link.textContent = (_tfaPublicCfg.passwordLoginRevealText || T('tfa.login.pw_reveal', 'Sign in with a password instead'));
+            // tfa-i18n may still be loading here; let 'tfa-i18n-ready' re-translate the fallback.
+            if (!_tfaPublicCfg.passwordLoginRevealText) link.setAttribute('data-i18n-key', 'tfa.login.pw_reveal');
             link.style.cssText = 'display:block;margin-top:12px;text-align:center;color:#7d828b;font-size:13px;cursor:pointer;';
             link.addEventListener('click', function (e) {
                 e.preventDefault();
@@ -2106,8 +2132,9 @@
 
     function injectOidcButtons() {
         if (!isLoginPage()) return;
-        if (document.getElementById(OIDC_BUTTONS_ID)) return;
-        var anchor = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
+        var loginRoot = visibleLoginRoot();
+        if (liveInjected(OIDC_BUTTONS_ID, loginRoot)) return;
+        var anchor = loginRoot.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
         if (!anchor) return;
 
         // Fetch providers (anonymous via the public list — but we don't have
