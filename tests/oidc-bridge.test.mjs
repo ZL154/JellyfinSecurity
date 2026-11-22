@@ -332,7 +332,9 @@ test('proxy sign-in: an imported configuration keeps only valid, narrow proxy ad
     assert.match(exporter, /c\.HeaderSignInProxyCidrs = SanitizeCidrArray\(c\.HeaderSignInProxyCidrs, "HeaderSignInProxyCidrs"\);/);
 });
 
-function stockLoginPage(bootstrap, mounted = true, route = {}) {
+// Without `engine` the page has no constructable stylesheets. With it, the page
+// has them, and like a real engine it parses :has() only when engine.has is set.
+function stockLoginPage(bootstrap, mounted = true, route = {}, engine = null) {
     const classes = new Set();
     const styles = [];
     const listeners = new Map();
@@ -375,10 +377,21 @@ function stockLoginPage(bootstrap, mounted = true, route = {}) {
             resolve({ok: true, json: async () => ({passwordLoginDisabled: disabled})});
         })),
     };
+    if (engine) {
+        window.CSS = {supports: query => engine.has || !query.includes(':has(')};
+        context.CSSStyleSheet = class {
+            cssRules = [];
+            insertRule(rule) {
+                if (!engine.has && rule.includes(':has(')) throw new SyntaxError('Unsupported selector');
+                this.cssRules.push(rule);
+                return 0;
+            }
+        };
+    }
     const boot = inject.replace("    if (document.readyState === 'loading') {",
         '    window.refresh = fetchTfaPublicConfig; window.gate = applyPasswordLoginGate;\n$&');
     runInNewContext(boot, context);
-    return {window, classes, styles, listeners, storage, requests, links, username,
+    return {window, document: context.document, classes, styles, listeners, storage, requests, links, username,
         mount() { form = {...form}; mounted = true; },
     };
 }
@@ -395,6 +408,21 @@ test('the stock form is gated before it mounts and the admin reveal survives ano
     page.window.gate();
     assert.equal(page.classes.has('tfa-pw-gated'), false);
     assert.equal(page.links.has('__tfa_pw_reveal'), false);
+});
+
+// Only :has() lets a stylesheet pick each credential wrapper by what it holds.
+// The stock form opens with a heading div, so a positional rule misses the
+// password wrapper. Without :has() the element fallback must do the hiding.
+test('an engine with :has() gates the stock form through one adopted stylesheet', () => {
+    const page = stockLoginPage(true, true, {}, {has: true});
+    assert.ok(page.classes.has('tfa-pw-gated'));
+    assert.equal(page.document.adoptedStyleSheets.length, 1);
+});
+
+test('an engine with constructable stylesheets but no :has() gets no positional gate rule', () => {
+    const page = stockLoginPage(true, true, {}, {has: false});
+    assert.ok(page.classes.has('tfa-pw-gated'));
+    assert.deepEqual(page.document.adoptedStyleSheets, []);
 });
 
 test('an unbootstrapped script waits for the selected server policy', async () => {
@@ -478,7 +506,7 @@ function prepareGateBrowser(mode) {
         window.URL = function () { throw new Error('URL unavailable'); };
         Array.prototype.find = undefined;
     }
-    if (mode === 'legacy' || mode === 'older-selector') {
+    if (mode === 'legacy' || mode.startsWith('older-selector')) {
         const supports = CSS.supports.bind(CSS);
         CSS.supports = (...args) => args[0].includes(':has(') ? false : supports(...args);
         const insert = CSSStyleSheet.prototype.insertRule;
@@ -504,7 +532,8 @@ async function exerciseGateBrowser(mode) {
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     const id = name => document.getElementById(name);
     function controls(hidden) {
-        for (const name of ['txtManualPassword', 'txtManualName', 'submit', 'remember', 'quick', 'provider', 'passkey', 'extra']) {
+        check(id('heading').getClientRects().length, 'heading: hidden by the gate');
+        for (const name of ['txtManualPassword', 'txtManualName', 'submit', 'remember', 'cancel', 'quick', 'provider', 'passkey', 'extra']) {
             const element = id(name);
             const allowed = !hidden || !['txtManualName', 'txtManualPassword', 'submit'].includes(name);
             const visible = !!element.getClientRects().length;
@@ -517,7 +546,7 @@ async function exerciseGateBrowser(mode) {
     const reveal = () => id('__tfa_pw_reveal');
     try {
         const template = document.querySelector('template');
-        if (mode === 'element-fallback-remount') template.before(template.content.cloneNode(true));
+        if (mode.endsWith('-remount')) template.before(template.content.cloneNode(true));
         if (mode.startsWith('foreign-entry-')) {
             if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, {once: true}));
             await frame();
@@ -530,7 +559,7 @@ async function exerciseGateBrowser(mode) {
         controls(true);
         await frame();
         controls(true);
-        if (mode === 'element-fallback-remount') {
+        if (mode.endsWith('-remount')) {
             check(reveal(), 'initial form was not initialized');
             // Mount pristine controls on the same route, without copying the hidden inline styles.
             document.querySelector('.manualLoginForm').replaceWith(template.content.cloneNode(true));
@@ -578,12 +607,13 @@ async function exerciseGateBrowser(mode) {
     }
 }
 
-for (const mode of ['restricted', 'older-selector', 'element-fallback', 'element-fallback-remount', 'foreign-allowed', 'foreign-restricted',
-    'foreign-timeout', 'foreign-error', 'foreign-entry-active', 'foreign-entry-named', 'switch', 'legacy']) {
+for (const mode of ['restricted', 'older-selector', 'older-selector-remount', 'element-fallback', 'element-fallback-remount',
+    'foreign-allowed', 'foreign-restricted', 'foreign-timeout', 'foreign-error', 'foreign-entry-active', 'foreign-entry-named',
+    'switch', 'legacy']) {
     test('rendered stock password form: ' + mode, async t => {
         const profile = mkdtempSync(join(tmpdir(), 'jellyfin-gate-'));
         const entering = mode.startsWith('foreign-entry-');
-        const useTemplate = entering || mode === 'element-fallback-remount';
+        const useTemplate = entering || mode.endsWith('-remount');
         const named = (mode.startsWith('foreign') && mode !== 'foreign-entry-active') || mode === 'legacy';
         let finish;
         const result = new Promise(resolve => { finish = resolve; });
@@ -599,12 +629,20 @@ for (const mode of ['restricted', 'older-selector', 'element-fallback', 'element
                 const policy = useTemplate || ['restricted', 'older-selector', 'element-fallback'].includes(mode)
                     ? "style-src 'self'" : "style-src 'self' 'unsafe-inline'";
                 res.writeHead(200, {'Content-Type': 'text/html', 'Content-Security-Policy': policy});
+                // Jellyfin Web 10.11.11 and 12.4 ship this order: a heading div before the
+                // two credential wrappers, then Remember Me, submit and Cancel. The controls
+                // after Cancel must stay usable while gated, like Remember Me and Cancel.
                 res.end(`<!doctype html><head><script>(${prepareGateBrowser})(${JSON.stringify(mode)})</script>
                     <script src="/a/TwoFactorAuth/inject"></script></head><body>
-                    ${useTemplate ? '<template>' : ''}<form class="manualLoginForm"><div class="inputContainer"><input id="txtManualName"></div>
+                    ${useTemplate ? '<template>' : ''}<form class="manualLoginForm">
+                    <div class="padded-left padded-right flex align-items-center justify-content-center">
+                    <h1 id="heading" class="sectionTitle">Please sign in</h1></div>
+                    <div class="inputContainer"><input id="txtManualName"></div>
                     <div class="inputContainer"><input id="txtManualPassword" type="password"></div>
-                    <label><input id="remember" type="checkbox" class="chkRememberLogin">Remember Me</label>
-                    <button id="submit" type="submit">Sign In</button><button id="quick" type="button">Quick Connect</button>
+                    <label class="checkboxContainer"><input id="remember" type="checkbox" class="chkRememberLogin">Remember Me</label>
+                    <button id="submit" type="submit">Sign In</button>
+                    <div><button id="cancel" type="button" class="btnCancel">Cancel</button></div>
+                    <button id="quick" type="button">Quick Connect</button>
                     <a href="#" id="provider">SSO</a><a href="#" id="passkey">Passkey</a>
                     <div class="inputContainer"><input id="extra" type="search"></div></form>${useTemplate ? '</template>' : ''}
                     <script>(${exerciseGateBrowser})(${JSON.stringify(mode)})</script>`);

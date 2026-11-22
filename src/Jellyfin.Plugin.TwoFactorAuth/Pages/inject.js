@@ -1315,20 +1315,20 @@
 
     function installGateRules() {
         try {
+            // Only :has() can pick a credential wrapper by what it holds. The stock
+            // form starts with a heading div, so a positional rule would miss the
+            // password wrapper. Without :has(), the element fallback hides it.
+            if (!(window.CSS && window.CSS.supports('selector(:has(*))'))) return false;
             var form = 'html.tfa-pw-gated .manualLoginForm > ';
-            // Older selectors can identify the two native credential containers
-            // by their order. The checkbox and submit are siblings of both.
-            var fields = window.CSS && window.CSS.supports('selector(:has(*))')
-                ? ':has(#txtManualName, input[name="username"], #username, input[type="password"])'
-                : ':nth-of-type(-n+2)';
             var sheet = new CSSStyleSheet();
-            sheet.insertRule(form + '.inputContainer' + fields + ',' + form + 'button[type="submit"]{display:none !important}');
+            sheet.insertRule(form + '.inputContainer:has(#txtManualName, input[name="username"], #username, input[type="password"]),'
+                + form + 'button[type="submit"]{display:none !important}');
             document.adoptedStyleSheets = document.adoptedStyleSheets.concat(sheet);
             return sheet.cssRules.length === 1 && document.adoptedStyleSheets.indexOf(sheet) >= 0;
         } catch (e) { return false; }
     }
 
-    // Engines without constructable sheets still get the gate on insertion.
+    // Engines without constructable sheets or :has() still get the gate on insertion.
     // Mutation observers run before the next paint, including on a SPA remount.
     function hideCredentialElements() {
         var elements = document.querySelectorAll('.manualLoginForm input#txtManualName, .manualLoginForm input#username, '
