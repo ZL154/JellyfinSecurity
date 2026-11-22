@@ -1385,6 +1385,30 @@
         });
     }
 
+    // jellyfin-web keeps earlier views in the DOM, hidden. Entering login again
+    // (e.g. the header logo -> #/login?serverid=...) builds a NEW #loginPage
+    // while the old one, holding our injected nodes, stays hidden - so a
+    // document-wide id guard found the stale node and the visible form got
+    // nothing. Resolve the login view that is actually on screen.
+    function visibleLoginRoot() {
+        try {
+            var pages = document.querySelectorAll('[id="loginPage"]');
+            for (var i = 0; i < pages.length; i++) {
+                if (pages[i].getClientRects().length) return pages[i];
+            }
+        } catch (e) { /* ignore */ }
+        return document;
+    }
+    // Returns the injected node if it lives in the visible login view; a copy
+    // stranded in a hidden view is removed so it can be injected again.
+    function liveInjected(id, root) {
+        var el = document.getElementById(id);
+        if (!el) return null;
+        if (root === document || root.contains(el)) return el;
+        el.remove();
+        return liveInjected(id, root);
+    }
+
     function applyPasswordLoginGate(bootstrap) {
         if (!stockWeb) return;
         var activeUrl = publicConfigUrl();
@@ -1406,13 +1430,14 @@
         setPasswordGate(!!(pending || gated));
         if (bootstrap || !login) return;
 
-        var link = document.getElementById('__tfa_pw_reveal');
+        var loginRoot = visibleLoginRoot();
+        var link = liveInjected('__tfa_pw_reveal', loginRoot);
         if (link && link.tfaConfigUrl !== url) { link.remove(); link = null; }
         if (!gated) {
             if (link) link.remove();
             return;
         }
-        var form = document.querySelector('.manualLoginForm');
+        var form = loginRoot.querySelector('.manualLoginForm');
         if (!form || link) return;
         link = document.createElement('a');
         link.id = '__tfa_pw_reveal';
@@ -2246,8 +2271,9 @@
 
     function injectOidcButtons() {
         if (!isLoginPage()) return;
-        if (document.getElementById(OIDC_BUTTONS_ID)) return;
-        var anchor = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
+        var loginRoot = visibleLoginRoot();
+        if (liveInjected(OIDC_BUTTONS_ID, loginRoot)) return;
+        var anchor = loginRoot.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
         if (!anchor) return;
 
         // Fetch providers (anonymous via the public list — but we don't have
