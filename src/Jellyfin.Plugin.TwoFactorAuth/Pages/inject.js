@@ -1393,9 +1393,16 @@
     function visibleLoginRoot() {
         try {
             var pages = document.querySelectorAll('[id="loginPage"]');
+            // Jellyfin Web's viewContainer marks every view but the selected or restored
+            // one with .hide. Prefer that view: under a strict style-src policy the inline
+            // .hide rule is blocked and hidden views keep their layout box.
+            var boxed = null;
             for (var i = 0; i < pages.length; i++) {
-                if (pages[i].getClientRects().length) return pages[i];
+                if (!pages[i].getClientRects().length) continue;
+                if (!pages[i].classList.contains('hide')) return pages[i];
+                if (!boxed) boxed = pages[i];
             }
+            if (boxed) return boxed;
         } catch (e) { /* ignore */ }
         return document;
     }

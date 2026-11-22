@@ -711,7 +711,7 @@ function prepareCachedViewsBrowser() {
     };
 }
 
-async function exerciseCachedViewsBrowser() {
+async function exerciseCachedViewsBrowser(staleBoxes) {
     const check = (value, why) => { if (!value) throw new Error(why); };
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     let lastChange = performance.now();
@@ -737,7 +737,7 @@ async function exerciseCachedViewsBrowser() {
         const providers = document.querySelectorAll('[id="__twofactor_oidc_buttons"]');
         check(links.length === 1 && providers.length === 1,
             step + ': ' + links.length + ' reveal links and ' + providers.length + ' provider lists in the document');
-        check(view.contains(links[0]) && view.contains(providers[0]), step + ': the controls are outside the visible view');
+        check(view.contains(links[0]) && view.contains(providers[0]), step + ': the controls are outside the selected view');
         check(links[0].getClientRects().length && providers[0].querySelector('a').getClientRects().length,
             step + ': the controls are not rendered');
         for (const selector of credentials) {
@@ -763,7 +763,8 @@ async function exerciseCachedViewsBrowser() {
         await wait(0);
         first.classList.add('hide');
         second.dispatchEvent(new CustomEvent('viewshow', {bubbles: true}));
-        check(!first.getClientRects().length, 'the hidden first view still has a layout box');
+        check(!!first.getClientRects().length === staleBoxes,
+            staleBoxes ? 'the hidden first view lost its layout box' : 'the hidden first view still has a layout box');
         await settle(() => holdsControls(second), 'second view: the reveal link or the provider list is missing');
         controlsOnlyIn(second, 'second view');
         restoreOnPop(first, second);
@@ -789,14 +790,20 @@ async function exerciseCachedViewsBrowser() {
     }
 }
 
-test('rendered cached login views keep the reveal link and the providers in the visible view', async t => {
-    const page = `<!doctype html><head><style>.hide{display:none!important}</style>
-        <script>(${prepareCachedViewsBrowser})()</script>
-        <script src="/a/TwoFactorAuth/inject"></script></head><body>
-        <div class="mainAnimatedPages">${stockLoginView}</div><template>${stockLoginView}</template>
-        <script>(${exerciseCachedViewsBrowser})()</script>`;
-    assert.equal(await renderInChromium(t, {page, csp: "style-src 'self' 'unsafe-inline'", hash: '/login?redirect=home'}), 'pass');
-});
+// Jellyfin Web ships its .hide rule as an inline style. Under style-src 'self' the
+// browser drops it, so a view the router hides keeps its layout box.
+for (const [name, csp, staleBoxes] of [
+    ['keep the reveal link and the providers in the visible view', "style-src 'self' 'unsafe-inline'", false],
+    ['follow the router when a strict style policy leaves hidden views a box', "style-src 'self'", true]]) {
+    test('rendered cached login views ' + name, async t => {
+        const page = `<!doctype html><head><style>.hide{display:none!important}</style>
+            <script>(${prepareCachedViewsBrowser})()</script>
+            <script src="/a/TwoFactorAuth/inject"></script></head><body>
+            <div class="mainAnimatedPages">${stockLoginView}</div><template>${stockLoginView}</template>
+            <script>(${exerciseCachedViewsBrowser})(${staleBoxes})</script>`;
+        assert.equal(await renderInChromium(t, {page, csp, hash: '/login?redirect=home'}), 'pass');
+    });
+}
 
 // The page holds the German bundle back until the reveal link exists.
 function prepareTranslationBrowser(label) {
