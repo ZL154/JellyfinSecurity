@@ -1,6 +1,10 @@
 // Run with Node.js 18+: node --test tests/oidc-bridge.test.mjs
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {spawn} from 'node:child_process';
+import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
+import {createServer} from 'node:http';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {test} from 'node:test';
 import {runInNewContext} from 'node:vm';
 
@@ -327,3 +331,553 @@ test('proxy sign-in: an imported configuration keeps only valid, narrow proxy ad
     const exporter = readFileSync(new URL('../src/Jellyfin.Plugin.TwoFactorAuth/Services/ConfigExportService.cs', import.meta.url), 'utf8');
     assert.match(exporter, /c\.HeaderSignInProxyCidrs = SanitizeCidrArray\(c\.HeaderSignInProxyCidrs, "HeaderSignInProxyCidrs"\);/);
 });
+
+// Without `engine` the page has no constructable stylesheets. With it, the page
+// has them, and like a real engine it parses :has() only when engine.has is set.
+function stockLoginPage(bootstrap, mounted = true, route = {}, engine = null) {
+    const classes = new Set();
+    const styles = [];
+    const listeners = new Map();
+    const storage = new Map();
+    const requests = new Map();
+    const links = new Map();
+    const username = {style: {}, closest: () => null, focus() { this.focused = true; }};
+    let form = {
+        querySelector: selector => selector.includes('txtManualName') ? username : null,
+        appendChild: link => links.set(link.id, link),
+    };
+    const location = new URL('https://jellyfin.test/mount/web/index.html#/login');
+    if (route.serverId) location.hash += '?serverid=' + route.serverId;
+    if (route.servers) storage.set('jellyfin_credentials', JSON.stringify({Servers: route.servers}));
+    const window = {location, __tfaPasswordLoginDisabled: bootstrap};
+    const context = {
+        window, URL, URLSearchParams, setTimeout, clearTimeout, XMLHttpRequest: class {}, console: {log() {}, warn() {}},
+        localStorage: {getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value)},
+        document: {
+            currentScript: {src: 'https://jellyfin.test/mount/TwoFactorAuth/inject?v=1'},
+            readyState: 'loading',
+            documentElement: {classList: {
+                toggle(name, on) { if (on) classes.add(name); else classes.delete(name); },
+                remove(name) { classes.delete(name); },
+            }},
+            addEventListener: (event, handler) => listeners.set(event, handler),
+            getElementById: id => links.get(id),
+            querySelectorAll: () => [],
+            adoptedStyleSheets: [],
+            createElement: tag => ({
+                get href() { return this.address?.href; },
+                set href(value) { this.address = new URL(value, location); },
+                attributes: new Map(), setAttribute(name, value) { this.attributes.set(name, String(value)); },
+                style: {}, addEventListener(event, handler) { this[event] = handler; },
+                remove() { links.delete(this.id); },
+            }),
+            head: {appendChild: style => { styles.push(style); links.set(style.id, style); }},
+            querySelector: selector => mounted && selector === '.manualLoginForm' ? form : null,
+        },
+        fetch: url => new Promise(resolve => requests.set(new URL(url, location).href, disabled => {
+            resolve({ok: true, json: async () => ({passwordLoginDisabled: disabled})});
+        })),
+    };
+    if (engine) {
+        window.CSS = {supports: query => engine.has || !query.includes(':has(')};
+        context.CSSStyleSheet = class {
+            cssRules = [];
+            insertRule(rule) {
+                if (!engine.has && rule.includes(':has(')) throw new SyntaxError('Unsupported selector');
+                this.cssRules.push(rule);
+                return 0;
+            }
+        };
+    }
+    const boot = inject.replace("    if (document.readyState === 'loading') {",
+        '    window.refresh = fetchTfaPublicConfig; window.gate = applyPasswordLoginGate;\n$&');
+    runInNewContext(boot, context);
+    return {window, document: context.document, classes, styles, listeners, storage, requests, links, username,
+        mount() { form = {...form}; mounted = true; },
+    };
+}
+
+test('the stock form is gated before it mounts and the admin reveal survives another gate pass', () => {
+    const page = stockLoginPage(true, false);
+    assert.ok(page.classes.has('tfa-pw-gated'));
+    page.mount();
+    page.window.gate();
+    page.links.get('__tfa_pw_reveal').click({preventDefault() {}});
+    assert.equal(page.classes.has('tfa-pw-gated'), false);
+    assert.equal(page.username.focused, true);
+    page.mount();
+    page.window.gate();
+    assert.equal(page.classes.has('tfa-pw-gated'), false);
+    assert.equal(page.links.has('__tfa_pw_reveal'), false);
+});
+
+// Only :has() lets a stylesheet pick each credential wrapper by what it holds.
+// The stock form opens with a heading div, so a positional rule misses the
+// password wrapper. Without :has() the element fallback must do the hiding.
+test('an engine with :has() gates the stock form through one adopted stylesheet', () => {
+    const page = stockLoginPage(true, true, {}, {has: true});
+    assert.ok(page.classes.has('tfa-pw-gated'));
+    assert.equal(page.document.adoptedStyleSheets.length, 1);
+});
+
+test('an engine with constructable stylesheets but no :has() gets no positional gate rule', () => {
+    const page = stockLoginPage(true, true, {}, {has: false});
+    assert.ok(page.classes.has('tfa-pw-gated'));
+    assert.deepEqual(page.document.adoptedStyleSheets, []);
+});
+
+test('an unbootstrapped script waits for the selected server policy', async () => {
+    const page = stockLoginPage(undefined);
+    assert.equal(page.classes.has('tfa-pw-gated'), false);
+    const ready = page.window.refresh();
+    page.requests.get('https://jellyfin.test/mount/TwoFactorAuth/public-config')(true);
+    await ready;
+    page.window.gate();
+    assert.ok(page.classes.has('tfa-pw-gated'));
+});
+
+for (const base of ['https://other.test/mount', 'https://jellyfin.test/other']) {
+    test('a selected server supplies its own policy at ' + base, async () => {
+        const page = stockLoginPage(true);
+        const first = page.window.refresh();
+        page.window.ApiClient = {getUrl: path => base + '/' + path};
+        page.window.gate();
+        assert.ok(page.classes.has('tfa-pw-gated'), 'keep the credentials hidden while the selected server answers');
+        const second = page.window.refresh();
+        page.requests.get(base + '/TwoFactorAuth/public-config')(false);
+        await second;
+        page.requests.get('https://jellyfin.test/mount/TwoFactorAuth/public-config')(true);
+        await first;
+        page.window.gate();
+        assert.equal(page.classes.has('tfa-pw-gated'), false, 'late previous response must not restore the old gate');
+        assert.equal(page.links.has('__tfa_pw_reveal'), false);
+    });
+}
+
+test('a remember-me change is stored before either OIDC flow can leave the form', () => {
+    const page = stockLoginPage(false);
+    for (const checked of [false, true]) {
+        page.listeners.get('change')({target: {
+            checked, matches: selector => selector === '.manualLoginForm .chkRememberLogin',
+        }});
+        assert.equal(page.storage.get('enableAutoLogin'), String(checked));
+    }
+    page.listeners.get('change')({target: {checked: false, matches: () => false}});
+    assert.equal(page.storage.get('enableAutoLogin'), 'true');
+});
+
+test('a login route naming another saved server uses its address before the global client switches', async () => {
+    const other = 'https://jellyfin.test/second';
+    const page = stockLoginPage(true, true, {serverId: 'second', servers: [
+        {Id: 'SECOND', LastConnectionMode: 1, RemoteAddress: other, ManualAddress: 'https://unused.test'},
+    ]});
+    assert.ok(page.classes.has('tfa-pw-gated'), 'pending before the stock form mounts');
+    page.window.ApiClient = {serverId: () => 'first', getUrl: path => 'https://jellyfin.test/mount/' + path};
+    page.window.gate();
+    const request = page.requests.get(other + '/TwoFactorAuth/public-config');
+    assert.ok(request);
+    request(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(page.classes.has('tfa-pw-gated'), 'apply the selected policy when it arrives even if polling has stopped');
+    assert.ok(page.links.has('__tfa_pw_reveal'));
+});
+
+test('an unknown named server never inherits the shell policy', () => {
+    const page = stockLoginPage(true, true, {serverId: 'unknown', servers: []});
+    page.window.gate();
+    assert.equal(page.classes.has('tfa-pw-gated'), false);
+    assert.equal(page.links.has('__tfa_pw_reveal'), false);
+});
+
+// These functions run inside Chromium. The script under test is a blocking
+// external resource and the form follows it in parser order, as in Jellyfin.
+function prepareGateBrowser(mode) {
+    window.postResult = window.fetch.bind(window);
+    window.errors = [];
+    window.addEventListener('error', event => window.errors.push(event.message));
+    localStorage.setItem('jellyfin_credentials', JSON.stringify({Servers: [
+        {Id: 'B', ManualAddress: location.origin + '/b', LastConnectionMode: 2},
+    ]}));
+    if (mode.startsWith('foreign-entry-')) {
+        const active = mode === 'foreign-entry-active' ? 'b' : 'a';
+        window.ApiClient = {serverId: () => active, getUrl: path => location.origin + '/' + active + '/' + path};
+    }
+    if (mode === 'legacy') {
+        window.URLSearchParams = undefined;
+        window.URL = function () { throw new Error('URL unavailable'); };
+        Array.prototype.find = undefined;
+    }
+    if (mode === 'legacy' || mode.startsWith('older-selector')) {
+        const supports = CSS.supports.bind(CSS);
+        CSS.supports = (...args) => args[0].includes(':has(') ? false : supports(...args);
+        const insert = CSSStyleSheet.prototype.insertRule;
+        CSSStyleSheet.prototype.insertRule = function (rule, ...args) {
+            if (rule.includes(':has(')) throw new SyntaxError('Unsupported selector');
+            return insert.call(this, rule, ...args);
+        };
+    }
+    if (mode.startsWith('element-fallback')) window.CSSStyleSheet = undefined;
+    window.fetch = async url => {
+        if (String(url).includes('/b/TwoFactorAuth/public-config')) {
+            return new Promise(resolve => { window.answerB = value => resolve(new Response(
+                JSON.stringify({passwordLoginDisabled: value}), {status: value === 'error' ? 503 : 200})); });
+        }
+        const body = String(url).includes('public-config') ? {passwordLoginDisabled: true} : [];
+        return new Response(JSON.stringify(body));
+    };
+}
+
+async function exerciseGateBrowser(mode) {
+    const check = (value, why) => { if (!value) throw new Error(why); };
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const id = name => document.getElementById(name);
+    function controls(hidden) {
+        check(id('heading').getClientRects().length, 'heading: hidden by the gate');
+        for (const name of ['txtManualPassword', 'txtManualName', 'submit', 'remember', 'cancel', 'quick', 'provider', 'passkey', 'extra']) {
+            const element = id(name);
+            const allowed = !hidden || !['txtManualName', 'txtManualPassword', 'submit'].includes(name);
+            const visible = !!element.getClientRects().length;
+            element.focus();
+            const focused = document.activeElement === element;
+            check(visible === allowed && focused === allowed,
+                name + ': visible=' + visible + ', focused=' + focused + ', expected both ' + allowed);
+        }
+    }
+    const reveal = () => id('__tfa_pw_reveal');
+    try {
+        const template = document.querySelector('template');
+        if (mode.endsWith('-remount')) template.before(template.content.cloneNode(true));
+        if (mode.startsWith('foreign-entry-')) {
+            if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, {once: true}));
+            await frame();
+            check(!document.documentElement.classList.contains('tfa-pw-gated'), 'preceding view already gated');
+            // Both routes select B. Only the view changes, without firing hashchange.
+            history.pushState(null, '', location.hash.replace('/selectserver', '/login'));
+            template.replaceWith(template.content);
+        }
+        await frame();
+        controls(true);
+        await frame();
+        controls(true);
+        if (mode.endsWith('-remount')) {
+            check(reveal(), 'initial form was not initialized');
+            // Mount pristine controls on the same route, without copying the hidden inline styles.
+            document.querySelector('.manualLoginForm').replaceWith(template.content.cloneNode(true));
+            await frame();
+            controls(true);
+        }
+        if (mode === 'switch') {
+            reveal().click();
+            controls(false);
+            document.querySelector('form').replaceWith(document.querySelector('form').cloneNode(true));
+            window.dispatchEvent(new Event('hashchange'));
+            await frame();
+            controls(false);
+            // The stock router can replace the view after pushState without a hashchange event.
+            history.pushState(null, '', '#/login?serverid=B');
+            document.querySelector('form').replaceWith(document.querySelector('form').cloneNode(true));
+            await frame();
+            controls(true);
+        }
+        if (mode.startsWith('foreign') || mode === 'switch' || mode === 'legacy') {
+            check(typeof window.answerB === 'function', 'selected server did not receive a policy request');
+            check(!reveal(), 'pending server offered a premature reveal');
+            if (mode === 'foreign-timeout') {
+                await wait(2800);
+                controls(false);
+            }
+            const answer = mode === 'foreign-allowed' ? false : mode === 'foreign-error' ? 'error' : true;
+            window.answerB(answer);
+            await wait(30);
+            controls(answer === true);
+            if (answer !== true) check(!reveal(), 'allowed server retained a reveal link');
+        }
+        if (!['foreign-allowed', 'foreign-error'].includes(mode)) {
+            await wait(300);
+            controls(true);
+            check(reveal(), 'missing reveal link');
+            reveal().click();
+            check(document.activeElement === id('txtManualName'), 'reveal did not focus username');
+            controls(false);
+        }
+        check(!window.errors.length, window.errors.join('; '));
+        await window.postResult('/result', {method: 'POST', body: 'pass'});
+    } catch (error) {
+        await window.postResult('/result', {method: 'POST', body: error.message + ' ' + window.errors.join('; ')});
+    }
+}
+
+// Serves the page at /a/web/ and the bootstrapped script under test, opens the
+// page in headless Chromium and resolves with the verdict the page posts.
+async function renderInChromium(t, {page, csp, hash, files = {}}) {
+    const profile = mkdtempSync(join(tmpdir(), 'jellyfin-gate-'));
+    let finish;
+    const result = new Promise(resolve => { finish = resolve; });
+    const timer = setTimeout(() => finish('browser timed out'), 15000);
+    const server = createServer((req, res) => {
+        if (req.url === '/result') {
+            let body = '';
+            req.setEncoding('utf8').on('data', chunk => { body += chunk; }).on('end', () => { res.end(); finish(body); });
+        } else if (req.url === '/a/TwoFactorAuth/inject') {
+            res.writeHead(200, {'Content-Type': 'application/javascript'});
+            res.end('window.__tfaPasswordLoginDisabled = true;\n' + inject);
+        } else if (Object.hasOwn(files, req.url)) {
+            res.writeHead(200, {'Content-Type': files[req.url].type});
+            res.end(files[req.url].body);
+        } else if (req.url.startsWith('/a/web/')) {
+            res.writeHead(200, {'Content-Type': 'text/html', 'Content-Security-Policy': csp});
+            res.end(page);
+        } else { res.writeHead(404); res.end(); }
+    });
+    let browser;
+    t.after(async () => {
+        clearTimeout(timer);
+        if (browser && browser.exitCode === null && browser.signalCode === null && browser.pid) {
+            const exited = new Promise(resolve => browser.once('exit', resolve));
+            browser.kill();
+            await exited;
+        }
+        server.closeAllConnections();
+        await new Promise(resolve => server.close(resolve));
+        rmSync(profile, {recursive: true, force: true, maxRetries: 3});
+    });
+    await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+    const url = 'http://127.0.0.1:' + server.address().port + '/a/web/index.html#' + hash;
+    browser = spawn(process.env.CHROME_BIN || 'google-chrome', ['--headless', '--disable-background-networking',
+        '--disable-component-update', '--no-first-run', '--user-data-dir=' + profile, url], {stdio: 'ignore'});
+    browser.once('error', error => finish(error.message));
+    browser.once('exit', code => finish('browser exited with ' + code));
+    return result;
+}
+
+for (const mode of ['restricted', 'older-selector', 'older-selector-remount', 'element-fallback', 'element-fallback-remount',
+    'foreign-allowed', 'foreign-restricted', 'foreign-timeout', 'foreign-error', 'foreign-entry-active', 'foreign-entry-named',
+    'switch', 'legacy']) {
+    test('rendered stock password form: ' + mode, async t => {
+        const entering = mode.startsWith('foreign-entry-');
+        const useTemplate = entering || mode.endsWith('-remount');
+        const named = (mode.startsWith('foreign') && mode !== 'foreign-entry-active') || mode === 'legacy';
+        const csp = useTemplate || ['restricted', 'older-selector', 'element-fallback'].includes(mode)
+            ? "style-src 'self'" : "style-src 'self' 'unsafe-inline'";
+        // Jellyfin Web 10.11.11 and 12.4 ship this order: a heading div before the
+        // two credential wrappers, then Remember Me, submit and Cancel. The controls
+        // after Cancel must stay usable while gated, like Remember Me and Cancel.
+        const page = `<!doctype html><head><script>(${prepareGateBrowser})(${JSON.stringify(mode)})</script>
+            <script src="/a/TwoFactorAuth/inject"></script></head><body>
+            ${useTemplate ? '<template>' : ''}<form class="manualLoginForm">
+            <div class="padded-left padded-right flex align-items-center justify-content-center">
+            <h1 id="heading" class="sectionTitle">Please sign in</h1></div>
+            <div class="inputContainer"><input id="txtManualName"></div>
+            <div class="inputContainer"><input id="txtManualPassword" type="password"></div>
+            <label class="checkboxContainer"><input id="remember" type="checkbox" class="chkRememberLogin">Remember Me</label>
+            <button id="submit" type="submit">Sign In</button>
+            <div><button id="cancel" type="button" class="btnCancel">Cancel</button></div>
+            <button id="quick" type="button">Quick Connect</button>
+            <a href="#" id="provider">SSO</a><a href="#" id="passkey">Passkey</a>
+            <div class="inputContainer"><input id="extra" type="search"></div></form>${useTemplate ? '</template>' : ''}
+            <script>(${exerciseGateBrowser})(${JSON.stringify(mode)})</script>`;
+        const hash = (entering ? '/selectserver' : '/login') + '?' + (named ? 'serverid=B' : 'redirect=home');
+        assert.equal(await renderInChromium(t, {page, csp, hash}), 'pass');
+    });
+}
+
+// One view of the stock login route. Jellyfin Web gives every cached view the
+// same root id, and its manual form opens with a heading div (12.4 order).
+const stockLoginView = `<div id="loginPage" data-role="page" class="page standalonePage mainAnimatedPage">
+    <form class="manualLoginForm">
+    <div class="padded-left padded-right flex align-items-center justify-content-center">
+    <h1 class="sectionTitle">Please sign in</h1></div>
+    <div class="inputContainer"><input id="txtManualName" type="text"></div>
+    <div class="inputContainer"><input id="txtManualPassword" type="password"></div>
+    <label class="checkboxContainer"><input type="checkbox" class="chkRememberLogin">Remember Me</label>
+    <button type="submit" class="raised button-submit block">Sign In</button>
+    <div><button type="button" class="btnCancel">Cancel</button></div>
+    </form></div>`;
+
+// These run inside Chromium. Jellyfin Web keeps the earlier views of a route in
+// the DOM, hides them with its .hide class and shows one view at a time.
+function prepareCachedViewsBrowser() {
+    window.postResult = window.fetch.bind(window);
+    window.errors = [];
+    window.addEventListener('error', event => window.errors.push(event.message));
+    // The plugin polls only during its first minute. Without the poll, every pass
+    // comes from the page itself, as on a login page that stays open.
+    window.setInterval = () => 0;
+    window.fetch = async url => {
+        const body = String(url).includes('public-config') ? {passwordLoginDisabled: true}
+            : String(url).includes('/Oidc/PublicProviders') ? [{id: 'local', displayName: 'Local provider', enabled: true}] : [];
+        return new Response(JSON.stringify(body));
+    };
+}
+
+async function exerciseCachedViewsBrowser(staleBoxes) {
+    const check = (value, why) => { if (!value) throw new Error(why); };
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    let lastChange = performance.now();
+    new MutationObserver(() => { lastChange = performance.now(); })
+        .observe(document.documentElement, {childList: true, subtree: true});
+    // A DOM change schedules a plugin pass 250 ms later. Wait for the condition and
+    // for a quiet spell, so that no pass is still pending when the next step starts.
+    async function settle(condition, why) {
+        const deadline = performance.now() + 4000;
+        while (!condition() || performance.now() - lastChange < 400) {
+            if (performance.now() > deadline) throw new Error(why);
+            await wait(25);
+        }
+    }
+    const pages = document.querySelector('.mainAnimatedPages');
+    const first = pages.firstElementChild;
+    const second = document.querySelector('template').content.firstElementChild.cloneNode(true);
+    const credentials = ['#txtManualName', '#txtManualPassword', 'button[type="submit"]'];
+    const holdsControls = view => !!(view.querySelector('[id="__tfa_pw_reveal"]')
+        && view.querySelector('[id="__twofactor_oidc_buttons"] a'));
+    function controlsOnlyIn(view, step) {
+        const links = document.querySelectorAll('[id="__tfa_pw_reveal"]');
+        const providers = document.querySelectorAll('[id="__twofactor_oidc_buttons"]');
+        check(links.length === 1 && providers.length === 1,
+            step + ': ' + links.length + ' reveal links and ' + providers.length + ' provider lists in the document');
+        check(view.contains(links[0]) && view.contains(providers[0]), step + ': the controls are outside the selected view');
+        check(links[0].getClientRects().length && providers[0].querySelector('a').getClientRects().length,
+            step + ': the controls are not rendered');
+        for (const selector of credentials) {
+            check(!view.querySelector(selector).getClientRects().length, step + ': ' + selector + ' is visible while gated');
+        }
+    }
+    // Jellyfin Web restores a cached view on a Pop navigation by its classes alone.
+    // Restore it while popstate is handled, ahead of the hashchange that follows.
+    function restoreOnPop(shown, hidden) {
+        window.addEventListener('popstate', () => queueMicrotask(() => {
+            shown.classList.remove('hide');
+            hidden.classList.add('hide');
+            shown.dispatchEvent(new CustomEvent('viewshow', {bubbles: true}));
+        }), {once: true});
+    }
+    try {
+        await settle(() => holdsControls(first), 'first view: the controls never appeared');
+        controlsOnlyIn(first, 'first view');
+        // The header logo enters the login route again. The new view joins the cache
+        // and the previous one is hidden after a zero timeout, as in Jellyfin Web.
+        history.pushState(null, '', '#/login?url=%2Fhome');
+        pages.appendChild(second);
+        await wait(0);
+        first.classList.add('hide');
+        second.dispatchEvent(new CustomEvent('viewshow', {bubbles: true}));
+        check(!!first.getClientRects().length === staleBoxes,
+            staleBoxes ? 'the hidden first view lost its layout box' : 'the hidden first view still has a layout box');
+        await settle(() => holdsControls(second), 'second view: the reveal link or the provider list is missing');
+        controlsOnlyIn(second, 'second view');
+        restoreOnPop(first, second);
+        history.back();
+        await settle(() => holdsControls(first), 'back in the first view: the reveal link or the provider list is missing');
+        controlsOnlyIn(first, 'back in the first view');
+        restoreOnPop(second, first);
+        history.forward();
+        await settle(() => holdsControls(second), 'forward in the second view: the reveal link or the provider list is missing');
+        controlsOnlyIn(second, 'forward in the second view');
+        // The second view is not the first match in the document, so only a lookup
+        // inside the form that holds the link reaches these fields.
+        second.querySelector('[id="__tfa_pw_reveal"]').click();
+        check(document.activeElement === second.querySelector('#txtManualName'), 'the reveal did not focus the visible username');
+        for (const selector of credentials) {
+            check(second.querySelector(selector).getClientRects().length, 'after the reveal: ' + selector + ' is still hidden');
+        }
+        check(!document.querySelector('[id="__tfa_pw_reveal"]'), 'after the reveal: the reveal link is still there');
+        check(!window.errors.length, window.errors.join('; '));
+        await window.postResult('/result', {method: 'POST', body: 'pass'});
+    } catch (error) {
+        await window.postResult('/result', {method: 'POST', body: error.message + ' ' + window.errors.join('; ')});
+    }
+}
+
+// Jellyfin Web ships its .hide rule as an inline style. Under style-src 'self' the
+// browser drops it, so a view the router hides keeps its layout box.
+for (const [name, csp, staleBoxes] of [
+    ['keep the reveal link and the providers in the visible view', "style-src 'self' 'unsafe-inline'", false],
+    ['follow the router when a strict style policy leaves hidden views a box', "style-src 'self'", true]]) {
+    test('rendered cached login views ' + name, async t => {
+        const page = `<!doctype html><head><style>.hide{display:none!important}</style>
+            <script>(${prepareCachedViewsBrowser})()</script>
+            <script src="/a/TwoFactorAuth/inject"></script></head><body>
+            <div class="mainAnimatedPages">${stockLoginView}</div><template>${stockLoginView}</template>
+            <script>(${exerciseCachedViewsBrowser})(${staleBoxes})</script>`;
+        assert.equal(await renderInChromium(t, {page, csp, hash: '/login?redirect=home'}), 'pass');
+    });
+}
+
+// The page holds the German bundle back until the reveal link exists.
+function prepareTranslationBrowser(label) {
+    const realFetch = window.fetch.bind(window);
+    window.postResult = realFetch;
+    window.errors = [];
+    window.addEventListener('error', event => window.errors.push(event.message));
+    let release;
+    const bundleHeld = new Promise(resolve => { release = resolve; });
+    window.releaseBundle = release;
+    window.fetch = async url => {
+        const path = new URL(url, location.href).pathname;
+        if (path.includes('/TwoFactorAuth/translations/')) {
+            await bundleHeld;
+            return realFetch(path);
+        }
+        // The server sends no custom label, but the client honours one it is given.
+        const policy = label ? {passwordLoginDisabled: true, passwordLoginRevealText: label} : {passwordLoginDisabled: true};
+        return new Response(JSON.stringify(path.endsWith('/public-config') ? policy : []));
+    };
+}
+
+async function exerciseTranslationBrowser(label) {
+    const check = (value, why) => { if (!value) throw new Error(why); };
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    async function until(condition, why) {
+        for (const deadline = performance.now() + 4000; !condition(); await wait(25)) {
+            if (performance.now() > deadline) throw new Error(why);
+        }
+    }
+    const reveal = () => document.querySelector('[id="__tfa_pw_reveal"]');
+    try {
+        // Jellyfin Web renders the login view after its own startup, once the plugin runs.
+        if (document.readyState === 'loading') await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
+        document.querySelector('.mainAnimatedPages').append(document.querySelector('template').content.cloneNode(true));
+        await until(reveal, 'the reveal link never appeared');
+        const before = reveal();
+        const state = before.textContent + ', key ' + before.getAttribute('data-i18n-key');
+        if (label) {
+            check(before.textContent === label && !before.hasAttribute('data-i18n-key'), 'a custom label before the bundle: ' + state);
+        } else {
+            check(before.textContent === 'Sign in with a password instead' && before.getAttribute('data-i18n-key') === 'tfa.login.pw_reveal',
+                'the default label before the bundle: ' + state);
+        }
+        let ready = false;
+        document.addEventListener('tfa-i18n-ready', () => { ready = true; });
+        window.releaseBundle();
+        await until(() => ready, 'tfa-i18n-ready never fired');
+        check(window.tfaI18n.tr('tfa.login.pw_reveal', null) === 'Stattdessen mit Passwort anmelden', 'the German bundle did not load');
+        const after = reveal().textContent;
+        check(after === (label || 'Stattdessen mit Passwort anmelden'), 'after the bundle: ' + after);
+        check(!window.errors.length, window.errors.join('; '));
+        await window.postResult('/result', {method: 'POST', body: 'pass'});
+    } catch (error) {
+        await window.postResult('/result', {method: 'POST', body: error.message + ' ' + window.errors.join('; ')});
+    }
+}
+
+const i18nFiles = {
+    '/a/TwoFactorAuth/tfa-i18n': {type: 'application/javascript',
+        body: readFileSync(new URL('../src/Jellyfin.Plugin.TwoFactorAuth/Pages/tfa-i18n.js', import.meta.url), 'utf8')},
+    '/TwoFactorAuth/translations/de': {type: 'application/json',
+        body: readFileSync(new URL('../src/Jellyfin.Plugin.TwoFactorAuth/Pages/translations/de.json', import.meta.url), 'utf8')},
+};
+
+for (const [name, label] of [['the default label follows the bundle that loads after it', ''],
+    ['a custom label keeps its own text when the bundle loads', 'Local custom label']]) {
+    test('rendered reveal link: ' + name, async t => {
+        const page = `<!doctype html><html lang="de"><head>
+            <script>(${prepareTranslationBrowser})(${JSON.stringify(label)})</script>
+            <script src="/a/TwoFactorAuth/inject"></script></head><body>
+            <div class="mainAnimatedPages"></div><template>${stockLoginView}</template>
+            <script>(${exerciseTranslationBrowser})(${JSON.stringify(label)})</script>`;
+        const csp = "style-src 'self' 'unsafe-inline'";
+        assert.equal(await renderInChromium(t, {page, csp, hash: '/login?redirect=home', files: i18nFiles}), 'pass');
+    });
+}

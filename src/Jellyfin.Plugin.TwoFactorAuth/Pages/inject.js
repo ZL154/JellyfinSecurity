@@ -1220,78 +1220,250 @@
         var input = findUsernameInput();
         return input && input.value ? input.value.trim() : '';
     }
-    // [v2.5.7] (issue #48 feature, Gaarindor): lazy-fetch the anonymous
-    // public-config so addLoginButton can honour HideBuiltInLoginButtons.
-    // First call kicks off the fetch and returns early; subsequent polling
-    // ticks (tryInject runs every ~250ms) re-enter and either render or
-    // skip based on the flag.
+    // A stock Web client can select another server without reloading the shell.
+    // Include the mount path so two servers at the same origin stay distinct.
     var _tfaPublicCfg = null;
-    var _tfaPublicCfgPromise = null;
-    function fetchTfaPublicConfig() {
-        if (_tfaPublicCfgPromise) return _tfaPublicCfgPromise;
-        // [#251] Sent with the page's cookies, like the plugin's other
-        // requests. Without them, an access layer in front of Jellyfin
-        // (forward auth, Cloudflare Access) answered with its own sign-in page
-        // and the login page silently dropped to the default layout: password
-        // form and built-in buttons back, links back under Sign In. The
-        // fallback stays, but now says why in the console.
-        _tfaPublicCfgPromise = fetch(serverUrl('TwoFactorAuth/public-config'))
+    var clientConfig = null;
+    var namedServerConfig = null;
+    var stockWeb = /\/web(?:\/|$)/i.test(window.location.pathname);
+    var scriptSrc = document.currentScript && document.currentScript.src;
+    var shellConfigUrl = stockWeb && (scriptSrc
+        ? scriptSrc.split(/[?#]/)[0].replace(/[^/]+$/, 'public-config')
+        : absoluteHref(jellyfinBasePath() + '/TwoFactorAuth/public-config'));
+
+    // Anchor resolution also works before a WebView has loaded its URL polyfill.
+    function absoluteHref(path) {
+        var anchor = document.createElement('a');
+        anchor.href = path;
+        return anchor.href;
+    }
+
+    function publicConfigUrl() {
+        if (shellConfigUrl && !window.ApiClient) return shellConfigUrl;
+        return absoluteHref(serverUrl('TwoFactorAuth/public-config'));
+    }
+
+    // A named stock login route uses getOrCreateApiClient(serverid), which
+    // can differ from window.ApiClient until sign-in succeeds. Resolve only
+    // an address in Jellyfin's own saved servers, using its connection mode.
+    function loginConfigUrl(activeUrl) {
+        var id = getQueryParam('serverid', true);
+        if (!id) return activeUrl;
+        try {
+            id = id.toLowerCase();
+            var api = window.ApiClient;
+            if (api && typeof api.serverId === 'function' && String(api.serverId()).toLowerCase() === id) return activeUrl;
+            var servers = JSON.parse(localStorage.getItem('jellyfin_credentials')).Servers;
+            var server;
+            for (var i = 0; i < servers.length; i++) {
+                if (servers[i] && String(servers[i].Id).toLowerCase() === id) {
+                    server = servers[i];
+                    break;
+                }
+            }
+            if (!server) return null;
+            var address;
+            switch (server.LastConnectionMode) {
+                case 0: address = server.LocalAddress; break;
+                case 1: address = server.RemoteAddress; break;
+                case 2: address = server.ManualAddress; break;
+                default: address = server.ManualAddress || server.LocalAddress || server.RemoteAddress;
+            }
+            if (typeof address !== 'string' || !/^https?:\/\/[^/?#@\\]+(?:\/[^?#\\]*)?$/i.test(address)) return null;
+            return absoluteHref(address).replace(/\/+$/, '') + '/TwoFactorAuth/public-config';
+        } catch (e) { return null; }
+    }
+
+    function requestPublicConfig(url) {
+        var request = {url: url, value: null};
+        request.promise = fetch(url)
             .then(function (r) {
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 return r.json().catch(function () {
                     throw new Error('not JSON' + (r.redirected ? ', redirected to ' + r.url : ''));
                 });
             })
-            .then(function (j) { _tfaPublicCfg = j || {}; return _tfaPublicCfg; })
             .catch(function (e) {
-                console.warn('[2FA] Could not read TwoFactorAuth/public-config (' + ((e && e.message) || e) + '); the login page uses its default layout.');
-                _tfaPublicCfg = {};
-                return _tfaPublicCfg;
+                console.warn('[2FA] Could not read TwoFactorAuth/public-config (' + ((e && e.message) || e) + ').');
+                return {};
+            })
+            .then(function (config) {
+                request.value = config || {};
+                if (request === clientConfig) _tfaPublicCfg = request.value;
+                if (request === clientConfig || request === namedServerConfig) applyPasswordLoginGate();
+                return request.value;
             });
-        return _tfaPublicCfgPromise;
+        return request;
     }
 
-    // [v2.5.11] (#69, ZEROX7) hide the username/password form when password
-    // sign-in is disabled for this client — leaving only the SSO + Quick Connect
-    // affordances. A discreet "sign in with a password instead" link reveals it
-    // again (the server still allows admins / LAN / exempt IPs via the escape
-    // hatches; everyone else gets a clear 403 if they submit).
-    function _tfaFieldWrap(form, sel) {
-        var el = form.querySelector(sel);
-        if (!el) return null;
-        return el.closest('.inputContainer') || el;
+    function fetchTfaPublicConfig() {
+        var url = publicConfigUrl();
+        if (!clientConfig || clientConfig.url !== url) {
+            clientConfig = namedServerConfig && namedServerConfig.url === url ? namedServerConfig : requestPublicConfig(url);
+            _tfaPublicCfg = clientConfig.value;
+        }
+        return clientConfig.promise;
     }
-    function applyPasswordLoginGate() {
-        if (!isLoginPage() || _tfaPublicCfg === null) return;
-        var form = document.querySelector('.manualLoginForm') || document.querySelector('form');
-        if (!form) return;
-        var REVEAL_ID = '__tfa_pw_reveal';
-        var wraps = [
-            _tfaFieldWrap(form, 'input#txtManualName, input[name="username"], input#username'),
-            _tfaFieldWrap(form, 'input[type="password"], input#txtManualPassword, input[name="password"]'),
-            form.querySelector('button[type="submit"]')
-        ];
-        if (!_tfaPublicCfg.passwordLoginDisabled || window.__tfaPwRevealed) {
-            // Not gated (or the user revealed it): make sure everything is visible.
-            wraps.forEach(function (w) { if (w) w.style.display = ''; });
-            var ex0 = document.getElementById(REVEAL_ID); if (ex0 && _tfaPublicCfg.passwordLoginDisabled !== true) ex0.remove();
+
+    var gateRulesInstalled;
+    var credentialObserver;
+    var revealedServers = Object.create(null);
+    var gateUrl;
+    var gateWasLogin;
+    var pendingUrl;
+    var pendingTimer;
+
+    function installGateRules() {
+        try {
+            // Only :has() can pick a credential wrapper by what it holds. The stock
+            // form starts with a heading div, so a positional rule would miss the
+            // password wrapper. Without :has(), the element fallback hides it.
+            if (!(window.CSS && window.CSS.supports('selector(:has(*))'))) return false;
+            var form = 'html.tfa-pw-gated .manualLoginForm > ';
+            var sheet = new CSSStyleSheet();
+            sheet.insertRule(form + '.inputContainer:has(#txtManualName, input[name="username"], #username, input[type="password"]),'
+                + form + 'button[type="submit"]{display:none !important}');
+            document.adoptedStyleSheets = document.adoptedStyleSheets.concat(sheet);
+            return sheet.cssRules.length === 1 && document.adoptedStyleSheets.indexOf(sheet) >= 0;
+        } catch (e) { return false; }
+    }
+
+    // Engines without constructable sheets or :has() still get the gate on insertion.
+    // Mutation observers run before the next paint, including on a SPA remount.
+    function hideCredentialElements() {
+        var elements = document.querySelectorAll('.manualLoginForm input#txtManualName, .manualLoginForm input#username, '
+            + '.manualLoginForm input[name="username"], .manualLoginForm input[type="password"], .manualLoginForm button[type="submit"]');
+        for (var i = 0; i < elements.length; i++) {
+            var el = elements[i];
+            if (el.tagName === 'INPUT') el = el.closest('.inputContainer') || el;
+            if (!el.hasAttribute('data-tfa-pw-display')) el.setAttribute('data-tfa-pw-display', el.style.display);
+            el.style.display = 'none';
+        }
+    }
+
+    function setPasswordGate(gated) {
+        document.documentElement.classList.toggle('tfa-pw-gated', gated);
+        if (gateRulesInstalled === undefined && gated) gateRulesInstalled = installGateRules();
+        if (gateRulesInstalled !== false) return;
+        if (gated) {
+            hideCredentialElements();
+            if (!credentialObserver && typeof MutationObserver !== 'undefined') {
+                credentialObserver = new MutationObserver(hideCredentialElements);
+                credentialObserver.observe(document.documentElement, {childList: true, subtree: true});
+            }
+        } else {
+            if (credentialObserver) credentialObserver.disconnect();
+            credentialObserver = null;
+            var hidden = document.querySelectorAll('.manualLoginForm [data-tfa-pw-display]');
+            for (var i = 0; i < hidden.length; i++) {
+                hidden[i].style.display = hidden[i].getAttribute('data-tfa-pw-display');
+                hidden[i].removeAttribute('data-tfa-pw-display');
+            }
+        }
+    }
+
+    function waitingForPolicy(url) {
+        if (url !== pendingUrl) {
+            clearTimeout(pendingTimer);
+            pendingUrl = url;
+            pendingTimer = url && setTimeout(function () {
+                pendingTimer = null;
+                applyPasswordLoginGate();
+            }, 2500);
+        }
+        return !!pendingTimer;
+    }
+
+    if (stockWeb) {
+        applyPasswordLoginGate(true);
+        // Native submit saves this too. OIDC navigates away or starts its
+        // device flow without submitting, so capture the actual user change.
+        document.addEventListener('change', function (event) {
+            var box = event.target;
+            if (!box || !box.matches || !box.matches('.manualLoginForm .chkRememberLogin')) return;
+            try { localStorage.setItem('enableAutoLogin', String(box.checked)); } catch (e) { /* storage blocked */ }
+        });
+    }
+
+    // jellyfin-web keeps earlier views in the DOM, hidden. Entering login again
+    // (e.g. the header logo -> #/login?serverid=...) builds a NEW #loginPage
+    // while the old one, holding our injected nodes, stays hidden - so a
+    // document-wide id guard found the stale node and the visible form got
+    // nothing. Resolve the login view that is actually on screen.
+    function visibleLoginRoot() {
+        try {
+            var pages = document.querySelectorAll('[id="loginPage"]');
+            // Jellyfin Web's viewContainer marks every view but the selected or restored
+            // one with .hide. Prefer that view: under a strict style-src policy the inline
+            // .hide rule is blocked and hidden views keep their layout box.
+            var boxed = null;
+            for (var i = 0; i < pages.length; i++) {
+                if (!pages[i].getClientRects().length) continue;
+                if (!pages[i].classList.contains('hide')) return pages[i];
+                if (!boxed) boxed = pages[i];
+            }
+            if (boxed) return boxed;
+        } catch (e) { /* ignore */ }
+        return document;
+    }
+    // Returns the injected node if it lives in the visible login view; a copy
+    // stranded in a hidden view is removed so it can be injected again.
+    function liveInjected(id, root) {
+        var el = document.getElementById(id);
+        if (!el) return null;
+        if (root === document || root.contains(el)) return el;
+        el.remove();
+        return liveInjected(id, root);
+    }
+
+    function applyPasswordLoginGate(bootstrap) {
+        if (!stockWeb) return;
+        var activeUrl = publicConfigUrl();
+        var url = loginConfigUrl(activeUrl);
+        var login = isLoginPage();
+        gateUrl = url;
+        gateWasLogin = login;
+        if (login && !bootstrap) fetchTfaPublicConfig();
+        var policy = clientConfig;
+        if (url !== activeUrl) {
+            if (url && login && !bootstrap && (!namedServerConfig || namedServerConfig.url !== url)) namedServerConfig = requestPublicConfig(url);
+            policy = namedServerConfig;
+        }
+        var config = policy && policy.url === url && policy.value;
+        var disabled = config && typeof config.passwordLoginDisabled === 'boolean'
+            ? config.passwordLoginDisabled : url === shellConfigUrl && window.__tfaPasswordLoginDisabled === true;
+        var pending = waitingForPolicy(login && url && url !== shellConfigUrl && !config ? url : null);
+        var gated = disabled && !revealedServers[url];
+        setPasswordGate(!!(pending || gated));
+        if (bootstrap || !login) return;
+
+        var loginRoot = visibleLoginRoot();
+        var link = liveInjected('__tfa_pw_reveal', loginRoot);
+        if (link && link.tfaConfigUrl !== url) { link.remove(); link = null; }
+        if (!gated) {
+            if (link) link.remove();
             return;
         }
-        wraps.forEach(function (w) { if (w) w.style.display = 'none'; });
-        if (!document.getElementById(REVEAL_ID)) {
-            var link = document.createElement('a');
-            link.id = REVEAL_ID;
-            link.href = '#';
-            link.textContent = (_tfaPublicCfg.passwordLoginRevealText || T('tfa.login.pw_reveal', 'Sign in with a password instead'));
-            link.style.cssText = 'display:block;margin-top:12px;text-align:center;color:#7d828b;font-size:13px;cursor:pointer;';
-            link.addEventListener('click', function (e) {
-                e.preventDefault();
-                window.__tfaPwRevealed = true;
-                wraps.forEach(function (w) { if (w) w.style.display = ''; });
-                link.remove();
-            });
-            form.appendChild(link);
-        }
+        var form = loginRoot.querySelector('.manualLoginForm');
+        if (!form || link) return;
+        link = document.createElement('a');
+        link.id = '__tfa_pw_reveal';
+        link.tfaConfigUrl = url;
+        link.href = '#';
+        link.textContent = (config && config.passwordLoginRevealText) || T('tfa.login.pw_reveal', 'Sign in with a password instead');
+        // tfa-i18n may still be loading here; let 'tfa-i18n-ready' re-translate the fallback.
+        if (!(config && config.passwordLoginRevealText)) link.setAttribute('data-i18n-key', 'tfa.login.pw_reveal');
+        link.style.cssText = 'display:block;margin-top:12px;text-align:center;color:#7d828b;font-size:13px;cursor:pointer;';
+        link.addEventListener('click', function (e) {
+            e.preventDefault();
+            if (loginConfigUrl(publicConfigUrl()) !== url) { applyPasswordLoginGate(); return; }
+            revealedServers[url] = true;
+            setPasswordGate(false);
+            link.remove();
+            var username = form.querySelector('input#txtManualName, input[name="username"], input#username');
+            if (username) username.focus();
+        });
+        form.appendChild(link);
     }
 
     // [v2.5.11] (#71, ZEROX7) "Forgot password?" link → reveals a small inline
@@ -1413,8 +1585,6 @@
         // fetch is in flight (_tfaPublicCfg === null) skip injecting — the
         // next polling tick will re-enter once the response arrives.
         if (_tfaPublicCfg === null) { fetchTfaPublicConfig(); return; }
-        // [v2.5.11] (#69) hide/reveal the password form per the public-config gate.
-        applyPasswordLoginGate();
         // [v2.5.11] (#71) add the "Forgot password?" affordance when enabled.
         addForgotPasswordLink();
         // [v2.5.12] (#80) hide Jellyfin's native forgot-password link when ours is active.
@@ -1643,15 +1813,17 @@
     var OIDC_BUTTONS_ID = '__twofactor_oidc_buttons';
     var OIDC_AUTOSUBMIT_FLAG = '__twofactor_oidc_autosubmitted';
 
-    function getQueryParam(name) {
+    function getQueryParam(name, last) {
         // Login page params live in the hash, e.g. /web/index.html#!/login.html?oidcUser=...
         var hash = window.location.hash || '';
         var qIdx = hash.indexOf('?');
         if (qIdx < 0) return null;
         var pairs = hash.substring(qIdx + 1).split('&');
         for (var i = 0; i < pairs.length; i++) {
-            var p = pairs[i].split('=');
-            if (decodeURIComponent(p[0]) === name) return decodeURIComponent((p[1] || '').replace(/\+/g, ' '));
+            var p = pairs[last ? pairs.length - 1 - i : i].split('=');
+            try {
+                if (decodeURIComponent(p[0]) === name) return decodeURIComponent((p[1] || '').replace(/\+/g, ' '));
+            } catch (e) { /* skip malformed route parameters */ }
         }
         return null;
     }
@@ -2106,8 +2278,9 @@
 
     function injectOidcButtons() {
         if (!isLoginPage()) return;
-        if (document.getElementById(OIDC_BUTTONS_ID)) return;
-        var anchor = document.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
+        var loginRoot = visibleLoginRoot();
+        if (liveInjected(OIDC_BUTTONS_ID, loginRoot)) return;
+        var anchor = loginRoot.querySelector('.manualLoginForm button[type="submit"], .manualLoginForm .raised, form button[type="submit"]');
         if (!anchor) return;
 
         // Fetch providers (anonymous via the public list — but we don't have
@@ -2246,6 +2419,7 @@
     }
 
     function tryInject() {
+        applyPasswordLoginGate();
         addLoginButton();
         injectSidebar();
         injectUserMenu();
@@ -2279,6 +2453,12 @@
 
         var moPending = false;
         var mo = new MutationObserver(function () {
+            // pushState can enter login on the same server without a hashchange.
+            // Apply its gate before the new form paints, ahead of the deferred UI pass.
+            if (stockWeb) {
+                var login = isLoginPage();
+                if (login !== gateWasLogin || (login && loginConfigUrl(publicConfigUrl()) !== gateUrl)) applyPasswordLoginGate();
+            }
             if (moPending) return;
             moPending = true;
             setTimeout(function () { moPending = false; tryInject(); }, 250);
