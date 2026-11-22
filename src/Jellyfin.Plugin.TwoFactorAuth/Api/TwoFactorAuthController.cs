@@ -134,7 +134,7 @@ public class TwoFactorAuthController : ControllerBase
     // v2.5.0: canonical supported-language allowlist. Kept as a static
     // readonly field (CA1861) so the array isn't reallocated on every
     // /public-config or /preferences hit.
-    private static readonly string[] SupportedLanguages = { "en", "de", "es", "fr", "it", "ja", "pt", "zh" };
+    private static readonly string[] SupportedLanguages = { "en", "de", "es", "fr", "it", "ja", "pl", "pt", "zh" };
 
     private Guid GetCurrentUserId()
     {

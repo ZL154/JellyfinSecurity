@@ -31,7 +31,7 @@ public class TranslationLangSanitizationTests
 
 public class TranslationResourceLoadingTests
 {
-    private static readonly string[] SupportedLanguages = ["en", "de", "es", "fr", "it", "ja", "pt", "zh"];
+    private static readonly string[] SupportedLanguages = ["en", "de", "es", "fr", "it", "ja", "pl", "pt", "zh"];
 
     [Fact]
     public void ReadEmbeddedText_EnJson_LoadsContent()
@@ -86,7 +86,7 @@ public class PublicConfigShapeTests
         var resp = new
         {
             defaultLanguage = "en",
-            supportedLanguages = new[] { "en", "de", "es", "fr", "it", "ja", "pt", "zh" }
+            supportedLanguages = new[] { "en", "de", "es", "fr", "it", "ja", "pl", "pt", "zh" }
         };
         Assert.Equal("en", resp.defaultLanguage);
         Assert.Equal(8, resp.supportedLanguages.Length);

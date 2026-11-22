@@ -36,7 +36,7 @@ public class OidcDeviceFlowQrTests
     [Fact]
     public void The_qr_caption_exists_in_every_supported_language()
     {
-        foreach (var lang in new[] { "en", "de", "es", "fr", "it", "ja", "pt", "zh" })
+        foreach (var lang in new[] { "en", "de", "es", "fr", "it", "ja", "pl", "pt", "zh" })
         {
             var json = ResourceReader.ReadEmbeddedText(
                 $"Jellyfin.Plugin.TwoFactorAuth.Pages.translations.{lang}.json");

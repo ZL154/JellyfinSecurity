@@ -756,6 +756,7 @@ Every user-visible string in the setup, login, challenge, OIDC onboarding, admin
 | Français | fr | Français |
 | Italiano | it | Italiano |
 | 日本語 | ja | 日本語 |
+| Polski | pl | Polski |
 | Português | pt | Português |
 | 中文 | zh | 中文 |
 
